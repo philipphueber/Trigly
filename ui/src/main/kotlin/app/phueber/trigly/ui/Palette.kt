@@ -26,7 +26,49 @@ import androidx.compose.ui.graphics.Color
  *      flashes white. Keep those two hexes equal to `Tone.Paper` and
  *      `Tone.Ink`, and nothing else needs to match.
  *    · Shapes and type are in `Theme.kt`. They are not colours.
+ *
+ *  Colours are written `#RRGGBB`, the way a browser, a design tool or a palette
+ *  generator writes them — see [hex]. That is the notation every source you
+ *  might copy one *from* uses, including the two XML files above, so a value
+ *  moves between here and there by copy and paste rather than by translation.
  */
+
+/**
+ * A colour from a web-style hex string.
+ *
+ * The Compose literal and the web string below are the same colour, but only
+ * one of them is what a design tool puts on your clipboard. The literal needs an
+ * `0x` prefix, an alpha pair prepended, and — the part that actually bites — it
+ * silently means *transparent black* if the alpha is left off, because
+ * `Color(0x9F3D00)` is a valid call with an alpha of zero. A wrong colour is
+ * visible; an invisible one looks like a layout bug.
+ *
+ * Accepts what CSS accepts: `#RGB`, `#RRGGBB`, `#RRGGBBAA`. Note that the
+ * eight-digit form puts **alpha last**, as the web does, and not first as
+ * Android's packed ints do — the whole point is that a string copied from
+ * outside means here what it meant there. Omitted alpha is opaque.
+ *
+ * Parsing happens once, when [Tone] is first touched, for a few dozen constants;
+ * a malformed string is a loud failure at startup rather than a wrong colour
+ * shipped quietly, and [PaletteHexTest] keeps the parser honest.
+ */
+internal fun hex(value: String): Color {
+    val digits = value.removePrefix("#")
+    require(digits.length == value.length - 1) { "a colour must start with '#', got '$value'" }
+    require(digits.all { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' }) {
+        "'$value' has a non-hex digit in it"
+    }
+
+    // #RGB is shorthand for #RRGGBB: each digit doubles.
+    val full = if (digits.length == 3) digits.map { "$it$it" }.joinToString("") else digits
+    require(full.length == 6 || full.length == 8) {
+        "a colour must be #RGB, #RRGGBB or #RRGGBBAA, got '$value'"
+    }
+
+    val rgb = full.substring(0, 6).toLong(16)
+    val alpha = if (full.length == 8) full.substring(6, 8).toLong(16) else 0xFF
+    return Color((alpha shl 24 or rgb).toInt())
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. TONES
@@ -48,74 +90,77 @@ import androidx.compose.ui.graphics.Color
 internal object Tone {
 
     // ── Brand. This is the colour the app *is*; chroma stays high.
-    val Orange10 = Color(0xFF351000)
-    val Orange20 = Color(0xFF561D00)
-    val Orange30 = Color(0xFF7A2C00)
-    val Orange40 = Color(0xFF9F3D00)
-    val Orange50 = Color(0xFFC64C00)
-    val Orange60 = Color(0xFFEC6206)
-    val Orange80 = Color(0xFFFFB68F)
-    val Orange90 = Color(0xFFFFDBC8)
-    val Orange95 = Color(0xFFFFEDE4)
+    val Orange10 = hex("#351000")
+    val Orange20 = hex("#561D00")
+    val Orange30 = hex("#7A2C00")
+    val Orange40 = hex("#9F3D00")
+    val Orange50 = hex("#C64C00")
+    val Orange60 = hex("#EC6206")
+    val Orange80 = hex("#FFB68F")
+    val Orange90 = hex("#FFDBC8")
+    val Orange95 = hex("#FFEDE4")
 
     // ── Secondary: the brand hue with the chroma pulled out, for anything that
     // must sit beside the orange without competing with it.
-    val Warm10 = Color(0xFF2C1608)
-    val Warm20 = Color(0xFF45291A)
-    val Warm30 = Color(0xFF5E3F2F)
-    val Warm40 = Color(0xFF785645)
-    val Warm80 = Color(0xFFE7BEA9)
-    val Warm90 = Color(0xFFFFDBC8)
+    val Warm10 = hex("#2C1608")
+    val Warm20 = hex("#45291A")
+    val Warm30 = hex("#5E3F2F")
+    val Warm40 = hex("#785645")
+    val Warm80 = hex("#E7BEA9")
+    val Warm90 = hex("#FFDBC8")
 
     // ── Tertiary: an olive, roughly complementary. Used sparingly — it is what
     // stops an all-orange screen reading as a single wash.
-    val Olive10 = Color(0xFF1A1D00)
-    val Olive20 = Color(0xFF2E3300)
-    val Olive30 = Color(0xFF444A00)
-    val Olive40 = Color(0xFF5C6300)
-    val Olive80 = Color(0xFFC5CD73)
-    val Olive90 = Color(0xFFE1E98C)
+    val Olive10 = hex("#1A1D00")
+    val Olive20 = hex("#2E3300")
+    val Olive30 = hex("#444A00")
+    val Olive40 = hex("#5C6300")
+    val Olive80 = hex("#C5CD73")
+    val Olive90 = hex("#E1E98C")
 
     // ── The two extremes, named for what they are rather than numbered. These
     // are the ones `res/values*/colors.xml` must mirror.
     /** Lightest surface — the light theme's page. */
-    val Paper = Color(0xFFFFF8F5)
+    val Paper = hex("#FFF8F5")
 
     /** Darkest surface — the dark theme's page. */
-    val Ink = Color(0xFF17100C)
+    val Ink = hex("#17100C")
+
+    /** Below [Ink]: the one surface in the dark theme that recedes past the page. */
+    val InkDeep = hex("#120C08")
 
     // ── Warm neutrals for everything structural.
-    val Neutral10 = Color(0xFF211A16)
-    val Neutral14 = Color(0xFF2A211B)
-    val Neutral20 = Color(0xFF382E29)
-    val Neutral90 = Color(0xFFF1DFD7)
-    val Neutral96 = Color(0xFFFFF2EB)
-    val White = Color(0xFFFFFFFF)
+    val Neutral10 = hex("#211A16")
+    val Neutral14 = hex("#2A211B")
+    val Neutral20 = hex("#382E29")
+    val Neutral90 = hex("#F1DFD7")
+    val Neutral96 = hex("#FFF2EB")
+    val White = hex("#FFFFFF")
 
     // ── Blocks. The brutalist look is made of these: a flat tinted slab with a
     // hard border, no elevation, no gradient.
-    val BlockLight = Color(0xFFFFEFE6)
-    val BlockLightAlt = Color(0xFFFFE4D5)
-    val BlockDark = Color(0xFF2A1A11)
-    val BlockDarkAlt = Color(0xFF33210F)
+    val BlockLight = hex("#FFEFE6")
+    val BlockLightAlt = hex("#FFE4D5")
+    val BlockDark = hex("#2A1A11")
+    val BlockDarkAlt = hex("#33210F")
 
     // ── Error stays red. The brand colour is orange, so a failure cannot also
     // be orange — it would be indistinguishable from ordinary emphasis.
-    val Red10 = Color(0xFF410002)
-    val Red20 = Color(0xFF690005)
-    val Red30 = Color(0xFF93000A)
-    val Red40 = Color(0xFFBA1A1A)
-    val Red80 = Color(0xFFFFB4AB)
-    val Red90 = Color(0xFFFFDAD6)
+    val Red10 = hex("#410002")
+    val Red20 = hex("#690005")
+    val Red30 = hex("#93000A")
+    val Red40 = hex("#BA1A1A")
+    val Red80 = hex("#FFB4AB")
+    val Red90 = hex("#FFDAD6")
 
     // ── Caution: amber, for "this works, but you should know something".
     // Deliberately distinct from both the brand orange and the error red.
-    val Amber20 = Color(0xFF422C00)
-    val Amber30 = Color(0xFF5E4000)
-    val Amber40 = Color(0xFF8A5D00)
-    val Amber80 = Color(0xFFFFC46B)
-    val Amber90 = Color(0xFFFFDFA8)
-    val Amber95 = Color(0xFFFFEEDC)
+    val Amber20 = hex("#422C00")
+    val Amber30 = hex("#5E4000")
+    val Amber40 = hex("#8A5D00")
+    val Amber80 = hex("#FFC46B")
+    val Amber90 = hex("#FFDFA8")
+    val Amber95 = hex("#FFEEDC")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -207,7 +252,7 @@ internal val DarkScheme = darkColorScheme(
     surfaceVariant = Tone.BlockDarkAlt,
     onSurfaceVariant = Tone.Warm80,
 
-    surfaceContainerLowest = Color(0xFF120C08),
+    surfaceContainerLowest = Tone.InkDeep,
     surfaceContainerLow = Tone.BlockDark,
     surfaceContainer = Tone.BlockDarkAlt,
     surfaceContainerHigh = Tone.Warm30,
