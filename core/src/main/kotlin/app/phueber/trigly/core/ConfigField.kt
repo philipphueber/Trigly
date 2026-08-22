@@ -1,0 +1,125 @@
+package app.phueber.trigly.core
+
+/**
+ * A declaration of one setting a trigger or action accepts.
+ *
+ * Config is stored as `Map<String, String>`, which the engine is happy with and a
+ * form cannot be drawn from. This is the missing half: each factory declares its
+ * fields, and the editor renders them. Same pattern as [ComponentRequirement] —
+ * declared on the factory, consumed by the UI, invisible to the engine.
+ *
+ * **The schema renders; the factory validates.** Nothing here duplicates the
+ * `require()` and `error()` checks inside `create()`. Bounds like [Number.min]
+ * exist to pick a keyboard and write a hint, not to guarantee anything: the
+ * editor validates by calling `create()` and showing what it throws. That is the
+ * only approach that catches cross-field rules such as
+ * `notification_watchdog`'s "poll must not exceed absence", or the
+ * `require(periodMillis > 0)` that lives in `IntervalTrigger`'s constructor
+ * rather than its factory.
+ */
+sealed interface ConfigField {
+
+    val key: String
+    val label: String
+    val required: Boolean
+
+    /**
+     * Shown beneath the field. This is where the caveats that currently live in
+     * KDoc — battery cost, platform restrictions, "this only works while the
+     * screen is on" — finally reach the person building the rule.
+     */
+    val help: String?
+
+    /** Free text. */
+    data class Text(
+        override val key: String,
+        override val label: String,
+        override val required: Boolean = false,
+        override val help: String? = null,
+        val placeholder: String? = null,
+        /**
+         * What leaving this empty *means*, when empty is a real setting rather
+         * than a missing value — "any device", "all apps".
+         *
+         * Load-bearing: several components treat an absent value as "match
+         * anything", so an editor that helpfully substituted a default would
+         * silently narrow the rule.
+         */
+        val blankMeaning: String? = null,
+        val multiline: Boolean = false,
+    ) : ConfigField
+
+    /** A closed set of values. Covers both two-word toggles and wider enums. */
+    data class Choice(
+        override val key: String,
+        override val label: String,
+        val options: List<Option>,
+        override val required: Boolean = true,
+        override val help: String? = null,
+        val default: String? = null,
+    ) : ConfigField
+
+    /** A whole number. [unit] is display only, e.g. "ms", "%", "°C". */
+    data class Number(
+        override val key: String,
+        override val label: String,
+        override val required: Boolean = false,
+        override val help: String? = null,
+        val min: Long? = null,
+        val max: Long? = null,
+        val default: Long? = null,
+        val unit: String? = null,
+    ) : ConfigField
+
+    /** A number with decimals — coordinates, radii. */
+    data class Decimal(
+        override val key: String,
+        override val label: String,
+        override val required: Boolean = false,
+        override val help: String? = null,
+        val min: Double? = null,
+        val max: Double? = null,
+        val default: Double? = null,
+        val unit: String? = null,
+    ) : ConfigField
+
+    /** A switch. Stored as "true"/"false". */
+    data class Flag(
+        override val key: String,
+        override val label: String,
+        override val help: String? = null,
+        val default: Boolean = false,
+    ) : ConfigField {
+        override val required: Boolean get() = false
+    }
+
+    /**
+     * An installed app's package name. Stored and validated exactly like [Text];
+     * separate so the editor can offer a picker instead of asking someone to
+     * type "com.google.android.dialer" from memory.
+     */
+    data class AppPackage(
+        override val key: String,
+        override val label: String,
+        override val required: Boolean = false,
+        override val help: String? = null,
+        val blankMeaning: String? = null,
+    ) : ConfigField
+
+    /** One selectable value: [value] is stored, [label] is shown. */
+    data class Option(val value: String, val label: String)
+}
+
+/**
+ * The value the editor should start this field at — the declared default, or
+ * nothing. Deliberately null rather than an empty string for text fields whose
+ * blankness is meaningful; see [ConfigField.Text.blankMeaning].
+ */
+fun ConfigField.defaultValue(): String? = when (this) {
+    is ConfigField.Text -> null
+    is ConfigField.AppPackage -> null
+    is ConfigField.Choice -> default
+    is ConfigField.Number -> default?.toString()
+    is ConfigField.Decimal -> default?.toString()
+    is ConfigField.Flag -> default.toString()
+}

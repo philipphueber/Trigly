@@ -1,5 +1,6 @@
 package app.phueber.trigly.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -31,6 +33,12 @@ fun RulesScreen(
     statuses: List<RuleStatus>,
     onEnabledChange: (Rule, Boolean) -> Unit,
     onResolve: (ComponentRequirement) -> Unit,
+    onNewRule: () -> Unit,
+    onEditRule: (String) -> Unit,
+    onExportAll: () -> Unit,
+    onExportRule: (Rule) -> Unit,
+    onImport: () -> Unit,
+    describeComponent: (String) -> String,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
@@ -38,6 +46,19 @@ fun RulesScreen(
             text = stringResource(R.string.rules_title),
             style = MaterialTheme.typography.headlineSmall,
         )
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedButton(onClick = onNewRule) { Text(stringResource(R.string.rules_new)) }
+            TextButton(onClick = onImport) { Text(stringResource(R.string.rules_import)) }
+            if (statuses.isNotEmpty()) {
+                TextButton(onClick = onExportAll) {
+                    Text(stringResource(R.string.rules_export_all))
+                }
+            }
+        }
 
         if (statuses.isEmpty()) {
             Text(
@@ -48,9 +69,15 @@ fun RulesScreen(
             return@Column
         }
 
-        LazyColumn(modifier = Modifier.padding(top = 8.dp)) {
+        LazyColumn {
             items(items = statuses, key = { it.rule.id }) { status ->
-                RuleRow(status = status, onEnabledChange = onEnabledChange)
+                RuleRow(
+                    status = status,
+                    onEnabledChange = onEnabledChange,
+                    onEditRule = onEditRule,
+                    onExportRule = onExportRule,
+                    describeComponent = describeComponent,
+                )
                 RequirementWarnings(status = status, onResolve = onResolve)
                 HorizontalDivider()
             }
@@ -62,20 +89,34 @@ fun RulesScreen(
 private fun RuleRow(
     status: RuleStatus,
     onEnabledChange: (Rule, Boolean) -> Unit,
+    onEditRule: (String) -> Unit,
+    onExportRule: (Rule) -> Unit,
+    describeComponent: (String) -> String,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onEditRule(status.rule.id) }
+            .padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Column(modifier = Modifier.padding(end = 16.dp)) {
+        Column(modifier = Modifier.padding(end = 8.dp)) {
             Text(text = status.rule.name, style = MaterialTheme.typography.bodyLarge)
-            Text(text = summarise(status.rule), style = MaterialTheme.typography.bodySmall)
+            Text(
+                text = summarise(status.rule, describeComponent),
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
-        Switch(
-            checked = status.rule.enabled,
-            onCheckedChange = { enabled -> onEnabledChange(status.rule, enabled) },
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { onExportRule(status.rule) }) {
+                Text(stringResource(R.string.rules_share))
+            }
+            Switch(
+                checked = status.rule.enabled,
+                onCheckedChange = { enabled -> onEnabledChange(status.rule, enabled) },
+            )
+        }
     }
 }
 
@@ -116,6 +157,12 @@ private fun RequirementWarnings(
     }
 }
 
-/** Type identifiers, not display names — a rule editor would resolve these properly. */
-private fun summarise(rule: Rule): String =
-    "${rule.trigger.type} → ${rule.actions.joinToString { it.type }}"
+/** Display names now that factories declare them, rather than raw type strings. */
+private fun summarise(rule: Rule, describeComponent: (String) -> String): String {
+    val actions = if (rule.actions.isEmpty()) {
+        "nothing"
+    } else {
+        rule.actions.joinToString { describeComponent(it.type) }
+    }
+    return "${describeComponent(rule.trigger.type)} → $actions"
+}

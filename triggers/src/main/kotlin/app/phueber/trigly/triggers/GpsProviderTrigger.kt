@@ -47,6 +47,13 @@ class GpsProviderTrigger(
 class GpsProviderTriggerFactory(private val context: Context) : TriggerFactory {
     override val type = GpsProviderTrigger.TYPE
 
+    override val displayName = "Location services"
+    override val category = Category.RADIOS
+
+    override val configFields = listOf(
+        stateChoice("Fires when GPS is", "enabled", "switched on", "disabled", "switched off"),
+    )
+
     override fun create(config: Map<String, String>): Trigger = GpsProviderTrigger(
         context = context,
         onEnabled = parseTarget(

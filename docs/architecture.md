@@ -35,7 +35,7 @@ understanding the whole:
 
 | Module      | Holds                                                        |
 |-------------|--------------------------------------------------------------|
-| `:core`     | `TriggerEngine`, domain model, rule storage. No UI, no Compose. |
+| `:core`     | `TriggerEngine`, domain model, rule storage (Room), the portable JSON format. No UI, no Compose. |
 | `:triggers` | Trigger implementations.                                      |
 | `:actions`  | Action implementations.                                       |
 | `:ui`       | Compose screens, ViewModels, and the app assembly point. Applies the Android application plugin. |
@@ -90,6 +90,83 @@ resumes, because a grant made in system settings reports nothing back.
 the cross-cutting blockers — no foreground service, no scheduler — that gate
 whole groups of them.
 
+### Config schema
+
+Config is stored as `Map<String, String>`. The engine is happy with that; a form
+cannot be drawn from it. So each factory also declares its fields as
+`ConfigField` — the same pattern as `ComponentRequirement`: declared on the
+*factory*, consumed by the UI, invisible to the engine.
+
+Six field kinds cover all 46 components: `Text`, `Choice`, `Number`, `Decimal`,
+`Flag`, `AppPackage`. `Choice` carries the most weight, because the fourteen
+two-word state fields (`enabled`/`disabled`, `plugged`/`unplugged`,
+`entered`/`exited`) use a different word pair per component — which is precisely
+why the words must be declared per factory instead of inferred from the key name.
+
+**The schema renders; the factory still validates.** Nothing in `ConfigField`
+duplicates the `require()` checks inside `create()`. Bounds like `Number.min`
+exist to pick a keyboard and write a hint, not to guarantee anything. The editor
+validates by calling `create()` and surfacing what it throws, because the real
+rules are not expressible declaratively: `notification_watchdog` needs "poll must
+not exceed absence", and `IntervalTrigger`'s positive-period check lives in its
+constructor rather than its factory. One validation path, and it is the one the
+engine will actually use.
+
+`ConfigField.Text.blankMeaning` is load-bearing rather than decoration. Several
+components treat an *absent* value as "match anything" — `bluetooth_connected`
+without an address, a package filter left empty. An editor that helpfully
+supplied a default would silently narrow the rule, so blankness is declared as a
+setting and rendered as "Leave blank for any app".
+
+Factories also declare `displayName`, `category` and an optional `warning`.
+`category` is what makes a 28-item trigger picker usable; `warning` is where a
+caveat that used to live in KDoc reaches the person building the rule.
+
+The UI never touches a factory. `Registry` exposes a flattened
+`ComponentDescriptor` instead, so the editor cannot call `create()` while someone
+is still typing — construction is the validation step and it belongs at save
+time.
+
+Everything here is defaulted on `ComponentFactory`, so a factory that declares
+nothing is ugly rather than broken. The drift guard in
+`ConfigSchemaContractTest` is what keeps it from staying ugly: it walks every
+registered factory, not a hand-maintained list.
+
+### Rule storage and the portable format
+
+Rules are Room-backed. Two tables: `rules`, and one `components` table holding
+both triggers and actions — they are the same shape, a type string and a config
+map, and `:core` deliberately knows nothing about which types exist. A
+`components` row carries an `ordinal`, which is what makes action *order*
+durable; a rule runs its actions in sequence.
+
+There is deliberately **no** `fallbackToDestructiveMigration`. These are rules
+somebody built by hand, and silently deleting them on a schema change is not an
+acceptable failure mode — a missing migration should fail loudly in development
+instead. Schemas are exported to `core/schemas/` for that reason.
+
+`RuleJson` is the portable format, and it serves two jobs so there is one format
+to get right rather than two that can disagree: export/import, and the `config`
+column itself. Export exists because Android's Auto Backup needs a Google
+account and does not run on de-Googled devices — the audience the rest of this
+project bends over backwards for. An explicit file the user owns is the only
+phone-switch mechanism that always works, and it doubles as a way to share one
+rule with someone else. The format is versioned, and a file from a *newer*
+version is refused rather than half-read: failing to import is better than
+losing a rule silently.
+
+Room stays an implementation detail of `:core`. Storage is handed out as a
+`RuleRepository` from a factory function, and `room-runtime` is
+`implementation`-scoped so it is not on `:ui`'s compile classpath at all. That
+enforces the boundary rather than merely asking for it.
+
+### Navigation
+
+Two destinations — the list and the editor — do not justify a navigation library
+and the dependency it brings. A sealed `Screen` plus `BackHandler` is the whole
+feature. The editor gets a ViewModel keyed by rule id, so opening a different
+rule cannot inherit the previous draft.
+
 ### Services the system owns
 
 `NotificationListenerService` and `AccessibilityService` are constructed by the
@@ -120,5 +197,14 @@ arithmetic, the state machine that collapses sticky and repeated broadcasts,
 the engine's dispatch and failure isolation. `Intent` parsing is deliberately
 kept thin and left to instrumented tests against real broadcasts, because a
 mocked `Intent` would only prove the mock behaves as written.
+
+One instrumented test is not about a device at all: the config-schema drift
+guard enumerates every registered factory and asserts that each has a human
+name, a category, no duplicate keys, valid `Choice` defaults, and that a
+component built from its own declared schema is accepted by its own factory. It
+lives in `:ui` because that is the only module that can see both `:triggers` and
+`:actions`, and it needs a `Context` to build the factories at all. The failure
+it exists to catch is drift: a config key added or renamed without the schema,
+which makes a working component look broken in the editor.
 
 See the Testing section of `CLAUDE.md` for the commands.

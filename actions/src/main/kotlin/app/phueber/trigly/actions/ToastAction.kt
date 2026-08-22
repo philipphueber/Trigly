@@ -5,6 +5,7 @@ import android.widget.Toast
 import app.phueber.trigly.core.Action
 import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ActionResult
+import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.TriggerEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -43,6 +44,18 @@ class ToastAction(
 
 class ToastActionFactory(private val context: Context) : ActionFactory {
     override val type = ToastAction.TYPE
+
+    override val displayName = "Show a brief message"
+    override val category = ActionCategory.NOTIFY
+
+    override val configFields = listOf(
+        messageText(ToastAction.CONFIG_TEXT, "Message"),
+        ConfigField.Flag(ToastAction.CONFIG_LONG, "Show for longer"),
+    )
+
+    override val warning: String =
+        "Android 12 and later suppress these while the app is in the background. " +
+            "Use a notification for anything that must be seen."
 
     override fun create(config: Map<String, String>): Action = ToastAction(
         context = context,

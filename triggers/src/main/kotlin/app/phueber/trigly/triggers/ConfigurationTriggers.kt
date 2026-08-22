@@ -50,6 +50,13 @@ class DarkThemeTrigger(
 class DarkThemeTriggerFactory(private val context: Context) : TriggerFactory {
     override val type = DarkThemeTrigger.TYPE
 
+    override val displayName = "Dark theme"
+    override val category = Category.DEVICE
+
+    override val configFields = listOf(
+        stateChoice("Fires when the theme switches to", "dark", "dark", "light", "light"),
+    )
+
     // Night mode exists earlier as a battery-saver side effect, but a
     // user-controlled system dark theme is API 29 and up.
     override val requirements = listOf(ComponentRequirement.MinApiLevel(29))
@@ -100,6 +107,13 @@ class OrientationTrigger(
 
 class OrientationTriggerFactory(private val context: Context) : TriggerFactory {
     override val type = OrientationTrigger.TYPE
+
+    override val displayName = "Screen orientation"
+    override val category = Category.DEVICE
+
+    override val configFields = listOf(
+        stateChoice("Fires when the screen rotates to", "landscape", "landscape", "portrait", "portrait"),
+    )
 
     override fun create(config: Map<String, String>): Trigger = OrientationTrigger(
         context = context,

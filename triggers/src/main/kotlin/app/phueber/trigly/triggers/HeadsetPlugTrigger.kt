@@ -52,6 +52,18 @@ class HeadsetPlugTrigger(
 class HeadsetPlugTriggerFactory(private val context: Context) : TriggerFactory {
     override val type = HeadsetPlugTrigger.TYPE
 
+    override val displayName = "Wired headset"
+    override val category = Category.DEVICE
+
+    override val configFields = listOf(
+        stateChoice(
+            label = "Fires when a headset is",
+            onValue = "plugged", onLabel = "plugged in",
+            offValue = "unplugged", offLabel = "unplugged",
+            help = "Wired only. Bluetooth headphones use the Bluetooth device trigger.",
+        ),
+    )
+
     override fun create(config: Map<String, String>): Trigger = HeadsetPlugTrigger(
         context = context,
         onPlugged = parseTarget(

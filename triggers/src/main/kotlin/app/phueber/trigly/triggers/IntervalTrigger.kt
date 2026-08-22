@@ -1,5 +1,6 @@
 package app.phueber.trigly.triggers
 
+import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
@@ -41,6 +42,24 @@ class IntervalTrigger(
 
 class IntervalTriggerFactory : TriggerFactory {
     override val type: String = IntervalTrigger.TYPE
+
+    override val displayName = "Every so often"
+    override val category = Category.TIME
+
+    override val configFields = listOf(
+        ConfigField.Number(
+            key = IntervalTrigger.CONFIG_PERIOD_MILLIS,
+            label = "Repeat every",
+            required = true,
+            min = 1,
+            unit = "ms",
+            help = "Only ticks while Trigly is running, and pauses in Doze. " +
+                "Not suitable for anything that must happen at an exact time.",
+        ),
+    )
+
+    override val warning: String =
+        "Stops when the system suspends the app. Use for convenience, not for alarms."
 
     override fun create(config: Map<String, String>): Trigger {
         val raw = config[IntervalTrigger.CONFIG_PERIOD_MILLIS]

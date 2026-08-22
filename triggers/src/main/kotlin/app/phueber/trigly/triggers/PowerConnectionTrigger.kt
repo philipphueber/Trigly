@@ -39,6 +39,13 @@ class PowerConnectionTrigger(
 class PowerConnectionTriggerFactory(private val context: Context) : TriggerFactory {
     override val type = PowerConnectionTrigger.TYPE
 
+    override val displayName = "Charger"
+    override val category = Category.POWER
+
+    override val configFields = listOf(
+        stateChoice("Fires when the charger is", "connected", "plugged in", "disconnected", "unplugged"),
+    )
+
     override fun create(config: Map<String, String>): Trigger = PowerConnectionTrigger(
         context = context,
         onConnect = parseTarget(

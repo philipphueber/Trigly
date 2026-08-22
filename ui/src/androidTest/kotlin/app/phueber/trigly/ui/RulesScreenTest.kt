@@ -1,5 +1,6 @@
 package app.phueber.trigly.ui
 
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -22,56 +23,110 @@ class RulesScreenTest {
     @get:JUnitRule
     val composeRule = createComposeRule()
 
-    @Test
-    fun shows_each_rule_with_its_trigger_and_action_types() {
-        composeRule.setContent {
-            RulesScreen(
-                statuses = listOf(RuleStatus(sampleRule, unmet = emptyList())),
-                onEnabledChange = { _, _ -> },
-                onResolve = {},
-            )
-        }
+    private val toggles = mutableListOf<Pair<String, Boolean>>()
+    private val resolved = mutableListOf<ComponentRequirement>()
+    private val edited = mutableListOf<String>()
+    private val exported = mutableListOf<String>()
+    private var newRuleTaps = 0
+    private var importTaps = 0
 
-        composeRule.onNodeWithText("Ping every minute").assertIsDisplayed()
-        composeRule.onNodeWithText("interval → post_notification").assertIsDisplayed()
+    /** Display names come from the factories, so the screen is handed a lookup. */
+    private val describe: (String) -> String = { type ->
+        when (type) {
+            "interval" -> "Every so often"
+            "post_notification" -> "Show a notification"
+            else -> type
+        }
+    }
+
+    @Composable
+    private fun Screen(statuses: List<RuleStatus>) {
+        RulesScreen(
+            statuses = statuses,
+            onEnabledChange = { rule, enabled -> toggles += rule.id to enabled },
+            onResolve = { resolved += it },
+            onNewRule = { newRuleTaps++ },
+            onEditRule = { edited += it },
+            onExportAll = { exported += "all" },
+            onExportRule = { exported += it.id },
+            onImport = { importTaps++ },
+            describeComponent = describe,
+        )
     }
 
     @Test
-    fun empty_list_shows_the_empty_state() {
-        composeRule.setContent {
-            RulesScreen(statuses = emptyList(), onEnabledChange = { _, _ -> }, onResolve = {})
-        }
+    fun shows_each_rule_with_display_names_not_type_strings() {
+        composeRule.setContent { Screen(listOf(RuleStatus(sampleRule, unmet = emptyList()))) }
 
-        composeRule.onNodeWithText("No rules yet.").assertIsDisplayed()
+        composeRule.onNodeWithText("Ping every minute").assertIsDisplayed()
+        composeRule.onNodeWithText("Every so often → Show a notification").assertIsDisplayed()
+    }
+
+    @Test
+    fun empty_list_invites_creating_a_rule() {
+        composeRule.setContent { Screen(emptyList()) }
+
+        composeRule.onNodeWithText("No rules yet. Tap “New rule” to make one.").assertIsDisplayed()
+        // Export is pointless with nothing to export, so it is not offered.
+        composeRule.onNodeWithText("Export all").assertDoesNotExist()
+    }
+
+    @Test
+    fun new_rule_is_reported() {
+        composeRule.setContent { Screen(emptyList()) }
+
+        composeRule.onNodeWithText("New rule").performClick()
+
+        assertEquals(1, newRuleTaps)
+    }
+
+    @Test
+    fun tapping_a_rule_opens_it_for_editing() {
+        composeRule.setContent { Screen(listOf(RuleStatus(sampleRule, unmet = emptyList()))) }
+
+        composeRule.onNodeWithText("Ping every minute").performClick()
+
+        assertEquals(listOf(sampleRule.id), edited)
+    }
+
+    @Test
+    fun a_rule_can_be_exported_on_its_own_or_with_the_rest() {
+        composeRule.setContent { Screen(listOf(RuleStatus(sampleRule, unmet = emptyList()))) }
+
+        composeRule.onNodeWithText("Share").performClick()
+        composeRule.onNodeWithText("Export all").performClick()
+
+        assertEquals(listOf(sampleRule.id, "all"), exported)
+    }
+
+    @Test
+    fun import_is_offered_even_with_no_rules() {
+        // Importing is how a new phone gets its first rule, so it cannot be
+        // hidden behind having rules already.
+        composeRule.setContent { Screen(emptyList()) }
+
+        composeRule.onNodeWithText("Import").performClick()
+
+        assertEquals(1, importTaps)
     }
 
     @Test
     fun toggling_a_disabled_rule_reports_enabled() {
-        val toggles = mutableListOf<Pair<String, Boolean>>()
-        composeRule.setContent {
-            RulesScreen(
-                statuses = listOf(RuleStatus(sampleRule, unmet = emptyList())),
-                onEnabledChange = { rule, enabled -> toggles += rule.id to enabled },
-                onResolve = {},
-            )
-        }
+        composeRule.setContent { Screen(listOf(RuleStatus(sampleRule, unmet = emptyList()))) }
 
         composeRule.onNode(isToggleable()).performClick()
 
         assertEquals(1, toggles.size)
-        assertEquals(sampleRule.id, toggles.single().first)
         assertTrue("expected the switch to report the new state", toggles.single().second)
     }
 
     @Test
     fun an_enabled_rule_that_cannot_fire_explains_why() {
         composeRule.setContent {
-            RulesScreen(
-                statuses = listOf(
+            Screen(
+                listOf(
                     RuleStatus(sampleRule.copy(enabled = true), unmet = listOf(notificationAccess))
-                ),
-                onEnabledChange = { _, _ -> },
-                onResolve = {},
+                )
             )
         }
 
@@ -82,15 +137,11 @@ class RulesScreenTest {
 
     @Test
     fun a_disabled_rule_does_not_nag_about_permissions() {
-        // A disabled rule not firing needs no explanation, so the warning would
-        // be noise on every rule the user has switched off.
         composeRule.setContent {
-            RulesScreen(
-                statuses = listOf(
+            Screen(
+                listOf(
                     RuleStatus(sampleRule.copy(enabled = false), unmet = listOf(notificationAccess))
-                ),
-                onEnabledChange = { _, _ -> },
-                onResolve = {},
+                )
             )
         }
 
@@ -101,14 +152,11 @@ class RulesScreenTest {
 
     @Test
     fun tapping_grant_reports_the_requirement_to_resolve() {
-        val resolved = mutableListOf<ComponentRequirement>()
         composeRule.setContent {
-            RulesScreen(
-                statuses = listOf(
+            Screen(
+                listOf(
                     RuleStatus(sampleRule.copy(enabled = true), unmet = listOf(notificationAccess))
-                ),
-                onEnabledChange = { _, _ -> },
-                onResolve = { resolved += it },
+                )
             )
         }
 
@@ -119,17 +167,14 @@ class RulesScreenTest {
 
     @Test
     fun an_unresolvable_requirement_offers_no_button() {
-        // Nothing the user can do about an old Android version; a button would lie.
         composeRule.setContent {
-            RulesScreen(
-                statuses = listOf(
+            Screen(
+                listOf(
                     RuleStatus(
                         sampleRule.copy(enabled = true),
                         unmet = listOf(ComponentRequirement.MinApiLevel(31)),
                     )
-                ),
-                onEnabledChange = { _, _ -> },
-                onResolve = {},
+                )
             )
         }
 

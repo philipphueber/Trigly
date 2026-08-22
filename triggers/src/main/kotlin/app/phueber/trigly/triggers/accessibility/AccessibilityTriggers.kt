@@ -2,6 +2,10 @@ package app.phueber.trigly.triggers.accessibility
 
 import android.view.accessibility.AccessibilityEvent
 import app.phueber.trigly.core.ComponentRequirement
+import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.triggers.Category
+import app.phueber.trigly.triggers.packageFilter
+import app.phueber.trigly.triggers.stateChoice
 import app.phueber.trigly.core.SpecialAccessKind
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
@@ -76,6 +80,18 @@ object UiClickTrigger {
 
 class UiClickTriggerFactory : TriggerFactory {
     override val type = UiClickTrigger.TYPE
+
+    override val displayName = "Something is tapped"
+    override val category = Category.SCREEN
+
+    override val configFields = listOf(
+        packageFilter(help = "Which app's taps to watch."),
+        ConfigField.Text(
+            key = UiClickTrigger.CONFIG_TEXT_CONTAINS,
+            label = "Tapped item's text contains",
+            blankMeaning = "Leave blank for any tap",
+        ),
+    )
     override val requirements = ACCESSIBILITY_ACCESS
 
     override fun create(config: Map<String, String>): Trigger = UiEventTrigger(
@@ -101,6 +117,24 @@ object ScreenContentTrigger {
 
 class ScreenContentTriggerFactory : TriggerFactory {
     override val type = ScreenContentTrigger.TYPE
+
+    override val displayName = "Text appears on screen"
+    override val category = Category.SCREEN
+
+    override val configFields = listOf(
+        packageFilter(help = "Which app's screen to watch."),
+        ConfigField.Text(
+            key = ScreenContentTrigger.CONFIG_TEXT_CONTAINS,
+            label = "Screen contains",
+            required = true,
+            help = "Strongly recommended. Without it this fires on every visual " +
+                "change, including animations.",
+        ),
+    )
+
+    override val warning: String =
+        "The noisiest trigger available. An animating progress bar produces a " +
+            "continuous stream of events, so always set a text filter."
     override val requirements = ACCESSIBILITY_ACCESS
 
     override fun create(config: Map<String, String>): Trigger = UiEventTrigger(
@@ -144,6 +178,17 @@ class KeyboardVisibilityTrigger(private val onOpened: Boolean) : Trigger {
 
 class KeyboardVisibilityTriggerFactory : TriggerFactory {
     override val type = KeyboardVisibilityTrigger.TYPE
+
+    override val displayName = "Keyboard opens or closes"
+    override val category = Category.SCREEN
+
+    override val configFields = listOf(
+        stateChoice("Fires when the keyboard is", "opened", "opened", "closed", "closed"),
+    )
+
+    override val warning: String =
+        "Android has no keyboard-visibility API, so this is inferred and is not " +
+            "reliable across every keyboard and phone."
     override val requirements = ACCESSIBILITY_ACCESS
 
     override fun create(config: Map<String, String>): Trigger = KeyboardVisibilityTrigger(

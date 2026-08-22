@@ -3,6 +3,7 @@ package app.phueber.trigly.actions
 import app.phueber.trigly.core.Action
 import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ActionResult
+import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.TriggerEvent
 import kotlinx.coroutines.Dispatchers
@@ -91,6 +92,40 @@ class HttpRequestAction(
 
 class HttpRequestActionFactory : ActionFactory {
     override val type = HttpRequestAction.TYPE
+
+    override val displayName = "Send an HTTP request"
+    override val category = ActionCategory.NETWORK
+
+    override val configFields = listOf(
+        ConfigField.Text(
+            key = HttpRequestAction.CONFIG_URL,
+            label = "URL",
+            required = true,
+            placeholder = "https://example.com/hook",
+            help = "https only — a webhook URL usually carries a token.",
+        ),
+        ConfigField.Choice(
+            key = HttpRequestAction.CONFIG_METHOD,
+            label = "Method",
+            options = HttpRequestAction.ALLOWED_METHODS.sorted()
+                .map { ConfigField.Option(it, it) },
+            required = false,
+            default = HttpRequestAction.DEFAULT_METHOD,
+        ),
+        messageText(HttpRequestAction.CONFIG_BODY, "Body", required = false),
+        ConfigField.Text(
+            key = HttpRequestAction.CONFIG_CONTENT_TYPE,
+            label = "Content type",
+            blankMeaning = "Defaults to ${HttpRequestAction.DEFAULT_CONTENT_TYPE}",
+        ),
+        ConfigField.Number(
+            key = HttpRequestAction.CONFIG_TIMEOUT_MILLIS,
+            label = "Timeout",
+            default = HttpRequestAction.DEFAULT_TIMEOUT_MILLIS.toLong(),
+            min = 1000,
+            unit = "ms",
+        ),
+    )
 
     override val requirements = listOf(
         ComponentRequirement.RuntimePermission("android.permission.INTERNET"),

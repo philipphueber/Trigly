@@ -8,8 +8,11 @@ import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.Registry
 import app.phueber.trigly.core.RequirementChecker
 import app.phueber.trigly.core.Rule
+import app.phueber.trigly.core.RuleJson
 import app.phueber.trigly.core.RuleRepository
+import app.phueber.trigly.core.withFreshIds
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -50,6 +53,53 @@ class RulesViewModel(
 
     fun refresh() {
         refreshTick.update { it + 1 }
+    }
+
+    /**
+     * One-off feedback for import and export, which happen outside the rule list
+     * and otherwise leave no trace of having worked or failed.
+     */
+    private val _message = MutableStateFlow<String?>(null)
+    val message: StateFlow<String?> = _message.asStateFlow()
+
+    fun clearMessage() {
+        _message.value = null
+    }
+
+    /**
+     * Rules as a portable document. This — not Android's Auto Backup — is how
+     * rules reach a new phone: Auto Backup needs a Google account and does not
+     * run on de-Googled devices, which is the audience this project targets.
+     */
+    fun exportAll(): String = RuleJson.encode(statuses.value.map { it.rule })
+
+    fun exportOne(rule: Rule): String = RuleJson.encode(rule)
+
+    /**
+     * Imported rules arrive alongside existing ones rather than replacing them:
+     * fresh ids mean an import can never silently overwrite something the user
+     * built by hand.
+     */
+    fun import(text: String) {
+        viewModelScope.launch {
+            try {
+                val imported = RuleJson.decode(text).withFreshIds()
+                imported.forEach { repository.upsert(it) }
+                _message.value = when (imported.size) {
+                    0 -> "That file contained no rules."
+                    1 -> "Imported 1 rule."
+                    else -> "Imported ${imported.size} rules."
+                }
+            } catch (invalid: IllegalArgumentException) {
+                // Deliberately shows the codec's own message: it names the rule
+                // and the missing field, which is what makes a bad file fixable.
+                _message.value = invalid.message ?: "That file could not be read."
+            }
+        }
+    }
+
+    fun delete(ruleId: String) {
+        viewModelScope.launch { repository.delete(ruleId) }
     }
 
     fun setEnabled(rule: Rule, enabled: Boolean) {

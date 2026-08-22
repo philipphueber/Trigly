@@ -5,6 +5,7 @@ import android.content.Context
 import app.phueber.trigly.core.Action
 import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ActionResult
+import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.SpecialAccessKind
 import app.phueber.trigly.core.TriggerEvent
@@ -70,6 +71,22 @@ class SetDndAction(
 
 class SetDndActionFactory(private val context: Context) : ActionFactory {
     override val type = SetDndAction.TYPE
+
+    override val displayName = "Set Do Not Disturb"
+    override val category = ActionCategory.DEVICE
+
+    override val configFields = listOf(
+        ConfigField.Choice(
+            key = DndMode.CONFIG_KEY,
+            label = "Switch Do Not Disturb to",
+            options = listOf(
+                ConfigField.Option("off", "off — allow everything"),
+                ConfigField.Option("priority", "priority only"),
+                ConfigField.Option("alarms", "alarms only"),
+                ConfigField.Option("silence", "total silence"),
+            ),
+        ),
+    )
 
     override val requirements = listOf(
         ComponentRequirement.SpecialAccess(SpecialAccessKind.NOTIFICATION_POLICY),

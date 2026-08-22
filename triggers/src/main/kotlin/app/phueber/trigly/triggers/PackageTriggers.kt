@@ -57,6 +57,18 @@ class PackageChangeTrigger(
 class PackageChangeTriggerFactory(private val context: Context) : TriggerFactory {
     override val type = PackageChangeTrigger.TYPE
 
+    override val displayName = "App installed or removed"
+    override val category = Category.APPS
+
+    override val configFields = listOf(
+        stateChoice(
+            label = "Fires when an app is",
+            onValue = "installed", onLabel = "installed",
+            offValue = "removed", offLabel = "uninstalled",
+            help = "App updates are ignored — only genuine installs and removals fire.",
+        ),
+    )
+
     override fun create(config: Map<String, String>): Trigger = PackageChangeTrigger(
         context = context,
         onInstalled = parseTarget(
@@ -104,6 +116,13 @@ class WorkProfileTrigger(
 
 class WorkProfileTriggerFactory(private val context: Context) : TriggerFactory {
     override val type = WorkProfileTrigger.TYPE
+
+    override val displayName = "Work profile"
+    override val category = Category.APPS
+
+    override val configFields = listOf(
+        stateChoice("Fires when the work profile becomes", "available", "available", "unavailable", "paused"),
+    )
 
     override fun create(config: Map<String, String>): Trigger = WorkProfileTrigger(
         context = context,

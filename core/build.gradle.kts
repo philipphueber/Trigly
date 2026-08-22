@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -25,12 +26,29 @@ android {
     sourceSets["test"].java.srcDirs("src/test/kotlin")
 }
 
+ksp {
+    // Committed schema JSON is what makes a future migration writable rather than
+    // guesswork — rules are user data and must survive an app update.
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 // :core is the one module that must stay UI-free. It may not depend on :ui,
 // on Compose, or on any sibling module — see docs/architecture.md.
 dependencies {
     implementation(libs.kotlinx.coroutines.core)
 
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
+
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.turbine)
+    // Real org.json, because android.jar's is a stub that throws.
+    testImplementation(libs.org.json)
+
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.kotlinx.coroutines.test)
+    androidTestImplementation(libs.androidx.room.testing)
 }

@@ -3,6 +3,7 @@ package app.phueber.trigly.actions
 import app.phueber.trigly.core.Action
 import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ActionResult
+import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.SharedPayloadKeys
@@ -51,6 +52,17 @@ class DismissNotificationActionFactory(
     private val controller: NotificationController,
 ) : ActionFactory {
     override val type = DismissNotificationAction.TYPE
+
+    override val displayName = "Dismiss a notification"
+    override val category = ActionCategory.NOTIFICATIONS
+
+    override val configFields = listOf(
+        ConfigField.Text(
+            key = DismissNotificationAction.CONFIG_KEY,
+            label = "Notification key",
+            blankMeaning = "Leave blank to dismiss the notification that fired the rule",
+        ),
+    )
     override val requirements = NOTIFICATION_ACCESS
 
     override fun create(config: Map<String, String>): Action = DismissNotificationAction(
@@ -95,6 +107,28 @@ class TriggerNotificationButtonActionFactory(
     private val controller: NotificationController,
 ) : ActionFactory {
     override val type = TriggerNotificationButtonAction.TYPE
+
+    override val displayName = "Press a notification's button"
+    override val category = ActionCategory.NOTIFICATIONS
+
+    override val configFields = listOf(
+        ConfigField.Text(
+            key = TriggerNotificationButtonAction.CONFIG_KEY,
+            label = "Notification key",
+            blankMeaning = "Leave blank to use the notification that fired the rule",
+        ),
+        ConfigField.Number(
+            key = TriggerNotificationButtonAction.CONFIG_BUTTON_INDEX,
+            label = "Which button",
+            default = 0,
+            min = 0,
+            help = "Counted from zero, left to right. Buttons are identified by " +
+                "position because their labels are translated.",
+        ),
+    )
+
+    override val warning: String =
+        "If the app reorders its buttons, this will press a different one."
     override val requirements = NOTIFICATION_ACCESS
 
     override fun create(config: Map<String, String>): Action {

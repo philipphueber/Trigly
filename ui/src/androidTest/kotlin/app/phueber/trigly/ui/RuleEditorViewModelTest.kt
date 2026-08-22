@@ -1,0 +1,306 @@
+package app.phueber.trigly.ui
+
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import app.phueber.trigly.actions.actionFactories
+import app.phueber.trigly.core.ComponentSpec
+import app.phueber.trigly.core.InMemoryRuleRepository
+import app.phueber.trigly.core.NotificationController
+import app.phueber.trigly.core.Registry
+import app.phueber.trigly.core.RequirementChecker
+import app.phueber.trigly.core.Rule
+import app.phueber.trigly.triggers.triggerFactories
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+
+/**
+ * The editor's logic, driven directly against the real registry so the schemas
+ * the 46 factories declare are what gets exercised.
+ *
+ * `viewModelScope` dispatches on `Dispatchers.Main`, and saving is deliberately
+ * fire-and-forget, so the main dispatcher is replaced with an unconfined test one
+ * for the duration. That is also why these live apart from the Compose rendering
+ * tests: substituting Main interferes with Compose's own test clock.
+ *
+ * An instrumented test rather than a JVM one because the factories need a real
+ * `Context`.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(AndroidJUnit4::class)
+class RuleEditorViewModelTest {
+
+    private val context = InstrumentationRegistry.getInstrumentation().targetContext
+
+    private val registry = Registry(
+        triggerFactories = triggerFactories(context),
+        actionFactories = actionFactories(context, NotificationController.Unavailable),
+    )
+
+    @Before
+    fun setUp() {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+    }
+
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
+    }
+
+    private fun viewModel(
+        repository: InMemoryRuleRepository = InMemoryRuleRepository(),
+        ruleId: String? = null,
+    ) = RuleEditorViewModel(repository, registry, RequirementChecker(context), ruleId)
+
+    @Test
+    fun a_complete_rule_saves() = runTest {
+        val repository = InMemoryRuleRepository()
+        val editor = viewModel(repository)
+
+        editor.setName("Charger on")
+        editor.chooseTrigger("power_connection")
+        editor.setConfigValue(Slot.TRIGGER, 0, "state", "connected")
+        editor.addAction("speak")
+        editor.setConfigValue(Slot.ACTION, 0, "text", "Charging")
+        editor.save()
+
+        assertTrue("save should report completion", editor.state.value.saved)
+        val saved = repository.rules().first().single()
+        assertEquals("Charger on", saved.name)
+        assertEquals("power_connection", saved.trigger.type)
+        assertEquals("connected", saved.trigger.config["state"])
+        assertEquals(listOf("speak"), saved.actions.map { it.type })
+    }
+
+    @Test
+    fun actions_keep_the_order_they_were_given() = runTest {
+        val repository = InMemoryRuleRepository()
+        val editor = viewModel(repository)
+        editor.setName("Ordered")
+        editor.chooseTrigger("screen_state")
+        editor.setConfigValue(Slot.TRIGGER, 0, "state", "on")
+        editor.addAction("toast")
+        editor.setConfigValue(Slot.ACTION, 0, "text", "first")
+        editor.addAction("vibrate")
+
+        editor.moveAction(1, 0)
+        editor.save()
+
+        assertEquals(
+            listOf("vibrate", "toast"),
+            repository.rules().first().single().actions.map { it.type },
+        )
+    }
+
+    @Test
+    fun deleting_removes_the_rule() = runTest {
+        val existing = Rule(
+            id = "doomed",
+            name = "Doomed",
+            trigger = ComponentSpec("screen_state", mapOf("state" to "on")),
+            actions = listOf(ComponentSpec("toast", mapOf("text" to "hi"))),
+        )
+        val repository = InMemoryRuleRepository(listOf(existing))
+        val editor = viewModel(repository, ruleId = "doomed")
+
+        editor.delete()
+
+        assertTrue(repository.rules().first().isEmpty())
+    }
+
+    @Test
+    fun an_existing_rule_loads_into_the_form() = runTest {
+        val existing = Rule(
+            id = "existing",
+            name = "Loaded",
+            trigger = ComponentSpec("screen_state", mapOf("state" to "off")),
+            actions = listOf(ComponentSpec("toast", mapOf("text" to "hello"))),
+        )
+        val repository = InMemoryRuleRepository(listOf(existing))
+
+        val editor = viewModel(repository, ruleId = "existing")
+
+        assertEquals("Loaded", editor.state.value.draft.name)
+        assertEquals("off", editor.state.value.draft.trigger!!.config["state"])
+        assertEquals("hello", editor.state.value.draft.actions.single().config["text"])
+    }
+
+    @Test
+    fun a_rule_with_no_name_is_refused_with_a_readable_reason() = runTest {
+        val editor = viewModel()
+        editor.chooseTrigger("screen_state")
+        editor.addAction("toast")
+
+        editor.save()
+
+        assertEquals("Give the rule a name.", editor.state.value.error)
+    }
+
+    @Test
+    fun a_rule_with_no_trigger_is_refused() = runTest {
+        val editor = viewModel()
+        editor.setName("Triggerless")
+
+        editor.save()
+
+        assertEquals("Choose a trigger.", editor.state.value.error)
+    }
+
+    @Test
+    fun a_rule_with_no_actions_is_refused() = runTest {
+        val editor = viewModel()
+        editor.setName("Does nothing")
+        editor.chooseTrigger("screen_state")
+
+        editor.save()
+
+        assertTrue(editor.state.value.error!!.contains("at least one action"))
+    }
+
+    @Test
+    fun the_factory_decides_validity_and_its_message_is_shown() = runTest {
+        // The watchdog enforces poll <= absence across two fields, which no
+        // per-field schema can express. The editor must surface that rather than
+        // save something the engine will reject.
+        val repository = InMemoryRuleRepository()
+        val editor = viewModel(repository)
+        editor.setName("Watchdog")
+        editor.chooseTrigger("notification_watchdog")
+        editor.setConfigValue(Slot.TRIGGER, 0, "package", "com.example.alerts")
+        editor.setConfigValue(Slot.TRIGGER, 0, "absenceMillis", "60000")
+        editor.setConfigValue(Slot.TRIGGER, 0, "pollMillis", "120000")
+        editor.addAction("toast")
+        editor.setConfigValue(Slot.ACTION, 0, "text", "gone")
+
+        editor.save()
+
+        val error = editor.state.value.error
+        assertTrue("was: $error", error!!.contains("pollMillis"))
+        assertTrue("was: $error", error.contains("absenceMillis"))
+        assertTrue("nothing should be stored", repository.rules().first().isEmpty())
+    }
+
+    @Test
+    fun a_missing_required_field_is_reported_against_the_component_that_wants_it() = runTest {
+        val editor = viewModel()
+        editor.setName("No threshold")
+        editor.chooseTrigger("battery_level")
+        editor.addAction("toast")
+        editor.setConfigValue(Slot.ACTION, 0, "text", "low")
+
+        editor.save()
+
+        val error = editor.state.value.error
+        assertTrue("was: $error", error!!.startsWith("Battery level:"))
+        assertTrue("was: $error", error.contains("threshold"))
+    }
+
+    @Test
+    fun an_invalid_action_names_its_position() = runTest {
+        val editor = viewModel()
+        editor.setName("Second action broken")
+        editor.chooseTrigger("screen_state")
+        editor.setConfigValue(Slot.TRIGGER, 0, "state", "on")
+        editor.addAction("toast")
+        editor.setConfigValue(Slot.ACTION, 0, "text", "fine")
+        editor.addAction("set_alarm") // needs an hour
+
+        editor.save()
+
+        assertTrue(editor.state.value.error!!.contains("action 2"))
+    }
+
+    @Test
+    fun an_edit_clears_a_stale_error() = runTest {
+        val editor = viewModel()
+        editor.save()
+        assertTrue(editor.state.value.error != null)
+
+        editor.setName("Now named")
+
+        assertEquals(null, editor.state.value.error)
+    }
+
+    @Test
+    fun choosing_a_trigger_seeds_its_declared_defaults() = runTest {
+        val editor = viewModel()
+
+        editor.chooseTrigger("battery_level")
+
+        // `direction` declares a default; `threshold` does not.
+        assertEquals("below", editor.state.value.draft.trigger!!.config["direction"])
+        assertEquals(null, editor.state.value.draft.trigger!!.config["threshold"])
+    }
+
+    @Test
+    fun changing_type_keeps_settings_the_new_type_understands() = runTest {
+        val editor = viewModel()
+        editor.chooseTrigger("wifi_state")
+        editor.setConfigValue(Slot.TRIGGER, 0, "state", "enabled")
+
+        // Both use a state of enabled/disabled, so the choice should survive.
+        editor.chooseTrigger("bluetooth_adapter_state")
+
+        assertEquals("enabled", editor.state.value.draft.trigger!!.config["state"])
+    }
+
+    @Test
+    fun changing_type_drops_settings_that_no_longer_apply() = runTest {
+        val editor = viewModel()
+        editor.chooseTrigger("battery_level")
+        editor.setConfigValue(Slot.TRIGGER, 0, "threshold", "20")
+
+        editor.chooseTrigger("screen_state")
+
+        assertEquals(null, editor.state.value.draft.trigger!!.config["threshold"])
+    }
+
+    @Test
+    fun clearing_a_field_removes_the_key_rather_than_storing_empty() = runTest {
+        // Several components read an absent key as "match anything", which an
+        // empty string would not.
+        val editor = viewModel()
+        editor.chooseTrigger("notification_posted")
+        editor.setConfigValue(Slot.TRIGGER, 0, "package", "com.example")
+        editor.setConfigValue(Slot.TRIGGER, 0, "package", "")
+
+        assertTrue(!editor.state.value.draft.trigger!!.config.containsKey("package"))
+    }
+
+    @Test
+    fun removing_an_action_leaves_the_others_alone() = runTest {
+        val editor = viewModel()
+        editor.chooseTrigger("screen_state")
+        editor.addAction("toast")
+        editor.addAction("vibrate")
+        editor.addAction("speak")
+
+        editor.removeAction(1)
+
+        assertEquals(
+            listOf("toast", "speak"),
+            editor.state.value.draft.actions.map { it.type },
+        )
+    }
+
+    @Test
+    fun moving_an_action_out_of_range_is_ignored_rather_than_crashing() = runTest {
+        val editor = viewModel()
+        editor.chooseTrigger("screen_state")
+        editor.addAction("toast")
+
+        editor.moveAction(0, 5)
+
+        assertEquals(listOf("toast"), editor.state.value.draft.actions.map { it.type })
+    }
+}

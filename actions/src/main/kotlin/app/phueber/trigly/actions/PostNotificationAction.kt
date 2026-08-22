@@ -9,6 +9,7 @@ import app.phueber.trigly.core.Action
 import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ActionResult
+import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.TriggerEvent
 
 /**
@@ -70,6 +71,18 @@ class PostNotificationActionFactory(
     private val context: Context,
 ) : ActionFactory {
     override val type: String = PostNotificationAction.TYPE
+
+    override val displayName = "Show a notification"
+    override val category = ActionCategory.NOTIFY
+
+    override val configFields = listOf(
+        ConfigField.Text(
+            key = PostNotificationAction.CONFIG_TITLE,
+            label = "Title",
+            blankMeaning = "Defaults to \"Trigly\"",
+        ),
+        messageText(PostNotificationAction.CONFIG_BODY, "Message", required = false),
+    )
 
     override val requirements = listOf(
         ComponentRequirement.RuntimePermission("android.permission.POST_NOTIFICATIONS"),

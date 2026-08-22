@@ -3,6 +3,7 @@ package app.phueber.trigly.triggers
 import android.content.ClipboardManager
 import android.content.Context
 import app.phueber.trigly.core.ComponentRequirement
+import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
@@ -71,6 +72,22 @@ class ClipboardTrigger(
 
 class ClipboardTriggerFactory(private val context: Context) : TriggerFactory {
     override val type = ClipboardTrigger.TYPE
+
+    override val displayName = "Clipboard changes"
+    override val category = Category.DEVICE
+
+    override val configFields = listOf(
+        ConfigField.Text(
+            key = ClipboardTrigger.CONFIG_TEXT_CONTAINS,
+            label = "Only if it contains",
+            blankMeaning = "Leave blank for any copied text",
+        ),
+    )
+
+    override val warning: String =
+        "Android 10 and later only let an app read the clipboard while it is open, " +
+            "is the default keyboard, or is an accessibility service. Without " +
+            "Trigly's accessibility service enabled this will not fire."
 
     override val requirements = listOf(
         ComponentRequirement.PolicyRestricted(

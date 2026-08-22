@@ -40,6 +40,13 @@ class AirplaneModeTrigger(
 class AirplaneModeTriggerFactory(private val context: Context) : TriggerFactory {
     override val type = AirplaneModeTrigger.TYPE
 
+    override val displayName = "Airplane mode"
+    override val category = Category.RADIOS
+
+    override val configFields = listOf(
+        stateChoice("Fires when airplane mode is", "enabled", "turned on", "disabled", "turned off"),
+    )
+
     override fun create(config: Map<String, String>): Trigger = AirplaneModeTrigger(
         context = context,
         onEnabled = parseTarget(

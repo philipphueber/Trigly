@@ -9,6 +9,7 @@ import android.os.PersistableBundle
 import app.phueber.trigly.core.Action
 import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ActionResult
+import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.TriggerEvent
 
 /**
@@ -54,6 +55,19 @@ class ClipboardWriteAction(
 
 class ClipboardWriteActionFactory(private val context: Context) : ActionFactory {
     override val type = ClipboardWriteAction.TYPE
+
+    override val displayName = "Copy text"
+    override val category = ActionCategory.DEVICE
+
+    override val configFields = listOf(
+        messageText(ClipboardWriteAction.CONFIG_TEXT, "Text to copy"),
+        ConfigField.Flag(
+            key = ClipboardWriteAction.CONFIG_SENSITIVE,
+            label = "Hide from the copy preview",
+            help = "Android 13 and later show what was copied on screen. Turn this " +
+                "on for passwords and codes.",
+        ),
+    )
 
     override fun create(config: Map<String, String>): Action = ClipboardWriteAction(
         context = context,

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
 import app.phueber.trigly.core.ComponentRequirement
+import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerFactory
 
@@ -76,6 +77,26 @@ class SmsReceivedTrigger(
 
 class SmsReceivedTriggerFactory(private val context: Context) : TriggerFactory {
     override val type = SmsReceivedTrigger.TYPE
+
+    override val displayName = "SMS received"
+    override val category = Category.TELEPHONY
+
+    override val configFields = listOf(
+        ConfigField.Text(
+            key = SmsReceivedTrigger.CONFIG_SENDER_CONTAINS,
+            label = "Sender contains",
+            blankMeaning = "Leave blank for any sender",
+        ),
+        ConfigField.Text(
+            key = SmsReceivedTrigger.CONFIG_BODY_CONTAINS,
+            label = "Message contains",
+            blankMeaning = "Leave blank for any message",
+        ),
+    )
+
+    override val warning: String =
+        "Google Play restricts SMS access to the default messaging app, so this " +
+            "trigger cannot work in a Play Store build of Trigly."
 
     override val requirements = listOf(
         ComponentRequirement.RuntimePermission(Manifest.permission.RECEIVE_SMS),

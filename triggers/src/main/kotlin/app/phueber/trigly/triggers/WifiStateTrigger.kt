@@ -57,6 +57,19 @@ class WifiStateTrigger(
 class WifiStateTriggerFactory(private val context: Context) : TriggerFactory {
     override val type = WifiStateTrigger.TYPE
 
+    override val displayName = "Wi-Fi radio"
+    override val category = Category.RADIOS
+
+    override val configFields = listOf(
+        stateChoice(
+            label = "Fires when Wi-Fi is",
+            onValue = "enabled", onLabel = "turned on",
+            offValue = "disabled", offLabel = "turned off",
+            help = "The radio itself, not connecting to a network. " +
+                "Matching a specific network name needs location permission.",
+        ),
+    )
+
     override fun create(config: Map<String, String>): Trigger = WifiStateTrigger(
         context = context,
         onEnabled = parseTarget(

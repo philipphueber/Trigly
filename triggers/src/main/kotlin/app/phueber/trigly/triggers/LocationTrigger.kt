@@ -9,6 +9,7 @@ import android.location.LocationManager
 import android.os.Bundle
 import android.os.Looper
 import app.phueber.trigly.core.ComponentRequirement
+import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
@@ -136,6 +137,46 @@ class LocationTrigger(
 
 class LocationTriggerFactory(private val context: Context) : TriggerFactory {
     override val type = LocationTrigger.TYPE
+
+    override val displayName = "Enter or leave an area"
+    override val category = Category.LOCATION
+
+    override val configFields = listOf(
+        ConfigField.Decimal(
+            key = LocationTrigger.CONFIG_LATITUDE,
+            label = "Latitude",
+            required = true,
+            min = -90.0,
+            max = 90.0,
+        ),
+        ConfigField.Decimal(
+            key = LocationTrigger.CONFIG_LONGITUDE,
+            label = "Longitude",
+            required = true,
+            min = -180.0,
+            max = 180.0,
+        ),
+        ConfigField.Decimal(
+            key = LocationTrigger.CONFIG_RADIUS_METERS,
+            label = "Radius",
+            required = true,
+            min = 1.0,
+            unit = "m",
+        ),
+        stateChoice("Fires when you", "entered", "arrive", "exited", "leave"),
+        ConfigField.Number(
+            key = LocationTrigger.CONFIG_MIN_INTERVAL_MILLIS,
+            label = "Minimum time between checks",
+            default = LocationTrigger.DEFAULT_MIN_INTERVAL_MILLIS,
+            min = 1000,
+            unit = "ms",
+            help = "Shorter intervals detect the boundary sooner and cost more battery.",
+        ),
+    )
+
+    override val warning: String =
+        "Holds an active GPS request while the rule is enabled, which is expensive. " +
+            "Prefer a generous radius and a long check interval."
 
     override val requirements = listOf(
         ComponentRequirement.RuntimePermission(Manifest.permission.ACCESS_FINE_LOCATION),

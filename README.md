@@ -10,7 +10,7 @@ does not touch the existing ones.
 
 | Module      | Holds                                                                  |
 |-------------|------------------------------------------------------------------------|
-| `:core`     | `TriggerEngine`, domain model, rule storage. No UI, no Compose.        |
+| `:core`     | `TriggerEngine`, domain model, rule storage (Room), portable JSON.     |
 | `:triggers` | Trigger implementations, one per type.                                 |
 | `:actions`  | Action implementations, one per type.                                   |
 | `:ui`       | Compose screens, ViewModels, and the app assembly point. Applies the Android application plugin. |
@@ -39,16 +39,29 @@ The Gradle wrapper is checked in, so no Gradle install is needed:
 2. Add one line to `triggerFactories()` in that module.
 3. Declare any permission it needs in `triggers/src/main/AndroidManifest.xml`,
    next to the code that needs it.
+4. On the factory, declare `displayName`, `category` and `configFields` — a
+   `ConfigField` per setting your `create()` reads. That is what the rule editor
+   renders a form from; without it your trigger exists but cannot be configured.
+   `ConfigSchemaContractTest` fails if you skip it.
 
 Nothing in `:core` or in a sibling trigger should change. If it must, the
-interface is wrong — fix the interface. Actions follow the same three steps in
+interface is wrong — fix the interface. Actions follow the same four steps in
 `:actions`.
 
 ## Status
 
 Early. Implemented: the engine, the plugin seams, the requirement model and the
-permission flow around it, **28 triggers**, **18 actions**, and a rules list
-screen that explains why a rule cannot fire.
+permission flow around it, **28 triggers**, **18 actions**, a rules list screen
+that explains why a rule cannot fire, and a **rule editor** — pick a trigger and
+actions from grouped pickers, fill in a form generated from each component's
+declared config schema, and save. Rules persist in a local database and survive
+process death.
+
+Rules can be **exported and imported** as versioned JSON, one rule or all of
+them. That is the phone-switch story: Android's Auto Backup needs a Google
+account and does not run on de-Googled devices, so an explicit file you own is
+the only mechanism that always works — and it doubles as a way to share a rule
+with someone else.
 
 Triggers cover device state (battery, power, radios, screen, headset, theme,
 orientation, location), apps and settings (install, foreground, work profile,
@@ -73,7 +86,6 @@ a rule that does.
 
 Not yet implemented, and each has a `TODO` at the relevant place in the code:
 
-- **Persistence.** Rules live in memory and are lost on process death.
 - **Background execution.** The engine runs in the application scope, so it
   stops with the process — which currently makes *every* trigger unreliable, not
   just future ones. It needs a foreground service. This is the next thing worth
