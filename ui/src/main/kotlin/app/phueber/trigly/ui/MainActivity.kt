@@ -11,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,7 +61,7 @@ class MainActivity : ComponentActivity() {
         // Android 15 draws apps behind the system bars whether they opt in or
         // not; calling this makes the behaviour the same on every version we
         // support, so the screens only have to handle one case. The insets are
-        // then consumed per screen by `Scaffold`.
+        // then owned by `BlockHeader` and `BlockBottomBar`.
         enableEdgeToEdge()
         setContent {
             TriglyTheme {
@@ -72,30 +73,44 @@ class MainActivity : ComponentActivity() {
                     listViewModel.clearMessage()
                 }
 
-                when (val current = screen) {
-                    Screen.RuleList -> {
-                        val statuses by listViewModel.statuses.collectAsStateWithLifecycle()
-                        RulesScreen(
-                            statuses = statuses,
-                            onEnabledChange = listViewModel::setEnabled,
-                            onResolve = ::resolve,
-                            onNewRule = { screen = Screen.RuleEditor(null) },
-                            onEditRule = { screen = Screen.RuleEditor(it) },
-                            onExportAll = { export(listViewModel.exportAll(), "trigly-rules.json") },
-                            onExportRule = ::exportSingle,
-                            onImport = { openDocument.launch(arrayOf("application/json", "text/*")) },
-                            describeComponent = container.registry::displayNameOf,
-                        )
-                    }
-
-                    is Screen.RuleEditor -> {
-                        BackHandler { screen = Screen.RuleList }
-                        EditorHost(
-                            ruleId = current.ruleId,
-                            onDone = { screen = Screen.RuleList },
-                        )
-                    }
+                // Read once, here: the package query costs a few hundred
+                // milliseconds and every app-package field wants the same answer.
+                val installedApps by rememberInstalledApps()
+                CompositionLocalProvider(LocalInstalledApps provides installedApps) {
+                    Destination(
+                        screen = screen,
+                        onNavigate = { screen = it },
+                    )
                 }
+            }
+        }
+    }
+
+    /** The two destinations, split out so the providers above stay readable. */
+    @androidx.compose.runtime.Composable
+    private fun Destination(screen: Screen, onNavigate: (Screen) -> Unit) {
+        when (screen) {
+            Screen.RuleList -> {
+                val statuses by listViewModel.statuses.collectAsStateWithLifecycle()
+                RulesScreen(
+                    statuses = statuses,
+                    onEnabledChange = listViewModel::setEnabled,
+                    onResolve = ::resolve,
+                    onNewRule = { onNavigate(Screen.RuleEditor(null)) },
+                    onEditRule = { onNavigate(Screen.RuleEditor(it)) },
+                    onExportAll = { export(listViewModel.exportAll(), "trigly-rules.json") },
+                    onExportRule = ::exportSingle,
+                    onImport = { openDocument.launch(arrayOf("application/json", "text/*")) },
+                    describeComponent = container.registry::displayNameOf,
+                )
+            }
+
+            is Screen.RuleEditor -> {
+                BackHandler { onNavigate(Screen.RuleList) }
+                EditorHost(
+                    ruleId = screen.ruleId,
+                    onDone = { onNavigate(Screen.RuleList) },
+                )
             }
         }
     }
