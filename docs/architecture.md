@@ -184,6 +184,73 @@ Each bus also exposes whether its service is connected. A trigger whose service
 is not bound is not quiet, it is broken, and that difference has to be
 expressible.
 
+## Look and feel
+
+### One orange, not the user's wallpaper
+
+The palette is declared as a *tonal* one — the brand hue at a dozen lightness
+steps in `Color.kt` — and both the light and dark schemes are assembled from
+those tones in `Theme.kt`. Naming the tones rather than the uses is what makes
+the reuse visible: light `primary` and dark `onPrimaryContainer` are the same
+tone, which is a fact about the palette rather than a coincidence to maintain
+twice. Re-branding means changing the hue of the tones and nothing else.
+
+**Material You dynamic colour is deliberately off.** It is the right default for
+an app with no colour of its own; here the orange *is* the identity, and an
+automation app whose screenshots and docs look different on every phone is not
+friendlier. Dark mode follows the system, because there is no settings screen yet
+in which a manual override would belong.
+
+The window background is declared twice — once as a Compose tone, once as
+`@color/window_background` for the platform theme — because the framework paints
+the window before any Compose code runs, and a dark-mode launch would otherwise
+flash white. `values-night` carries the dark variant rather than a `DayNight`
+parent, which only exists from API 29.
+
+### Warnings are not errors
+
+A component's caveat ("this polls, so it costs battery"; "Android 12 suppresses
+these in the background") is not a failure. The rule is valid and will save. So
+caveats get their own amber — `TriglyExtraColors.caution`, the one role Material
+3 has no slot for — and `colorScheme.error` is kept for things that actually
+went wrong: a refused save, a permission that is missing, a rule that cannot
+fire. Once two thirds of the triggers carry a caveat, drawing them all in red
+teaches people to ignore red.
+
+Caveats are also shown at a different *time* than they used to be. The picker
+printed each component's full warning under its name, on the reasoning that a
+caveat is most useful before the choice is made — but the list became a wall of
+prose in which no single item could be read. The picker now marks that a caveat
+exists with one glyph, and the editor states the sentence in full once the
+component is chosen, which is the moment it is actionable and swapping it out is
+still one tap away.
+
+### Insets are the screen's job
+
+Since Android 15 an app targeting API 35 draws behind the status and navigation
+bars whether it opts in or not, so `MainActivity` calls `enableEdgeToEdge()` to
+make every supported version behave the same way and each screen consumes the
+insets through a `Scaffold`. That is also why the editor's Save and Delete live
+in a bottom bar rather than at the end of the scroll: a rule with six actions is
+taller than a screen, and the bar keeps the primary action clear of the gesture
+navigation area that content scrolls under.
+
+### Only what the device can run
+
+The editor's pickers list components this phone can actually execute.
+`RequirementChecker.isPossible` draws the line that `isSatisfied` cannot: a
+missing permission is a prompt away, while an API that arrived after this
+phone's Android version and a radio it does not have are permanent. Offering a
+trigger that can never fire is worse than omitting it — the user builds a rule
+around it, nothing happens, and the app looks broken rather than honest.
+
+Two deliberate exclusions from that filter. `PolicyRestricted` does **not** hide
+a component: it says Google will not publish it on Play, which has nothing to do
+with whether it works on the device in front of you, and Trigly is meant to be
+sideloadable. And the filter applies to the *pickers only* — `Registry` stays
+device-agnostic and `descriptorFor` looks up unfiltered, so a rule imported from
+a newer phone still renders its trigger instead of going blank.
+
 ## Testing posture
 
 Instrumented tests on real devices matter more here than unit tests. The real

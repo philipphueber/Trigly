@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
@@ -40,6 +41,7 @@ class RuleEditorScreenTest {
 
     private val configChanges = mutableListOf<Triple<Slot, String, String?>>()
     private var saves = 0
+    private var backs = 0
 
     @Composable
     private fun Editor(state: EditorState) {
@@ -63,6 +65,7 @@ class RuleEditorScreenTest {
             onConfigChange = { slot, _, key, value -> configChanges += Triple(slot, key, value) },
             onSave = { saves++ },
             onDelete = {},
+            onBack = { backs++ },
             onResolveRequirement = {},
         )
     }
@@ -257,6 +260,53 @@ class RuleEditorScreenTest {
         composeRule.onNodeWithText("Search").performTextReplacement("zzzz")
 
         composeRule.onNodeWithText("Nothing matches \"zzzz\".").assertIsDisplayed()
+    }
+
+    @Test
+    fun back_is_reported() {
+        // The editor is a full screen with no visible way out other than this.
+        composeRule.setContent { Editor(EditorState(RuleDraft(id = null))) }
+
+        composeRule.onNodeWithContentDescription("Back").performClick()
+
+        assertEquals(1, backs)
+    }
+
+    @Test
+    fun the_picker_marks_a_caveat_instead_of_printing_it() {
+        // Two thirds of the triggers carry a warning. Printing each one in the
+        // list made it unreadable, so the list marks that a caveat exists and
+        // the editor states it once the component is chosen.
+        val caveated = registry.triggerDescriptors.first { it.warning != null }
+
+        composeRule.setContent {
+            ComponentPickerDialog(
+                title = "Choose a trigger",
+                options = listOf(caveated),
+                onPick = {},
+                onDismiss = {},
+            )
+        }
+
+        composeRule.onNodeWithText(caveated.displayName).assertIsDisplayed()
+        composeRule.onNodeWithContentDescription(CAVEAT_DESCRIPTION).assertIsDisplayed()
+        composeRule.onNodeWithText(caveated.warning!!).assertDoesNotExist()
+    }
+
+    @Test
+    fun the_picker_leaves_an_uncomplicated_component_unmarked() {
+        val plain = registry.triggerDescriptors.first { it.warning == null }
+
+        composeRule.setContent {
+            ComponentPickerDialog(
+                title = "Choose a trigger",
+                options = listOf(plain),
+                onPick = {},
+                onDismiss = {},
+            )
+        }
+
+        composeRule.onNodeWithContentDescription(CAVEAT_DESCRIPTION).assertDoesNotExist()
     }
 
     @Test

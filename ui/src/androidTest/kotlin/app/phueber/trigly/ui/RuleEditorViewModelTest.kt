@@ -3,15 +3,21 @@ package app.phueber.trigly.ui
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import app.phueber.trigly.actions.actionFactories
+import android.os.Build
+import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ComponentSpec
 import app.phueber.trigly.core.InMemoryRuleRepository
 import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.Registry
 import app.phueber.trigly.core.RequirementChecker
 import app.phueber.trigly.core.Rule
+import app.phueber.trigly.core.Trigger
+import app.phueber.trigly.core.TriggerEvent
+import app.phueber.trigly.core.TriggerFactory
 import app.phueber.trigly.triggers.triggerFactories
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -19,6 +25,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -302,5 +309,87 @@ class RuleEditorViewModelTest {
         editor.moveAction(0, 5)
 
         assertEquals(listOf("toast"), editor.state.value.draft.actions.map { it.type })
+    }
+
+    @Test
+    fun the_pickers_hide_what_this_device_can_never_run() {
+        // Stand-in components rather than real ones, so the assertion does not
+        // depend on what the test device happens to support.
+        val editor = RuleEditorViewModel(
+            InMemoryRuleRepository(),
+            Registry(
+                triggerFactories = listOf(
+                    FakeTriggerFactory(
+                        "from_the_future",
+                        "From the future",
+                        ComponentRequirement.MinApiLevel(Build.VERSION.SDK_INT + 1),
+                    ),
+                    FakeTriggerFactory(
+                        "absent_hardware",
+                        "Absent hardware",
+                        ComponentRequirement.SystemFeature("trigly.test.no.such.feature"),
+                    ),
+                    FakeTriggerFactory(
+                        "needs_permission",
+                        "Needs a permission",
+                        ComponentRequirement.RuntimePermission("android.permission.READ_SMS"),
+                    ),
+                    FakeTriggerFactory(
+                        "play_restricted",
+                        "Play would refuse this",
+                        ComponentRequirement.PolicyRestricted("Play policy"),
+                    ),
+                    FakeTriggerFactory("plain", "Plain"),
+                ),
+                actionFactories = emptyList(),
+            ),
+            RequirementChecker(context),
+            null,
+        )
+
+        // Hidden: nothing the user can do fixes a missing API or a missing radio.
+        // Kept: a permission is a prompt away, and a Play restriction says
+        // nothing about whether it works on the device in front of you.
+        assertEquals(
+            listOf("needs_permission", "plain", "play_restricted"),
+            editor.triggerOptions.map { it.type }.sorted(),
+        )
+    }
+
+    @Test
+    fun a_hidden_component_still_resolves_for_a_rule_that_already_uses_it() {
+        // The filter is for the picker only. An imported rule, or one built on a
+        // newer phone, must still render rather than going blank.
+        val editor = RuleEditorViewModel(
+            InMemoryRuleRepository(),
+            Registry(
+                triggerFactories = listOf(
+                    FakeTriggerFactory(
+                        "from_the_future",
+                        "From the future",
+                        ComponentRequirement.MinApiLevel(Build.VERSION.SDK_INT + 1),
+                    ),
+                ),
+                actionFactories = emptyList(),
+            ),
+            RequirementChecker(context),
+            null,
+        )
+
+        assertTrue(editor.triggerOptions.isEmpty())
+        assertNotNull(editor.descriptorFor(Slot.TRIGGER, "from_the_future"))
+    }
+
+    private class FakeTriggerFactory(
+        override val type: String,
+        override val displayName: String,
+        vararg requirement: ComponentRequirement,
+    ) : TriggerFactory {
+        override val category: String = "Test"
+        override val requirements: List<ComponentRequirement> = requirement.toList()
+        override fun create(config: Map<String, String>): Trigger =
+            object : Trigger {
+                override fun events() = emptyFlow<TriggerEvent>()
+            }
     }
 }

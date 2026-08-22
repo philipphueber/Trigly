@@ -57,6 +57,10 @@ actions from grouped pickers, fill in a form generated from each component's
 declared config schema, and save. Rules persist in a local database and survive
 process death.
 
+The pickers list only what the phone can actually run: a trigger needing an API
+this Android version does not have, or hardware the device lacks, is not offered
+at all. Each component's caveats are stated in full once it is chosen.
+
 Rules can be **exported and imported** as versioned JSON, one rule or all of
 them. That is the phone-switch story: Android's Auto Backup needs a Google
 account and does not run on de-Googled devices, so an explicit file you own is

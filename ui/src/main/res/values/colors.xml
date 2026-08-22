@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Kept in step with `Tone.Neutral98` / `Tone.Neutral6` in Color.kt. Two
+      declarations of one colour is not ideal, but the window background is
+      resolved by the framework before any Compose code runs, so there is no
+      way to read it from the theme.
+    -->
+    <color name="window_background">#FFF8F5</color>
+</resources>

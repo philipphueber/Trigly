@@ -8,9 +8,9 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,8 +57,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Android 15 draws apps behind the system bars whether they opt in or
+        // not; calling this makes the behaviour the same on every version we
+        // support, so the screens only have to handle one case. The insets are
+        // then consumed per screen by `Scaffold`.
+        enableEdgeToEdge()
         setContent {
-            MaterialTheme {
+            TriglyTheme {
                 var screen by remember { mutableStateOf<Screen>(Screen.RuleList) }
 
                 val message by listViewModel.message.collectAsStateWithLifecycle()
@@ -132,6 +137,7 @@ class MainActivity : ComponentActivity() {
             onConfigChange = editor::setConfigValue,
             onSave = editor::save,
             onDelete = editor::delete,
+            onBack = onDone,
             onResolveRequirement = ::resolve,
         )
     }
