@@ -19,12 +19,15 @@ import android.service.notification.StatusBarNotification
 class TriglyNotificationListenerService : NotificationListenerService() {
 
     override fun onListenerConnected() {
-        NotificationEvents.posted.setConnected(true)
+        NotificationEvents.attach(this)
         NotificationEvents.setInterruptionFilter(currentInterruptionFilter)
     }
 
     override fun onListenerDisconnected() {
-        NotificationEvents.posted.setConnected(false)
+        // The system unbinds and rebinds this freely — on an update, on low
+        // memory, when the user toggles access. Dropping the reference here is
+        // what keeps actions from calling into a dead service.
+        NotificationEvents.detach()
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {

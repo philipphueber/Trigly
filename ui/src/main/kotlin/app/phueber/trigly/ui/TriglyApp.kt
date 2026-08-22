@@ -6,12 +6,14 @@ import app.phueber.trigly.actions.PostNotificationAction
 import app.phueber.trigly.actions.actionFactories
 import app.phueber.trigly.core.ComponentSpec
 import app.phueber.trigly.core.InMemoryRuleRepository
+import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.Registry
 import app.phueber.trigly.core.RequirementChecker
 import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.RuleRepository
 import app.phueber.trigly.core.TriggerEngine
 import app.phueber.trigly.triggers.IntervalTrigger
+import app.phueber.trigly.triggers.notification.ListenerNotificationController
 import app.phueber.trigly.triggers.triggerFactories
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -45,9 +47,16 @@ class AppContainer(context: Context) {
      */
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    /**
+     * The adapter from `:triggers` that lets actions in `:actions` reach the
+     * notification listener service. Wired here because this is the only place
+     * that can see both modules.
+     */
+    private val notificationController: NotificationController = ListenerNotificationController()
+
     val registry: Registry = Registry(
         triggerFactories = triggerFactories(context),
-        actionFactories = actionFactories(context),
+        actionFactories = actionFactories(context, notificationController),
     )
 
     val ruleRepository: RuleRepository = InMemoryRuleRepository(sampleRules())

@@ -2,6 +2,7 @@ package app.phueber.trigly.triggers.notification
 
 import android.app.NotificationManager
 import app.phueber.trigly.core.ComponentRequirement
+import app.phueber.trigly.core.SharedPayloadKeys
 import app.phueber.trigly.core.SpecialAccessKind
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
@@ -53,6 +54,9 @@ class NotificationPostedTrigger(
                 triggerType = TYPE,
                 firedAtMillis = posted.postedAtMillis,
                 payload = buildMap {
+                    // Carried so the dismiss and button actions can target this
+                    // exact notification; it cannot be known ahead of time.
+                    put(SharedPayloadKeys.NOTIFICATION_KEY, posted.key)
                     put(PAYLOAD_PACKAGE, posted.packageName)
                     posted.title?.let { put(PAYLOAD_TITLE, it) }
                     posted.text?.let { put(PAYLOAD_TEXT, it) }

@@ -47,7 +47,7 @@ interface is wrong — fix the interface. Actions follow the same three steps in
 ## Status
 
 Early. Implemented: the engine, the plugin seams, the requirement model and the
-permission flow around it, **27 triggers**, **15 actions**, and a rules list
+permission flow around it, **27 triggers**, **18 actions**, and a rules list
 screen that explains why a rule cannot fire.
 
 Triggers cover device state (battery, power, radios, screen, headset, theme,
@@ -57,8 +57,9 @@ accessibility, calls, SMS, clipboard).
 
 Actions cover notifying (notification, toast, speech, vibration), opening
 (website, app), handing off to another app for the user to confirm (email, SMS,
-alarm, calendar), device state (volume, ringer, clipboard), and HTTP requests
-for webhooks and home automation.
+alarm, calendar), device state (volume, ringer, clipboard, Do Not Disturb),
+other apps' notifications (dismiss, press a button), and HTTP requests for
+webhooks and home automation.
 
 `docs/triggers.md` and `docs/actions.md` catalogue every trigger and action with
 its Android API, required permission and known pitfalls — including the ones
