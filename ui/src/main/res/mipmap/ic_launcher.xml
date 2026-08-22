@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The launcher icon, adaptive and vector all the way down.
+
+  There are no PNG mipmaps in this project and there do not need to be: adaptive
+  icons arrived in API 26 and `minSdk` is 26, so every device that can install
+  Trigly can render this. That is the whole reason there is no `mipmap-hdpi`
+  ladder to keep in sync.
+
+  The same fact is why this sits in a bare `mipmap/` rather than the
+  `mipmap-anydpi-v26` the templates generate. That qualifier exists to hide
+  adaptive icons from API 25 and below, and there is no API 25 here to hide them
+  from — lint says as much (ObsoleteSdkInt) the moment you use it. Note that its
+  suggested fix, `mipmap-anydpi`, does not work: AAPT2 ignores that folder
+  outright and the build fails with "resource mipmap/ic_launcher not found".
+  No qualifier at all is the version that both builds and lints clean.
+
+  No `android:roundIcon` either. A launcher that wants a circle gets one by
+  masking this; a second asset saying the same thing would be one more file to
+  forget when the mark changes.
+
+  The `monochrome` layer is what Android 13's themed icons tint to the user's
+  wallpaper palette. It reuses the foreground because the mark is already a
+  single flat silhouette — the layer only reads the alpha, so the fill colour in
+  the foreground is ignored here.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>

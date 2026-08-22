@@ -1,0 +1,25 @@
+<!--
+  The Trigly mark. Chosen from the explorations in `_explore/` (it was `e`).
+
+  A T whose stem runs into an arrowhead: something fires, something follows,
+  which is the whole product in one shape. The alternatives were a turn (a, f)
+  and a cascade (b), both of which read as "a path" or "a list" rather than as
+  cause and effect.
+
+  Drawn on a 108x108 board because that is the Android adaptive-icon canvas, out
+  of axis-aligned rectangles and one triangle — the same brutalism as the app's
+  blocks. Colours are `Tone.Orange60` on `Tone.Ink` from `ui/.../Palette.kt`.
+
+  This file is the source of truth. The launcher icon transcribes these three
+  shapes into `ui/src/main/res/drawable/ic_launcher_foreground.xml`, where a
+  VectorDrawable has no <rect> and each becomes a path with the same numbers —
+  and where the whole mark is scaled to 0.94 to clear a circular mask.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="108" height="108">
+  <rect width="108" height="108" fill="#EC6206"/>
+  <g fill="#17100C">
+    <rect x="32" y="29" width="44" height="12"/>
+    <rect x="49" y="41" width="10" height="22"/>
+    <path d="M42,63 H66 L54,79 Z"/>
+  </g>
+</svg>
