@@ -1,11 +1,14 @@
 package app.phueber.trigly.ui
 
 import android.content.Intent
+import android.content.res.Configuration
+import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -62,7 +65,27 @@ class MainActivity : ComponentActivity() {
         // not; calling this makes the behaviour the same on every version we
         // support, so the screens only have to handle one case. The insets are
         // then owned by `BlockHeader` and `BlockBottomBar`.
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            // The status bar sits on `BlockHeader`, which is `colorScheme.primary`
+            // — and primary *inverts* against the theme: a dark orange band in
+            // light mode, a light peach one in dark. The no-argument default picks
+            // icon polarity from the system theme, so it is backwards in both
+            // directions, not one: measured 2.33:1 in light and 1.70:1 in dark,
+            // against the 3:1 floor for interface icons.
+            //
+            // Inverting it puts light icons on the orange band and dark icons on
+            // the peach one. Read the lambda as "is the bar background dark?",
+            // which is true exactly when the app is in *light* mode.
+            statusBarStyle = SystemBarStyle.auto(
+                lightScrim = Color.TRANSPARENT,
+                darkScrim = Color.TRANSPARENT,
+            ) { resources ->
+                val night = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
+                night != Configuration.UI_MODE_NIGHT_YES
+            },
+            // The navigation bar is left alone deliberately: it sits over the page
+            // background, which does follow the theme, so the default is right.
+        )
         setContent {
             TriglyTheme {
                 var screen by remember { mutableStateOf<Screen>(Screen.RuleList) }
