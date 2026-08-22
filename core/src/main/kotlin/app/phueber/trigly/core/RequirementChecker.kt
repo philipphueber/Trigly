@@ -49,6 +49,46 @@ class RequirementChecker(private val context: Context) {
     fun unmet(requirements: List<ComponentRequirement>): List<ComponentRequirement> =
         requirements.filterNot(::isSatisfied)
 
+    /**
+     * Whether *anything the user could do* would make this requirement hold.
+     *
+     * The distinction [isSatisfied] cannot make: a missing permission is a
+     * prompt away, while an API that arrived after this phone's Android version
+     * and a radio the phone does not have are permanent. Only two of the five
+     * requirement kinds can fail permanently, which is why this is a short
+     * `when` rather than a flag on the requirement.
+     *
+     * [ComponentRequirement.PolicyRestricted] is deliberately *not* permanent.
+     * It says Google will not publish this on Play, which has nothing to do with
+     * whether it works on the device in front of you — and Trigly is meant to be
+     * sideloadable, so hiding those would remove working features from the
+     * people most likely to want them.
+     */
+    fun isPossible(requirement: ComponentRequirement): Boolean = when (requirement) {
+        is ComponentRequirement.MinApiLevel,
+        is ComponentRequirement.SystemFeature,
+        -> isSatisfied(requirement)
+
+        is ComponentRequirement.RuntimePermission,
+        is ComponentRequirement.SpecialAccess,
+        is ComponentRequirement.PolicyRestricted,
+        -> true
+    }
+
+    /**
+     * Whether this component can work on this device at all.
+     *
+     * What the editor's pickers filter on. Offering a trigger that this phone
+     * can never fire is worse than not listing it: the user builds a rule around
+     * it, nothing happens, and the app looks broken rather than honest.
+     */
+    fun isAvailable(descriptor: ComponentDescriptor): Boolean =
+        descriptor.requirements.all(::isPossible)
+
+    /** Why a component is unavailable, for the rare case something must explain it. */
+    fun impossible(descriptor: ComponentDescriptor): List<ComponentRequirement> =
+        descriptor.requirements.filterNot(::isPossible)
+
     /** Everything standing between [rule] and firing. Empty means nothing is. */
     fun unmet(rule: Rule, registry: Registry): List<ComponentRequirement> =
         unmet(registry.requirementsOf(rule))

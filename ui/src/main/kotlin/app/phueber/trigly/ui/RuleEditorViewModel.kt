@@ -33,8 +33,26 @@ class RuleEditorViewModel(
     private val _state = MutableStateFlow(EditorState(RuleDraft(id = ruleId)))
     val state: StateFlow<EditorState> = _state.asStateFlow()
 
-    val triggerOptions: List<ComponentDescriptor> get() = registry.triggerDescriptors
-    val actionOptions: List<ComponentDescriptor> get() = registry.actionDescriptors
+    /**
+     * What the pickers offer: only what this device can actually run.
+     *
+     * A trigger whose API arrived after this phone's Android version, or whose
+     * radio the phone does not have, is filtered out — building a rule around it
+     * would produce something that silently never fires. Permission-gated
+     * components stay: those are a prompt away, and the editor states the
+     * requirement inline.
+     *
+     * Filtered here rather than in `Registry`, which is deliberately
+     * device-agnostic — the engine must resolve a stored type on any device,
+     * including one where the picker would no longer offer it. [descriptorFor]
+     * goes to the registry unfiltered for exactly that reason, so an imported or
+     * previously-saved rule still renders its component instead of going blank.
+     */
+    val triggerOptions: List<ComponentDescriptor>
+        get() = registry.triggerDescriptors.filter(checker::isAvailable)
+
+    val actionOptions: List<ComponentDescriptor>
+        get() = registry.actionDescriptors.filter(checker::isAvailable)
 
     init {
         if (ruleId != null) {

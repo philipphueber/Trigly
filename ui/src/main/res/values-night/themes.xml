@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      The dark counterpart. A separate qualifier rather than a DayNight parent,
+      because `android:Theme.Material.DayNight` only exists from API 29 and
+      minSdk here is 26.
+    -->
+    <style name="Theme.Trigly" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+    </style>
+</resources>

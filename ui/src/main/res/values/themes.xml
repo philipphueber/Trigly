@@ -4,6 +4,13 @@
       A platform theme, so the app pulls in no AppCompat or Material-View
       dependency: colours and typography come from Compose Material3, and this
       only needs to provide a window with no ActionBar.
+
+      It does have to get the *window background* right, though. It is what is
+      painted before the first Compose frame, so leaving it at the platform
+      default flashes white on a dark-mode launch. The value mirrors the
+      Compose `surface` colour; see `values-night` for the dark counterpart.
     -->
-    <style name="Theme.Trigly" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.Trigly" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+    </style>
 </resources>
