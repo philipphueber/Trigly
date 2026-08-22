@@ -5,6 +5,7 @@ import android.media.AudioManager
 import app.phueber.trigly.core.Action
 import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ActionResult
+import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.SpecialAccessKind
 import app.phueber.trigly.core.TriggerEvent
@@ -78,6 +79,29 @@ class SetVolumeAction(
 class SetVolumeActionFactory(private val context: Context) : ActionFactory {
     override val type = SetVolumeAction.TYPE
 
+    override val displayName = "Set the volume"
+    override val category = ActionCategory.DEVICE
+
+    override val configFields = listOf(
+        ConfigField.Choice(
+            key = VolumeStream.CONFIG_KEY,
+            label = "Which volume",
+            options = VolumeStream.entries.map {
+                ConfigField.Option(it.configValue, it.configValue)
+            },
+        ),
+        ConfigField.Number(
+            key = SetVolumeAction.CONFIG_PERCENT,
+            label = "Set to",
+            required = true,
+            min = 0,
+            max = 100,
+            unit = "%",
+            help = "A percentage, because the number of volume steps differs by " +
+                "phone and by stream.",
+        ),
+    )
+
     override fun create(config: Map<String, String>): Action {
         val raw = config[SetVolumeAction.CONFIG_PERCENT]
             ?: error("$type needs '${SetVolumeAction.CONFIG_PERCENT}'")
@@ -146,6 +170,19 @@ class SetRingerModeAction(
 
 class SetRingerModeActionFactory(private val context: Context) : ActionFactory {
     override val type = SetRingerModeAction.TYPE
+
+    override val displayName = "Set ringer mode"
+    override val category = ActionCategory.DEVICE
+
+    override val configFields = listOf(
+        ConfigField.Choice(
+            key = RingerMode.CONFIG_KEY,
+            label = "Switch to",
+            options = RingerMode.entries.map {
+                ConfigField.Option(it.configValue, it.configValue)
+            },
+        ),
+    )
 
     override val requirements = listOf(
         ComponentRequirement.SpecialAccess(SpecialAccessKind.NOTIFICATION_POLICY),

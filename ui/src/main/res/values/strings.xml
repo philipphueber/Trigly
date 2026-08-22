@@ -2,6 +2,11 @@
 <resources>
     <string name="app_name">Trigly</string>
     <string name="rules_title">Rules</string>
-    <string name="rules_empty">No rules yet.</string>
+    <string name="rules_empty">No rules yet. Tap “New rule” to make one.</string>
+    <string name="rules_new">New rule</string>
+    <string name="rules_import">Import</string>
+    <string name="rules_export_all">Export all</string>
+    <string name="rules_share">Share</string>
     <string name="requirement_grant">Grant</string>
+    <string name="export_file_name">trigly-rules.json</string>
 </resources>

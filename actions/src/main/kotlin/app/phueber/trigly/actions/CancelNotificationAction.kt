@@ -5,6 +5,7 @@ import androidx.core.app.NotificationManagerCompat
 import app.phueber.trigly.core.Action
 import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ActionResult
+import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.TriggerEvent
 
 /**
@@ -36,6 +37,17 @@ class CancelNotificationAction(
 
 class CancelNotificationActionFactory(private val context: Context) : ActionFactory {
     override val type = CancelNotificationAction.TYPE
+
+    override val displayName = "Clear Trigly's notifications"
+    override val category = ActionCategory.NOTIFY
+
+    override val configFields = listOf(
+        ConfigField.Number(
+            key = CancelNotificationAction.CONFIG_ID,
+            label = "Notification id",
+            help = "Leave empty to clear everything Trigly has posted.",
+        ),
+    )
 
     override fun create(config: Map<String, String>): Action = CancelNotificationAction(
         context = context,

@@ -1,6 +1,10 @@
 package app.phueber.trigly.triggers.notification
 
 import app.phueber.trigly.core.ComponentRequirement
+import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.triggers.Category
+import app.phueber.trigly.triggers.packageFilter
+import app.phueber.trigly.triggers.stateChoice
 import app.phueber.trigly.core.SpecialAccessKind
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
@@ -99,6 +103,46 @@ class NotificationWatchdogTrigger(
 
 class NotificationWatchdogTriggerFactory : TriggerFactory {
     override val type = NotificationWatchdogTrigger.TYPE
+
+    override val displayName = "App's notification goes missing"
+    override val category = Category.NOTIFICATIONS
+
+    override val configFields = listOf(
+        packageFilter(
+            label = "Watch this app",
+            blankMeaning = null,
+            required = true,
+            help = "The app whose ongoing notification should always be present.",
+        ),
+        ConfigField.Number(
+            key = NotificationWatchdogTrigger.CONFIG_ABSENCE_MILLIS,
+            label = "Alert after it has been gone for",
+            default = NotificationWatchdogTrigger.DEFAULT_ABSENCE_MILLIS,
+            min = 1000,
+            unit = "ms",
+        ),
+        ConfigField.Number(
+            key = NotificationWatchdogTrigger.CONFIG_POLL_MILLIS,
+            label = "Check every",
+            default = NotificationWatchdogTrigger.DEFAULT_POLL_MILLIS,
+            min = 1000,
+            unit = "ms",
+            help = "Must not be longer than the absence window, or alerts arrive late.",
+        ),
+        ConfigField.Flag(
+            key = NotificationWatchdogTrigger.CONFIG_REQUIRE_ONGOING,
+            label = "Only count ongoing notifications",
+            default = true,
+            help = "An always-on app keeps an ongoing notification. Turn this off " +
+                "to watch for any notification from the app instead.",
+        ),
+    )
+
+    override val warning: String =
+        "If the app's notification channel is blocked rather than silenced, Android " +
+            "hides it from Trigly too and this reports 'never seen'. Set the channel " +
+            "to Silent instead. Also note Trigly itself can be killed, in which case " +
+            "the watchdog stops without telling you."
 
     override val requirements = listOf(
         ComponentRequirement.SpecialAccess(SpecialAccessKind.NOTIFICATION_LISTENER),

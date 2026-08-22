@@ -2,17 +2,13 @@ package app.phueber.trigly.ui
 
 import android.app.Application
 import android.content.Context
-import app.phueber.trigly.actions.PostNotificationAction
 import app.phueber.trigly.actions.actionFactories
-import app.phueber.trigly.core.ComponentSpec
-import app.phueber.trigly.core.InMemoryRuleRepository
 import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.Registry
 import app.phueber.trigly.core.RequirementChecker
-import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.RuleRepository
 import app.phueber.trigly.core.TriggerEngine
-import app.phueber.trigly.triggers.IntervalTrigger
+import app.phueber.trigly.core.storage.ruleRepository
 import app.phueber.trigly.triggers.notification.ListenerNotificationController
 import app.phueber.trigly.triggers.triggerFactories
 import kotlinx.coroutines.CoroutineScope
@@ -59,34 +55,13 @@ class AppContainer(context: Context) {
         actionFactories = actionFactories(context, notificationController),
     )
 
-    val ruleRepository: RuleRepository = InMemoryRuleRepository(sampleRules())
+    /**
+     * Durable storage. Rules are hand-built by the user, so losing them to a
+     * process death — which the in-memory stand-in did — was never shippable.
+     */
+    val ruleRepository: RuleRepository = ruleRepository(context)
 
     val requirementChecker: RequirementChecker = RequirementChecker(context)
 
     val engine: TriggerEngine = TriggerEngine(registry, applicationScope)
 }
-
-/**
- * TODO(persistence): sample data so a fresh install has something to show.
- *  Delete once [InMemoryRuleRepository] is replaced by real storage.
- */
-private fun sampleRules(): List<Rule> = listOf(
-    Rule(
-        id = "sample-interval",
-        name = "Ping every minute",
-        trigger = ComponentSpec(
-            type = IntervalTrigger.TYPE,
-            config = mapOf(IntervalTrigger.CONFIG_PERIOD_MILLIS to "60000"),
-        ),
-        actions = listOf(
-            ComponentSpec(
-                type = PostNotificationAction.TYPE,
-                config = mapOf(
-                    PostNotificationAction.CONFIG_TITLE to "Trigly",
-                    PostNotificationAction.CONFIG_BODY to "A minute passed.",
-                ),
-            )
-        ),
-        enabled = false,
-    ),
-)

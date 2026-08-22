@@ -41,6 +41,18 @@ class ScreenStateTrigger(
 class ScreenStateTriggerFactory(private val context: Context) : TriggerFactory {
     override val type = ScreenStateTrigger.TYPE
 
+    override val displayName = "Screen on or off"
+    override val category = Category.DEVICE
+
+    override val configFields = listOf(
+        stateChoice(
+            label = "Fires when the screen turns",
+            onValue = "on", onLabel = "on",
+            offValue = "off", offLabel = "off",
+            help = "Screen on is not the same as unlocked.",
+        ),
+    )
+
     override fun create(config: Map<String, String>): Trigger = ScreenStateTrigger(
         context = context,
         onScreenOn = parseTarget(

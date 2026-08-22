@@ -8,6 +8,7 @@ import android.telephony.TelephonyCallback
 import android.telephony.TelephonyManager
 import androidx.annotation.RequiresApi
 import app.phueber.trigly.core.ComponentRequirement
+import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
@@ -88,6 +89,27 @@ class CallStateTrigger(
 
 class CallStateTriggerFactory(private val context: Context) : TriggerFactory {
     override val type = CallStateTrigger.TYPE
+
+    override val displayName = "Phone call"
+    override val category = Category.TELEPHONY
+
+    override val configFields = listOf(
+        ConfigField.Choice(
+            key = CallEvent.CONFIG_KEY,
+            label = "Fires on a call that is",
+            options = listOf(
+                ConfigField.Option("incoming", "ringing"),
+                ConfigField.Option("answered", "answered"),
+                ConfigField.Option("outgoing", "dialled out"),
+                ConfigField.Option("ended", "ended"),
+                ConfigField.Option("missed", "missed"),
+            ),
+        ),
+    )
+
+    override val warning: String =
+        "Needs Android 12 or newer, and cannot tell you the caller's number — " +
+            "that needs a permission Google restricts to dialler apps."
 
     override val requirements = listOf(
         ComponentRequirement.RuntimePermission(Manifest.permission.READ_PHONE_STATE),

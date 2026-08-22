@@ -6,6 +6,7 @@ import android.speech.tts.UtteranceProgressListener
 import app.phueber.trigly.core.Action
 import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ActionResult
+import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.TriggerEvent
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
@@ -85,6 +86,13 @@ class SpeakAction(
 
 class SpeakActionFactory(private val context: Context) : ActionFactory {
     override val type = SpeakAction.TYPE
+
+    override val displayName = "Speak out loud"
+    override val category = ActionCategory.NOTIFY
+
+    override val configFields = listOf(
+        messageText(SpeakAction.CONFIG_TEXT, "What to say"),
+    )
 
     override fun create(config: Map<String, String>): Action = SpeakAction(
         context = context,

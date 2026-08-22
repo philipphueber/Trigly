@@ -2,6 +2,10 @@ package app.phueber.trigly.triggers.notification
 
 import android.app.NotificationManager
 import app.phueber.trigly.core.ComponentRequirement
+import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.triggers.Category
+import app.phueber.trigly.triggers.packageFilter
+import app.phueber.trigly.triggers.stateChoice
 import app.phueber.trigly.core.SharedPayloadKeys
 import app.phueber.trigly.core.SpecialAccessKind
 import app.phueber.trigly.core.Trigger
@@ -77,6 +81,24 @@ class NotificationPostedTrigger(
 
 class NotificationPostedTriggerFactory : TriggerFactory {
     override val type = NotificationPostedTrigger.TYPE
+
+    override val displayName = "Notification appears"
+    override val category = Category.NOTIFICATIONS
+
+    override val configFields = listOf(
+        packageFilter(help = "Which app's notifications should fire this rule."),
+        ConfigField.Text(
+            key = NotificationPostedTrigger.CONFIG_TEXT_CONTAINS,
+            label = "Title or text contains",
+            blankMeaning = "Leave blank to match every notification",
+        ),
+        ConfigField.Flag(
+            key = NotificationPostedTrigger.CONFIG_INCLUDE_ONGOING,
+            label = "Include ongoing notifications",
+            help = "Progress bars and media controls. Off by default, since these " +
+                "update constantly.",
+        ),
+    )
     override val requirements = NOTIFICATION_ACCESS
 
     override fun create(config: Map<String, String>): Trigger = NotificationPostedTrigger(
@@ -135,6 +157,13 @@ class DndModeTrigger(private val onDnd: Boolean) : Trigger {
 
 class DndModeTriggerFactory : TriggerFactory {
     override val type = DndModeTrigger.TYPE
+
+    override val displayName = "Do Not Disturb"
+    override val category = Category.NOTIFICATIONS
+
+    override val configFields = listOf(
+        stateChoice("Fires when Do Not Disturb is", "on", "switched on", "off", "switched off"),
+    )
     override val requirements = NOTIFICATION_ACCESS
 
     override fun create(config: Map<String, String>): Trigger = DndModeTrigger(

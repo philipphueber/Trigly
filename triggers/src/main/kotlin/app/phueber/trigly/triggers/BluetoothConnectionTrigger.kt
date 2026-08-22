@@ -10,6 +10,7 @@ import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import app.phueber.trigly.core.ComponentRequirement
+import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
@@ -87,6 +88,19 @@ class BluetoothConnectionTriggerFactory(
     private val context: Context,
 ) : TriggerFactory {
     override val type: String = BluetoothConnectionTrigger.TYPE
+
+    override val displayName = "Bluetooth device connects"
+    override val category = Category.RADIOS
+
+    override val configFields = listOf(
+        ConfigField.Text(
+            key = BluetoothConnectionTrigger.CONFIG_ADDRESS,
+            label = "Device address",
+            placeholder = "00:11:22:33:44:55",
+            blankMeaning = "Leave blank for any device",
+            help = "Reading the address needs the Bluetooth permission below.",
+        ),
+    )
 
     // Without it the trigger still fires, but events carry no device address,
     // so a rule narrowed to one device can never match.

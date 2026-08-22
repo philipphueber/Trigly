@@ -1,21 +1,30 @@
 package app.phueber.trigly.ui
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import app.phueber.trigly.core.ComponentRequirement
+import app.phueber.trigly.core.Rule
 
 class MainActivity : ComponentActivity() {
 
-    private val viewModel: RulesViewModel by viewModels {
-        val container = (application as TriglyApp).container
+    private val container by lazy { (application as TriglyApp).container }
+
+    private val listViewModel: RulesViewModel by viewModels {
         RulesViewModel.factory(
             repository = container.ruleRepository,
             registry = container.registry,
@@ -28,29 +37,144 @@ class MainActivity : ComponentActivity() {
             // The result is ignored deliberately: the checker re-reads the real
             // state on resume, which is also the only thing that can tell us
             // about a grant made in settings rather than in this dialog.
-            viewModel.refresh()
+            listViewModel.refresh()
+        }
+
+    /** Held between choosing "export" and the document picker returning. */
+    private var pendingExport: String? = null
+
+    private val createDocument =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+            val payload = pendingExport
+            pendingExport = null
+            if (uri != null && payload != null) writeText(uri, payload)
+        }
+
+    private val openDocument =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            uri?.let { listViewModel.import(readText(it)) }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
-                val statuses by viewModel.statuses.collectAsStateWithLifecycle()
-                RulesScreen(
-                    statuses = statuses,
-                    onEnabledChange = viewModel::setEnabled,
-                    onResolve = ::resolve,
-                )
+                var screen by remember { mutableStateOf<Screen>(Screen.RuleList) }
+
+                val message by listViewModel.message.collectAsStateWithLifecycle()
+                message?.let {
+                    Toast.makeText(this, it, Toast.LENGTH_LONG).show()
+                    listViewModel.clearMessage()
+                }
+
+                when (val current = screen) {
+                    Screen.RuleList -> {
+                        val statuses by listViewModel.statuses.collectAsStateWithLifecycle()
+                        RulesScreen(
+                            statuses = statuses,
+                            onEnabledChange = listViewModel::setEnabled,
+                            onResolve = ::resolve,
+                            onNewRule = { screen = Screen.RuleEditor(null) },
+                            onEditRule = { screen = Screen.RuleEditor(it) },
+                            onExportAll = { export(listViewModel.exportAll(), "trigly-rules.json") },
+                            onExportRule = ::exportSingle,
+                            onImport = { openDocument.launch(arrayOf("application/json", "text/*")) },
+                            describeComponent = container.registry::displayNameOf,
+                        )
+                    }
+
+                    is Screen.RuleEditor -> {
+                        BackHandler { screen = Screen.RuleList }
+                        EditorHost(
+                            ruleId = current.ruleId,
+                            onDone = { screen = Screen.RuleList },
+                        )
+                    }
+                }
             }
         }
+    }
+
+    /**
+     * A ViewModel per edited rule, keyed by id so opening a different rule does
+     * not inherit the previous draft.
+     */
+    @androidx.compose.runtime.Composable
+    private fun EditorHost(ruleId: String?, onDone: () -> Unit) {
+        val editor: RuleEditorViewModel = viewModel(
+            key = "editor-${ruleId ?: "new"}",
+            factory = RuleEditorViewModel.factory(
+                repository = container.ruleRepository,
+                registry = container.registry,
+                checker = container.requirementChecker,
+                ruleId = ruleId,
+            ),
+        )
+
+        val state by editor.state.collectAsStateWithLifecycle()
+        if (state.saved) {
+            onDone()
+            return
+        }
+
+        RuleEditorScreen(
+            state = state,
+            triggerOptions = editor.triggerOptions,
+            actionOptions = editor.actionOptions,
+            descriptorFor = editor::descriptorFor,
+            onNameChange = editor::setName,
+            onEnabledChange = editor::setEnabled,
+            onChooseTrigger = editor::chooseTrigger,
+            onAddAction = editor::addAction,
+            onChangeActionType = editor::changeActionType,
+            onRemoveAction = editor::removeAction,
+            onMoveAction = editor::moveAction,
+            onConfigChange = editor::setConfigValue,
+            onSave = editor::save,
+            onDelete = editor::delete,
+            onResolveRequirement = ::resolve,
+        )
     }
 
     override fun onResume() {
         super.onResume()
         // Covers the round trip to a system settings screen, which reports
         // nothing back.
-        viewModel.refresh()
+        listViewModel.refresh()
     }
+
+    private fun exportSingle(rule: Rule) {
+        val name = rule.name.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+        export(listViewModel.exportOne(rule), "trigly-${name.ifEmpty { "rule" }}.json")
+    }
+
+    /**
+     * Writes through the document picker rather than to a path of our choosing:
+     * no storage permission, and the file lands somewhere the user picked and can
+     * find again — which is the whole point of an export.
+     */
+    private fun export(payload: String, suggestedName: String) {
+        pendingExport = payload
+        createDocument.launch(suggestedName)
+    }
+
+    private fun writeText(uri: Uri, text: String) {
+        val result = runCatching {
+            contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray()) }
+                ?: error("could not open that file for writing")
+        }
+        Toast.makeText(
+            this,
+            result.fold({ "Exported." }, { "Export failed: ${it.message}" }),
+            Toast.LENGTH_LONG,
+        ).show()
+    }
+
+    private fun readText(uri: Uri): String =
+        runCatching {
+            contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }
+                ?: error("could not open that file")
+        }.getOrElse { "" }
 
     private fun resolve(requirement: ComponentRequirement) {
         when (requirement) {

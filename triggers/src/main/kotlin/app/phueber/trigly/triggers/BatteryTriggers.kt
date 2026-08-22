@@ -3,6 +3,7 @@ package app.phueber.trigly.triggers
 import android.content.Context
 import android.content.Intent
 import android.os.BatteryManager
+import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerFactory
 
@@ -53,6 +54,30 @@ class BatteryLevelTrigger(
 class BatteryLevelTriggerFactory(private val context: Context) : TriggerFactory {
     override val type = BatteryLevelTrigger.TYPE
 
+    override val displayName = "Battery level"
+    override val category = Category.POWER
+
+    override val configFields = listOf(
+        ConfigField.Number(
+            key = BatteryLevelTrigger.CONFIG_THRESHOLD,
+            label = "Threshold",
+            required = true,
+            min = 0,
+            max = 100,
+            unit = "%",
+        ),
+        ConfigField.Choice(
+            key = Direction.CONFIG_KEY,
+            label = "Fires when the level goes",
+            options = listOf(
+                ConfigField.Option("below", "below the threshold"),
+                ConfigField.Option("above", "above the threshold"),
+            ),
+            required = false,
+            default = "below",
+        ),
+    )
+
     override fun create(config: Map<String, String>): Trigger = BatteryLevelTrigger(
         context = context,
         threshold = requiredInt(config, BatteryLevelTrigger.CONFIG_THRESHOLD, type),
@@ -95,6 +120,30 @@ class BatteryTemperatureTrigger(
 
 class BatteryTemperatureTriggerFactory(private val context: Context) : TriggerFactory {
     override val type = BatteryTemperatureTrigger.TYPE
+
+    override val displayName = "Battery temperature"
+    override val category = Category.POWER
+
+    override val configFields = listOf(
+        ConfigField.Number(
+            key = BatteryTemperatureTrigger.CONFIG_THRESHOLD_C,
+            label = "Threshold",
+            required = true,
+            min = -20,
+            max = 100,
+            unit = "°C",
+        ),
+        ConfigField.Choice(
+            key = Direction.CONFIG_KEY,
+            label = "Fires when the level goes",
+            options = listOf(
+                ConfigField.Option("below", "below the threshold"),
+                ConfigField.Option("above", "above the threshold"),
+            ),
+            required = false,
+            default = "below",
+        ),
+    )
 
     override fun create(config: Map<String, String>): Trigger = BatteryTemperatureTrigger(
         context = context,

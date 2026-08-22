@@ -59,6 +59,13 @@ class AutoSyncTrigger(
 class AutoSyncTriggerFactory : TriggerFactory {
     override val type = AutoSyncTrigger.TYPE
 
+    override val displayName = "Auto-sync setting"
+    override val category = Category.DEVICE
+
+    override val configFields = listOf(
+        stateChoice("Fires when auto-sync is", "enabled", "turned on", "disabled", "turned off"),
+    )
+
     override fun create(config: Map<String, String>): Trigger = AutoSyncTrigger(
         onEnabled = parseTarget(
             config = config,

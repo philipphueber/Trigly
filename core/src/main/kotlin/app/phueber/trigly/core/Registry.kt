@@ -4,6 +4,32 @@ package app.phueber.trigly.core
 class UnknownComponentException(message: String) : IllegalArgumentException(message)
 
 /**
+ * Everything the editor needs to know about one component type, without handing
+ * it the factory itself.
+ *
+ * A flattened snapshot rather than the live factory, so the UI cannot
+ * accidentally call `create()` while someone is still typing — construction is
+ * the validation step, and it belongs at save time.
+ */
+data class ComponentDescriptor(
+    val type: String,
+    val displayName: String,
+    val category: String,
+    val requirements: List<ComponentRequirement>,
+    val configFields: List<ConfigField>,
+    val warning: String?,
+)
+
+private fun ComponentFactory.describe() = ComponentDescriptor(
+    type = type,
+    displayName = displayName,
+    category = category,
+    requirements = requirements,
+    configFields = configFields,
+    warning = warning,
+)
+
+/**
  * Resolves the [ComponentSpec]s stored in a [Rule] to live objects.
  *
  * The factory lists are supplied at construction by whoever assembles the app,
@@ -34,6 +60,27 @@ class Registry(
 
     fun actionRequirements(type: String): List<ComponentRequirement> =
         actions[type]?.requirements.orEmpty()
+
+    /** Everything the editor needs to render a picker, sorted for display. */
+    val triggerDescriptors: List<ComponentDescriptor> by lazy {
+        triggers.values.map { it.describe() }.sortedBy { it.displayName }
+    }
+
+    val actionDescriptors: List<ComponentDescriptor> by lazy {
+        actions.values.map { it.describe() }.sortedBy { it.displayName }
+    }
+
+    fun triggerDescriptor(type: String): ComponentDescriptor? = triggers[type]?.describe()
+
+    fun actionDescriptor(type: String): ComponentDescriptor? = actions[type]?.describe()
+
+    /**
+     * Display name for a stored type string, falling back to the raw type so a
+     * rule referring to a component this build no longer has still renders as
+     * something rather than blank.
+     */
+    fun displayNameOf(type: String): String =
+        (triggers[type] ?: actions[type])?.displayName ?: type
 
     /** Everything [rule] needs, deduplicated — what a "why isn't this firing?" screen shows. */
     fun requirementsOf(rule: Rule): List<ComponentRequirement> =

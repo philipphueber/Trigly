@@ -5,6 +5,7 @@ import android.app.usage.UsageStatsManager
 import android.content.Context
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.SpecialAccessKind
+import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
@@ -81,6 +82,24 @@ class AppForegroundTrigger(
 
 class AppForegroundTriggerFactory(private val context: Context) : TriggerFactory {
     override val type = AppForegroundTrigger.TYPE
+
+    override val displayName = "App comes to the foreground"
+    override val category = Category.APPS
+
+    override val configFields = listOf(
+        packageFilter(help = "Which app opening should fire this rule."),
+        ConfigField.Number(
+            key = AppForegroundTrigger.CONFIG_POLL_MILLIS,
+            label = "Check every",
+            default = AppForegroundTrigger.DEFAULT_POLL_MILLIS,
+            min = 1000,
+            unit = "ms",
+        ),
+    )
+
+    override val warning: String =
+        "Android gives no notification when an app opens, so this polls. Events " +
+            "arrive up to one interval late and the checking itself costs battery."
 
     override val requirements = listOf(
         ComponentRequirement.SpecialAccess(SpecialAccessKind.USAGE_STATS),

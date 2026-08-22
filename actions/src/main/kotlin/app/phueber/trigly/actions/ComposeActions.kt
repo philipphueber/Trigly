@@ -8,6 +8,7 @@ import androidx.core.net.toUri
 import app.phueber.trigly.core.Action
 import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ActionResult
+import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.TriggerEvent
 
 /**
@@ -51,6 +52,19 @@ class ComposeEmailAction(
 class ComposeEmailActionFactory(private val context: Context) : ActionFactory {
     override val type = ComposeEmailAction.TYPE
 
+    override val displayName = "Compose an email"
+    override val category = ActionCategory.HAND_OFF
+
+    override val configFields = listOf(
+        ConfigField.Text(ComposeEmailAction.CONFIG_TO, "To", required = true),
+        ConfigField.Text(ComposeEmailAction.CONFIG_SUBJECT, "Subject"),
+        messageText(ComposeEmailAction.CONFIG_BODY, "Body", required = false),
+    )
+
+    override val warning: String =
+        "Opens your mail app with the fields filled in. You still press send. " +
+            "$BACKGROUND_START_WARNING"
+
     override fun create(config: Map<String, String>): Action = ComposeEmailAction(
         context = context,
         to = config[ComposeEmailAction.CONFIG_TO]
@@ -83,6 +97,19 @@ class ComposeSmsAction(
 
 class ComposeSmsActionFactory(private val context: Context) : ActionFactory {
     override val type = ComposeSmsAction.TYPE
+
+    override val displayName = "Compose a text message"
+    override val category = ActionCategory.HAND_OFF
+
+    override val configFields = listOf(
+        ConfigField.Text(ComposeSmsAction.CONFIG_TO, "To", required = true),
+        messageText(ComposeSmsAction.CONFIG_BODY, "Message", required = false),
+    )
+
+    override val warning: String =
+        "Opens your messaging app with the message ready. You still press send — " +
+            "sending silently needs a permission Google restricts. " +
+            "$BACKGROUND_START_WARNING"
 
     override fun create(config: Map<String, String>): Action = ComposeSmsAction(
         context = context,
@@ -126,6 +153,17 @@ class SetAlarmAction(
 
 class SetAlarmActionFactory(private val context: Context) : ActionFactory {
     override val type = SetAlarmAction.TYPE
+
+    override val displayName = "Set an alarm"
+    override val category = ActionCategory.HAND_OFF
+
+    override val configFields = listOf(
+        ConfigField.Number(SetAlarmAction.CONFIG_HOUR, "Hour", required = true, min = 0, max = 23),
+        ConfigField.Number(SetAlarmAction.CONFIG_MINUTE, "Minute", default = 0, min = 0, max = 59),
+        ConfigField.Text(SetAlarmAction.CONFIG_LABEL, "Label"),
+    )
+
+    override val warning: String = BACKGROUND_START_WARNING
 
     override fun create(config: Map<String, String>): Action {
         val hour = config[SetAlarmAction.CONFIG_HOUR]?.toIntOrNull()
@@ -177,6 +215,27 @@ class AddCalendarEventAction(
 
 class AddCalendarEventActionFactory(private val context: Context) : ActionFactory {
     override val type = AddCalendarEventAction.TYPE
+
+    override val displayName = "Add a calendar event"
+    override val category = ActionCategory.HAND_OFF
+
+    override val configFields = listOf(
+        ConfigField.Text(AddCalendarEventAction.CONFIG_TITLE, "Title", required = true),
+        ConfigField.Number(
+            key = AddCalendarEventAction.CONFIG_BEGIN_MILLIS,
+            label = "Starts at",
+            unit = "epoch ms",
+            help = "Leave empty to let the calendar app choose.",
+        ),
+        ConfigField.Number(
+            key = AddCalendarEventAction.CONFIG_END_MILLIS,
+            label = "Ends at",
+            unit = "epoch ms",
+        ),
+    )
+
+    override val warning: String =
+        "Opens the calendar's new-event screen so you can confirm. $BACKGROUND_START_WARNING"
 
     override fun create(config: Map<String, String>): Action = AddCalendarEventAction(
         context = context,

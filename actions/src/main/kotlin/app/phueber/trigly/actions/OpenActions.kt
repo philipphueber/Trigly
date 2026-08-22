@@ -6,6 +6,7 @@ import androidx.core.net.toUri
 import app.phueber.trigly.core.Action
 import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ActionResult
+import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.TriggerEvent
 
 /**
@@ -44,6 +45,21 @@ class OpenUrlAction(
 
 class OpenUrlActionFactory(private val context: Context) : ActionFactory {
     override val type = OpenUrlAction.TYPE
+
+    override val displayName = "Open a website"
+    override val category = ActionCategory.OPEN
+
+    override val configFields = listOf(
+        ConfigField.Text(
+            key = OpenUrlAction.CONFIG_URL,
+            label = "Address",
+            required = true,
+            placeholder = "https://example.com",
+            help = "Only http and https addresses can be opened.",
+        ),
+    )
+
+    override val warning: String = BACKGROUND_START_WARNING
 
     override fun create(config: Map<String, String>): Action = OpenUrlAction(
         context = context,
@@ -84,6 +100,19 @@ class OpenAppAction(
 
 class OpenAppActionFactory(private val context: Context) : ActionFactory {
     override val type = OpenAppAction.TYPE
+
+    override val displayName = "Open an app"
+    override val category = ActionCategory.OPEN
+
+    override val configFields = listOf(
+        ConfigField.AppPackage(
+            key = OpenAppAction.CONFIG_PACKAGE,
+            label = "App",
+            required = true,
+        ),
+    )
+
+    override val warning: String = BACKGROUND_START_WARNING
 
     override fun create(config: Map<String, String>): Action = OpenAppAction(
         context = context,

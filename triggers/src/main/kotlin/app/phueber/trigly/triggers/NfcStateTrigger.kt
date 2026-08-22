@@ -57,6 +57,13 @@ class NfcStateTrigger(
 class NfcStateTriggerFactory(private val context: Context) : TriggerFactory {
     override val type = NfcStateTrigger.TYPE
 
+    override val displayName = "NFC"
+    override val category = Category.RADIOS
+
+    override val configFields = listOf(
+        stateChoice("Fires when NFC is", "enabled", "turned on", "disabled", "turned off"),
+    )
+
     override val requirements = listOf(
         ComponentRequirement.SystemFeature(PackageManager.FEATURE_NFC),
     )

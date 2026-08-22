@@ -51,6 +51,13 @@ class BluetoothAdapterStateTrigger(
 class BluetoothAdapterStateTriggerFactory(private val context: Context) : TriggerFactory {
     override val type = BluetoothAdapterStateTrigger.TYPE
 
+    override val displayName = "Bluetooth radio"
+    override val category = Category.RADIOS
+
+    override val configFields = listOf(
+        stateChoice("Fires when Bluetooth is", "enabled", "turned on", "disabled", "turned off"),
+    )
+
     // Receiving ACTION_STATE_CHANGED requires BLUETOOTH_CONNECT from API 31.
     override val requirements = listOf(
         ComponentRequirement.RuntimePermission(Manifest.permission.BLUETOOTH_CONNECT),

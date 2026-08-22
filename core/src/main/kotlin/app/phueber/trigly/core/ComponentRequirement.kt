@@ -83,7 +83,34 @@ interface ComponentFactory {
     /** Stable identifier, persisted in rules. Renaming it breaks saved rules. */
     val type: String
 
+    /**
+     * Human name for pickers and rule summaries. Defaults to [type] so a factory
+     * without one is merely ugly rather than broken.
+     */
+    val displayName: String
+        get() = type
+
+    /** Groups this component in the picker. 28 triggers need grouping to be usable. */
+    val category: String
+        get() = "Other"
+
     /** Empty means "works on any supported device with no user action". */
     val requirements: List<ComponentRequirement>
         get() = emptyList()
+
+    /**
+     * The settings this component accepts, for the editor to render. Empty means
+     * "nothing to configure". See [ConfigField] for why this does not replace the
+     * validation inside `create()`.
+     */
+    val configFields: List<ConfigField>
+        get() = emptyList()
+
+    /**
+     * A caveat worth showing before someone commits to this component — heavy
+     * battery use, a platform restriction that will stop it working. Shown
+     * prominently in the editor, not buried.
+     */
+    val warning: String?
+        get() = null
 }
