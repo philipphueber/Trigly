@@ -1,10 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!--
-      Kept in step with `Tone.Neutral98` / `Tone.Neutral6` in Color.kt. Two
-      declarations of one colour is not ideal, but the window background is
-      resolved by the framework before any Compose code runs, so there is no
-      way to read it from the theme.
+      Kept in step with `Tone.Paper` in Palette.kt, as values-night is with
+      `Tone.Ink`. Two declarations of one colour is not ideal, but the window
+      background is resolved by the framework before any Compose code runs, so
+      there is no way to read it from the theme.
+
+      Both sides are now written the same way — #RRGGBB here and `hex("#RRGGBB")`
+      there — so keeping them in step is a comparison, not a conversion.
     -->
     <color name="window_background">#FFF8F5</color>
 </resources>
