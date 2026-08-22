@@ -186,14 +186,19 @@ expressible.
 
 ## Look and feel
 
-### One orange, not the user's wallpaper
+### Colours live in one file
 
-The palette is declared as a *tonal* one — the brand hue at a dozen lightness
-steps in `Color.kt` — and both the light and dark schemes are assembled from
-those tones in `Theme.kt`. Naming the tones rather than the uses is what makes
-the reuse visible: light `primary` and dark `onPrimaryContainer` are the same
-tone, which is a fact about the palette rather than a coincidence to maintain
-twice. Re-branding means changing the hue of the tones and nothing else.
+`Palette.kt` holds every colour in the app, in three sections: the raw tonal
+ramps, the light and dark scheme assembly, and the handful of roles Material 3
+has no slot for. Nothing else declares a colour. Re-branding is rotating the hue
+of one ramp; moving a colour to a different *use* is editing one line of the
+scheme.
+
+Two colours unavoidably live outside it. `res/values/colors.xml` and
+`res/values-night/colors.xml` carry the window background, because the framework
+paints the window before any Compose code runs — without them a dark-mode launch
+flashes white. They must mirror `Tone.Paper` and `Tone.Ink`, and the file says
+so.
 
 **Material You dynamic colour is deliberately off.** It is the right default for
 an app with no colour of its own; here the orange *is* the identity, and an
@@ -201,27 +206,50 @@ automation app whose screenshots and docs look different on every phone is not
 friendlier. Dark mode follows the system, because there is no settings screen yet
 in which a manual override would belong.
 
-The window background is declared twice — once as a Compose tone, once as
-`@color/window_background` for the platform theme — because the framework paints
-the window before any Compose code runs, and a dark-mode launch would otherwise
-flash white. `values-night` carries the dark variant rather than a `DayNight`
-parent, which only exists from API 29.
+### Blocks, not cards
+
+The design is flat rectangles with hard 2dp borders: no rounding, no elevation,
+no gradients. Three decisions carry it.
+
+**Nothing is rounded, declared once.** Every Material shape role is square in
+`Theme.kt`, so dialogs, menus, text fields and buttons follow without a `shape =`
+argument at any call site.
+
+**One vocabulary, in `Blocks.kt`.** `BlockHeader`, `BlockCard`, `BlockButton`,
+`BlockToggle`, `BlockDivider` and friends are what the screens are assembled
+from, which is what stops a border width or a padding drifting between them.
+They wrap Material's own components rather than drawing from scratch, so focus,
+ripple and accessibility roles survive the reskin — `BlockToggle` is
+`Modifier.toggleable` with `Role.Switch`, so a screen reader still calls it a
+switch even though it renders as an ON/OFF cell.
+
+**Chrome is uppercase; prose is not.** Titles, buttons, category bars, field
+labels and rule names are labels in this design and are uppercased in one place
+each — `BlockButton` uppercases its own text, `ConfigFieldEditor` uppercases
+field labels — so a new call site cannot arrive in the wrong case. Warnings,
+help text and requirement explanations stay in sentence case: they are sentences,
+and capitals make sentences unreadable. This is visible in the tests, which
+assert `"NEW RULE"` and `"Needs usage access, granted in system settings"` — the
+accessibility tree contains exactly what is drawn.
+
+The rule summary is monospaced. A screen of rules then lines up into a column
+that can be scanned rather than read.
 
 ### Warnings are not errors
 
 A component's caveat ("this polls, so it costs battery"; "Android 12 suppresses
 these in the background") is not a failure. The rule is valid and will save. So
 caveats get their own amber — `TriglyExtraColors.caution`, the one role Material
-3 has no slot for — and `colorScheme.error` is kept for things that actually
-went wrong: a refused save, a permission that is missing, a rule that cannot
-fire. Once two thirds of the triggers carry a caveat, drawing them all in red
-teaches people to ignore red.
+3 has no slot for — and `colorScheme.error` is kept for things that actually went
+wrong: a refused save, a permission that is missing, a rule that cannot fire.
+Once two thirds of the triggers carry a caveat, drawing them all in red teaches
+people to ignore red.
 
 Caveats are also shown at a different *time* than they used to be. The picker
 printed each component's full warning under its name, on the reasoning that a
-caveat is most useful before the choice is made — but the list became a wall of
+caveat matters most before the choice is made — but the list became a wall of
 prose in which no single item could be read. The picker now marks that a caveat
-exists with one glyph, and the editor states the sentence in full once the
+exists with one badge, and the editor states the sentence in full once the
 component is chosen, which is the moment it is actionable and swapping it out is
 still one tap away.
 
@@ -229,20 +257,25 @@ still one tap away.
 
 Since Android 15 an app targeting API 35 draws behind the status and navigation
 bars whether it opts in or not, so `MainActivity` calls `enableEdgeToEdge()` to
-make every supported version behave the same way and each screen consumes the
-insets through a `Scaffold`. That is also why the editor's Save and Delete live
-in a bottom bar rather than at the end of the scroll: a rule with six actions is
-taller than a screen, and the bar keeps the primary action clear of the gesture
-navigation area that content scrolls under.
+make every supported version behave alike.
+
+Neither screen uses `Scaffold`. The design wants the orange header band painted
+*behind* the status bar, and keeping content out of exactly that area is
+`Scaffold`'s job. Instead the two components that touch the system bars own
+them: `BlockHeader` paints full-bleed and insets its own content, and
+`BlockBottomBar` takes the navigation-bar padding. The editor takes `imePadding`
+at the root so the keyboard pushes Save up rather than covering it — which is
+also why Save and Delete are in that bar and not at the end of the scroll: a rule
+with six actions is taller than a screen.
 
 ### Only what the device can run
 
 The editor's pickers list components this phone can actually execute.
 `RequirementChecker.isPossible` draws the line that `isSatisfied` cannot: a
-missing permission is a prompt away, while an API that arrived after this
-phone's Android version and a radio it does not have are permanent. Offering a
-trigger that can never fire is worse than omitting it — the user builds a rule
-around it, nothing happens, and the app looks broken rather than honest.
+missing permission is a prompt away, while an API that arrived after this phone's
+Android version and a radio it does not have are permanent. Offering a trigger
+that can never fire is worse than omitting it — the user builds a rule around it,
+nothing happens, and the app looks broken rather than honest.
 
 Two deliberate exclusions from that filter. `PolicyRestricted` does **not** hide
 a component: it says Google will not publish it on Play, which has nothing to do

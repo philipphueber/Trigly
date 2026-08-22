@@ -20,6 +20,12 @@ depends on `:ui`, and `:core` depends on nothing in the project.
 
 See `docs/architecture.md` for why it is built this way.
 
+**Theming.** Every colour in the app is in `ui/src/main/kotlin/app/phueber/trigly/ui/Palette.kt`
+— tonal ramps, then the light and dark scheme assembled from them. Change the hue
+there and the whole app follows. (The two window-background hexes in
+`res/values*/colors.xml` must be kept in step; that file explains why they cannot
+be read from Kotlin.)
+
 ## Building
 
 Requires JDK 17 and an Android SDK with API 35 and build-tools 35.0.0. Point
