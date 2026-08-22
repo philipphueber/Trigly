@@ -274,6 +274,30 @@ at the root so the keyboard pushes Save up rather than covering it — which is
 also why Save and Delete are in that bar and not at the end of the scroll: a rule
 with six actions is taller than a screen.
 
+### The mark, and an icon with no bitmaps
+
+The app mark is a T whose stem runs into an arrowhead — something fires,
+something follows, which is the product in one shape. It is drawn out of
+rectangles and one triangle, the same brutalism as the blocks. Source of truth
+is `docs/branding/trigly-mark.svg`; the alternatives it was chosen from are
+still in `docs/branding/_explore/`.
+
+The launcher icon is **vector at every layer and has no PNG mipmaps at all**.
+That is a consequence of `minSdk = 26`: adaptive icons arrived in exactly that
+release, so there is no older device to keep a `mipmap-hdpi`-through-`xxxhdpi`
+ladder around for. For the same reason the adaptive XML sits in a bare
+`mipmap/` rather than the `mipmap-anydpi-v26` the templates emit — that
+qualifier exists to hide adaptive icons from API 25 and below, and lint flags it
+as obsolete here. Its suggested fix, `mipmap-anydpi`, does *not* work: AAPT2
+ignores that folder and the build fails to link. No qualifier is the spelling
+that both builds and lints clean.
+
+One number worth keeping if the mark is ever redrawn. The 108-unit board is the
+adaptive-icon canvas, but only the centre 66dp circle survives every launcher
+mask, and the mark's widest points sit 33.3dp from centre against a 33dp budget.
+The foreground is therefore scaled to 0.94 — without it, a circular mask shaves
+the ends off the T's bar and it reads as a lowercase r.
+
 ### Only what the device can run
 
 The editor's pickers list components this phone can actually execute.

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Trigly mark: a T whose stem becomes an arrow. It is the app's one idea in
+  one shape — something fires, something follows.
+
+  Source of truth is `docs/branding/trigly-mark.svg`; this is that file's three
+  shapes transcribed as paths, because a VectorDrawable has no <rect>. Keep the
+  two in step by geometry, not by eye: the numbers below are the same numbers.
+
+  Why the group scale. This is drawn on a 108x108 board, which is exactly the
+  adaptive-icon canvas — but of that, only the centre 66dp circle is guaranteed
+  to survive a launcher's mask, and the mark's widest points (the two top
+  corners of the bar) sit 33.30dp from centre against a 33dp budget. Three
+  tenths of a dp, which is precisely enough for a circular mask to shave the
+  ends off the bar and make the T look like a lowercase r. 0.94 puts the whole
+  mark at 31.3dp with room to spare, at a size difference nobody will see.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.94"
+        android:scaleY="0.94">
+
+        <!-- The bar of the T. -->
+        <path
+            android:fillColor="#17100C"
+            android:pathData="M32,29 h44 v12 h-44 z" />
+
+        <!-- The stem, running into the arrowhead rather than stopping short. -->
+        <path
+            android:fillColor="#17100C"
+            android:pathData="M49,41 h10 v22 h-10 z" />
+
+        <!-- The arrowhead. -->
+        <path
+            android:fillColor="#17100C"
+            android:pathData="M42,63 h24 l-12,16 z" />
+    </group>
+</vector>
