@@ -150,6 +150,7 @@ the elapsed-time callback.
 |---|---|---|
 | Notification posted | `notification_posted` | Notification access |
 | DND mode changed | `dnd_mode` | Notification access |
+| An app's notification went missing | `notification_watchdog` | Notification access |
 | UI element clicked | `ui_click` | Accessibility access |
 | Screen content changed | `screen_content` | Accessibility access |
 | Keyboard opened/closed | `keyboard_visibility` | Accessibility access (best effort) |
@@ -161,6 +162,50 @@ the elapsed-time callback.
 | Work profile available/unavailable | `work_profile` | — |
 | Auto-sync changed | `auto_sync` | — |
 | Clipboard changed | `clipboard_changed` | Platform-restricted |
+
+### Watching another app stay alive
+
+`notification_watchdog` exists for a specific and common need: making sure an
+always-on app — an alarm, a pager, a monitor — has not been silently killed by
+the system. It fires when that app's persistent notification has been missing
+for longer than a configured window.
+
+It is a *proxy*, and the reasoning behind it is worth keeping, because the
+obvious approaches do not work:
+
+- **You cannot ask whether another app's service is running.**
+  `getRunningServices` has been own-app-only since Android 8,
+  `getRunningAppProcesses` since Android 5, and `/proc` scraping has been
+  blocked since Android 7. `getHistoricalProcessExitReasons` needs the `DUMP`
+  permission for any package but your own. None of this is coming back.
+- **An app running a foreground service must post an ongoing notification** —
+  Android requires it. So the presence of that notification is the closest
+  observable proxy for "the service is alive".
+- **Presence must be polled, not listened for.** An ongoing notification is
+  posted once and can sit there for days without another callback. Treating
+  "no post event lately" as absence would fire constantly on a healthy app, so
+  each tick asks what is currently active instead.
+
+Three limits to state plainly:
+
+1. **A blocked channel is invisible.** If the user set that notification's
+   channel to importance "none", Android drops it before any listener sees it,
+   and the watchdog cannot tell that from a dead service. It reports
+   `never_seen` rather than a false alarm, and the fix is to set the channel to
+   *silent* instead of blocked — still invisible to the user, still visible to
+   the listener.
+2. **Android 13+ lets users dismiss foreground-service notifications** while the
+   service keeps running. That produces a false alarm, not a false all-clear,
+   which is the right direction for a watchdog to fail.
+3. **The watchdog is only as alive as Trigly.** With the engine in the
+   application scope, the system can kill Trigly and the watchdog dies with the
+   app it is watching — producing silence, which reads as "all fine". Blocker 1
+   is a hard prerequisite for trusting this, not an optimisation.
+
+For an app that posts *nothing* while healthy, there is no proxy at all and no
+honest watchdog can be built. The remaining options there are the app's own
+"run in background" setting, if it has one, and
+`PowerManager.isIgnoringBatteryOptimizations` as a preventive check.
 
 Three shipped with caveats that are load-bearing rather than cosmetic:
 

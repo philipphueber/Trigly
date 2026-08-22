@@ -47,7 +47,7 @@ interface is wrong — fix the interface. Actions follow the same three steps in
 ## Status
 
 Early. Implemented: the engine, the plugin seams, the requirement model and the
-permission flow around it, **27 triggers**, **18 actions**, and a rules list
+permission flow around it, **28 triggers**, **18 actions**, and a rules list
 screen that explains why a rule cannot fire.
 
 Triggers cover device state (battery, power, radios, screen, headset, theme,

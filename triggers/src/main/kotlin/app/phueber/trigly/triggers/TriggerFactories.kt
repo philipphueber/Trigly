@@ -7,6 +7,7 @@ import app.phueber.trigly.triggers.accessibility.ScreenContentTriggerFactory
 import app.phueber.trigly.triggers.accessibility.UiClickTriggerFactory
 import app.phueber.trigly.triggers.notification.DndModeTriggerFactory
 import app.phueber.trigly.triggers.notification.NotificationPostedTriggerFactory
+import app.phueber.trigly.triggers.notification.NotificationWatchdogTriggerFactory
 
 /**
  * Every trigger type this module provides.
@@ -56,6 +57,7 @@ fun triggerFactories(context: Context): List<TriggerFactory> = listOf(
     // Notification access
     NotificationPostedTriggerFactory(),
     DndModeTriggerFactory(),
+    NotificationWatchdogTriggerFactory(),
 
     // Accessibility access — the most invasive grant Trigly asks for
     UiClickTriggerFactory(),
