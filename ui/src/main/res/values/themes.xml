@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      A platform theme, so the app pulls in no AppCompat or Material-View
+      dependency: colours and typography come from Compose Material3, and this
+      only needs to provide a window with no ActionBar.
+    -->
+    <style name="Theme.Trigly" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

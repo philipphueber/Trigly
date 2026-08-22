@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Trigly</string>
+    <string name="rules_title">Rules</string>
+    <string name="rules_empty">No rules yet.</string>
+</resources>
