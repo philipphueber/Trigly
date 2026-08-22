@@ -137,4 +137,97 @@ class EnumParsingTest {
         val stream = assertThrows(IllegalStateException::class.java) { VolumeStream.parse("bass") }
         assertTrue(stream.message!!.contains("media"))
     }
+
+    @Test
+    fun `alert tones parse case insensitively`() {
+        assertEquals(AlertSound.ALARM, AlertSound.parse("alarm"))
+        assertEquals(AlertSound.NOTIFICATION, AlertSound.parse("Notification"))
+    }
+}
+
+/**
+ * The alert's duration is the one number in this app that can make a phone
+ * unpleasant for a stranger to be near, because the tone loops. The cap matters
+ * more here than it does for `vibrate`.
+ */
+class AlertDurationTest {
+
+    @Test
+    fun `absent duration falls back to the default`() {
+        assertEquals(PlayAlertAction.DEFAULT_DURATION_MILLIS, alertDurationMillis(null))
+        assertEquals(PlayAlertAction.DEFAULT_DURATION_MILLIS, alertDurationMillis("nonsense"))
+    }
+
+    @Test
+    fun `a sane duration passes through`() {
+        assertEquals(1_500L, alertDurationMillis("1500"))
+    }
+
+    @Test
+    fun `an implausibly long alert is capped`() {
+        // Half an hour of looping alarm, from a rule that fires on every
+        // notification, with no in-app stop button.
+        assertEquals(PlayAlertAction.MAX_DURATION_MILLIS, alertDurationMillis("1800000"))
+    }
+
+    @Test
+    fun `zero and negative durations are rejected`() {
+        assertThrows(IllegalArgumentException::class.java) { alertDurationMillis("0") }
+        assertThrows(IllegalArgumentException::class.java) { alertDurationMillis("-1") }
+    }
+}
+
+class AlertVolumeTest {
+
+    @Test
+    fun `absent volume plays at full gain`() {
+        assertEquals(1f, alertVolumeGain(null), 0.001f)
+    }
+
+    @Test
+    fun `a percentage becomes a linear scalar`() {
+        assertEquals(0.5f, alertVolumeGain("50"), 0.001f)
+        assertEquals(0f, alertVolumeGain("0"), 0.001f)
+    }
+
+    @Test
+    fun `out of range percentages are clamped rather than rejected`() {
+        // Unlike the duration, an absurd volume has an obvious sane reading and
+        // no way to hurt anyone — 150% is just "as loud as it goes".
+        assertEquals(1f, alertVolumeGain("150"), 0.001f)
+        assertEquals(0f, alertVolumeGain("-20"), 0.001f)
+    }
+}
+
+/**
+ * A custom sound URI arrives from the same untrusted places a rule does, so it
+ * gets the same treatment as `open_url` and `http_request`: local schemes only.
+ */
+class PlayableSoundUriTest {
+
+    @Test
+    fun `local sounds are allowed`() {
+        assertTrue(isPlayableSoundUri("content://media/internal/audio/media/12"))
+        assertTrue(isPlayableSoundUri("file:///storage/emulated/0/Alarms/siren.ogg"))
+    }
+
+    @Test
+    fun `scheme matching ignores case and surrounding space`() {
+        assertTrue(isPlayableSoundUri("  CONTENT://media/internal/audio/media/12  "))
+    }
+
+    @Test
+    fun `network sounds are refused`() {
+        // An imported rule would otherwise beacon to a stranger's server on
+        // every fire, and leak that the rule exists at all.
+        assertFalse(isPlayableSoundUri("https://example.com/siren.mp3"))
+        assertFalse(isPlayableSoundUri("http://example.com/siren.mp3"))
+        assertFalse(isPlayableSoundUri("rtsp://example.com/stream"))
+    }
+
+    @Test
+    fun `a bare path with no scheme is refused`() {
+        assertFalse(isPlayableSoundUri("/storage/emulated/0/Alarms/siren.ogg"))
+        assertFalse(isPlayableSoundUri(""))
+    }
 }

@@ -29,6 +29,7 @@ fun actionFactories(
     ToastActionFactory(context),
     SpeakActionFactory(context),
     VibrateActionFactory(context),
+    PlayAlertActionFactory(context),
 
     // Open something
     OpenUrlActionFactory(context),

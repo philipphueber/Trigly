@@ -36,6 +36,7 @@ actions as working when the phone is in use and unreliable when it is not.
 | Show a toast | `toast` | — (suppressed in background from API 12) |
 | Speak text aloud | `speak` | — |
 | Vibrate | `vibrate` | `VIBRATE` (install-time) |
+| Play an alert sound | `play_alert` | — (storage access only for a `file:` custom sound) |
 | Open a website | `open_url` | — (background-start caveat) |
 | Open an app | `open_app` | — (see package visibility below) |
 | Compose an email | `compose_email` | — (user confirms) |
@@ -63,6 +64,30 @@ Design lines held deliberately:
   carries a token in it.
 - **`vibrate` is capped at 10 seconds.** A config typo of 30000 for 300 is
   otherwise unstoppable short of killing the app.
+- **`play_alert` is capped at 60 seconds**, for the same reason and more
+  urgently: the tone loops, so the failure mode is a phone alarming in a meeting
+  with no in-app stop button. Disabling the rule cancels a running alert, which
+  is why the action suspends for its duration instead of firing and forgetting.
+- **`play_alert` custom sounds are `content:`/`file:` only.** A remote sound URI
+  in an imported rule would be a beacon: it would report to a stranger's server
+  every time the rule fired. Same reasoning as https-only `http_request`.
+
+### Why `play_alert` exists next to `post_notification`
+
+A notification's sound is at the mercy of its channel, and the user's ringer.
+`play_alert` plays on the **alarm** stream, which is the one an average silenced
+phone still lets through, and it keeps sounding for a set duration rather than
+playing one short tone — the difference between "a beep" and "an alarm until I
+look at the phone" is a number, not a different action.
+
+It is not absolute, and the UI says so: it cannot exceed the alarm volume the
+user has set (raising that needs Do Not Disturb access, too high a price for a
+sound effect), and Do Not Disturb still silences it unless alarms are allowed
+through, which is the common default.
+
+Paired with the `notification_posted` trigger's `package` and `textContains`
+filters, this covers the "alert me loudly when a specific app or keyword shows
+up" job that dedicated apps like Alertify exist for.
 
 `open_app` has a caveat worth resolving: on API 30+, package visibility rules
 mean `getLaunchIntentForPackage` returns null for apps not declared in
