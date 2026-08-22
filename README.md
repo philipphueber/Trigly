@@ -22,19 +22,16 @@ See `docs/architecture.md` for why it is built this way.
 
 ## Building
 
-The Gradle wrapper JAR is **not** checked in yet. Generate it once, with Gradle
-8.9 or newer installed:
+Requires JDK 17 and an Android SDK with API 35 and build-tools 35.0.0. Point
+`JAVA_HOME` at the JDK and put the SDK path in `local.properties`
+(`sdk.dir=/path/to/Android/Sdk`) — that file is machine-specific and gitignored.
 
-    gradle wrapper
+The Gradle wrapper is checked in, so no Gradle install is needed:
 
-After that, `./gradlew` works and the usual commands apply:
-
-    ./gradlew test                    # JVM unit tests, all modules
-    ./gradlew assembleDebug           # build the debug APK
-    ./gradlew lint                    # Android lint
-    ./gradlew connectedDebugAndroidTest   # instrumented tests, needs a device
-
-Requires JDK 17 and an Android SDK with API 35 installed.
+    ./gradlew test                        # JVM unit tests, all modules
+    ./gradlew assembleDebug               # build the debug APK
+    ./gradlew lint                        # Android lint
+    ./gradlew connectedDebugAndroidTest   # instrumented tests, needs a device or emulator
 
 ## Adding a trigger
 
