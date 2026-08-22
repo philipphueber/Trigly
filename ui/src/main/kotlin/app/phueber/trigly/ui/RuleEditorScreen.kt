@@ -1,6 +1,5 @@
 package app.phueber.trigly.ui
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -11,24 +10,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.BottomAppBar
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,15 +34,15 @@ import app.phueber.trigly.core.ComponentRequirement
  * builds rules repeatedly and knows what they want, so paging through steps
  * costs them time on every rule.
  *
- * Save and Delete live in a bottom bar rather than at the end of the scroll.
- * A rule with six actions is taller than a screen, and "where did Save go" is
- * not a question a dense power-user UI should ask. The bar also keeps both
- * clear of the gesture navigation area, which the content itself scrolls under.
+ * Save and Delete live in a bottom strip rather than at the end of the scroll. A
+ * rule with six actions is taller than a screen, and "where did Save go" is not
+ * a question a dense power-user UI should ask. The strip also owns the
+ * navigation-bar inset, and the whole screen takes `imePadding` so the keyboard
+ * pushes it up instead of covering it.
  *
  * Stateless, like [RulesScreen] — it takes the draft and emits intents, which is
  * what lets the instrumented tests drive it without a ViewModel or a database.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RuleEditorScreen(
     state: EditorState,
@@ -79,90 +66,67 @@ fun RuleEditorScreen(
     var picking by remember { mutableStateOf<Picking?>(null) }
     val draft = state.draft
 
-    Scaffold(
-        // On the Scaffold rather than the content: the keyboard must push the
-        // bottom bar up with it, or Save ends up underneath the keys.
-        modifier = modifier.fillMaxSize().imePadding(),
-        topBar = {
-            TopAppBar(
-                title = { Text(if (draft.isNew) "New rule" else "Edit rule") },
-                navigationIcon = {
-                    // Discoverable back, for the half of Android that navigates
-                    // by gesture and never learned the edge swipe.
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                ),
-            )
-        },
-        bottomBar = {
-            BottomAppBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Button(onClick = onSave) { Text("Save") }
-                    if (!draft.isNew) {
-                        TextButton(
-                            onClick = onDelete,
-                            colors = ButtonDefaults.textButtonColors(
-                                contentColor = MaterialTheme.colorScheme.error,
-                            ),
-                        ) {
-                            Text("Delete rule")
-                        }
-                    }
+    Column(modifier = modifier.fillMaxSize().imePadding()) {
+        BlockHeader(
+            title = if (draft.isNew) "New rule" else "Edit rule",
+            leading = {
+                // Discoverable back, for the half of Android that navigates by
+                // gesture and never learned the edge swipe.
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                 }
-            }
-        },
-    ) { insets ->
+            },
+        )
+
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(insets)
+                .fillMaxWidth()
+                .weight(1f)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
+                .padding(16.dp),
         ) {
             OutlinedTextField(
                 value = draft.name,
                 onValueChange = onNameChange,
-                label = { Text("Name *") },
+                label = { Text("NAME *", style = MaterialTheme.typography.labelMedium) },
                 singleLine = true,
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                modifier = Modifier.fillMaxWidth(),
             )
 
             Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Switch(checked = draft.enabled, onCheckedChange = onEnabledChange)
-                Text(text = "Enabled", modifier = Modifier.padding(start = 12.dp))
+                BlockToggle(checked = draft.enabled, onCheckedChange = onEnabledChange)
+                Text(
+                    text = "ENABLED",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(start = 12.dp),
+                )
             }
 
             // A refused save, unlike a component caveat, is a fault: it gets the
-            // error colour and a block of its own rather than a line of small text.
+            // error colour and a block of its own rather than a line of text.
             state.error?.let { message ->
                 Surface(
                     color = MaterialTheme.colorScheme.errorContainer,
                     contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                    shape = MaterialTheme.shapes.medium,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    border = androidx.compose.foundation.BorderStroke(
+                        2.dp,
+                        MaterialTheme.colorScheme.error,
+                    ),
+                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
                 ) {
                     Text(
                         text = message,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(14.dp),
                     )
                 }
             }
 
-            SectionHeader("When")
-            ComponentCard(
+            SectionLabel("When")
+            ComponentBlock(
                 chosenType = draft.trigger?.type,
                 descriptor = draft.trigger?.let { descriptorFor(Slot.TRIGGER, it.type) },
                 config = draft.trigger?.config.orEmpty(),
@@ -172,9 +136,9 @@ fun RuleEditorScreen(
                 onResolveRequirement = onResolveRequirement,
             )
 
-            SectionHeader("Then")
+            SectionLabel("Then")
             draft.actions.forEachIndexed { index, action ->
-                ComponentCard(
+                ComponentBlock(
                     chosenType = action.type,
                     descriptor = descriptorFor(Slot.ACTION, action.type),
                     config = action.config,
@@ -184,30 +148,35 @@ fun RuleEditorScreen(
                         onConfigChange(Slot.ACTION, index, key, value)
                     },
                     onResolveRequirement = onResolveRequirement,
-                    trailing = {
-                        Row(horizontalArrangement = Arrangement.End) {
-                            // Order matters — actions run in sequence.
-                            if (index > 0) {
-                                TextButton(onClick = { onMoveAction(index, index - 1) }) {
-                                    Text("Up")
-                                }
-                            }
-                            if (index < draft.actions.lastIndex) {
-                                TextButton(onClick = { onMoveAction(index, index + 1) }) {
-                                    Text("Down")
-                                }
-                            }
-                            TextButton(onClick = { onRemoveAction(index) }) { Text("Remove") }
+                    modifier = Modifier.padding(bottom = 12.dp),
+                    footer = {
+                        // Order matters — actions run in sequence.
+                        if (index > 0) {
+                            BlockTextButton("Up") { onMoveAction(index, index - 1) }
                         }
+                        if (index < draft.actions.lastIndex) {
+                            BlockTextButton("Down") { onMoveAction(index, index + 1) }
+                        }
+                        BlockTextButton("Remove") { onRemoveAction(index) }
                     },
                 )
             }
 
-            OutlinedButton(
+            BlockOutlineButton(
+                text = "Add action",
                 onClick = { picking = Picking.NewAction },
-                modifier = Modifier.padding(top = 8.dp, bottom = 24.dp),
-            ) {
-                Text("Add action")
+                modifier = Modifier.padding(top = 4.dp, bottom = 24.dp),
+            )
+        }
+
+        BlockBottomBar {
+            BlockButton(text = "Save", onClick = onSave, modifier = Modifier.weight(1f))
+            if (!draft.isNew) {
+                BlockOutlineButton(
+                    text = "Delete rule",
+                    onClick = onDelete,
+                    contentColor = MaterialTheme.colorScheme.error,
+                )
             }
         }
     }
@@ -244,18 +213,28 @@ private sealed interface Picking {
     data class ActionType(val index: Int) : Picking
 }
 
+/** A solid tag rather than a heading: the section names are part of the blocks. */
 @Composable
-private fun SectionHeader(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.titleSmall,
+private fun SectionLabel(text: String) {
+    Surface(
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(top = 20.dp, bottom = 4.dp),
-    )
+        contentColor = MaterialTheme.colorScheme.onPrimary,
+        modifier = Modifier.padding(top = 24.dp, bottom = 8.dp),
+    ) {
+        Text(
+            text = text.uppercase(),
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+        )
+    }
 }
 
+/**
+ * One trigger or action, as a block split into cells: what it is, what to know
+ * about it, its settings, what it needs, and what can be done to it.
+ */
 @Composable
-private fun ComponentCard(
+private fun ComponentBlock(
     chosenType: String?,
     descriptor: ComponentDescriptor?,
     config: Map<String, String>,
@@ -263,30 +242,42 @@ private fun ComponentCard(
     onChoose: () -> Unit,
     onConfigChange: (String, String?) -> Unit,
     onResolveRequirement: (ComponentRequirement) -> Unit,
-    trailing: (@Composable () -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    footer: (@Composable () -> Unit)? = null,
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        ),
-    ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            TextButton(onClick = onChoose) {
-                Text(descriptor?.displayName ?: chosenType ?: emptyLabel)
+    BlockCard(modifier = modifier) {
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // The block's main affordance, so it takes the accent.
+                BlockTextButton(
+                    text = descriptor?.displayName ?: chosenType ?: emptyLabel,
+                    modifier = Modifier.weight(1f),
+                    contentColor = MaterialTheme.colorScheme.primary,
+                    onClick = onChoose,
+                )
             }
 
             if (descriptor == null) {
                 // A stored rule can name a component this build does not have —
                 // after a downgrade, or an import from a newer version.
                 chosenType?.let {
-                    Text(
-                        text = "\"$it\" is not available in this version of Trigly.",
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                    BlockDivider()
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = "\"$it\" is not available in this version of Trigly.",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(14.dp),
+                        )
+                    }
                 }
-                trailing?.invoke()
+                Footer(footer)
                 return@Column
             }
 
@@ -294,51 +285,72 @@ private fun ComponentCard(
             // is chosen, the fields are in front of you, and swapping it out is
             // still a tap away. The picker only marks that this exists.
             descriptor.warning?.let {
+                BlockDivider()
                 Surface(
                     color = MaterialTheme.extra.cautionContainer,
                     contentColor = MaterialTheme.extra.onCautionContainer,
-                    shape = MaterialTheme.shapes.small,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
                         text = it,
                         style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(10.dp),
+                        modifier = Modifier.padding(14.dp),
                     )
                 }
             }
 
-            descriptor.configFields.forEach { field ->
-                ConfigFieldEditor(
-                    field = field,
-                    value = config[field.key],
-                    onValueChange = { onConfigChange(field.key, it) },
-                )
+            if (descriptor.configFields.isNotEmpty()) {
+                BlockDivider()
+                Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
+                    descriptor.configFields.forEach { field ->
+                        ConfigFieldEditor(
+                            field = field,
+                            value = config[field.key],
+                            onValueChange = { onConfigChange(field.key, it) },
+                        )
+                    }
+                }
             }
 
             // Stated while the rule is being built, so nobody saves something
             // that cannot fire and then wonders why.
-            descriptor.requirements.forEach { requirement ->
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        text = requirement.describe(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(end = 8.dp),
-                    )
-                    if (requirement.isResolvable) {
-                        TextButton(onClick = { onResolveRequirement(requirement) }) {
-                            Text("Grant")
+            if (descriptor.requirements.isNotEmpty()) {
+                BlockDivider()
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    descriptor.requirements.forEach { requirement ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 14.dp, top = 6.dp, bottom = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = requirement.describe(),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f).padding(end = 8.dp),
+                            )
+                            if (requirement.isResolvable) {
+                                BlockTextButton("Grant") { onResolveRequirement(requirement) }
+                            }
                         }
                     }
                 }
             }
 
-            trailing?.invoke()
+            Footer(footer)
         }
+    }
+}
+
+@Composable
+private fun Footer(footer: (@Composable () -> Unit)?) {
+    if (footer == null) return
+    BlockDivider()
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        footer()
     }
 }

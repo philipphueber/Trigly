@@ -17,6 +17,12 @@ import org.junit.Rule as JUnitRule
 import org.junit.Test
 import org.junit.runner.RunWith
 
+/**
+ * Chrome and rule labels are asserted in capitals on purpose: the design
+ * uppercases them, so that is what the accessibility tree — and therefore a
+ * screen reader — actually contains. Prose (the empty state, a requirement
+ * explanation) stays in sentence case and is asserted that way.
+ */
 @RunWith(AndroidJUnit4::class)
 class RulesScreenTest {
 
@@ -58,24 +64,24 @@ class RulesScreenTest {
     fun shows_each_rule_with_display_names_not_type_strings() {
         composeRule.setContent { Screen(listOf(RuleStatus(sampleRule, unmet = emptyList()))) }
 
-        composeRule.onNodeWithText("Ping every minute").assertIsDisplayed()
-        composeRule.onNodeWithText("Every so often → Show a notification").assertIsDisplayed()
+        composeRule.onNodeWithText("PING EVERY MINUTE").assertIsDisplayed()
+        composeRule.onNodeWithText("EVERY SO OFTEN → SHOW A NOTIFICATION").assertIsDisplayed()
     }
 
     @Test
     fun empty_list_invites_creating_a_rule() {
         composeRule.setContent { Screen(emptyList()) }
 
-        composeRule.onNodeWithText("No rules yet. Tap “New rule” to make one.").assertIsDisplayed()
+        composeRule.onNodeWithText("No rules yet. Tap “NEW RULE” to make one.").assertIsDisplayed()
         // Export is pointless with nothing to export, so it is not offered.
-        composeRule.onNodeWithText("Export all").assertDoesNotExist()
+        composeRule.onNodeWithText("EXPORT ALL").assertDoesNotExist()
     }
 
     @Test
     fun new_rule_is_reported() {
         composeRule.setContent { Screen(emptyList()) }
 
-        composeRule.onNodeWithText("New rule").performClick()
+        composeRule.onNodeWithText("NEW RULE").performClick()
 
         assertEquals(1, newRuleTaps)
     }
@@ -84,7 +90,7 @@ class RulesScreenTest {
     fun tapping_a_rule_opens_it_for_editing() {
         composeRule.setContent { Screen(listOf(RuleStatus(sampleRule, unmet = emptyList()))) }
 
-        composeRule.onNodeWithText("Ping every minute").performClick()
+        composeRule.onNodeWithText("PING EVERY MINUTE").performClick()
 
         assertEquals(listOf(sampleRule.id), edited)
     }
@@ -93,8 +99,8 @@ class RulesScreenTest {
     fun a_rule_can_be_exported_on_its_own_or_with_the_rest() {
         composeRule.setContent { Screen(listOf(RuleStatus(sampleRule, unmet = emptyList()))) }
 
-        composeRule.onNodeWithText("Share").performClick()
-        composeRule.onNodeWithText("Export all").performClick()
+        composeRule.onNodeWithText("SHARE").performClick()
+        composeRule.onNodeWithText("EXPORT ALL").performClick()
 
         assertEquals(listOf(sampleRule.id, "all"), exported)
     }
@@ -105,7 +111,7 @@ class RulesScreenTest {
         // hidden behind having rules already.
         composeRule.setContent { Screen(emptyList()) }
 
-        composeRule.onNodeWithText("Import").performClick()
+        composeRule.onNodeWithText("IMPORT").performClick()
 
         assertEquals(1, importTaps)
     }
@@ -160,7 +166,7 @@ class RulesScreenTest {
             )
         }
 
-        composeRule.onNodeWithText("Grant").performClick()
+        composeRule.onNodeWithText("GRANT").performClick()
 
         assertEquals(listOf(notificationAccess), resolved)
     }
@@ -179,7 +185,7 @@ class RulesScreenTest {
         }
 
         composeRule.onNodeWithText("Needs Android API 31 or newer").assertIsDisplayed()
-        composeRule.onNodeWithText("Grant").assertDoesNotExist()
+        composeRule.onNodeWithText("GRANT").assertDoesNotExist()
     }
 }
 

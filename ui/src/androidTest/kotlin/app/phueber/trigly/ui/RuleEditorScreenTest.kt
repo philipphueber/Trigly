@@ -74,9 +74,9 @@ class RuleEditorScreenTest {
     fun a_new_rule_shows_prompts_and_no_delete() {
         composeRule.setContent { Editor(EditorState(RuleDraft(id = null))) }
 
-        composeRule.onNodeWithText("New rule").assertIsDisplayed()
-        composeRule.onNodeWithText("Choose a trigger").assertIsDisplayed()
-        composeRule.onNodeWithText("Delete rule").assertDoesNotExist()
+        composeRule.onNodeWithText("NEW RULE").assertIsDisplayed()
+        composeRule.onNodeWithText("CHOOSE A TRIGGER").assertIsDisplayed()
+        composeRule.onNodeWithText("DELETE RULE").assertDoesNotExist()
     }
 
     @Test
@@ -85,8 +85,8 @@ class RuleEditorScreenTest {
             Editor(EditorState(RuleDraft(id = "abc", name = "Existing")))
         }
 
-        composeRule.onNodeWithText("Edit rule").assertIsDisplayed()
-        composeRule.onNodeWithText("Delete rule").assertIsDisplayed()
+        composeRule.onNodeWithText("EDIT RULE").assertIsDisplayed()
+        composeRule.onNodeWithText("DELETE RULE").assertIsDisplayed()
     }
 
     @Test
@@ -104,9 +104,9 @@ class RuleEditorScreenTest {
         }
 
         // The display name, not the type string.
-        composeRule.onNodeWithText("Text appears on screen").assertIsDisplayed()
+        composeRule.onNodeWithText("TEXT APPEARS ON SCREEN").assertIsDisplayed()
         // A declared field, rendered from the schema. Required, hence the marker.
-        composeRule.onNodeWithText("Screen contains *").assertIsDisplayed()
+        composeRule.onNodeWithText("SCREEN CONTAINS *").assertIsDisplayed()
         // The warning that used to live only in KDoc.
         assertTrue(
             composeRule.onAllNodesWithText("The noisiest trigger available", substring = true)
@@ -128,8 +128,8 @@ class RuleEditorScreenTest {
             )
         }
 
-        composeRule.onNodeWithText("Threshold (%) *").assertIsDisplayed()
-        composeRule.onNodeWithText("below the threshold").assertIsDisplayed()
+        composeRule.onNodeWithText("THRESHOLD (%) *").assertIsDisplayed()
+        composeRule.onNodeWithText("BELOW THE THRESHOLD").assertIsDisplayed()
     }
 
     @Test
@@ -215,7 +215,7 @@ class RuleEditorScreenTest {
             )
         }
 
-        composeRule.onNodeWithText("Message *").performTextReplacement("hello")
+        composeRule.onNodeWithText("MESSAGE *").performTextReplacement("hello")
 
         assertEquals(Triple(Slot.ACTION, "text", "hello"), configChanges.last())
     }
@@ -224,7 +224,7 @@ class RuleEditorScreenTest {
     fun save_is_reported() {
         composeRule.setContent { Editor(EditorState(RuleDraft(id = null))) }
 
-        composeRule.onNodeWithText("Save").performClick()
+        composeRule.onNodeWithText("SAVE").performClick()
 
         assertEquals(1, saves)
     }
@@ -240,10 +240,10 @@ class RuleEditorScreenTest {
             )
         }
 
-        composeRule.onNodeWithText("Search").performTextReplacement("battery_level")
+        composeRule.onNodeWithText("SEARCH").performTextReplacement("battery_level")
 
-        composeRule.onNodeWithText("Battery level").assertIsDisplayed()
-        composeRule.onNodeWithText("Screen on or off").assertDoesNotExist()
+        composeRule.onNodeWithText("BATTERY LEVEL").assertIsDisplayed()
+        composeRule.onNodeWithText("SCREEN ON OR OFF").assertDoesNotExist()
     }
 
     @Test
@@ -257,7 +257,7 @@ class RuleEditorScreenTest {
             )
         }
 
-        composeRule.onNodeWithText("Search").performTextReplacement("zzzz")
+        composeRule.onNodeWithText("SEARCH").performTextReplacement("zzzz")
 
         composeRule.onNodeWithText("Nothing matches \"zzzz\".").assertIsDisplayed()
     }
@@ -288,7 +288,7 @@ class RuleEditorScreenTest {
             )
         }
 
-        composeRule.onNodeWithText(caveated.displayName).assertIsDisplayed()
+        composeRule.onNodeWithText(caveated.displayName.uppercase()).assertIsDisplayed()
         composeRule.onNodeWithContentDescription(CAVEAT_DESCRIPTION).assertIsDisplayed()
         composeRule.onNodeWithText(caveated.warning!!).assertDoesNotExist()
     }
@@ -330,14 +330,14 @@ class RuleEditorScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("Some text").assertIsDisplayed()
-        composeRule.onNodeWithText("An app").assertIsDisplayed()
-        composeRule.onNodeWithText("A number (ms)").assertIsDisplayed()
-        composeRule.onNodeWithText("A decimal").assertIsDisplayed()
-        composeRule.onNodeWithText("A flag").assertIsDisplayed()
+        composeRule.onNodeWithText("SOME TEXT").assertIsDisplayed()
+        composeRule.onNodeWithText("AN APP").assertIsDisplayed()
+        composeRule.onNodeWithText("A NUMBER (MS)").assertIsDisplayed()
+        composeRule.onNodeWithText("A DECIMAL").assertIsDisplayed()
+        composeRule.onNodeWithText("A FLAG").assertIsDisplayed()
         // A choice with no value and no default prompts rather than guessing;
         // its option labels live inside the dropdown, not on the form.
-        composeRule.onNodeWithText("A choice *").assertIsDisplayed()
-        composeRule.onNodeWithText("Choose…").assertIsDisplayed()
+        composeRule.onNodeWithText("A CHOICE *").assertIsDisplayed()
+        composeRule.onNodeWithText("CHOOSE…").assertIsDisplayed()
     }
 }

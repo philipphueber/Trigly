@@ -9,9 +9,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -114,7 +112,7 @@ private fun TextField(
         // Empty is reported as null so the key is dropped rather than stored as
         // "", which several components would read as a real (empty) filter.
         onValueChange = { onValueChange(it.ifEmpty { null }) },
-        label = { Text(label) },
+        label = { Text(label, style = MaterialTheme.typography.labelMedium) },
         placeholder = placeholder?.let { { Text(it) } },
         singleLine = !multiline,
         minLines = if (multiline) 2 else 1,
@@ -136,14 +134,22 @@ private fun ChoiceField(
         Text(
             text = fieldLabel(field.label, field.required),
             style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        TextButton(onClick = { expanded = true }) {
-            Text(selected?.label ?: "Choose…")
-        }
+        BlockOutlineButton(
+            text = selected?.label ?: "Choose…",
+            onClick = { expanded = true },
+            modifier = Modifier.padding(top = 6.dp),
+        )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             field.options.forEach { option ->
                 DropdownMenuItem(
-                    text = { Text(option.label) },
+                    text = {
+                        Text(
+                            text = option.label.uppercase(),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    },
                     onClick = {
                         onValueChange(option.value)
                         expanded = false
@@ -164,13 +170,13 @@ private fun FlagField(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Switch(
+        BlockToggle(
             checked = value?.toBooleanStrictOrNull() ?: field.default,
             onCheckedChange = { onValueChange(it.toString()) },
         )
         Text(
-            text = field.label,
-            style = MaterialTheme.typography.bodyMedium,
+            text = field.label.uppercase(),
+            style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.padding(start = 12.dp),
         )
     }
@@ -186,8 +192,16 @@ private fun Hint(text: String) {
     )
 }
 
+/**
+ * Labels are uppercased here rather than at each call site.
+ *
+ * They are tags in this design, not sentences — and doing it in one place means a
+ * new field kind cannot arrive in the wrong case. Help text and warnings are
+ * deliberately *not* uppercased: they are prose, and prose in capitals is
+ * unreadable.
+ */
 private fun fieldLabel(label: String, required: Boolean) =
-    if (required) "$label *" else label
+    (if (required) "$label *" else label).uppercase()
 
 private fun numericLabel(label: String, required: Boolean, unit: String?) =
     fieldLabel(if (unit == null) label else "$label ($unit)", required)
