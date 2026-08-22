@@ -33,9 +33,6 @@ interface Trigger {
  * adds it to its own module's factory list — adding one must not require
  * editing `:core` or any sibling trigger.
  */
-interface TriggerFactory {
-    /** Stable identifier, persisted in rules. Renaming it breaks saved rules. */
-    val type: String
-
+interface TriggerFactory : ComponentFactory {
     fun create(config: Map<String, String>): Trigger
 }

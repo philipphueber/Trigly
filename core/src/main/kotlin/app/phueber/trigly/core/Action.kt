@@ -21,9 +21,6 @@ interface Action {
  * Builds an [Action] of one type from stored configuration. The plugin seam
  * for actions — see [TriggerFactory] for the rule it follows.
  */
-interface ActionFactory {
-    /** Stable identifier, persisted in rules. Renaming it breaks saved rules. */
-    val type: String
-
+interface ActionFactory : ComponentFactory {
     fun create(config: Map<String, String>): Action
 }

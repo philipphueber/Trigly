@@ -24,6 +24,23 @@ class Registry(
     val triggerTypes: Set<String> get() = triggers.keys
     val actionTypes: Set<String> get() = actions.keys
 
+    /**
+     * What this trigger type needs before it can fire. Answerable without
+     * instantiating the trigger, so a rule editor can show it while the user is
+     * still choosing.
+     */
+    fun triggerRequirements(type: String): List<ComponentRequirement> =
+        triggers[type]?.requirements.orEmpty()
+
+    fun actionRequirements(type: String): List<ComponentRequirement> =
+        actions[type]?.requirements.orEmpty()
+
+    /** Everything [rule] needs, deduplicated — what a "why isn't this firing?" screen shows. */
+    fun requirementsOf(rule: Rule): List<ComponentRequirement> =
+        (triggerRequirements(rule.trigger.type) +
+            rule.actions.flatMap { actionRequirements(it.type) })
+            .distinct()
+
     fun createTrigger(spec: ComponentSpec): Trigger {
         val factory = triggers[spec.type]
             ?: throw UnknownComponentException(

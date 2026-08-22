@@ -7,6 +7,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import app.phueber.trigly.core.Action
 import app.phueber.trigly.core.ActionFactory
+import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.TriggerEvent
 
@@ -69,6 +70,10 @@ class PostNotificationActionFactory(
     private val context: Context,
 ) : ActionFactory {
     override val type: String = PostNotificationAction.TYPE
+
+    override val requirements = listOf(
+        ComponentRequirement.RuntimePermission("android.permission.POST_NOTIFICATIONS"),
+    )
 
     override fun create(config: Map<String, String>): Action = PostNotificationAction(
         context = context,

@@ -9,6 +9,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
+import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
@@ -86,6 +87,12 @@ class BluetoothConnectionTriggerFactory(
     private val context: Context,
 ) : TriggerFactory {
     override val type: String = BluetoothConnectionTrigger.TYPE
+
+    // Without it the trigger still fires, but events carry no device address,
+    // so a rule narrowed to one device can never match.
+    override val requirements = listOf(
+        ComponentRequirement.RuntimePermission(Manifest.permission.BLUETOOTH_CONNECT),
+    )
 
     override fun create(config: Map<String, String>): Trigger =
         BluetoothConnectionTrigger(

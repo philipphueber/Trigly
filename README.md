@@ -46,9 +46,15 @@ interface is wrong — fix the interface. Actions follow the same three steps in
 
 ## Status
 
-Early scaffold. Implemented: the engine, the plugin seams, an interval trigger,
-a Bluetooth-connected trigger, a post-notification action, and a rules list
+Early. Implemented: the engine, the plugin seams, the requirement model, 14
+triggers (battery level and temperature, power, airplane mode, Wi-Fi and
+Bluetooth radios, Bluetooth device connected, NFC, GPS, screen, headset, dark
+theme, orientation, interval), a post-notification action, and a rules list
 screen.
+
+`docs/triggers.md` catalogues every planned trigger with its Android API,
+required permission, and known pitfalls — including the ones that are policy-
+blocked or not worth building.
 
 Not yet implemented, and each has a `TODO` at the relevant place in the code:
 
