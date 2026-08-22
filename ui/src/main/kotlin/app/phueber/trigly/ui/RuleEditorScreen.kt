@@ -162,9 +162,14 @@ fun RuleEditorScreen(
                 )
             }
 
+            // Full width, like the trigger block above it: both are the "pick a
+            // component" affordance for their section, and a shrink-wrapped box
+            // floating at the left read as a stray control rather than the
+            // counterpart to "Choose a trigger".
             BlockOutlineButton(
                 text = "Add action",
                 onClick = { picking = Picking.NewAction },
+                fillWidth = true,
                 modifier = Modifier.padding(top = 4.dp, bottom = 24.dp),
             )
         }

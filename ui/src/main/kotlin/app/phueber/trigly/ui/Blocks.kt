@@ -160,26 +160,37 @@ fun BlockButton(
     }
 }
 
-/** The same shape, unfilled: a secondary action that still reads as a block. */
+/**
+ * The same shape, unfilled: a secondary action that still reads as a block.
+ *
+ * [fillWidth] opts into spanning the column, for a button that stands alone in
+ * the layout rather than sitting beside something. It has to widen the label as
+ * well as the surface — `textAlign` only centres text inside the width the label
+ * already has, so a wrap-content label would sit hard against the left edge of a
+ * full-width box. Off by default: a button in a row (Delete rule beside Save, the
+ * choice dropdown under its label) must stay the width of its text.
+ */
 @Composable
 fun BlockOutlineButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     contentColor: Color = MaterialTheme.colorScheme.primary,
+    fillWidth: Boolean = false,
 ) {
     Surface(
         onClick = onClick,
         color = Color.Transparent,
         contentColor = contentColor,
         border = BorderStroke(BlockBorder, contentColor),
-        modifier = modifier,
+        modifier = if (fillWidth) modifier.fillMaxWidth() else modifier,
     ) {
         Text(
             text = text.uppercase(),
             style = MaterialTheme.typography.labelLarge,
             textAlign = TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+            modifier = (if (fillWidth) Modifier.fillMaxWidth() else Modifier)
+                .padding(horizontal = 20.dp, vertical = 14.dp),
         )
     }
 }
