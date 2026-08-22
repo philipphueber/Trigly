@@ -29,6 +29,12 @@ enum class SpecialAccessKind(val settingsAction: String, val label: String) {
         settingsAction = "android.settings.USAGE_ACCESS_SETTINGS",
         label = "Usage access",
     ),
+
+    /** Needed to change Do Not Disturb, which includes silencing the ringer. */
+    NOTIFICATION_POLICY(
+        settingsAction = "android.settings.NOTIFICATION_POLICY_ACCESS_SETTINGS",
+        label = "Do Not Disturb access",
+    ),
 }
 
 sealed interface ComponentRequirement {

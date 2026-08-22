@@ -1,6 +1,7 @@
 package app.phueber.trigly.core
 
 import android.app.AppOpsManager
+import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -34,6 +35,9 @@ class RequirementChecker(private val context: Context) {
                 Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
             )
             SpecialAccessKind.USAGE_STATS -> hasUsageStatsAccess()
+            SpecialAccessKind.NOTIFICATION_POLICY ->
+                context.getSystemService(NotificationManager::class.java)
+                    ?.isNotificationPolicyAccessGranted == true
         }
 
         // Not a device condition — no setting the user can change makes an app

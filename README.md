@@ -47,17 +47,22 @@ interface is wrong — fix the interface. Actions follow the same three steps in
 ## Status
 
 Early. Implemented: the engine, the plugin seams, the requirement model and the
-permission flow around it, **27 triggers**, a post-notification action, and a
-rules list screen that explains why a rule cannot fire.
+permission flow around it, **27 triggers**, **15 actions**, and a rules list
+screen that explains why a rule cannot fire.
 
 Triggers cover device state (battery, power, radios, screen, headset, theme,
 orientation, location), apps and settings (install, foreground, work profile,
 auto-sync), and the permission-gated ones (notifications, Do Not Disturb,
 accessibility, calls, SMS, clipboard).
 
-`docs/triggers.md` catalogues every trigger with its Android API, required
-permission and known pitfalls — including the ones deliberately not built, and
-why.
+Actions cover notifying (notification, toast, speech, vibration), opening
+(website, app), handing off to another app for the user to confirm (email, SMS,
+alarm, calendar), device state (volume, ringer, clipboard), and HTTP requests
+for webhooks and home automation.
+
+`docs/triggers.md` and `docs/actions.md` catalogue every trigger and action with
+its Android API, required permission and known pitfalls — including the ones
+deliberately not built, and the ones Android no longer permits at all.
 
 **Privacy.** Trigly's accessibility service can observe screen content, and its
 notification listener sees every notification. Nothing is stored, logged or sent
@@ -77,3 +82,10 @@ Not yet implemented, and each has a `TODO` at the relevant place in the code:
 - **Geofencing and activity recognition.** Would require Google Play Services;
   left out on purpose so the app works on de-Googled devices. The `location`
   trigger uses the platform API instead.
+- **Background activity starts.** Since Android 10 an app in the background
+  cannot open an app or a website without a foreground service or the overlay
+  permission — silently, with no error. Actions that open something are
+  unreliable until that lands.
+- **Conditions, variables and loops.** A rule is a trigger plus a flat list of
+  actions. Anything more is an execution model, and the largest design decision
+  still open; see the design note in `docs/actions.md`.

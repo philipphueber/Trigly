@@ -4,4 +4,11 @@
     <!-- Runtime permission from API 33; without it posted notifications are dropped silently. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Install-time, granted automatically; declared so the vibrate action works. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Install-time. Needed by the HTTP action, which is how rules reach
+         webhooks and home automation. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
 </manifest>
