@@ -52,6 +52,12 @@ abstract class BroadcastTrigger(
     /** Intent actions to listen for. Registering only what is needed keeps wakeups down. */
     protected abstract val actions: List<String>
 
+    /**
+     * Data schemes to add to the filter. The package broadcasts carry their
+     * subject as a `package:` URI and are simply not delivered without this.
+     */
+    protected open val dataSchemes: List<String> = emptyList()
+
     /** True for sticky broadcasts, which replay current state on registration. */
     protected open val suppressInitialState: Boolean = false
 
@@ -70,7 +76,10 @@ abstract class BroadcastTrigger(
             }
         }
 
-        val filter = IntentFilter().apply { actions.forEach(::addAction) }
+        val filter = IntentFilter().apply {
+            actions.forEach(::addAction)
+            dataSchemes.forEach(::addDataScheme)
+        }
         ContextCompat.registerReceiver(
             context,
             receiver,

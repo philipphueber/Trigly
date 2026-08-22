@@ -3,4 +3,5 @@
     <string name="app_name">Trigly</string>
     <string name="rules_title">Rules</string>
     <string name="rules_empty">No rules yet.</string>
+    <string name="requirement_grant">Grant</string>
 </resources>

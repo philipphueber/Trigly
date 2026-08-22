@@ -81,9 +81,31 @@ access was never granted looks identical to one that is simply waiting.
 Declaring the precondition per type lets the rule editor state it up front and
 lets a diagnostics screen explain a silent rule afterwards.
 
+`RequirementChecker` evaluates them against the device, and the rules screen
+shows an enabled-but-unfirable rule what is missing, with a button to the
+permission dialog or settings screen. Requirements are re-read when the app
+resumes, because a grant made in system settings reports nothing back.
+
 `docs/triggers.md` catalogues every planned trigger against this model, plus
-the cross-cutting blockers — no foreground service, no scheduler, no permission
-flow — that gate whole groups of them.
+the cross-cutting blockers — no foreground service, no scheduler — that gate
+whole groups of them.
+
+### Services the system owns
+
+`NotificationListenerService` and `AccessibilityService` are constructed by the
+framework, so there is no instance to hand a trigger and nowhere to inject a
+dependency. Each service publishes to a process-wide `ServiceEventBus`, and the
+triggers subscribe; neither knows the other.
+
+The services stay deliberately thin — flatten the callback argument, publish,
+return. The system unbinds a service whose callbacks are slow, so no rule
+evaluation or I/O happens on those threads. The bus drops the oldest event under
+load rather than blocking, because accessibility events arrive in bursts of
+hundreds and losing stale UI events is better than losing the service.
+
+Each bus also exposes whether its service is connected. A trigger whose service
+is not bound is not quiet, it is broken, and that difference has to be
+expressible.
 
 ## Testing posture
 

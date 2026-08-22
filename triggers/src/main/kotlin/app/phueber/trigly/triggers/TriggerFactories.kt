@@ -2,6 +2,11 @@ package app.phueber.trigly.triggers
 
 import android.content.Context
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.triggers.accessibility.KeyboardVisibilityTriggerFactory
+import app.phueber.trigly.triggers.accessibility.ScreenContentTriggerFactory
+import app.phueber.trigly.triggers.accessibility.UiClickTriggerFactory
+import app.phueber.trigly.triggers.notification.DndModeTriggerFactory
+import app.phueber.trigly.triggers.notification.NotificationPostedTriggerFactory
 
 /**
  * Every trigger type this module provides.
@@ -41,4 +46,27 @@ fun triggerFactories(context: Context): List<TriggerFactory> = listOf(
     HeadsetPlugTriggerFactory(context),
     DarkThemeTriggerFactory(context),
     OrientationTriggerFactory(context),
+
+    // Apps and system settings
+    PackageChangeTriggerFactory(context),
+    WorkProfileTriggerFactory(context),
+    AutoSyncTriggerFactory(),
+    AppForegroundTriggerFactory(context),
+
+    // Notification access
+    NotificationPostedTriggerFactory(),
+    DndModeTriggerFactory(),
+
+    // Accessibility access — the most invasive grant Trigly asks for
+    UiClickTriggerFactory(),
+    ScreenContentTriggerFactory(),
+    KeyboardVisibilityTriggerFactory(),
+
+    // Telephony and location
+    CallStateTriggerFactory(context),
+    SmsReceivedTriggerFactory(context),
+    LocationTriggerFactory(context),
+
+    // Restricted by the platform rather than by permission; see the class docs
+    ClipboardTriggerFactory(context),
 )

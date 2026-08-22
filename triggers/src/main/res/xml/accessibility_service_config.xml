@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Scoped as narrowly as the triggers allow. Every event type listed here is one
+  Trigly actually consumes; adding types "just in case" would widen an already
+  invasive permission for no benefit.
+
+  flagRetrieveInteractiveWindows is needed only to detect the keyboard window.
+  notificationTimeout throttles content events, which would otherwise arrive
+  continuously from any animating view.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeViewClicked|typeWindowContentChanged|typeWindowStateChanged|typeWindowsChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagRetrieveInteractiveWindows"
+    android:canRetrieveWindowContent="true"
+    android:description="@string/accessibility_service_description"
+    android:notificationTimeout="100" />

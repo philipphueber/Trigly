@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Shown to the user on the system's accessibility settings screen, which is
+      where they decide whether to trust this. Say plainly what it observes and
+      what it does not do with it.
+    -->
+    <string name="accessibility_service_description">Lets Trigly react to what
+        happens on screen — taps, screen content and the keyboard — so rules can
+        use them as triggers. Nothing is recorded, stored or sent anywhere; it is
+        matched on the device and discarded. Only enable this if you have rules
+        that need it.</string>
+</resources>

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!--
       Declared by the module that needs them rather than centrally in :ui, so a
@@ -15,11 +16,40 @@
         android:name="android.permission.BLUETOOTH"
         android:maxSdkVersion="30" />
 
+    <!-- Call state. The caller's number would additionally need READ_CALL_LOG,
+         which Play restricts to default dialers; the call trigger deliberately
+         does without it. -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+
+    <!-- Location trigger. From API 31 the user can grant approximate location
+         instead of precise, so the platform requires both to be declared; the
+         GPS provider the trigger uses still needs the fine grant, which is what
+         the trigger declares as its requirement.
+
+         Background location is a separate grant and a separate Play review; not
+         requested until a trigger needs it. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Usage-stats access is a special access granted in settings, but the
+         permission must still be declared for the app-op to be checkable. -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!--
+      SMS. Play restricts these to the user's default SMS app and the
+      restriction survives user consent, so a Play build cannot ship the SMS
+      trigger. The trigger declares ComponentRequirement.PolicyRestricted so the
+      UI can hide it; see docs/triggers.md.
+    -->
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+
     <!--
       required="false" so the app still installs on devices without the hardware.
-      The NFC trigger declares a matching SystemFeature requirement, which is how
-      the UI knows to hide it on those devices rather than offer a trigger that
-      can never fire.
+      Triggers declare matching SystemFeature requirements, which is how the UI
+      knows to hide them on those devices rather than offer something that can
+      never fire.
     -->
     <uses-feature
         android:name="android.hardware.nfc"
@@ -30,5 +60,39 @@
     <uses-feature
         android:name="android.hardware.location.gps"
         android:required="false" />
+    <uses-feature
+        android:name="android.hardware.telephony"
+        android:required="false" />
+
+    <application>
+
+        <!--
+          Both services are inert until the user enables them in system settings.
+          Declaring them costs nothing at runtime; neither is bound otherwise.
+        -->
+        <service
+            android:name=".notification.TriglyNotificationListenerService"
+            android:exported="false"
+            android:label="Trigly"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".accessibility.TriglyAccessibilityService"
+            android:exported="false"
+            android:label="Trigly"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+    </application>
 
 </manifest>

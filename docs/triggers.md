@@ -36,8 +36,11 @@ Exact alarms need `SCHEDULE_EXACT_ALARM` from API 31, and Google restricts
 a few minutes of drift. *Blocks:* time of day, day of week, sunrise/sunset,
 calendar, stopwatch.
 
-**3. No permission-request flow.** `ComponentRequirement` describes what is
-needed; nothing asks for it yet. *Blocks:* every Tier 2 entry.
+**3. ~~No permission-request flow.~~** *Done.* `RequirementChecker` evaluates
+requirements against the device, the rules screen explains why an enabled rule
+cannot fire, and a Grant button leads to the permission dialog or the right
+settings screen. Requirements are re-checked on resume, since a grant made in
+system settings reports nothing back to the app.
 
 ---
 
@@ -141,7 +144,66 @@ the elapsed-time callback.
 
 ---
 
-## Tier 2 — special permission or service
+## Tier 2 — implemented
+
+| Trigger | Type string | Requirement |
+|---|---|---|
+| Notification posted | `notification_posted` | Notification access |
+| DND mode changed | `dnd_mode` | Notification access |
+| UI element clicked | `ui_click` | Accessibility access |
+| Screen content changed | `screen_content` | Accessibility access |
+| Keyboard opened/closed | `keyboard_visibility` | Accessibility access (best effort) |
+| App installed/uninstalled | `app_install_state` | — |
+| App came to foreground | `app_foreground` | Usage access |
+| Call incoming/outgoing/answered/ended/missed | `call_state` | `READ_PHONE_STATE`, API 31+ |
+| SMS received | `sms_received` | `RECEIVE_SMS`, Play-restricted |
+| Entered/left an area | `location` | `ACCESS_FINE_LOCATION` |
+| Work profile available/unavailable | `work_profile` | — |
+| Auto-sync changed | `auto_sync` | — |
+| Clipboard changed | `clipboard_changed` | Platform-restricted |
+
+Three shipped with caveats that are load-bearing rather than cosmetic:
+
+- **`call_state` is Android 12+.** The pre-31 `PhoneStateListener` must be built
+  on a thread with a `Looper`, which does not fit a `callbackFlow` without a
+  main-thread hop. Declared as `MinApiLevel(31)` so the UI says so rather than
+  the trigger silently doing nothing. A pre-31 path is a fair follow-up.
+- **`call_state` carries no caller number.** That needs `READ_CALL_LOG`, which
+  Play restricts to default dialers. Rather than make the trigger unshippable
+  for one payload field, it is simply not offered.
+- **`clipboard_changed` mostly will not fire.** Since Android 10 only a
+  foreground app, the default keyboard, or an accessibility service may read the
+  clipboard. It is shipped for the accessibility-enabled case and declares the
+  restriction so the UI can warn.
+
+---
+
+## Tier 2 — remaining
+
+### Geofencing and activity recognition
+Both need `play-services-location`, which would make an open-source automation
+app depend on Google Play Services and stop it working on de-Googled devices.
+**Deliberately not added** — that is a product decision, not a technical one.
+
+The `location` trigger above uses the platform `LocationManager` instead, so
+area-based rules work today without Google. The trade is real: the Play
+Geofencing API is batched and system-managed, so it costs far less battery than
+an active location request, and activity recognition has no platform equivalent
+at all. If Play Services is acceptable, the clean shape is a separate
+`:triggers-gms` module so a de-Googled build can exclude it.
+
+### Notification action buttons
+Firing a notification's action `PendingIntent` is an *action*, not a trigger, and
+belongs in `:actions` alongside `PostNotificationAction`. The listener service
+already receives everything needed.
+
+### SMS sent
+There is no broadcast for outgoing SMS. It needs a `ContentObserver` on
+`content://sms/sent`, and carries the same Play restriction as receiving.
+
+---
+
+## Tier 2 — reference
 
 ### Notification listener
 `NotificationListenerService`, bound via `BIND_NOTIFICATION_LISTENER_SERVICE`,
@@ -236,11 +298,12 @@ geofencing.
 
 ## Suggested order
 
-1. USB vs AC, auto-sync — hours each, no new infrastructure.
-2. Foreground service (blocker 1) — makes every existing trigger actually
-   reliable, which is worth more than any new trigger.
-3. Scheduler (blocker 2) — unlocks five time-based triggers at once.
-4. Permission flow (blocker 3), then notification listener — the highest-value
-   Tier 2 entry and a candidate host for the engine.
-5. Network callbacks (mobile data, Wi-Fi SSID), sensors, calendar.
-6. Decide distribution before touching accessibility, SMS, or call log.
+1. **Foreground service (blocker 1).** Now clearly the top item: 25 triggers
+   exist and every one of them stops when the process does. Making what is built
+   actually work beats building more. The notification listener is a natural
+   host — the system keeps it bound.
+2. **Scheduler (blocker 2)** — unlocks five time-based triggers at once.
+3. USB vs AC — an hour, same file as the battery triggers.
+4. Network callbacks (mobile data, Wi-Fi SSID), sensors, calendar.
+5. Decide distribution, which gates whether the accessibility and SMS triggers
+   that now exist can ship in a Play build.

@@ -7,6 +7,7 @@ import app.phueber.trigly.actions.actionFactories
 import app.phueber.trigly.core.ComponentSpec
 import app.phueber.trigly.core.InMemoryRuleRepository
 import app.phueber.trigly.core.Registry
+import app.phueber.trigly.core.RequirementChecker
 import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.RuleRepository
 import app.phueber.trigly.core.TriggerEngine
@@ -50,6 +51,8 @@ class AppContainer(context: Context) {
     )
 
     val ruleRepository: RuleRepository = InMemoryRuleRepository(sampleRules())
+
+    val requirementChecker: RequirementChecker = RequirementChecker(context)
 
     val engine: TriggerEngine = TriggerEngine(registry, applicationScope)
 }

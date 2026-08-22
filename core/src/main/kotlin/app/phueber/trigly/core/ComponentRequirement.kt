@@ -11,6 +11,26 @@ package app.phueber.trigly.core
  * yet" and "permanently blocked" is invisible from inside the app unless
  * something states the precondition up front.
  */
+/**
+ * The forms of special access Trigly asks for, each with the settings screen
+ * that grants it. Deliberately a closed set: every entry is a serious ask, and
+ * a new one should be a considered decision rather than a string someone types.
+ */
+enum class SpecialAccessKind(val settingsAction: String, val label: String) {
+    NOTIFICATION_LISTENER(
+        settingsAction = "android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS",
+        label = "Notification access",
+    ),
+    ACCESSIBILITY_SERVICE(
+        settingsAction = "android.settings.ACCESSIBILITY_SETTINGS",
+        label = "Accessibility access",
+    ),
+    USAGE_STATS(
+        settingsAction = "android.settings.USAGE_ACCESS_SETTINGS",
+        label = "Usage access",
+    ),
+}
+
 sealed interface ComponentRequirement {
 
     /**
@@ -23,13 +43,14 @@ sealed interface ComponentRequirement {
     /**
      * Access the user must grant in a system settings screen rather than through
      * a permission dialog: notification listener, accessibility service, usage
-     * stats. [settingsAction] is the `Settings.ACTION_*` intent action that
-     * takes the user there.
+     * stats.
+     *
+     * Carries a [kind] rather than just a settings intent because each one is
+     * *checked* differently — a secure setting for two of them, an app-op for
+     * the third — and there is no generic "is this special access granted" API
+     * to switch on.
      */
-    data class SpecialAccess(
-        val settingsAction: String,
-        val label: String,
-    ) : ComponentRequirement
+    data class SpecialAccess(val kind: SpecialAccessKind) : ComponentRequirement
 
     /** Hardware or software feature, as named by `PackageManager.FEATURE_*`. */
     data class SystemFeature(val feature: String) : ComponentRequirement
