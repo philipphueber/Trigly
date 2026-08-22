@@ -112,11 +112,17 @@ not exceed absence", and `IntervalTrigger`'s positive-period check lives in its
 constructor rather than its factory. One validation path, and it is the one the
 engine will actually use.
 
-`ConfigField.Text.blankMeaning` is load-bearing rather than decoration. Several
-components treat an *absent* value as "match anything" — `bluetooth_connected`
-without an address, a package filter left empty. An editor that helpfully
-supplied a default would silently narrow the rule, so blankness is declared as a
-setting and rendered as "Leave blank for any app".
+`blankMeaning` is load-bearing rather than decoration. Several components treat
+an *absent* value as "match anything" — `bluetooth_connected` without an address,
+a package filter left empty. An editor that helpfully supplied a default would
+silently narrow the rule, so blankness is declared as a setting rather than left
+to look like an unfilled field.
+
+How it renders depends on the field kind, and the wording follows. A `Text`
+field shows it as a hint under an empty box, so it reads as an instruction:
+"Leave blank for any address". An `AppPackage` field is a picker with no blank
+state to leave alone, so the same declaration is phrased as a *value* — "Any
+app" — shown as what the field currently says and as the row that sets it back.
 
 Factories also declare `displayName`, `category` and an optional `warning`.
 `category` is what makes a 28-item trigger picker usable; `warning` is where a
@@ -283,6 +289,43 @@ with whether it works on the device in front of you, and Trigly is meant to be
 sideloadable. And the filter applies to the *pickers only* — `Registry` stays
 device-agnostic and `descriptorFor` looks up unfiltered, so a rule imported from
 a newer phone still renders its trigger instead of going blank.
+
+### Picking an app, not typing one
+
+`AppPackage` was a distinct field kind from the start for one reason, and this is
+it: nobody knows that the dialer is `com.google.android.dialer`. It stores and
+validates exactly like `Text`, so the only thing that justifies the extra kind is
+the editor rendering it as a picker.
+
+The list is **launcher apps only**, and that is the whole design decision.
+Enumerating every installed package needs `QUERY_ALL_PACKAGES`, which Google
+treats as a restricted permission requiring a declared exception — a heavy price
+for a convenience, and a publishing obstacle for an app meant to be easy to
+distribute. Declaring the launcher intent in `<queries>` instead returns every
+app with an icon, which is what a person means by "an app".
+
+The cost is real and is paid explicitly: a service with no launcher icon — a
+plausible target for `notification_watchdog` — is not in the list. So the search
+box doubles as manual entry. Type something that looks like a package name and
+the picker offers it as a row; `looksLikeAPackageName` gates that offer and is
+deliberately loose, because the factory validates for real at save time and
+refusing a valid-but-unusual package is worse than offering one that turns out
+not to be installed. The same looseness is why it must reject anything a person
+would type to *search* — one field serves both purposes.
+
+Two smaller things the picker has to get right. A field whose blankness is a
+setting gets a row that restores it, or opening the picker would be a one-way
+door. And a stored package always shows its label with the raw package beneath,
+including when the app is not installed: a rule imported from another phone
+renders as its package name rather than as nothing.
+
+The app list is read once per process, off the main thread, and handed down
+through `LocalInstalledApps`. A `staticCompositionLocal` rather than a parameter
+because exactly one branch of `ConfigFieldEditor` wants it, and threading a list
+from the activity through two screens and a component block would add it to four
+signatures with no other use for it. Its empty default is safe — the picker still
+offers manual entry — and it is what lets the instrumented tests supply their own
+app list instead of asserting against whatever the emulator image ships.
 
 ## Testing posture
 

@@ -27,10 +27,18 @@ internal fun stateChoice(
     help = help,
 )
 
-/** The `package` field, which several triggers use as an optional filter. */
+/**
+ * The `package` field, which several triggers use as an optional filter.
+ *
+ * [blankMeaning] reads as a *value* rather than an instruction ("Any app", not
+ * "Leave blank for any app") because the editor renders an app-package field as a
+ * picker: the blank meaning is what the field shows when nothing is chosen, and
+ * the row that sets it back. "Leave blank" would be telling someone to do
+ * something the control no longer offers.
+ */
 internal fun packageFilter(
     label: String = "App",
-    blankMeaning: String? = "Leave blank for any app",
+    blankMeaning: String? = "Any app",
     required: Boolean = false,
     help: String? = null,
 ): ConfigField.AppPackage = ConfigField.AppPackage(

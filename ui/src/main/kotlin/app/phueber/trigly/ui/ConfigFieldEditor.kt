@@ -54,13 +54,13 @@ fun ConfigFieldEditor(
                 onValueChange = onValueChange,
             )
 
-            is ConfigField.AppPackage -> TextField(
+            // The one field kind that is not a text box: picking from the
+            // installed apps is the whole reason AppPackage is its own kind.
+            is ConfigField.AppPackage -> AppPackageField(
                 label = fieldLabel(field.label, field.required),
-                value = value,
-                placeholder = "com.example.app",
-                keyboard = KeyboardType.Text,
-                multiline = false,
-                onValueChange = onValueChange,
+                packageName = value?.ifEmpty { null },
+                blankMeaning = field.blankMeaning,
+                onPick = onValueChange,
             )
 
             is ConfigField.Number -> TextField(
@@ -84,9 +84,11 @@ fun ConfigFieldEditor(
         }
 
         // The blank-means-something hint only helps while the field is empty.
+        // AppPackage is absent on purpose: its picker shows the blank meaning as
+        // the field's own value ("Any app"), so repeating it below would say the
+        // same thing twice.
         val blankHint = when (field) {
             is ConfigField.Text -> field.blankMeaning
-            is ConfigField.AppPackage -> field.blankMeaning
             else -> null
         }
         if (value.isNullOrEmpty() && blankHint != null) {

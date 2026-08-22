@@ -1,6 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!--
+      Lets the app-package picker see the installed apps that have a launcher
+      icon. Since Android 11 package queries are filtered unless the app declares
+      what it is looking for here.
+
+      Deliberately NOT android.permission.QUERY_ALL_PACKAGES: Google treats it as
+      a restricted permission needing a declared exception, which is a bad trade
+      for a convenience picker. The cost is that an app with no launcher icon is
+      not listed, which is why the picker also accepts a typed package name.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
         android:name=".TriglyApp"
         android:allowBackup="true"
