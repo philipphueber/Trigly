@@ -28,9 +28,27 @@ class TriggerEngine(
     /** The rule as it was when started, so [sync] can tell an edit from a redelivery. */
     private class Running(val rule: Rule, val job: Job)
 
+    /**
+     * Guards [jobs], because the engine is genuinely reached from two threads.
+     *
+     * The hosting service calls [sync] from the coroutine collecting the rule
+     * store, while Android delivers `onStartCommand` on the main thread — and
+     * that reads [runningRuleIds] to label the service's notification. Both
+     * happen on every rule change, so an unguarded `HashMap` here means
+     * iterating it on one thread while the other restructures it: a
+     * `ConcurrentModificationException` on the main thread, or a count that is
+     * quietly wrong. Intermittent, which is the worst way for this to show up.
+     *
+     * A monitor rather than a concurrent map, because [sync] is not one
+     * operation: "stop what is gone, then start what is new" has to be atomic as
+     * a whole or a reader can observe a moment where a rule is neither. Monitors
+     * are reentrant, which is what lets [sync] call [stopRule] while holding it.
+     */
+    private val lock = Any()
+
     private val jobs = mutableMapOf<String, Running>()
 
-    val runningRuleIds: Set<String> get() = jobs.keys.toSet()
+    val runningRuleIds: Set<String> get() = synchronized(lock) { jobs.keys.toSet() }
 
     /**
      * Makes what is running match [rules]: starts what is newly enabled, stops
@@ -51,16 +69,18 @@ class TriggerEngine(
     fun sync(rules: List<Rule>) {
         val wanted = rules.filter { it.enabled }.associateBy { it.id }
 
-        (jobs.keys - wanted.keys).forEach(::stopRule)
+        synchronized(lock) {
+            (jobs.keys - wanted.keys).forEach(::stopRule)
 
-        wanted.values.forEach { rule ->
-            if (jobs[rule.id]?.rule == rule) return@forEach
-            try {
-                startRule(rule)
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (t: Throwable) {
-                onStartFailure(rule, t)
+            wanted.values.forEach { rule ->
+                if (jobs[rule.id]?.rule == rule) return@forEach
+                try {
+                    startRule(rule)
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (t: Throwable) {
+                    onStartFailure(rule, t)
+                }
             }
         }
     }
@@ -71,7 +91,7 @@ class TriggerEngine(
      * rather than silently never firing. [sync] is the caller that catches that;
      * this one throws, so a deliberate single-rule start still reports it.
      */
-    fun startRule(rule: Rule) {
+    fun startRule(rule: Rule) = synchronized(lock) {
         stopRule(rule.id)
 
         val trigger = registry.createTrigger(rule.trigger)
@@ -83,6 +103,7 @@ class TriggerEngine(
             }
         }
         jobs[rule.id] = Running(rule, job)
+        Unit
     }
 
     /**
@@ -102,11 +123,12 @@ class TriggerEngine(
         onOutcome(rule, event, result)
     }
 
-    fun stopRule(ruleId: String) {
+    fun stopRule(ruleId: String) = synchronized(lock) {
         jobs.remove(ruleId)?.job?.cancel()
+        Unit
     }
 
-    fun stop() {
+    fun stop() = synchronized(lock) {
         jobs.keys.toList().forEach(::stopRule)
     }
 }
