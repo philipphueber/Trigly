@@ -124,6 +124,78 @@ class RuleEditorViewModelTest {
     }
 
     @Test
+    fun testing_an_action_reports_what_it_did() = runTest {
+        val editor = viewModel()
+        editor.setName("Buzz")
+        editor.chooseTrigger("screen_state")
+        editor.addAction("vibrate")
+
+        editor.testAction(0)
+
+        val result = editor.state.value.testResult
+        assertNotNull("a test run has to say something, even when it worked", result)
+        assertTrue("expected the action's own name, got: $result", result!!.contains("Vibrate"))
+        // Nothing was saved: testing is not a side door into the repository.
+        assertTrue(editor.state.value.draft.isNew)
+    }
+
+    /**
+     * Config the factory refuses has to read as bad config, not as a failed run —
+     * they call for different fixes, and the factory's own message is the one
+     * written for a person.
+     */
+    @Test
+    fun testing_an_action_with_config_its_factory_refuses_says_so() = runTest {
+        val editor = viewModel()
+        editor.addAction("open_url")
+        editor.setConfigValue(Slot.ACTION, 0, "url", "not-a-url")
+
+        editor.testAction(0)
+
+        val result = editor.state.value.testResult
+        assertNotNull(result)
+        assertTrue("expected the component named, got: $result", result!!.contains("Open a website"))
+        assertEquals("nothing should be left running", null, editor.state.value.testing)
+    }
+
+    /**
+     * The stop half of the button, and the reason it is not optional: `play_alert`
+     * loops for up to a minute, so a test that could not be cut short would be a
+     * worse version of the trap the action's own duration cap exists to avoid.
+     */
+    @Test
+    fun pressing_test_again_stops_a_running_action() = runTest {
+        val editor = viewModel()
+        editor.addAction("play_alert")
+        // Long enough that it is certainly still running when stopped.
+        editor.setConfigValue(Slot.ACTION, 0, "durationMillis", "60000")
+
+        editor.testAction(0)
+        assertEquals("the alert should be running", 0, editor.state.value.testing)
+
+        editor.testAction(0)
+
+        assertEquals(null, editor.state.value.testing)
+        assertEquals("Stopped.", editor.state.value.testResult)
+    }
+
+    @Test
+    fun testing_a_different_action_replaces_the_running_one() = runTest {
+        val editor = viewModel()
+        editor.addAction("play_alert")
+        editor.setConfigValue(Slot.ACTION, 0, "durationMillis", "60000")
+        editor.addAction("vibrate")
+
+        editor.testAction(0)
+        assertEquals(0, editor.state.value.testing)
+
+        editor.testAction(1)
+
+        // Whatever it settles on, it must not still claim to be running the first.
+        assertTrue(editor.state.value.testing != 0)
+    }
+
+    @Test
     fun actions_keep_the_order_they_were_given() = runTest {
         val repository = InMemoryRuleRepository()
         val editor = viewModel(repository)

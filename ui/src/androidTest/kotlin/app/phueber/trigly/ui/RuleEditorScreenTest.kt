@@ -40,6 +40,7 @@ class RuleEditorScreenTest {
     )
 
     private val configChanges = mutableListOf<Triple<Slot, String, String?>>()
+    private val tested = mutableListOf<Int>()
     private var saves = 0
     private var backs = 0
 
@@ -63,6 +64,7 @@ class RuleEditorScreenTest {
             onRemoveAction = {},
             onMoveAction = { _, _ -> },
             onConfigChange = { slot, _, key, value -> configChanges += Triple(slot, key, value) },
+            onTestAction = { tested += it },
             onSave = { saves++ },
             onDelete = {},
             onBack = { backs++ },

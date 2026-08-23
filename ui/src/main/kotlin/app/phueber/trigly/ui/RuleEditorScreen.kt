@@ -58,6 +58,7 @@ fun RuleEditorScreen(
     onRemoveAction: (Int) -> Unit,
     onMoveAction: (Int, Int) -> Unit,
     onConfigChange: (Slot, Int, String, String?) -> Unit,
+    onTestAction: (Int) -> Unit,
     onSave: () -> Unit,
     onDelete: () -> Unit,
     onBack: () -> Unit,
@@ -126,6 +127,27 @@ fun RuleEditorScreen(
                 }
             }
 
+            // What a test run reported. Deliberately not the error colour: a
+            // test that fails is information, not a fault in the rule — and one
+            // that succeeds still needs saying, or pressing Test on a silent
+            // action looks like nothing happened.
+            state.testResult?.let { message ->
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    border = androidx.compose.foundation.BorderStroke(
+                        2.dp,
+                        MaterialTheme.colorScheme.outline,
+                    ),
+                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                ) {
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(14.dp),
+                    )
+                }
+            }
+
             SectionLabel("When")
             ComponentBlock(
                 chosenType = draft.trigger?.type,
@@ -151,6 +173,14 @@ fun RuleEditorScreen(
                     onResolveRequirement = onResolveRequirement,
                     modifier = Modifier.padding(bottom = 12.dp),
                     footer = {
+                        // Runs it now, because half of what an action does is
+                        // sensory — which sound, how loud, how the spoken text
+                        // reads — and the alternative is saving, waiting for the
+                        // real trigger, and guessing. Doubles as a stop button
+                        // while running: `play_alert` loops for up to a minute.
+                        BlockTextButton(
+                            if (state.testing == index) "Stop" else "Test"
+                        ) { onTestAction(index) }
                         // Order matters — actions run in sequence.
                         if (index > 0) {
                             BlockTextButton("Up") { onMoveAction(index, index - 1) }

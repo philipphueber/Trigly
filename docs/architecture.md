@@ -97,24 +97,44 @@ cannot be drawn from it. So each factory also declares its fields as
 `ConfigField` — the same pattern as `ComponentRequirement`: declared on the
 *factory*, consumed by the UI, invisible to the engine.
 
-Eight field kinds cover all 47 components: `Text`, `TextPattern`, `Choice`,
-`Number`, `Decimal`, `Flag`, `AppPackage`, `Slider`. `Choice` carries the most weight,
-because the fourteen
+Ten field kinds cover all 47 components: `Text`, `TextPattern`, `Choice`,
+`Number`, `Decimal`, `Flag`, `AppPackage`, `SoundUri`, `BluetoothAddress`,
+`Slider`. `Choice` carries the most weight, because the fourteen
 two-word state fields (`enabled`/`disabled`, `plugged`/`unplugged`,
 `entered`/`exited`) use a different word pair per component — which is precisely
 why the words must be declared per factory instead of inferred from the key name.
 
-Two of the eight exist purely so the editor can offer a better control for
-something an existing kind could already store. `AppPackage` stores like `Text`
-but renders as a picker, because nobody knows the dialer is
-`com.google.android.dialer`. `Slider` stores like `Number` but renders as a
-track, and the line between them is not "has bounds" — it is what the bounds
-*mean*. A `Number` bound is a guard rail on a value you have decided (a 5000 ms
-poll interval), where a slider would be fiddly to hit and illegible once set. A
-`Slider` value is a position — half volume — where the digits are the least
-interesting part. Adding a kind for presentation is cheap because the `when` in
-`ConfigFieldEditor` and in `ConfigSchemaContractTest` are both exhaustive: the
-compiler names every place that has to handle it.
+**Four of the ten exist purely so the editor can offer a better control for
+something an existing kind could already store**, and that is the pattern to
+follow rather than an accident to tidy up. `AppPackage`, `SoundUri` and
+`BluetoothAddress` all store and validate exactly like `Text`; each is separate
+because its value is one nobody can produce from memory — `com.google.android.dialer`,
+`content://media/internal/audio/media/54`, `00:11:22:33:44:55`. `Slider` stores
+like `Number` but renders as a track, and the line between them is not "has
+bounds" — it is what the bounds *mean*. A `Number` bound is a guard rail on a
+value you have decided (a 5000 ms poll interval), where a slider would be fiddly
+to hit and illegible once set. A `Slider` value is a position — half volume —
+where the digits are the least interesting part. Adding a kind for presentation is
+cheap because the `when` in `ConfigFieldEditor` and in `ConfigSchemaContractTest`
+are both exhaustive: the compiler names every place that has to handle it.
+
+The three pickers share their behaviour rather than their appearance.
+`ValuePicker.kt` owns the searchable list, the row that restores blankness, the
+manual-entry escape hatch and the value box; each field supplies only its list,
+its labelling, and what "type it yourself" means there. That last one is where
+they genuinely differ, and the differences are deliberate: a sound offers **no**
+typed value, because a URI is not something a person composes and offering the
+option would only invite one that cannot resolve — while a Bluetooth address must
+offer one, because *paired* is not the same set as *can connect*. A device paired
+to another phone still fires `ACTION_ACL_CONNECTED`. For the same reason an
+address is displayed alongside its device name and a sound URI is not: the
+address is short and distinguishes two identically-named devices, whereas the URI
+is the thing the picker exists to hide.
+
+Any of them can hold a value this device does not know — an imported rule, an
+uninstalled app, a deleted sound, an unpaired device — and all three render it
+raw in that case. Blank would make the rule look empty when it is merely
+unresolvable here.
 
 **The schema renders; the factory still validates.** Nothing in `ConfigField`
 duplicates the `require()` checks inside `create()`. Bounds like `Number.min`
@@ -182,6 +202,28 @@ Room stays an implementation detail of `:core`. Storage is handed out as a
 `RuleRepository` from a factory function, and `room-runtime` is
 `implementation`-scoped so it is not on `:ui`'s compile classpath at all. That
 enforces the boundary rather than merely asking for it.
+
+### Testing an action from the editor
+
+Each action block has a Test button that runs that action immediately. It exists
+because roughly half of what an action does is *sensory* — which sound, how loud,
+how the spoken text reads — and without it the only way to find out is to save the
+rule, wait for the real trigger, and infer what happened from the result.
+
+Pressing it again stops the run, and that is a requirement rather than a
+refinement: `play_alert` loops for up to a minute by design, and the action's own
+docs note that disabling the rule was previously the only way to cut one short. A
+test that could not be stopped would reproduce exactly the trap the duration cap
+exists to avoid.
+
+Two things it does not pretend. The event is synthetic and carries no payload, so
+an action reading trigger payload sees nothing — harmless today, and the thing to
+revisit when payload substitution lands. And a test necessarily runs with the app
+on screen, which is the one condition under which the background-activity-start
+restriction does not apply: an "open" action can pass here and still do nothing
+when the rule fires for real. The result is therefore drawn in the neutral block
+style rather than as a success, because a green tick would imply more than the
+test can establish.
 
 ### Navigation
 

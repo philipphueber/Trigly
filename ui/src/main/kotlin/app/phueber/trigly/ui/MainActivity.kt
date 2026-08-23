@@ -212,6 +212,7 @@ class MainActivity : ComponentActivity() {
             onRemoveAction = editor::removeAction,
             onMoveAction = editor::moveAction,
             onConfigChange = editor::setConfigValue,
+            onTestAction = editor::testAction,
             onSave = editor::save,
             onDelete = editor::delete,
             onBack = onDone,
