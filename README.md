@@ -1,3 +1,5 @@
+<img src="docs/branding/trigly-mark.svg" alt="Trigly logo" width="88">
+
 # Trigly
 
 Open source automation app for Android. Native Kotlin + Jetpack Compose.
