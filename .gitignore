@@ -10,6 +10,12 @@ local.properties
 *.aab
 captures/
 
+# Release signing. The keystore and its passwords are per-maintainer and
+# must never be committed; docs/releasing.md says how to recreate them.
+keystore.properties
+*.jks
+*.keystore
+
 # IDE
 .idea/
 *.iml

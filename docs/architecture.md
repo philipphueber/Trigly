@@ -438,3 +438,16 @@ it exists to catch is drift: a config key added or renamed without the schema,
 which makes a working component look broken in the editor.
 
 See the Testing section of `CLAUDE.md` for the commands.
+
+## Releasing
+
+The application module is also the release module: `:ui` declares
+`versionCode`/`versionName` and the release signing config, because it is the
+only module that produces an installable artifact. Library modules have no
+version of their own — they are not published anywhere.
+
+Signing material is described by a gitignored `keystore.properties` rather than
+being configured in the build file, and its absence leaves the release build
+unsigned instead of failing. That is what keeps a release-variant build
+runnable by a contributor who has no key. Full procedure, and the reasons
+behind the choices, in `docs/releasing.md`.
