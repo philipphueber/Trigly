@@ -11,6 +11,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.TextFilter
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
@@ -19,15 +20,53 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 
 /**
+ * Whether a connecting device is the one a rule asked for.
+ *
+ * Pure, and separate from the receiver, because this is the part with a real
+ * decision in it — and because an `Intent` full of Bluetooth extras is not
+ * something a JVM test can honestly fake.
+ *
+ * Two independent filters, either of which may have no opinion. **The name filter
+ * is not a convenience; it is the only identifier that survives some devices.**
+ * A Bluetooth LE accessory rotates a resolvable private address roughly every
+ * quarter of an hour, so a rule pinned to an address it advertised once will
+ * quietly stop matching. Bonding is what fixes that — the two ends exchange a key
+ * that lets the stack resolve a rotating address back to the device it paired
+ * with — which is why the editor's picker lists *paired* devices and why pairing
+ * is the advice. For anything not paired, a name is the durable thing and an
+ * address is not.
+ *
+ * The address comparison ignores case on purpose. Android reports addresses in
+ * upper case and the picker stores them that way, but a rule saved before the
+ * picker existed holds whatever was typed, and a MAC is hex either way.
+ */
+fun bluetoothDeviceMatches(
+    wantedAddress: String?,
+    nameFilter: TextFilter,
+    address: String?,
+    name: String?,
+): Boolean {
+    if (!wantedAddress.isNullOrEmpty() && !wantedAddress.equals(address, ignoreCase = true)) {
+        return false
+    }
+    return nameFilter.matches(name)
+}
+
+/**
  * Fires when a Bluetooth device connects.
  *
- * [deviceAddress] narrows it to one device; null fires for any. The receiver is
- * registered on collection and torn down in [awaitClose], so a disabled rule
- * leaves no receiver behind — that is the contract every [Trigger] owes.
+ * [deviceAddress] narrows it to one device and [nameFilter] to a name; either
+ * being empty means "no opinion", and both empty fires for any device. See
+ * [bluetoothDeviceMatches] for why a name filter exists at all.
+ *
+ * The receiver is registered on collection and torn down in [awaitClose], so a
+ * disabled rule leaves no receiver behind — that is the contract every [Trigger]
+ * owes.
  */
 class BluetoothConnectionTrigger(
     private val context: Context,
     private val deviceAddress: String?,
+    private val nameFilter: TextFilter = TextFilter.Any,
     private val now: () -> Long = System::currentTimeMillis,
 ) : Trigger {
 
@@ -41,22 +80,18 @@ class BluetoothConnectionTrigger(
                     BluetoothDevice::class.java,
                 )
 
-                // Reading address/name needs BLUETOOTH_CONNECT on API 31+. Without
-                // it the getters throw, so degrade to an address-less event rather
-                // than crashing the engine's collector.
-                val address = if (context.hasBluetoothConnectPermission()) {
-                    runCatching { device?.address }.getOrNull()
-                } else {
-                    null
-                }
+                val (address, name) = identify(device)
 
-                if (deviceAddress != null && address != deviceAddress) return
+                if (!bluetoothDeviceMatches(deviceAddress, nameFilter, address, name)) return
 
                 trySend(
                     TriggerEvent(
                         triggerType = TYPE,
                         firedAtMillis = now(),
-                        payload = buildMap { address?.let { put(PAYLOAD_ADDRESS, it) } },
+                        payload = buildMap {
+                            address?.let { put(PAYLOAD_ADDRESS, it) }
+                            name?.let { put(PAYLOAD_NAME, it) }
+                        },
                     )
                 )
             }
@@ -73,10 +108,37 @@ class BluetoothConnectionTrigger(
         awaitClose { context.unregisterReceiver(receiver) }
     }
 
+    /**
+     * The device's address and name, or nulls.
+     *
+     * Both getters need `BLUETOOTH_CONNECT` from API 31 and throw without it, so
+     * the permission is checked first — and the result is degraded to nulls
+     * rather than propagated, because an exception here would kill the engine's
+     * collector and take the rule with it. A rule narrowed to an address or a
+     * name then cannot match, which is exactly what the factory's declared
+     * requirement exists to explain on screen.
+     *
+     * The suppression is for lint's benefit, not a claim that the check is
+     * unnecessary: `hasBluetoothConnectPermission` is that check, and lint cannot
+     * follow it across a function boundary. `runCatching` stays as the second
+     * line, for the OEM that throws anyway.
+     */
+    @Suppress("MissingPermission")
+    private fun identify(device: BluetoothDevice?): Pair<String?, String?> {
+        if (!context.hasBluetoothConnectPermission()) return null to null
+        return runCatching { device?.address }.getOrNull() to
+            runCatching { device?.name }.getOrNull()
+    }
+
     companion object {
         const val TYPE = "bluetooth_connected"
         const val CONFIG_ADDRESS = "address"
+        const val CONFIG_NAME = "name"
+
+        /** Must match `ConfigField.TextPattern.modeKey`, which defaults to key + "Mode". */
+        const val CONFIG_NAME_MODE = "nameMode"
         const val PAYLOAD_ADDRESS = "address"
+        const val PAYLOAD_NAME = "name"
     }
 }
 
@@ -105,6 +167,19 @@ class BluetoothConnectionTriggerFactory(
                 "list, and the address of a device that connects, both need the " +
                 "Bluetooth permission below.",
         ),
+        // The escape hatch for a rotating address, and the reason the two are
+        // separate optional filters rather than a "match on…" choice: they narrow
+        // independently, an absent one means "no opinion" exactly as it does
+        // everywhere else, and no rule saved before this existed needs migrating.
+        textFilter(
+            key = BluetoothConnectionTrigger.CONFIG_NAME,
+            label = "Device name contains",
+            blankMeaning = "Any name",
+            help = "Use this instead of the device above for a Bluetooth LE " +
+                "accessory: an unpaired one changes its address every few " +
+                "minutes, so a rule pinned to an address stops matching. Pairing " +
+                "the device also fixes that.",
+        ),
     )
 
     // Without it the trigger still fires, but events carry no device address,
@@ -118,5 +193,9 @@ class BluetoothConnectionTriggerFactory(
             context = context,
             // Absent means "any device", which is a valid configuration.
             deviceAddress = config[BluetoothConnectionTrigger.CONFIG_ADDRESS],
+            nameFilter = TextFilter.fromConfig(
+                config[BluetoothConnectionTrigger.CONFIG_NAME],
+                config[BluetoothConnectionTrigger.CONFIG_NAME_MODE],
+            ),
         )
 }

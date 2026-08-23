@@ -210,6 +210,84 @@ class DistanceTest {
     }
 }
 
+/**
+ * The Bluetooth device gate, which has to work for two quite different devices:
+ * a paired headset with a fixed address, and an LE accessory whose address
+ * rotates every few minutes and whose only durable identifier is its name.
+ */
+class BluetoothMatcherTest {
+
+    @Test
+    fun `no filters fires for any device`() {
+        assertTrue(bluetoothDeviceMatches(null, TextFilter.Any, "00:11:22:33:44:55", "Car"))
+        // Including one that reported neither, which is what happens without the
+        // Bluetooth permission.
+        assertTrue(bluetoothDeviceMatches(null, TextFilter.Any, null, null))
+    }
+
+    @Test
+    fun `an address filter is exact`() {
+        val wanted = "00:11:22:33:44:55"
+
+        assertTrue(bluetoothDeviceMatches(wanted, TextFilter.Any, wanted, "Car"))
+        assertFalse(bluetoothDeviceMatches(wanted, TextFilter.Any, "AA:BB:CC:DD:EE:FF", "Car"))
+        // A prefix is not a match: two devices can share one.
+        assertFalse(bluetoothDeviceMatches(wanted, TextFilter.Any, "00:11:22:33:44:56", "Car"))
+    }
+
+    /**
+     * Android reports upper case and the picker stores it, but a rule saved before
+     * the picker existed holds whatever was typed — and a MAC is hex either way.
+     */
+    @Test
+    fun `an address filter ignores case`() {
+        assertTrue(
+            bluetoothDeviceMatches(
+                "aa:bb:cc:dd:ee:ff",
+                TextFilter.Any,
+                "AA:BB:CC:DD:EE:FF",
+                "Headphones",
+            )
+        )
+    }
+
+    /** Blank is not a filter. An empty string must not mean "match the empty address". */
+    @Test
+    fun `a blank address filter is no opinion, not a filter on nothing`() {
+        assertTrue(bluetoothDeviceMatches("", TextFilter.Any, "00:11:22:33:44:55", "Car"))
+    }
+
+    @Test
+    fun `a name filter matches without any address`() {
+        // The LE case: the address that arrives is whatever it is rotating through,
+        // so the rule cannot name it and must not have to.
+        assertTrue(bluetoothDeviceMatches(null, contains("buds"), "7C:9A:1B:2C:3D:4E", "Pixel Buds"))
+        assertFalse(bluetoothDeviceMatches(null, contains("buds"), "7C:9A:1B:2C:3D:4E", "Car"))
+    }
+
+    @Test
+    fun `a device that reports no name cannot match a name filter`() {
+        assertFalse(bluetoothDeviceMatches(null, contains("buds"), "00:11:22:33:44:55", null))
+    }
+
+    @Test
+    fun `both filters must agree when both are set`() {
+        val wanted = "00:11:22:33:44:55"
+
+        assertTrue(bluetoothDeviceMatches(wanted, contains("car"), wanted, "Car audio"))
+        // Right device, wrong name.
+        assertFalse(bluetoothDeviceMatches(wanted, contains("buds"), wanted, "Car audio"))
+        // Right name, wrong device.
+        assertFalse(bluetoothDeviceMatches(wanted, contains("car"), "AA:BB:CC:DD:EE:FF", "Car audio"))
+    }
+
+    @Test
+    fun `a name filter may be a regular expression`() {
+        assertTrue(bluetoothDeviceMatches(null, regex("^Pixel"), "00:11:22:33:44:55", "Pixel Buds"))
+        assertFalse(bluetoothDeviceMatches(null, regex("^Buds"), "00:11:22:33:44:55", "Pixel Buds"))
+    }
+}
+
 /** A substring filter, the mode every one of these fields defaults to. */
 private fun contains(pattern: String) = TextFilter.of(pattern, TextMatchMode.CONTAINS)
 

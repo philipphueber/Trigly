@@ -56,7 +56,7 @@ system settings reports nothing back to the app.
 | Airplane mode | `airplane_mode` | `ACTION_AIRPLANE_MODE_CHANGED` | — |
 | Wi-Fi radio on/off | `wifi_state` | `WIFI_STATE_CHANGED_ACTION` | — |
 | Bluetooth radio on/off | `bluetooth_adapter_state` | `BluetoothAdapter.ACTION_STATE_CHANGED` | `BLUETOOTH_CONNECT` (API 31+) |
-| Bluetooth device connected | `bluetooth_connected` | `ACTION_ACL_CONNECTED` | `BLUETOOTH_CONNECT` for the address |
+| Bluetooth device connected | `bluetooth_connected` | `ACTION_ACL_CONNECTED` | `BLUETOOTH_CONNECT` for the address and name |
 | NFC on/off | `nfc_state` | `android.nfc.action.ADAPTER_STATE_CHANGED` | feature `android.hardware.nfc` |
 | GPS on/off | `gps_state` | `PROVIDERS_CHANGED_ACTION` | — (only *reading* a location needs permission) |
 | Screen on/off | `screen_state` | `ACTION_SCREEN_ON`/`_OFF` | — |
@@ -64,6 +64,34 @@ system settings reports nothing back to the app.
 | Dark theme | `dark_theme` | `ACTION_CONFIGURATION_CHANGED` | API 29+ |
 | Orientation | `screen_orientation` | `ACTION_CONFIGURATION_CHANGED` | — |
 | Interval | `interval` | coroutine delay | — (see blocker 2) |
+
+### A MAC address is not always an identity
+
+`bluetooth_connected` can be narrowed by address *or* by device name, and the
+name is not a convenience. A Bluetooth LE accessory rotates a resolvable private
+address roughly every fifteen minutes, so a rule pinned to an address it once
+advertised will quietly stop matching — the worst shape of failure this app has,
+because the rule still looks correct.
+
+Bonding is the platform's answer: the two ends exchange an identity-resolving key,
+and the stack resolves a rotating address back to the device it paired with. Which
+is why the editor's picker lists **paired** devices, and why pairing is the advice
+for anything address-based. Classic Bluetooth — headsets, car audio, speakers —
+uses a fixed public address and was never affected.
+
+Two things stated plainly because they set the limits of the above. Whether
+`ACTION_ACL_CONNECTED` always carries the *resolved* identity address for a bonded
+LE device is stack- and OEM-dependent and **has not been measured here**: the
+emulators have no Bluetooth radio, so this needs a real phone and a real
+accessory, connected twice more than fifteen minutes apart. And
+`BluetoothDevice.getAddressType()` — which would let the app *detect* a random
+address and say so — is API 35 only. The `ADDRESS_TYPE_*` constants are API 31,
+which makes it look older than it is; the method on `BluetoothDevice` is not.
+
+The two filters are separate optional fields rather than a "match on…" choice.
+They narrow independently, an absent one means "no opinion" exactly as everywhere
+else in the schema, and no rule saved before the name filter existed needs
+migrating.
 
 Two behaviours are easy to get wrong and are handled centrally in
 `BroadcastTrigger`/`StateTracker`: sticky broadcasts replay on registration (a
