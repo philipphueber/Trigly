@@ -22,11 +22,13 @@ temperature, NFC, and headset plug realistically need a device. Treat
 Three gaps block whole groups below. They are worth fixing before picking off
 individual triggers, because each one otherwise gets a private workaround.
 
-**1. No foreground service.** The engine runs in the application scope, so every
-runtime-registered receiver dies with the process. Since API 26 most implicit
-broadcasts cannot be declared in a manifest, so runtime registration is the only
-option and a live process is mandatory. *Blocks:* reliable delivery of every
-Tier 1 broadcast trigger, and all of boot, calls, and notifications.
+**1. ~~No foreground service.~~** *Done.* `EngineService` in `:ui` hosts the
+engine in a foreground service with an ongoing notification, started by
+`TriglyApp` when any rule is enabled and by `BootReceiver` after a reboot or an
+app update, and stopped by itself when no rule is enabled. Runtime-registered
+receivers now stay registered, which is what every Tier 1 broadcast trigger
+depends on. It is not absolute: a force-stop or an aggressive OEM battery
+manager still ends the process. See `docs/architecture.md`.
 
 **2. No scheduler.** `IntervalTrigger` uses a coroutine `delay`, which stops in
 Doze and dies with the process. Wall-clock triggers need `AlarmManager`
@@ -97,9 +99,12 @@ base class, `NetworkCallbackTrigger`.
 ### Device restart
 `ACTION_BOOT_COMPLETED` with `RECEIVE_BOOT_COMPLETED`. This one *must* be a
 manifest-declared receiver, and it is exempt from the implicit-broadcast ban.
-Add `ACTION_LOCKED_BOOT_COMPLETED` for direct-boot devices if rules should run
-before first unlock. **Blocked on blocker 1** — the receiver has nowhere to
-deliver to until a service exists.
+**No longer blocked** — `BootReceiver` already handles that broadcast to start
+the engine, so this trigger is a matter of getting the event from that receiver
+to a `Trigger`, not of building the plumbing. Note that
+`ACTION_LOCKED_BOOT_COMPLETED` is a separate question and a bigger one: the rule
+database is credential-encrypted and unreadable before first unlock, so
+supporting direct boot means moving storage, not adding an action string.
 
 ### SIM change / roaming
 There is no public SIM-state broadcast. Use
@@ -197,10 +202,12 @@ Three limits to state plainly:
 2. **Android 13+ lets users dismiss foreground-service notifications** while the
    service keeps running. That produces a false alarm, not a false all-clear,
    which is the right direction for a watchdog to fail.
-3. **The watchdog is only as alive as Trigly.** With the engine in the
-   application scope, the system can kill Trigly and the watchdog dies with the
-   app it is watching — producing silence, which reads as "all fine". Blocker 1
-   is a hard prerequisite for trusting this, not an optimisation.
+3. **The watchdog is only as alive as Trigly.** A dead watchdog produces
+   silence, which reads as "all fine" — the one failure mode a watchdog must not
+   have. The foreground service (blocker 1, now done) is what makes that
+   unlikely rather than routine, and it was a prerequisite for trusting this at
+   all. It is still not a guarantee: a force-stop, or an OEM battery manager
+   that disregards the foreground-service promise, ends both apps at once.
 
 For an app that posts *nothing* while healthy, there is no proxy at all and no
 honest watchdog can be built. The remaining options there are the app's own
@@ -343,12 +350,13 @@ geofencing.
 
 ## Suggested order
 
-1. **Foreground service (blocker 1).** Now clearly the top item: 25 triggers
-   exist and every one of them stops when the process does. Making what is built
-   actually work beats building more. The notification listener is a natural
-   host — the system keeps it bound.
-2. **Scheduler (blocker 2)** — unlocks five time-based triggers at once.
-3. USB vs AC — an hour, same file as the battery triggers.
-4. Network callbacks (mobile data, Wi-Fi SSID), sensors, calendar.
-5. Decide distribution, which gates whether the accessibility and SMS triggers
-   that now exist can ship in a Play build.
+1. ~~Foreground service (blocker 1).~~ Done — `EngineService`.
+2. **Scheduler (blocker 2)** — now the top item, and unlocks five time-based
+   triggers at once.
+3. **Device restart** — unblocked by the service, and small: `BootReceiver`
+   already receives the broadcast.
+4. USB vs AC — an hour, same file as the battery triggers.
+5. Network callbacks (mobile data, Wi-Fi SSID), sensors, calendar.
+6. Decide distribution, which gates whether the accessibility and SMS triggers
+   that now exist can ship in a Play build — and now also the `specialUse`
+   foreground-service subtype, which Google reviews.

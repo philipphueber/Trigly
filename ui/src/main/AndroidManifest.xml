@@ -18,6 +18,19 @@
         </intent>
     </queries>
 
+    <!--
+      The engine's host. Declared here rather than in :triggers because the
+      service is part of assembling the app, which is this module's other job.
+
+      FOREGROUND_SERVICE_SPECIAL_USE is the type-specific permission that goes
+      with android:foregroundServiceType below; from API 34 a foreground service
+      must declare a type and hold the matching permission or startForeground
+      throws.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <application
         android:name=".TriglyApp"
         android:allowBackup="true"
@@ -36,6 +49,42 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          specialUse, and there is no honest alternative. The catalogue of
+          foreground service types describes what the service is *doing* —
+          playing media, syncing data, tracking a location — and general-purpose
+          automation is none of them. dataSync is the tempting mislabel and is
+          also the one Android 15 caps at six hours a day, which would stop the
+          engine every evening. specialUse carries no timeout; the price is that
+          Google reviews the subtype string below before a Play release, which
+          is a fair price for saying what the service actually is.
+        -->
+        <service
+            android:name=".EngineService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Runs the user's own automation rules. Trigly's triggers are system broadcasts and framework callbacks that are only delivered to a live process, so the rules the user enabled cannot fire unless the app keeps running." />
+        </service>
+
+        <!--
+          exported="true" is required, not incidental: both actions are sent by
+          the system, which is a different uid, and a non-exported receiver only
+          hears from its own app. Both are protected broadcasts that only the
+          system may send, so nothing else can reach this.
+        -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
     </application>
 

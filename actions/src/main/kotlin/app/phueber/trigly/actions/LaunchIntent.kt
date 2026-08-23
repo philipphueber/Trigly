@@ -21,8 +21,12 @@ import app.phueber.trigly.core.ActionResult
  * permission refusal — become [ActionResult.Failure] rather than a crash, and
  * the docs say plainly which actions depend on the exemption.
  *
- * The real fix is the foreground service the engine needs anyway, which is one
- * of the qualifying exemptions. See `docs/actions.md`.
+ * **The engine's foreground service does not fix this**, which is worth saying
+ * because it is the obvious guess and it is wrong: running a foreground service
+ * is not on the platform's list of background-activity-start exemptions. What
+ * is on it, and reachable for this app, is `SYSTEM_ALERT_WINDOW` — or posting a
+ * notification and letting the user tap it, which turns the start into
+ * something the user did. See `docs/actions.md`.
  */
 internal fun Context.launchForRule(intent: Intent): ActionResult {
     // Mandatory: there is no Activity on the stack to inherit a task from.

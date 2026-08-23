@@ -1,9 +1,12 @@
 package app.phueber.trigly.ui
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Color
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
@@ -42,6 +45,11 @@ class MainActivity : ComponentActivity() {
             // state on resume, which is also the only thing that can tell us
             // about a grant made in settings rather than in this dialog.
             listViewModel.refresh()
+            // A grant can change what the engine's own notification is allowed
+            // to say, and the engine hears nothing about permissions. Poking it
+            // makes it re-post; with no rules enabled the service simply ends
+            // itself again, which costs nothing visible.
+            EngineService.start(this)
         }
 
     /** Held between choosing "export" and the document picker returning. */
@@ -61,6 +69,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Only on a fresh launch, not on every recreation: a rotation would
+        // otherwise re-ask on each turn of the phone.
+        if (savedInstanceState == null) askAboutNotificationsIfNeeded()
         // Android 15 draws apps behind the system bars whether they opt in or
         // not; calling this makes the behaviour the same on every version we
         // support, so the screens only have to handle one case. The insets are
@@ -185,6 +196,31 @@ class MainActivity : ComponentActivity() {
         // Covers the round trip to a system settings screen, which reports
         // nothing back.
         listViewModel.refresh()
+    }
+
+    /**
+     * Asks for `POST_NOTIFICATIONS`, which is about the engine rather than about
+     * any one action.
+     *
+     * `EngineService` posts an ongoing notification, and from Android 13 the
+     * system silently drops it while this permission is refused — the service
+     * keeps running, invisibly. That is the one outcome this app must not ship:
+     * an automation app watching the device with nothing on screen to say so.
+     * The user is still free to say no; they then get a running service they can
+     * find in the system's active-apps list, which is Android's decision, not
+     * ours. Asking is what makes it a decision rather than an accident.
+     *
+     * Asked here rather than left to `post_notification`'s own requirement,
+     * because that one only surfaces if the user happens to add that action.
+     * The system stops showing the dialog after two refusals, so a no stays a no.
+     */
+    private fun askAboutNotificationsIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+
+        val permission = Manifest.permission.POST_NOTIFICATIONS
+        if (checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) return
+
+        requestPermission.launch(permission)
     }
 
     private fun exportSingle(rule: Rule) {

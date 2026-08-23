@@ -3,6 +3,7 @@ package app.phueber.trigly.core
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -19,7 +20,7 @@ class TriggerEngineTest {
         val action = RecordingAction()
         val h = harness(this, emissions = listOf(event(1), event(2)), actions = listOf(action))
 
-        h.engine.start(listOf(h.rule))
+        h.engine.sync(listOf(h.rule))
 
         assertEquals(listOf(1L, 2L), action.seen.map { it.firedAtMillis })
         assertEquals(listOf<ActionResult>(ActionResult.Success, ActionResult.Success), h.outcomes)
@@ -35,7 +36,7 @@ class TriggerEngineTest {
                 actions = listOf(ThrowingAction(), survivor),
             )
 
-            h.engine.start(listOf(h.rule))
+            h.engine.sync(listOf(h.rule))
 
             // The action declared after the failing one still ran, for both events.
             assertEquals(listOf(1L, 2L), survivor.seen.map { it.firedAtMillis })
@@ -48,7 +49,7 @@ class TriggerEngineTest {
         val action = RecordingAction()
         val h = harness(this, listOf(event(1)), listOf(action))
 
-        h.engine.start(listOf(h.rule.copy(enabled = false)))
+        h.engine.sync(listOf(h.rule.copy(enabled = false)))
 
         assertTrue(action.seen.isEmpty())
         assertTrue(h.engine.runningRuleIds.isEmpty())
@@ -76,9 +77,89 @@ class TriggerEngineTest {
             )
         }
     }
+
+    // --- sync: the entry point the hosting service calls on every rule change ---
+
+    @Test
+    fun `sync stops a rule that was disabled or deleted`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val engine = TriggerEngine(idleRegistry(CountingTriggerFactory()), this)
+
+            engine.sync(listOf(idleRule("a"), idleRule("b")))
+            assertEquals(setOf("a", "b"), engine.runningRuleIds)
+
+            engine.sync(listOf(idleRule("a"), idleRule("b", enabled = false)))
+            assertEquals(setOf("a"), engine.runningRuleIds)
+
+            engine.sync(emptyList())
+            assertTrue(engine.runningRuleIds.isEmpty())
+
+            engine.stop()
+        }
+
+    /**
+     * The property that makes `sync` safe to call on every keystroke-sized change
+     * to the rule store: adding one rule must not tear down and rebuild the
+     * others. Rebuilding re-registers a broadcast receiver, and a sticky
+     * broadcast replays on registration — so a restart is a phantom firing.
+     */
+    @Test
+    fun `sync leaves an unchanged rule running rather than rebuilding it`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val factory = CountingTriggerFactory()
+            val engine = TriggerEngine(idleRegistry(factory), this)
+
+            engine.sync(listOf(idleRule("a")))
+            engine.sync(listOf(idleRule("a"), idleRule("b")))
+
+            assertEquals(setOf("a", "b"), engine.runningRuleIds)
+            // Two triggers built in total: 'a' once, 'b' once. Not three.
+            assertEquals(2, factory.created)
+
+            engine.stop()
+        }
+
+    @Test
+    fun `sync rebuilds a rule whose configuration changed`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val factory = CountingTriggerFactory()
+            val engine = TriggerEngine(idleRegistry(factory), this)
+
+            engine.sync(listOf(idleRule("a", mapOf("level" to "20"))))
+            engine.sync(listOf(idleRule("a", mapOf("level" to "30"))))
+
+            assertEquals(setOf("a"), engine.runningRuleIds)
+            assertEquals(2, factory.created)
+
+            engine.stop()
+        }
+
+    @Test
+    fun `a rule that cannot be built is reported, and the others still run`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val failed = mutableListOf<String>()
+            val engine = TriggerEngine(
+                registry = idleRegistry(CountingTriggerFactory()),
+                scope = this,
+                onStartFailure = { rule, _ -> failed += rule.id },
+            )
+
+            engine.sync(
+                listOf(
+                    idleRule("bad").copy(trigger = ComponentSpec("nope")),
+                    idleRule("good"),
+                )
+            )
+
+            assertEquals(listOf("bad"), failed)
+            assertEquals(setOf("good"), engine.runningRuleIds)
+
+            engine.stop()
+        }
 }
 
 private const val TRIGGER_TYPE = "fake"
+private const val ACTION_TYPE = "action-0"
 
 private fun event(millis: Long) = TriggerEvent(TRIGGER_TYPE, millis)
 
@@ -104,7 +185,11 @@ private fun harness(
         actionFactories = actions.mapIndexed { i, a -> SingleActionFactory("action-$i", a) },
     )
     val outcomes = mutableListOf<ActionResult>()
-    val engine = TriggerEngine(registry, scope) { _, _, result -> outcomes += result }
+    val engine = TriggerEngine(
+        registry = registry,
+        scope = scope,
+        onOutcome = { _, _, result -> outcomes += result },
+    )
     val rule = Rule(
         id = "rule-1",
         name = "test rule",
@@ -114,12 +199,48 @@ private fun harness(
     return Harness(engine, rule, outcomes)
 }
 
+private fun idleRegistry(triggerFactory: TriggerFactory) = Registry(
+    triggerFactories = listOf(triggerFactory),
+    actionFactories = listOf(SingleActionFactory(ACTION_TYPE, RecordingAction())),
+)
+
+private fun idleRule(
+    id: String,
+    config: Map<String, String> = emptyMap(),
+    enabled: Boolean = true,
+) = Rule(
+    id = id,
+    name = id,
+    trigger = ComponentSpec(TRIGGER_TYPE, config),
+    actions = listOf(ComponentSpec(ACTION_TYPE)),
+    enabled = enabled,
+)
+
 private class FakeTriggerFactory(
     override val type: String,
     private val emissions: List<TriggerEvent>,
 ) : TriggerFactory {
     override fun create(config: Map<String, String>): Trigger = object : Trigger {
         override fun events(): Flow<TriggerEvent> = emissions.asFlow()
+    }
+}
+
+/**
+ * A trigger that never emits and never completes, so a started rule stays
+ * running for the assertion — and a count of how many times one was built,
+ * which is how "was this rule restarted?" is observed from outside.
+ */
+private class CountingTriggerFactory : TriggerFactory {
+    override val type: String = TRIGGER_TYPE
+
+    var created = 0
+        private set
+
+    override fun create(config: Map<String, String>): Trigger {
+        created++
+        return object : Trigger {
+            override fun events(): Flow<TriggerEvent> = MutableSharedFlow()
+        }
     }
 }
 

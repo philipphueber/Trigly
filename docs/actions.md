@@ -12,18 +12,30 @@ based on a pre-2019 mental model of Android will over-promise.
 ## Cross-cutting blocker: background activity starts
 
 Since Android 10, an app in the background **may not start an activity** unless
-it holds one of a short list of exemptions — a visible foreground service, the
-overlay permission (`SYSTEM_ALERT_WINDOW`), or a notification the user just
-tapped.
+it holds one of a short list of exemptions — a visible window, being the current
+input method, the overlay permission (`SYSTEM_ALERT_WINDOW`), or a
+`PendingIntent` the system itself sent, which is what a notification tap is.
 
 There is no error. The system drops the start and logs a line the app never
 sees, so the action reports success and nothing happens. This affects every
 action that opens something: `open_url`, `open_app`, `compose_email`,
 `compose_sms`, `set_alarm`, `add_calendar_event`.
 
-The foreground service the engine needs anyway is one of the qualifying
-exemptions, which makes it the fix for this too. Until then, treat "open"
-actions as working when the phone is in use and unreliable when it is not.
+**Running a foreground service is not one of the exemptions.** This document
+used to say it was, and it is worth correcting rather than quietly deleting,
+because it is a natural guess and now a tempting one: the engine *does* run in a
+foreground service (`EngineService`, see `docs/architecture.md`), so it looks
+like the blocker should have lifted with it. It did not. A foreground service
+buys the *process* the right to stay alive; it buys the app no right to put
+something on the user's screen unasked, and Google has kept those two questions
+separate on purpose.
+
+So the two real routes remain. `SYSTEM_ALERT_WINDOW`, listed below, is the one
+that makes these actions work unattended, at the cost of a permission the user
+grants on a settings screen. The other is to stop starting the activity and post
+a notification instead, letting the tap be the thing that starts it — worse
+automation, but it is honest about who decided. Until one of them ships, treat
+"open" actions as working when the phone is in use and unreliable when it is not.
 
 ---
 
