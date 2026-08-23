@@ -35,9 +35,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.addOutline
 import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -141,8 +145,18 @@ internal fun Modifier.hardShadow(
         .drawBehind {
             if (!visible) return@drawBehind
             val silhouette = shape.createOutline(size, layoutDirection, this)
-            translate(left = offset.toPx(), top = offset.toPx()) {
-                drawOutline(silhouette, ink)
+            // Punch the block's own footprint out of the shadow, leaving the L
+            // that actually shows. `drawBehind` is behind the *content*, not
+            // behind an opaque fill — a block with `color = Color.Transparent`
+            // has nothing to hide the overlap with, so without this the shadow
+            // is visible straight through the block and fills it in solid ink.
+            // That is what [BlockOutlineButton] did the first time round: an
+            // outlined action rendered as a dark slab with its border sitting
+            // 4dp inside the bottom-right corner.
+            clipPath(Path().apply { addOutline(silhouette) }, ClipOp.Difference) {
+                translate(left = offset.toPx(), top = offset.toPx()) {
+                    drawOutline(silhouette, ink)
+                }
             }
         }
 }
