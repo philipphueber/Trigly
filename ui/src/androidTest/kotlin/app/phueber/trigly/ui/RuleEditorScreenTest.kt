@@ -141,6 +141,31 @@ class RuleEditorScreenTest {
                 EditorState(
                     RuleDraft(
                         id = null,
+                        name = "Any text",
+                        trigger = ComponentDraft("clipboard_changed"),
+                    )
+                )
+            )
+        }
+
+        composeRule.onNodeWithText("Leave blank for any copied text").assertIsDisplayed()
+    }
+
+    /**
+     * The picker kinds say the same thing differently, and on purpose: blankness
+     * is shown as the field's current *value* rather than as a hint underneath,
+     * because a picker has no empty box for an instruction to sit below. Asserted
+     * separately so the two phrasings cannot quietly converge — a picker reading
+     * "Leave blank for any device" would be telling the user to do something the
+     * control does not offer.
+     */
+    @Test
+    fun a_picker_shows_what_blank_means_as_its_value() {
+        composeRule.setContent {
+            Editor(
+                EditorState(
+                    RuleDraft(
+                        id = null,
                         name = "Any device",
                         trigger = ComponentDraft("bluetooth_connected"),
                     )
@@ -148,7 +173,7 @@ class RuleEditorScreenTest {
             )
         }
 
-        composeRule.onNodeWithText("Leave blank for any device").assertIsDisplayed()
+        composeRule.onNodeWithText("ANY DEVICE").assertIsDisplayed()
     }
 
     @Test

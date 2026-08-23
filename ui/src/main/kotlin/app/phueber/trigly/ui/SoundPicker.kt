@@ -110,9 +110,12 @@ fun SoundUriField(
             blankMeaning != null -> blankMeaning
             else -> "Choose a sound"
         },
-        // Only when it is not already the primary text, which it is for a sound
-        // the device cannot name.
-        secondary = uri?.takeIf { sounds.titleFor(it) != it },
+        // Never: a URI is the thing this picker exists to hide, so a sound that
+        // can be named shows only its name — and one that cannot is already
+        // showing its URI as the primary text, where repeating it would be noise.
+        // The app and device fields do show their stored value, because a package
+        // name and a MAC address are short and distinguish look-alike entries.
+        secondary = null,
         onClick = { picking = true },
     )
 
