@@ -122,6 +122,48 @@ class TextFilter private constructor(
  * Returns null when it is fine, and the engine's complaint when it is not. Only
  * meaningful for [TextMatchMode.REGEX]; a substring is always valid.
  */
+/**
+ * Where [candidate] is matched by [pattern] under [mode] — the spans a tester
+ * highlights.
+ *
+ * Deliberately **not** the verdict. Whether a filter matches is
+ * [TextFilter.matches]' business and nothing else's: a tester that decided for
+ * itself could disagree with the engine, and a tester that disagrees with the
+ * engine is worse than no tester. This only answers "which characters", so the
+ * highlight is decoration over an answer computed by the real code path.
+ *
+ * The two modes are mirrored exactly as [TextFilter.of] builds them, including
+ * the case-insensitivity that both use — get that wrong and the highlight drifts
+ * from the verdict on the first capital letter.
+ *
+ * Zero-width matches are dropped. A pattern like `a*` matches "b" and matches it
+ * *nowhere*, so there is no span to draw; the verdict still says it matched,
+ * which is the honest pair of answers.
+ */
+fun matchRangesIn(pattern: String?, mode: TextMatchMode, candidate: String): List<IntRange> {
+    if (pattern.isNullOrEmpty() || candidate.isEmpty()) return emptyList()
+
+    return when (mode) {
+        TextMatchMode.CONTAINS -> buildList {
+            var from = 0
+            while (from <= candidate.length - pattern.length) {
+                val at = candidate.indexOf(pattern, from, ignoreCase = true)
+                if (at < 0) break
+                add(at until at + pattern.length)
+                from = at + pattern.length
+            }
+        }
+
+        TextMatchMode.REGEX -> runCatching {
+            Regex(pattern, RegexOption.IGNORE_CASE)
+                .findAll(candidate)
+                .map { it.range }
+                .filterNot { it.isEmpty() }
+                .toList()
+        }.getOrDefault(emptyList())
+    }
+}
+
 fun regexErrorOrNull(pattern: String): String? =
     if (pattern.isEmpty()) {
         null

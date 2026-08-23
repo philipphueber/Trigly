@@ -203,6 +203,7 @@ private fun TextPatternField(
     val isRegex = mode == TextMatchMode.REGEX
     val highlight = rememberRegexHighlight(enabled = isRegex)
     val error = if (isRegex) regexErrorOrNull(value.orEmpty()) else null
+    var testing by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -215,6 +216,10 @@ private fun TextPatternField(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
+            // Next to the mode toggle, because it answers the question the toggle
+            // raises: a valid regex and a *correct* one are different claims, and
+            // only one of them the editor could check until now.
+            BlockTextButton("Test") { testing = true }
             TextMatchMode.entries.forEach { option ->
                 BlockToggleChip(
                     text = option.configValue,
@@ -222,6 +227,16 @@ private fun TextPatternField(
                     onClick = { onModeChange(option.configValue) },
                 )
             }
+        }
+
+        if (testing) {
+            PatternTesterDialog(
+                label = field.label,
+                pattern = value,
+                mode = mode,
+                onPatternChange = onValueChange,
+                onDismiss = { testing = false },
+            )
         }
 
         OutlinedTextField(
