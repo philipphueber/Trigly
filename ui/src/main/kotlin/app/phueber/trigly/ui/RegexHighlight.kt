@@ -37,7 +37,7 @@ private class RegexColors(
 private fun regexColors(): RegexColors = RegexColors(
     literal = MaterialTheme.colorScheme.onSurface,
     // The brand accent for the pieces that carry the most meaning.
-    escape = MaterialTheme.colorScheme.primary,
+    escape = MaterialTheme.extra.accent,
     charClass = MaterialTheme.colorScheme.tertiary,
     quantifier = MaterialTheme.extra.caution,
     group = MaterialTheme.colorScheme.secondary,

@@ -344,7 +344,7 @@ private fun SliderField(
             Text(
                 text = if (field.unit == null) "$current" else "$current ${field.unit}",
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
+                color = MaterialTheme.extra.accent,
             )
         }
 

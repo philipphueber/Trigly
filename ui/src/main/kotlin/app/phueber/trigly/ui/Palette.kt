@@ -31,6 +31,31 @@ import androidx.compose.ui.graphics.Color
  *  generator writes them — see [hex]. That is the notation every source you
  *  might copy one *from* uses, including the two XML files above, so a value
  *  moves between here and there by copy and paste rather than by translation.
+ *
+ *  ── THE THREE RULES THIS PALETTE IS BUILT ON ────────────────────────────────
+ *
+ *  1. **The fill is the logo.** `primary` is `Tone.Orange60`, `#EC6206`, which
+ *     is not "an orange from the brand ramp" but the literal background of
+ *     `docs/branding/trigly-mark.svg`. It is the same value in light and dark:
+ *     the header slab, the section labels, the buttons and the toggles are the
+ *     app icon's own colour, so the thing you tapped on the home screen and the
+ *     thing that fills the top of the screen are one colour and not two.
+ *
+ *  2. **The grid is ink, and so is the text.** `outline` and `onSurface` are the
+ *     same value — near-black on the light theme, near-white on the dark one.
+ *     Borders used to be orange, which cost the fills their punch: orange on
+ *     orange has nowhere to land. A saturated fill needs a hard achromatic edge
+ *     to snap against, which is the whole reason hazard markings are orange and
+ *     black rather than orange and beige.
+ *
+ *  3. **Ink on the orange, not white.** `onPrimary` is `Tone.Ink`. White on
+ *     `#EC6206` measures 3.32:1 and fails AA for body text; ink on it measures
+ *     5.66:1 and passes. The accessible choice and the punchy one are the same
+ *     choice here, which is the only reason the vivid orange can carry a slab
+ *     at all — the previous burnt `#9F3D00` existed to make white text work.
+ *
+ *  The corollary of rule 1 is [TriglyExtraColors.accent]: read its comment
+ *  before reaching for `primary` in a `color =` on a text or an icon.
  */
 
 /**
@@ -40,7 +65,7 @@ import androidx.compose.ui.graphics.Color
  * one of them is what a design tool puts on your clipboard. The literal needs an
  * `0x` prefix, an alpha pair prepended, and — the part that actually bites — it
  * silently means *transparent black* if the alpha is left off, because
- * `Color(0x9F3D00)` is a valid call with an alpha of zero. A wrong colour is
+ * `Color(0xEC6206)` is a valid call with an alpha of zero. A wrong colour is
  * visible; an invisible one looks like a layout bug.
  *
  * Accepts what CSS accepts: `#RGB`, `#RRGGBB`, `#RRGGBBAA`. Note that the
@@ -77,90 +102,134 @@ internal fun hex(value: String): Color {
 /**
  * The raw palette, as tonal ramps.
  *
- * Numbers are Material tone values: 0 is black, 100 is white. 40 and 80 are the
- * anchors the light and dark schemes are built around, which is why every ramp
- * has those two even when it skips others.
+ * Numbers are Material tone values: 0 is black, 100 is white. Only the steps a
+ * role actually asks for are declared — a ramp with an unused rung on it is a
+ * rung that drifts out of tune with its neighbours, because nothing on screen
+ * ever shows it going wrong.
  *
- * To re-brand the app: rotate the hue of the `Orange*` ramp, keeping the
- * lightness order intact, and leave everything else alone. The neutrals carry a
- * trace of the same hue on purpose — a pure grey surface under a coloured accent
- * looks accidental — so they are worth nudging too, but nothing breaks if you
- * don't.
+ * To re-brand the app: put the new colour in [Orange60] — it is the one hex the
+ * mark and the UI share — then walk the rest of the ramp to the same hue,
+ * keeping the lightness order intact. The neutrals carry a trace of the same hue
+ * on purpose, so they are worth nudging too, but nothing breaks if you don't.
+ * Check [Orange50] afterwards: it is the ink accent, and it is the one step with
+ * a contrast floor to clear.
  */
 internal object Tone {
 
-    // ── Brand. This is the colour the app *is*; chroma stays high.
-    val Orange10 = hex("#351000")
-    val Orange20 = hex("#561D00")
-    val Orange30 = hex("#7A2C00")
-    val Orange40 = hex("#9F3D00")
-    val Orange50 = hex("#C64C00")
+    // ── Brand. High chroma, and no apology for it: this is the colour the app
+    // *is*. The ramp exists to support Orange60, not to average it out.
+
+    val Orange10 = hex("#2A0C00")
+    val Orange30 = hex("#6B2000")
+    val Orange40 = hex("#8E2C00")
+
+    /**
+     * The brand orange dark enough to be *text*. 5.60:1 on [Paper], 4.89:1 on
+     * the deepest block fill. See [TriglyExtraColors.accent].
+     */
+    val Orange50 = hex("#B83A00")
+
+    /**
+     * **The logo.** Byte-for-byte the background of `docs/branding/trigly-mark.svg`
+     * and of `ic_launcher_background` in `res/values/colors.xml`. Every filled
+     * orange surface in the app is this value, in both themes. If you change it,
+     * change those two as well — they are the same colour claiming to be one.
+     */
     val Orange60 = hex("#EC6206")
-    val Orange80 = hex("#FFB68F")
-    val Orange90 = hex("#FFDBC8")
-    val Orange95 = hex("#FFEDE4")
 
-    // ── Secondary: the brand hue with the chroma pulled out, for anything that
-    // must sit beside the orange without competing with it.
-    val Warm10 = hex("#2C1608")
-    val Warm20 = hex("#45291A")
-    val Warm30 = hex("#5E3F2F")
-    val Warm40 = hex("#785645")
-    val Warm80 = hex("#E7BEA9")
-    val Warm90 = hex("#FFDBC8")
+    /** [Orange50]'s job on a dark page: the ink accent, inverted. 8.03:1 on [Ink]. */
+    val Orange70 = hex("#FF8A3D")
 
-    // ── Tertiary: an olive, roughly complementary. Used sparingly — it is what
-    // stops an all-orange screen reading as a single wash.
-    val Olive10 = hex("#1A1D00")
-    val Olive20 = hex("#2E3300")
-    val Olive30 = hex("#444A00")
-    val Olive40 = hex("#5C6300")
-    val Olive80 = hex("#C5CD73")
-    val Olive90 = hex("#E1E98C")
+    val Orange80 = hex("#FFA96B")
+    val Orange90 = hex("#FFD6BB")
+
+    // ── Secondary: an electric blue, near enough the brand's true complement.
+    // It replaced a desaturated brown, which was the single biggest reason the
+    // old palette read as muted — a "secondary" with the chroma pulled out of it
+    // is not a second colour, it is a tinted grey with ambitions. Used almost
+    // nowhere as a surface; its real job is `RegexHighlight`, where a cool hue
+    // is the only thing that separates a group from the four warm ones.
+    val Blue10 = hex("#001A45")
+    val Blue20 = hex("#002A6B")
+    val Blue30 = hex("#003C96")
+    val Blue40 = hex("#1240B8")
+    val Blue80 = hex("#A9C7FF")
+    val Blue90 = hex("#D6E3FF")
+
+    // ── Tertiary: acid lime. Loud on purpose, and rationed — it is what stops
+    // an orange screen reading as a single wash, which the previous olive was
+    // too quiet to do.
+    val Lime10 = hex("#152000")
+    val Lime20 = hex("#253600")
+    val Lime30 = hex("#374F00")
+    val Lime40 = hex("#496A00")
+    val Lime80 = hex("#B4E836")
+    val Lime90 = hex("#D2F76B")
 
     // ── The two extremes, named for what they are rather than numbered. These
     // are the ones `res/values*/colors.xml` must mirror.
-    /** Lightest surface — the light theme's page. */
-    val Paper = hex("#FFF8F5")
 
-    /** Darkest surface — the dark theme's page. */
+    /**
+     * Lightest surface — the light theme's page. Crisper than a cream: the
+     * orange has to look saturated against it, and every point of paper
+     * lightness is a point of fill contrast.
+     */
+    val Paper = hex("#FFFBF7")
+
+    /** Darkest surface — the dark theme's page, and the light theme's grid. */
     val Ink = hex("#17100C")
 
     /** Below [Ink]: the one surface in the dark theme that recedes past the page. */
     val InkDeep = hex("#120C08")
 
-    // ── Warm neutrals for everything structural.
-    val Neutral10 = hex("#211A16")
-    val Neutral14 = hex("#2A211B")
-    val Neutral20 = hex("#382E29")
-    val Neutral90 = hex("#F1DFD7")
-    val Neutral96 = hex("#FFF2EB")
+    // ── Warm neutral-variant. Structural, not decorative: secondary text and
+    // the muted "this control is off" border. Warm rather than grey because a
+    // pure grey beside a saturated orange looks like a rendering mistake.
+    val Warm20 = hex("#422619")
+    val Warm30 = hex("#4E382B")
+    val Warm50 = hex("#86695A")
+    val Warm60 = hex("#A08877")
+    val Warm80 = hex("#E3C4B2")
+
+    val Neutral14 = hex("#271F19")
+    val Neutral20 = hex("#362C26")
+    val Neutral90 = hex("#F2E3DA")
+    val Neutral96 = hex("#FFF3EC")
     val White = hex("#FFFFFF")
 
     // ── Blocks. The brutalist look is made of these: a flat tinted slab with a
-    // hard border, no elevation, no gradient.
-    val BlockLight = hex("#FFEFE6")
-    val BlockLightAlt = hex("#FFE4D5")
-    val BlockDark = hex("#2A1A11")
-    val BlockDarkAlt = hex("#33210F")
+    // hard border, no elevation, no gradient. Kept close to the page so that the
+    // border, not the fill, is what makes a block a block.
+    val BlockLight = hex("#FFF4EC")
+    val BlockLightAlt = hex("#FFE8DA")
+    val BlockDark = hex("#241610")
+    val BlockDarkAlt = hex("#2F1D12")
 
-    // ── Error stays red. The brand colour is orange, so a failure cannot also
-    // be orange — it would be indistinguishable from ordinary emphasis.
-    val Red10 = hex("#410002")
-    val Red20 = hex("#690005")
-    val Red30 = hex("#93000A")
-    val Red40 = hex("#BA1A1A")
-    val Red80 = hex("#FFB4AB")
-    val Red90 = hex("#FFDAD6")
+    // ── Error stays red, and got hotter along with everything else. The brand
+    // colour is orange, so a failure cannot also be orange — it would be
+    // indistinguishable from ordinary emphasis. [Red40] is the hottest red that
+    // still clears 4.5:1 on [Paper] (5.29:1), which is the only constraint that
+    // matters: error is text far more often than it is a fill.
+    val Red10 = hex("#3F0008")
+    val Red20 = hex("#6B000F")
+    val Red30 = hex("#93000F")
+    val Red40 = hex("#D50024")
+    val Red80 = hex("#FFADB4")
+    val Red90 = hex("#FFD9DC")
 
     // ── Caution: amber, for "this works, but you should know something".
     // Deliberately distinct from both the brand orange and the error red.
-    val Amber20 = hex("#422C00")
-    val Amber30 = hex("#5E4000")
+    //
+    // [Amber40] is the one tone in this file that is *not* punchier than it was,
+    // and it cannot be: caution is drawn as small text on a block fill, and a
+    // gold bright enough to look punchy measures 4.17:1 there. The punch went
+    // into [Amber80] instead, where the dark theme has the headroom for it.
+    val Amber20 = hex("#3E2A00")
+    val Amber30 = hex("#5A3D00")
     val Amber40 = hex("#8A5D00")
-    val Amber80 = hex("#FFC46B")
-    val Amber90 = hex("#FFDFA8")
-    val Amber95 = hex("#FFEEDC")
+    val Amber80 = hex("#FFC24D")
+    val Amber90 = hex("#FFDF9E")
+    val Amber95 = hex("#FFF0D6")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -173,28 +242,32 @@ internal object Tone {
  * Worth knowing which roles are load-bearing in this design, because they are
  * not the usual ones:
  *
- *  · `primary` fills the header slabs and the primary buttons outright, so it
- *    must be dark enough for white text.
- *  · `outline` is every block's 2dp border. It is the brand orange rather than a
- *    grey, which is most of what makes the screens read as orange.
+ *  · `primary` fills the header slabs, the section labels, the buttons and the
+ *    on-state of every toggle. It is the logo orange, and it is the same value
+ *    in the dark scheme — the one role here that does not invert.
+ *  · `onPrimary` is ink, not white. Rule 3 at the top of this file.
+ *  · `outline` is every block's 2dp border and every divider inside one, and it
+ *    is the same ink as `onSurface`. Nothing structural is orange.
+ *  · `outlineVariant` is the *off* border — a muted warm neutral that clears
+ *    3:1 against the page (3.25:1) without competing with the on-state.
  *  · `surfaceContainer` / `surfaceContainerLow` are the block fills.
  */
 internal val LightScheme = lightColorScheme(
-    primary = Tone.Orange40,
-    onPrimary = Tone.White,
+    primary = Tone.Orange60,
+    onPrimary = Tone.Ink,
     primaryContainer = Tone.Orange90,
     onPrimaryContainer = Tone.Orange10,
     inversePrimary = Tone.Orange80,
 
-    secondary = Tone.Warm40,
+    secondary = Tone.Blue40,
     onSecondary = Tone.White,
-    secondaryContainer = Tone.Warm90,
-    onSecondaryContainer = Tone.Warm10,
+    secondaryContainer = Tone.Blue90,
+    onSecondaryContainer = Tone.Blue10,
 
-    tertiary = Tone.Olive40,
+    tertiary = Tone.Lime40,
     onTertiary = Tone.White,
-    tertiaryContainer = Tone.Olive90,
-    onTertiaryContainer = Tone.Olive10,
+    tertiaryContainer = Tone.Lime90,
+    onTertiaryContainer = Tone.Lime10,
 
     error = Tone.Red40,
     onError = Tone.White,
@@ -202,9 +275,9 @@ internal val LightScheme = lightColorScheme(
     onErrorContainer = Tone.Red10,
 
     background = Tone.Paper,
-    onBackground = Tone.Neutral10,
+    onBackground = Tone.Ink,
     surface = Tone.Paper,
-    onSurface = Tone.Neutral10,
+    onSurface = Tone.Ink,
     surfaceVariant = Tone.BlockLightAlt,
     onSurfaceVariant = Tone.Warm30,
 
@@ -214,31 +287,36 @@ internal val LightScheme = lightColorScheme(
     surfaceContainerHigh = Tone.Orange90,
     surfaceContainerHighest = Tone.Orange90,
 
-    // The block borders and the divider inside a block.
-    outline = Tone.Orange40,
-    outlineVariant = Tone.Orange80,
+    // The block borders and the divider inside a block: the same ink as the text.
+    outline = Tone.Ink,
+    outlineVariant = Tone.Warm60,
 
     inverseSurface = Tone.Neutral20,
     inverseOnSurface = Tone.Neutral96,
 )
 
-/** Dark scheme. Same roles, same reasoning, inverted anchors. */
+/**
+ * Dark scheme. Same roles, same reasoning, inverted anchors — except `primary`
+ * and `onPrimary`, which are deliberately identical to the light scheme's. The
+ * orange slab is the logo swatch on both themes, so it is the one thing in the
+ * app that does not change when the sun goes down.
+ */
 internal val DarkScheme = darkColorScheme(
-    primary = Tone.Orange80,
-    onPrimary = Tone.Orange20,
+    primary = Tone.Orange60,
+    onPrimary = Tone.Ink,
     primaryContainer = Tone.Orange30,
     onPrimaryContainer = Tone.Orange90,
     inversePrimary = Tone.Orange40,
 
-    secondary = Tone.Warm80,
-    onSecondary = Tone.Warm20,
-    secondaryContainer = Tone.Warm30,
-    onSecondaryContainer = Tone.Warm90,
+    secondary = Tone.Blue80,
+    onSecondary = Tone.Blue20,
+    secondaryContainer = Tone.Blue30,
+    onSecondaryContainer = Tone.Blue90,
 
-    tertiary = Tone.Olive80,
-    onTertiary = Tone.Olive20,
-    tertiaryContainer = Tone.Olive30,
-    onTertiaryContainer = Tone.Olive90,
+    tertiary = Tone.Lime80,
+    onTertiary = Tone.Lime20,
+    tertiaryContainer = Tone.Lime30,
+    onTertiaryContainer = Tone.Lime90,
 
     error = Tone.Red80,
     onError = Tone.Red20,
@@ -255,11 +333,11 @@ internal val DarkScheme = darkColorScheme(
     surfaceContainerLowest = Tone.InkDeep,
     surfaceContainerLow = Tone.BlockDark,
     surfaceContainer = Tone.BlockDarkAlt,
-    surfaceContainerHigh = Tone.Warm30,
-    surfaceContainerHighest = Tone.Warm30,
+    surfaceContainerHigh = Tone.Warm20,
+    surfaceContainerHighest = Tone.Warm20,
 
-    outline = Tone.Orange80,
-    outlineVariant = Tone.Orange30,
+    outline = Tone.Neutral90,
+    outlineVariant = Tone.Warm50,
 
     inverseSurface = Tone.Neutral90,
     inverseOnSurface = Tone.Neutral14,
@@ -272,28 +350,48 @@ internal val DarkScheme = darkColorScheme(
 /**
  * Colours Material 3 has no role for.
  *
- * A component *warning* — "this polls, so it costs battery", "Android 12
- * suppresses these in the background" — is not an error. The rule is valid and
- * will save; the user is being told something they need to know. Drawing it in
- * `colorScheme.error` claims they did something wrong, and once every second
- * trigger carries one, red becomes noise people learn to skip. So caution gets
- * its own amber, and red stays for things that actually failed.
+ * @property caution A component *warning* — "this polls, so it costs battery",
+ *   "Android 12 suppresses these in the background" — is not an error. The rule
+ *   is valid and will save; the user is being told something they need to know.
+ *   Drawing it in `colorScheme.error` claims they did something wrong, and once
+ *   every second trigger carries one, red becomes noise people learn to skip. So
+ *   caution gets its own amber, and red stays for things that actually failed.
+ * @property cautionContainer The fill behind a caution, for the rare case that
+ *   wants a slab rather than a line of text.
+ * @property onCautionContainer Text on [cautionContainer].
+ * @property accent The brand orange when it has to be **ink instead of a fill**:
+ *   an outlined button's label and border, a value readout, the escapes in a
+ *   highlighted regex.
+ *
+ *   Material has one `primary` and this design needs two oranges, because
+ *   `primary` is the logo's `#EC6206` and `#EC6206` on the page measures 3.23:1
+ *   — fine as a slab you land ink on, not fine as 12sp text. So the loud one
+ *   fills and this one writes. They are the same hue and one is simply darker,
+ *   which is the part that makes it read as one colour used two ways rather than
+ *   as two oranges that failed to agree.
+ *
+ *   **If you are about to write `color = MaterialTheme.colorScheme.primary`, you
+ *   want this instead.** `primary` belongs in `Surface(color = …)` and
+ *   `containerColor`, never in a `Text` or an `Icon` on the page.
  */
 @Immutable
 data class TriglyExtraColors(
     val caution: Color,
     val cautionContainer: Color,
     val onCautionContainer: Color,
+    val accent: Color,
 )
 
 internal val LightExtraColors = TriglyExtraColors(
     caution = Tone.Amber40,
     cautionContainer = Tone.Amber95,
     onCautionContainer = Tone.Amber20,
+    accent = Tone.Orange50,
 )
 
 internal val DarkExtraColors = TriglyExtraColors(
     caution = Tone.Amber80,
     cautionContainer = Tone.Amber30,
     onCautionContainer = Tone.Amber90,
+    accent = Tone.Orange70,
 )

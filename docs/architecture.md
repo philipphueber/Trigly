@@ -331,6 +331,35 @@ paints the window before any Compose code runs — without them a dark-mode laun
 flashes white. They must mirror `Tone.Paper` and `Tone.Ink`, and the file says
 so.
 
+Three rules decide which tone plays which role, and they are what make the
+screens read as loud rather than as tinted:
+
+**The fill is the logo.** `primary` is `Tone.Orange60`, `#EC6206` — not a
+neighbouring step of the brand ramp but the literal background of the app mark,
+and the same value in both schemes. The header slab and the launcher icon are one
+colour, so `primary` is the only role here that does not invert with the theme.
+
+**The grid is ink, and so is the text.** `outline` and `onSurface` are the same
+value: near-black on light, near-white on dark. Borders used to be orange, which
+is what cost the fills their punch — a saturated fill has nowhere to land against
+a saturated edge. On/selected states change their *fill* and keep the ink frame,
+so a control does not appear to gain weight when it turns on.
+
+**Ink on the orange, not white.** `onPrimary` is `Tone.Ink`. White on `#EC6206`
+is 3.32:1 and fails AA; ink on it is 5.66:1 and passes. This is the constraint
+that used to force a burnt `#9F3D00` into `primary`, and resolving it the other
+way is what let the vivid orange onto a slab at all.
+
+The cost of rule 1 is that one Material role cannot cover both jobs: `#EC6206` as
+text on the page is 3.23:1. So the brand orange as *ink* — an outlined button's
+label and border, a value readout, a regex escape — is
+`TriglyExtraColors.accent`, a darker step of the same hue. `primary` belongs in
+`Surface(color = …)` and `containerColor`; never in a `Text` or an `Icon`.
+
+The knock-on is in `MainActivity`: with `primary` no longer inverting, the status
+bar band behind the clock is the same orange in both themes, so its icon polarity
+is fixed (`SystemBarStyle.light`) rather than derived from the system theme.
+
 **Material You dynamic colour is deliberately off.** It is the right default for
 an app with no colour of its own; here the orange *is* the identity, and an
 automation app whose screenshots and docs look different on every phone is not
