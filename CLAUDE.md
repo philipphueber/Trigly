@@ -26,7 +26,7 @@ Run the complete set **only as the gate immediately before merging**. That check
 is not optional; only its frequency is. Report the counts.
 
     unit (JVM)     ./gradlew test
-                   ./gradlew :core:test --tests "*TriggerEngine*"
+                   ./gradlew :core:testDebugUnitTest --tests "*TriggerEngine*"
     build          ./gradlew assembleDebug
     lint           ./gradlew lint
     instrumented   ./gradlew connectedDebugAndroidTest
