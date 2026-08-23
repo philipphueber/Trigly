@@ -388,12 +388,54 @@ in which a manual override would belong.
 
 ### Blocks, not cards
 
-The design is flat rectangles with hard 2dp borders: no rounding, no elevation,
-no gradients. Three decisions carry it.
+The design is flat rectangles with hard 2dp borders, a 3dp corner, and a solid
+offset shadow instead of elevation. No gradients, no blur. Four decisions carry
+it.
 
-**Nothing is rounded, declared once.** Every Material shape role is square in
-`Theme.kt`, so dialogs, menus, text fields and buttons follow without a `shape =`
-argument at any call site.
+**One corner radius, declared once.** All five Material shape roles carry the
+same value in `Theme.kt`, so a chip cannot end up rounder than a dialog. Two
+steps are needed to make that stick, and only the first is obvious. Material's
+own components (dialogs, menus, text fields, snackbars) resolve their shape from
+the theme by themselves. Everything in `Blocks.kt` does not: Compose's `Surface`
+defaults to `RectangleShape`, so a block that omits `shape` is square regardless
+of what the theme says — which is why the blocks *were* square for a long time
+without anyone passing a shape, and why editing the theme alone would have
+rounded the dialogs and left every card behind. `BlockShape` closes that gap by
+passing `shapes.medium` explicitly at each block.
+
+Two kinds of surface stay square whatever the radius, and the test is whether
+they have an edge of their own to round. Full-bleed chrome (`BlockHeader`,
+`BlockBottomBar`) runs to the screen edges under the system bars. Cells inside a
+block — an unmet requirement under a rule, a caveat under a chosen component —
+fill their parent card to its inner edges, and rounding them would show the
+card's own fill through four notches.
+
+The radius is 3dp because that is small enough that nobody would call the app
+rounded and large enough that a corner reads as chosen rather than unfinished. It
+is also bounded from above by two things: `BlockDivider` runs a 2dp line the full
+width of a card and starts leaving a notch at each end past roughly 4dp, and a
+2dp border around a generous curve looks neither brutalist nor modern. Wanting
+more radius than this means thinning the border too, which is a different design
+rather than a shape tweak.
+
+**Weight without elevation.** `Modifier.hardShadow` draws a solid offset copy of
+a block's own silhouette in the ink of its border — 4dp for cards and actions,
+3dp for the on-state of a toggle or chip. Material's `shadowElevation` is
+deliberately unused: a blur that fades with distance is a claim about a light
+source, and this design has none. A soft shadow under a 2dp border is also the
+exact combination that reads as a Material card in costume.
+
+Two consequences worth knowing. The modifier **reserves its own space** — the
+padding is applied before the draw, so the block is laid out 4dp smaller and the
+shadow lands in the strip that padding freed. That is what keeps it to one call
+site per component: no screen knows a shadow exists and nothing can be clipped
+by a parent sized before it was added. And the shadow colour is
+`colorScheme.outline`, not a fixed ink, which makes it a different idea per
+theme: in light mode it is a shadow, and in dark mode — where ink on ink would
+vanish — it inverts to the near-white border colour and becomes a second outline,
+brighter than the thing casting it. For a control the space is reserved whether
+the shadow is drawn or not, so a toggle does not change size under the finger
+that just tapped it.
 
 **One vocabulary, in `Blocks.kt`.** `BlockHeader`, `BlockCard`, `BlockButton`,
 `BlockToggle`, `BlockDivider` and friends are what the screens are assembled

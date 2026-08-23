@@ -22,23 +22,47 @@ val MaterialTheme.extra: TriglyExtraColors
     @Composable @ReadOnlyComposable get() = LocalExtraColors.current
 
 /**
- * Nothing is rounded.
+ * One corner radius, for every role.
  *
- * Every Material shape role is square, which is most of what makes this look
- * like a tool rather than a consumer app — and it is one declaration rather than
- * a `shape =` argument on every call site. Dialogs, cards, buttons, text fields,
- * menus and snackbars all read from here.
+ * All five roles are the same value on purpose. A Material shape scale exists so
+ * a chip can be rounder than a dialog; nothing here wants that — the design is a
+ * grid of blocks, and a grid whose cells disagree about their corners is not a
+ * grid. Setting them all makes [BlockCorner] the single number that decides the
+ * app's geometry, the way `Palette.kt` owns its colour.
  *
- * `RoundedCornerShape(0.dp)` rather than `RectangleShape` because the roles are
- * typed as `CornerBasedShape`: components that adjust a corner themselves (a
- * menu opening upward, a split button) still work.
+ * **Why 3dp and not 0, and not 12.** At 0dp a 2dp border meets itself at a point,
+ * and a point is what makes a flat rectangle read as unfinished rather than as
+ * chosen — it is the difference between brutalism and a missing stylesheet. 3dp
+ * is under the threshold where anyone would call the app rounded, and over the
+ * one where a corner looks like an accident. It also stays clear of the two
+ * things a larger radius would break: `BlockDivider` runs a 2dp line the full
+ * width of a card, and past roughly 4dp that line stops meeting the border and
+ * starts leaving a notch at each end. And radius is coupled to stroke weight — a
+ * 2dp border around a generous curve is the one combination that looks neither
+ * brutalist nor modern, so anything above ~4dp here is a request to thin the
+ * border too, which is a different design rather than a shape change.
+ *
+ * `RoundedCornerShape` throughout, including if this ever goes back to 0dp: the
+ * roles are typed as `CornerBasedShape`, so components that adjust a corner
+ * themselves (a menu opening upward, a split button) keep working, which
+ * `RectangleShape` would not allow.
+ *
+ * **What actually reads from here.** Dialogs, menus, text fields and snackbars,
+ * because Material's own components resolve their shape from the theme — plus
+ * every block, but only via `Blocks.kt`'s `BlockShape`, which passes
+ * `shapes.medium` explicitly. That indirection is not decoration: `Surface`
+ * defaults to `RectangleShape`, so a block that omits `shape` is square no
+ * matter what this file says. An earlier version of this comment claimed cards
+ * read from here and they did not.
  */
-private val SquareShapes = Shapes(
-    extraSmall = RoundedCornerShape(0.dp),
-    small = RoundedCornerShape(0.dp),
-    medium = RoundedCornerShape(0.dp),
-    large = RoundedCornerShape(0.dp),
-    extraLarge = RoundedCornerShape(0.dp),
+private val BlockCorner = 3.dp
+
+private val BlockShapes = Shapes(
+    extraSmall = RoundedCornerShape(BlockCorner),
+    small = RoundedCornerShape(BlockCorner),
+    medium = RoundedCornerShape(BlockCorner),
+    large = RoundedCornerShape(BlockCorner),
+    extraLarge = RoundedCornerShape(BlockCorner),
 )
 
 /**
@@ -102,7 +126,7 @@ fun TriglyTheme(
     ) {
         MaterialTheme(
             colorScheme = if (darkTheme) DarkScheme else LightScheme,
-            shapes = SquareShapes,
+            shapes = BlockShapes,
             typography = BlockTypography,
             content = content,
         )

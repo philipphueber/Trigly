@@ -30,23 +30,31 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
 /*
  * The blocky vocabulary, in one place.
  *
- * Everything here is flat, square and hard-edged: a filled rectangle with a 2dp
- * border, no elevation, no gradient, no rounding. Material's own components are
- * used underneath wherever they carry behaviour worth keeping (focus, ripple,
- * accessibility roles) — what changes is the skin.
+ * Everything here is flat and hard-edged: a filled rectangle with a 2dp border,
+ * a 3dp corner, no gradient, and no elevation in the Material sense — the weight
+ * comes from [hardShadow], a solid offset copy of the block, not from a blur.
+ * Material's own components are used underneath wherever they carry behaviour
+ * worth keeping (focus, ripple, accessibility roles) — what changes is the skin.
  *
  * Having them here rather than inline is what keeps the two screens honest: a
  * border width or a padding is defined once, so the screens cannot drift apart.
@@ -56,12 +64,100 @@ import kotlin.math.roundToInt
 private val BlockBorder = 2.dp
 
 /**
+ * The shape every block is cut to, from the theme.
+ *
+ * Read this rather than letting a `Surface` fall back to its own default. That
+ * default is `RectangleShape`, which is why the blocks looked square for as long
+ * as they did *without* anyone passing a shape — and why editing `Shapes` in
+ * `Theme.kt` used to change the dialogs, menus, text fields and the two buttons
+ * while leaving every card, toggle and chip behind. A geometry the theme cannot
+ * reach is a geometry that only half-changes.
+ *
+ * Two kinds of thing deliberately do not use it, and the test in both cases is
+ * whether the surface has an edge of its own to round:
+ *
+ *  · **Full-bleed chrome.** [BlockHeader] and [BlockBottomBar] run to the screen
+ *    edges under the system bars, where a corner radius has nothing to sit
+ *    against and reads as a rendering fault.
+ *  · **Cells inside a block.** The strips that follow a [BlockDivider] — an
+ *    unmet requirement under a rule, a caveat under a chosen component — fill
+ *    their parent card to its inner edges. Rounding them would show the card's
+ *    own fill through four notches.
+ */
+internal val BlockShape: Shape
+    @Composable @ReadOnlyComposable get() = MaterialTheme.shapes.medium
+
+/** Offset of a block's hard shadow. [BlockControlShadow] is the small version. */
+private val BlockShadow = 4.dp
+
+/** For a toggle or a chip, where 4dp beside a 22dp control reads as a smear. */
+private val BlockControlShadow = 3.dp
+
+/**
+ * A solid offset copy of the block's own silhouette, in the ink of its border.
+ *
+ * Not elevation. Material's `shadowElevation` draws a soft gradient that fades
+ * with distance, which is a claim about light and depth; this is a flat second
+ * shape with a hard edge, which is a claim about a sticker lying on paper. The
+ * design has no light source and should not start implying one — and a blurred
+ * shadow under a 2dp border is the exact combination that reads as a Material
+ * card wearing a costume.
+ *
+ * **It reserves its own space.** The `padding` comes first, so the block is laid
+ * out `offset` smaller and the shadow is drawn into the strip that padding just
+ * freed. That is what keeps this to one call site per component: no screen has to
+ * know a shadow exists, no `Arrangement.spacedBy` needs adjusting, and nothing
+ * can be clipped by a parent that was sized before the shadow was added. The
+ * cost is that a block is genuinely 4dp narrower and shorter than it was.
+ *
+ * **The colour is `outline`, not a fixed ink**, which makes this a different idea
+ * in each theme and deliberately so. In light mode a near-black offset under a
+ * near-white page is a shadow. In dark mode ink on ink would be invisible, so it
+ * inverts to the near-white border colour and becomes a second outline, brighter
+ * than the thing casting it. Both read as weight; only one of them is a shadow,
+ * and pretending otherwise would mean hard-coding a colour that vanishes at
+ * night.
+ *
+ * Takes [shape] rather than reading [BlockShape] itself so the silhouette cannot
+ * drift from the block it sits under — a shadow with different corners from its
+ * own card is worse than no shadow.
+ *
+ * [visible] hides the shadow **without releasing its space**, which is the only
+ * way a control can gain one on selection: reserve it conditionally and the
+ * toggle changes size under the finger that just tapped it, shoving the row it
+ * sits in sideways. So an off toggle keeps a 3dp hole where its shadow would be.
+ * That hole is invisible against the page, and it is the price of the control
+ * never moving.
+ */
+@Composable
+internal fun Modifier.hardShadow(
+    shape: Shape,
+    offset: Dp = BlockShadow,
+    visible: Boolean = true,
+): Modifier {
+    val ink = MaterialTheme.colorScheme.outline
+    return this
+        .padding(end = offset, bottom = offset)
+        .drawBehind {
+            if (!visible) return@drawBehind
+            val silhouette = shape.createOutline(size, layoutDirection, this)
+            translate(left = offset.toPx(), top = offset.toPx()) {
+                drawOutline(silhouette, ink)
+            }
+        }
+}
+
+/**
  * The solid slab at the top of a screen.
  *
  * Deliberately painted *behind* the status bar rather than below it: with
  * edge-to-edge the app owns those pixels, and a full-bleed band of colour is the
  * point of the design. The inset is applied to the slab's *content*, so the text
  * still clears the clock.
+ *
+ * No [BlockShape] here, and that is not an oversight: this runs to all three
+ * edges it touches, so a rounded corner would have the bare page showing through
+ * a notch at the top of the screen.
  */
 @Composable
 fun BlockHeader(
@@ -111,8 +207,14 @@ fun BlockCard(
     content: @Composable () -> Unit,
 ) {
     val border = BorderStroke(BlockBorder, MaterialTheme.colorScheme.outline)
+    val shape = BlockShape
     if (onClick == null) {
-        Surface(color = fill, border = border, modifier = modifier.fillMaxWidth()) {
+        Surface(
+            color = fill,
+            border = border,
+            shape = shape,
+            modifier = modifier.fillMaxWidth().hardShadow(shape),
+        ) {
             content()
         }
     } else {
@@ -120,7 +222,8 @@ fun BlockCard(
             onClick = onClick,
             color = fill,
             border = border,
-            modifier = modifier.fillMaxWidth(),
+            shape = shape,
+            modifier = modifier.fillMaxWidth().hardShadow(shape),
         ) {
             content()
         }
@@ -138,7 +241,7 @@ fun BlockDivider(modifier: Modifier = Modifier) {
 }
 
 /**
- * A filled, square, full-width-by-default action.
+ * A filled, full-width-by-default action.
  *
  * The label is uppercased here rather than at every call site, so a button
  * cannot be added in the wrong case.
@@ -153,7 +256,7 @@ fun BlockButton(
     Button(
         onClick = onClick,
         enabled = enabled,
-        shape = MaterialTheme.shapes.medium,
+        shape = BlockShape,
         colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -162,7 +265,7 @@ fun BlockButton(
             horizontal = 24.dp,
             vertical = 16.dp,
         ),
-        modifier = modifier,
+        modifier = modifier.hardShadow(BlockShape),
     ) {
         Text(text = text.uppercase(), style = MaterialTheme.typography.labelLarge)
     }
@@ -195,7 +298,9 @@ fun BlockOutlineButton(
         color = Color.Transparent,
         contentColor = contentColor,
         border = BorderStroke(BlockBorder, contentColor),
-        modifier = if (fillWidth) modifier.fillMaxWidth() else modifier,
+        shape = BlockShape,
+        modifier = (if (fillWidth) modifier.fillMaxWidth() else modifier)
+            .hardShadow(BlockShape),
     ) {
         Text(
             text = text.uppercase(),
@@ -224,7 +329,7 @@ fun BlockTextButton(
 ) {
     TextButton(
         onClick = onClick,
-        shape = MaterialTheme.shapes.small,
+        shape = BlockShape,
         colors = ButtonDefaults.textButtonColors(contentColor = contentColor),
         modifier = modifier,
     ) {
@@ -233,7 +338,7 @@ fun BlockTextButton(
 }
 
 /**
- * ON / OFF as a square cell, in place of Material's pill switch.
+ * ON / OFF as a hard-edged cell, in place of Material's pill switch.
  *
  * Built on `toggleable` with `Role.Switch` rather than drawn from scratch, so it
  * keeps the switch semantics that accessibility services and the instrumented
@@ -263,11 +368,14 @@ fun BlockToggle(
             BlockBorder,
             if (checked) MaterialTheme.colorScheme.outline else off,
         ),
-        modifier = modifier.toggleable(
-            value = checked,
-            role = Role.Switch,
-            onValueChange = onCheckedChange,
-        ),
+        shape = BlockShape,
+        modifier = modifier
+            .hardShadow(BlockShape, BlockControlShadow, visible = checked)
+            .toggleable(
+                value = checked,
+                role = Role.Switch,
+                onValueChange = onCheckedChange,
+            ),
     ) {
         Text(
             text = if (checked) "ON" else "OFF",
@@ -279,7 +387,7 @@ fun BlockToggle(
 }
 
 /**
- * One of a small set of choices, as a square chip.
+ * One of a small set of choices, as a hard-edged chip.
  *
  * `selectable` with `Role.RadioButton` rather than `toggleable` like
  * [BlockToggle]: these come in groups where exactly one is on, and a screen
@@ -313,8 +421,10 @@ fun BlockToggleChip(
                 MaterialTheme.colorScheme.outlineVariant
             },
         ),
+        shape = BlockShape,
         modifier = modifier
             .padding(start = 6.dp)
+            .hardShadow(BlockShape, BlockControlShadow, visible = selected)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
     ) {
         Text(
@@ -337,7 +447,7 @@ fun CaveatBadge(modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .size(22.dp)
-            .border(BlockBorder, MaterialTheme.extra.caution)
+            .border(BlockBorder, MaterialTheme.extra.caution, BlockShape)
             .semantics { contentDescription = CAVEAT_DESCRIPTION },
         contentAlignment = Alignment.Center,
     ) {
@@ -359,6 +469,9 @@ internal const val CAVEAT_DESCRIPTION = "Has a caveat"
  * about it, and paints a border along its top edge because the content scrolls
  * underneath — without the line, a half-scrolled card looks like it belongs to
  * the bar.
+ *
+ * Square for the same reason as [BlockHeader]: it is full-bleed, and the only
+ * edge of it that is not a screen edge already carries a [BlockDivider].
  */
 @Composable
 fun BlockBottomBar(
@@ -387,8 +500,8 @@ fun BlockBottomBar(
  *
  * Material's slider underneath, for the drag handling, keyboard support and the
  * accessibility semantics that make it announce as a seek control — but wearing
- * the block skin, because the default is a rounded pill with a circular thumb
- * and nothing else in this app is round.
+ * the block skin, because the default is a fully rounded pill with a circular
+ * thumb, and this app's 3dp is a corner rather than a curve.
  *
  * The track doubles as a level meter: the filled portion *is* the value, which
  * is the whole reason to use a slider instead of a number box. The thumb is a
@@ -403,7 +516,7 @@ fun BlockBottomBar(
  * in Material3 1.3. Scoped to the two functions that need it rather than turned
  * on for the module: the day it changes, the compiler should point here and not
  * at everything. The plain `Slider` overload is stable, but it only takes
- * colours — and a rounded pill in the right colours is still a rounded pill.
+ * colours — and a pill in the right colours is still a pill.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -429,8 +542,8 @@ private fun BlockSliderThumb() {
     Box(
         modifier = Modifier
             .size(width = 14.dp, height = 30.dp)
-            .background(MaterialTheme.colorScheme.primary)
-            .border(BlockBorder, MaterialTheme.colorScheme.outline)
+            .background(MaterialTheme.colorScheme.primary, BlockShape)
+            .border(BlockBorder, MaterialTheme.colorScheme.outline, BlockShape)
     )
 }
 
@@ -450,8 +563,13 @@ private fun BlockSliderTrack(state: SliderState) {
         modifier = Modifier
             .fillMaxWidth()
             .height(18.dp)
-            .background(MaterialTheme.colorScheme.surface)
-            .border(BlockBorder, MaterialTheme.colorScheme.outline)
+            .background(MaterialTheme.colorScheme.surface, BlockShape)
+            .border(BlockBorder, MaterialTheme.colorScheme.outline, BlockShape)
+            // Clips the fill below to the trough's own corners. Without it the
+            // filled portion stays a hard rectangle and pushes out through them
+            // at any radius above zero — which is invisible while the shape is
+            // square, and therefore exactly the kind of thing left out.
+            .clip(BlockShape)
             .padding(BlockBorder)
     ) {
         Box(
