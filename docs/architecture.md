@@ -561,6 +561,29 @@ is what makes `^` anchor to the start of the *title* — worth knowing, because 
 is the one place where the text being matched is not a thing the user can see as
 a single string.
 
+**A pattern can be tested, not just compiled.** `regexErrorOrNull` catches a
+stray bracket and nothing else: a pattern can compile perfectly and match the
+wrong thing, or nothing at all, and until there was a tester the only place that
+surfaced was a rule that silently never fired. The Test button beside the mode
+toggle opens a dialog with the pattern and a scratch sample, and reports the
+verdict as you type.
+
+Two decisions make it trustworthy rather than merely present. **The verdict comes
+from `TextFilter.of(...).matches`** — the engine's own code path, so what the
+dialog says is what will happen, including the case-insensitivity and the
+`containsMatchIn` semantics that are both easy to assume the other way round.
+`matchRangesIn` supplies only the highlight, and mirrors those two modes exactly;
+a tester whose highlight disagreed with its own verdict would teach people to
+trust neither, which is why one unit test checks the two against each other over
+a spread of patterns rather than asserting them separately.
+
+**And the states that are neither yes nor no are named.** An empty pattern reads
+"matches anything", because an empty filter has no opinion and calling that a
+mismatch would misdescribe the rule. A pattern that will not compile says so
+rather than reporting a failed match. A zero-width match — `a*` against "bbb" —
+says it matched *and* that there is nothing to highlight, because both halves are
+true and either alone misleads.
+
 **The editor earns the mode's keep.** The mode toggle sits in the field's label
 row, because it changes what the box below it means. In regex mode two things
 switch on that a substring has no use for: the pattern is monospaced and coloured
