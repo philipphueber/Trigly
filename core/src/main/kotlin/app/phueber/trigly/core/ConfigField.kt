@@ -142,6 +142,30 @@ sealed interface ConfigField {
         }
     }
 
+    /**
+     * Text to match against, plus how to match it.
+     *
+     * The only kind that owns **two** config keys: [key] holds the pattern and
+     * [modeKey] holds the [TextMatchMode]. They are one field because they are
+     * one decision — "what counts as a match here" — and splitting them into a
+     * text box and an unrelated dropdown would put the mode somewhere the
+     * pattern's own editor cannot see it. It has to see it: a regex is worth
+     * syntax-highlighting and worth checking as it is typed, and a substring is
+     * neither.
+     *
+     * [modeKey] defaults to the pattern key plus `Mode`, so a factory declares
+     * one name and both keys follow. An older rule with no mode key stored reads
+     * as `contains`, which is what it meant before the mode existed.
+     */
+    data class TextPattern(
+        override val key: String,
+        override val label: String,
+        override val required: Boolean = false,
+        override val help: String? = null,
+        val blankMeaning: String? = null,
+        val modeKey: String = "${key}Mode",
+    ) : ConfigField
+
     /** One selectable value: [value] is stored, [label] is shown. */
     data class Option(val value: String, val label: String)
 }
@@ -154,6 +178,10 @@ sealed interface ConfigField {
 fun ConfigField.defaultValue(): String? = when (this) {
     is ConfigField.Text -> null
     is ConfigField.AppPackage -> null
+    // The pattern, like any text whose blankness means "no filter". The mode key
+    // is deliberately not defaulted either: absent reads as `contains`, so
+    // writing it out would only add noise to every exported rule.
+    is ConfigField.TextPattern -> null
     is ConfigField.Choice -> default
     is ConfigField.Number -> default?.toString()
     is ConfigField.Decimal -> default?.toString()

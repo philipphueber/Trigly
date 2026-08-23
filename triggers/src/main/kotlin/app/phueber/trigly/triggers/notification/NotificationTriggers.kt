@@ -6,8 +6,10 @@ import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.triggers.Category
 import app.phueber.trigly.triggers.packageFilter
 import app.phueber.trigly.triggers.stateChoice
+import app.phueber.trigly.triggers.textFilter
 import app.phueber.trigly.core.SharedPayloadKeys
 import app.phueber.trigly.core.SpecialAccessKind
+import app.phueber.trigly.core.TextFilter
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
@@ -25,21 +27,23 @@ private val NOTIFICATION_ACCESS = listOf(
 /**
  * Pure so the matching rules are unit-tested rather than inferred from a device.
  *
- * A null filter means "don't care". Text matching is case-insensitive and spans
- * title and body, because users think of a notification as one piece of text.
+ * A null package and an empty [text] filter mean "don't care". Matching spans
+ * title and body joined, because users think of a notification as one piece of
+ * text — which also means a regex can straddle the two, and `^` anchors to the
+ * start of the title rather than the start of the body.
  */
 fun matchesNotification(
     notification: PostedNotification,
     packageName: String?,
-    textContains: String?,
+    text: TextFilter,
     includeOngoing: Boolean,
 ): Boolean {
     if (!includeOngoing && notification.ongoing) return false
     if (packageName != null && notification.packageName != packageName) return false
 
-    if (textContains != null) {
+    if (!text.isEmpty) {
         val haystack = "${notification.title.orEmpty()} ${notification.text.orEmpty()}"
-        if (!haystack.contains(textContains, ignoreCase = true)) return false
+        if (!text.matches(haystack)) return false
     }
     return true
 }
@@ -47,12 +51,12 @@ fun matchesNotification(
 /** Fires when a notification is posted, optionally narrowed by app and text. */
 class NotificationPostedTrigger(
     private val packageName: String?,
-    private val textContains: String?,
+    private val text: TextFilter,
     private val includeOngoing: Boolean,
 ) : Trigger {
 
     override fun events(): Flow<TriggerEvent> = NotificationEvents.posted.events
-        .filter { matchesNotification(it, packageName, textContains, includeOngoing) }
+        .filter { matchesNotification(it, packageName, text, includeOngoing) }
         .map { posted ->
             TriggerEvent(
                 triggerType = TYPE,
@@ -72,6 +76,7 @@ class NotificationPostedTrigger(
         const val TYPE = "notification_posted"
         const val CONFIG_PACKAGE = "package"
         const val CONFIG_TEXT_CONTAINS = "textContains"
+        const val CONFIG_TEXT_MODE = "textContainsMode"
         const val CONFIG_INCLUDE_ONGOING = "includeOngoing"
         const val PAYLOAD_PACKAGE = "package"
         const val PAYLOAD_TITLE = "title"
@@ -87,7 +92,7 @@ class NotificationPostedTriggerFactory : TriggerFactory {
 
     override val configFields = listOf(
         packageFilter(help = "Which app's notifications should fire this rule."),
-        ConfigField.Text(
+        textFilter(
             key = NotificationPostedTrigger.CONFIG_TEXT_CONTAINS,
             label = "Title or text contains",
             blankMeaning = "Leave blank to match every notification",
@@ -103,7 +108,10 @@ class NotificationPostedTriggerFactory : TriggerFactory {
 
     override fun create(config: Map<String, String>): Trigger = NotificationPostedTrigger(
         packageName = config[NotificationPostedTrigger.CONFIG_PACKAGE],
-        textContains = config[NotificationPostedTrigger.CONFIG_TEXT_CONTAINS],
+        text = TextFilter.fromConfig(
+            config[NotificationPostedTrigger.CONFIG_TEXT_CONTAINS],
+            config[NotificationPostedTrigger.CONFIG_TEXT_MODE],
+        ),
         includeOngoing =
             config[NotificationPostedTrigger.CONFIG_INCLUDE_ONGOING]?.toBoolean() ?: false,
     )

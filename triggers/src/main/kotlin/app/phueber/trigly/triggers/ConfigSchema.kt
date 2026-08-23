@@ -49,6 +49,31 @@ internal fun packageFilter(
     help = help,
 )
 
+/**
+ * A "does the text match" filter, which six fields across five triggers need.
+ *
+ * Declared through one helper so the pair of keys — the pattern and its mode —
+ * cannot drift apart, and so a new text filter is regex-capable by construction
+ * rather than by remembering to be.
+ *
+ * The label keeps saying "contains" because that is what it does until someone
+ * switches it, and a field labelled "Title or text matches" would be vaguer for
+ * the many rules that never touch the mode.
+ */
+internal fun textFilter(
+    key: String,
+    label: String,
+    blankMeaning: String? = null,
+    required: Boolean = false,
+    help: String? = null,
+): ConfigField.TextPattern = ConfigField.TextPattern(
+    key = key,
+    label = label,
+    required = required,
+    blankMeaning = blankMeaning,
+    help = help,
+)
+
 /** Categories used to group the trigger picker. Mirrors `triggerFactories()`. */
 internal object Category {
     const val TIME = "Time"

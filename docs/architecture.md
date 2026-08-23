@@ -97,14 +97,14 @@ cannot be drawn from it. So each factory also declares its fields as
 `ConfigField` — the same pattern as `ComponentRequirement`: declared on the
 *factory*, consumed by the UI, invisible to the engine.
 
-Seven field kinds cover all 47 components: `Text`, `Choice`, `Number`,
-`Decimal`, `Flag`, `AppPackage`, `Slider`. `Choice` carries the most weight,
+Eight field kinds cover all 47 components: `Text`, `TextPattern`, `Choice`,
+`Number`, `Decimal`, `Flag`, `AppPackage`, `Slider`. `Choice` carries the most weight,
 because the fourteen
 two-word state fields (`enabled`/`disabled`, `plugged`/`unplugged`,
 `entered`/`exited`) use a different word pair per component — which is precisely
 why the words must be declared per factory instead of inferred from the key name.
 
-Two of the seven exist purely so the editor can offer a better control for
+Two of the eight exist purely so the editor can offer a better control for
 something an existing kind could already store. `AppPackage` stores like `Text`
 but renders as a picker, because nobody knows the dialer is
 `com.google.android.dialer`. `Slider` stores like `Number` but renders as a
@@ -136,6 +136,10 @@ field shows it as a hint under an empty box, so it reads as an instruction:
 "Leave blank for any address". An `AppPackage` field is a picker with no blank
 state to leave alone, so the same declaration is phrased as a *value* — "Any
 app" — shown as what the field currently says and as the row that sets it back.
+
+`TextPattern` is the one kind that owns **two** config keys — the pattern and
+its match mode. See "Matching text, and matching it loosely" below for why they
+are one field rather than a text box beside an unrelated dropdown.
 
 Factories also declare `displayName`, `category` and an optional `warning`.
 `category` is what makes a 28-item trigger picker usable; `warning` is where a
@@ -363,6 +367,52 @@ from the activity through two screens and a component block would add it to four
 signatures with no other use for it. Its empty default is safe — the picker still
 offers manual entry — and it is what lets the instrumented tests supply their own
 app list instead of asserting against whatever the emulator image ships.
+
+### Matching text, and matching it loosely
+
+Six fields across five triggers ask the same question — "does this text match
+what the user asked for" — and each of them used to answer it with its own
+`contains(x, ignoreCase = true)`. `TextFilter` in `:core` is that question asked
+once, which is what made regular expressions a change in one file instead of six,
+and what makes the *next* text filter regex-capable without anyone remembering to
+make it so. The schema side matches: `textFilter()` in `ConfigSchema.kt` is the
+only way these fields are declared, so a pattern key and its mode key cannot
+drift apart.
+
+**Compiled when the rule is built, not when an event arrives.** `TextFilter.of`
+compiles the regex in the constructor and closes over it. That buys two things.
+`screen_content` can be asked about every visual change on the screen, so
+per-event compilation would be the wrong cost in the wrong place. And a pattern
+that does not compile throws from `create()` — which is the path every other
+invalid config already takes, so the editor shows it at Save instead of the
+engine throwing from a coroutine while the phone is in a pocket.
+
+**A blank pattern matches everything, and an unknown mode reads as `contains`.**
+The first is just the existing meaning of an empty filter, moved somewhere the
+callers can stop restating it — the private constructor and `of()` exist so
+"nothing entered" becomes "no opinion" exactly once. The second is the one
+deliberately lenient parse in the project: every rule saved before the mode key
+existed has no mode at all, and an import from a newer build may carry a mode
+this one has never heard of. In both cases the pattern still means something as a
+substring, so falling back loads a rule the user can see is reasonable instead of
+refusing it.
+
+A regex is searched with `containsMatchIn`, not `matches`: the field reads like
+grep, and `^…$` is there for anyone who wants the whole string. For
+`notification_posted` the haystack is the title and body joined by a space, which
+is what makes `^` anchor to the start of the *title* — worth knowing, because it
+is the one place where the text being matched is not a thing the user can see as
+a single string.
+
+**The editor earns the mode's keep.** The mode toggle sits in the field's label
+row, because it changes what the box below it means. In regex mode two things
+switch on that a substring has no use for: the pattern is monospaced and coloured
+by `RegexHighlight`, and it is checked on every keystroke by `regexErrorOrNull` —
+the same `Regex(...)` the factory will run at save time, so the failure surfaces
+while the cursor is still next to the mistake. The highlighter is a hand-rolled
+scan rather than a regex over a regex, for the reason that matters most here: it
+is asked to read half-typed, invalid input on every keystroke, and anything that
+throws on bad input is useless in exactly the moments highlighting helps.
 
 ## Testing posture
 

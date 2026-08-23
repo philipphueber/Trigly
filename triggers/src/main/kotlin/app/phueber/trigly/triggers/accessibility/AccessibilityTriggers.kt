@@ -6,7 +6,9 @@ import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.triggers.Category
 import app.phueber.trigly.triggers.packageFilter
 import app.phueber.trigly.triggers.stateChoice
+import app.phueber.trigly.triggers.textFilter
 import app.phueber.trigly.core.SpecialAccessKind
+import app.phueber.trigly.core.TextFilter
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
@@ -27,15 +29,11 @@ fun matchesUiEvent(
     event: UiEvent,
     eventType: Int,
     packageName: String?,
-    textContains: String?,
+    text: TextFilter,
 ): Boolean {
     if (event.eventType != eventType) return false
     if (packageName != null && event.packageName != packageName) return false
-    if (textContains != null &&
-        event.text?.contains(textContains, ignoreCase = true) != true
-    ) {
-        return false
-    }
+    if (!text.matches(event.text)) return false
     return true
 }
 
@@ -47,11 +45,11 @@ private class UiEventTrigger(
     private val type: String,
     private val eventType: Int,
     private val packageName: String?,
-    private val textContains: String?,
+    private val text: TextFilter,
 ) : Trigger {
 
     override fun events(): Flow<TriggerEvent> = AccessibilityEvents.ui.events
-        .filter { matchesUiEvent(it, eventType, packageName, textContains) }
+        .filter { matchesUiEvent(it, eventType, packageName, text) }
         .map { event ->
             TriggerEvent(
                 triggerType = type,
@@ -76,6 +74,7 @@ object UiClickTrigger {
     const val TYPE = "ui_click"
     const val CONFIG_PACKAGE = "package"
     const val CONFIG_TEXT_CONTAINS = "textContains"
+    const val CONFIG_TEXT_MODE = "textContainsMode"
 }
 
 class UiClickTriggerFactory : TriggerFactory {
@@ -86,7 +85,7 @@ class UiClickTriggerFactory : TriggerFactory {
 
     override val configFields = listOf(
         packageFilter(help = "Which app's taps to watch."),
-        ConfigField.Text(
+        textFilter(
             key = UiClickTrigger.CONFIG_TEXT_CONTAINS,
             label = "Tapped item's text contains",
             blankMeaning = "Leave blank for any tap",
@@ -98,7 +97,10 @@ class UiClickTriggerFactory : TriggerFactory {
         type = UiClickTrigger.TYPE,
         eventType = AccessibilityEvent.TYPE_VIEW_CLICKED,
         packageName = config[UiClickTrigger.CONFIG_PACKAGE],
-        textContains = config[UiClickTrigger.CONFIG_TEXT_CONTAINS],
+        text = TextFilter.fromConfig(
+            config[UiClickTrigger.CONFIG_TEXT_CONTAINS],
+            config[UiClickTrigger.CONFIG_TEXT_MODE],
+        ),
     )
 }
 
@@ -113,6 +115,7 @@ object ScreenContentTrigger {
     const val TYPE = "screen_content"
     const val CONFIG_PACKAGE = "package"
     const val CONFIG_TEXT_CONTAINS = "textContains"
+    const val CONFIG_TEXT_MODE = "textContainsMode"
 }
 
 class ScreenContentTriggerFactory : TriggerFactory {
@@ -123,7 +126,7 @@ class ScreenContentTriggerFactory : TriggerFactory {
 
     override val configFields = listOf(
         packageFilter(help = "Which app's screen to watch."),
-        ConfigField.Text(
+        textFilter(
             key = ScreenContentTrigger.CONFIG_TEXT_CONTAINS,
             label = "Screen contains",
             required = true,
@@ -141,7 +144,10 @@ class ScreenContentTriggerFactory : TriggerFactory {
         type = ScreenContentTrigger.TYPE,
         eventType = AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
         packageName = config[ScreenContentTrigger.CONFIG_PACKAGE],
-        textContains = config[ScreenContentTrigger.CONFIG_TEXT_CONTAINS],
+        text = TextFilter.fromConfig(
+            config[ScreenContentTrigger.CONFIG_TEXT_CONTAINS],
+            config[ScreenContentTrigger.CONFIG_TEXT_MODE],
+        ),
     )
 }
 

@@ -6,6 +6,7 @@ import android.content.Intent
 import android.provider.Telephony
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.TextFilter
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerFactory
 
@@ -13,19 +14,9 @@ import app.phueber.trigly.core.TriggerFactory
 fun matchesSms(
     sender: String?,
     body: String?,
-    senderContains: String?,
-    bodyContains: String?,
-): Boolean {
-    if (senderContains != null &&
-        sender?.contains(senderContains, ignoreCase = true) != true
-    ) {
-        return false
-    }
-    if (bodyContains != null && body?.contains(bodyContains, ignoreCase = true) != true) {
-        return false
-    }
-    return true
-}
+    senderFilter: TextFilter,
+    bodyFilter: TextFilter,
+): Boolean = senderFilter.matches(sender) && bodyFilter.matches(body)
 
 /**
  * Fires when an SMS arrives.
@@ -41,8 +32,8 @@ fun matchesSms(
  */
 class SmsReceivedTrigger(
     context: Context,
-    private val senderContains: String?,
-    private val bodyContains: String?,
+    private val senderFilter: TextFilter,
+    private val bodyFilter: TextFilter,
     now: () -> Long = System::currentTimeMillis,
 ) : BroadcastTrigger(context, now) {
 
@@ -56,7 +47,7 @@ class SmsReceivedTrigger(
         val sender = messages.first().displayOriginatingAddress
         val body = messages.joinToString(separator = "") { it.displayMessageBody.orEmpty() }
 
-        if (!matchesSms(sender, body, senderContains, bodyContains)) return null
+        if (!matchesSms(sender, body, senderFilter, bodyFilter)) return null
 
         return Reading(
             payload = buildMap {
@@ -69,7 +60,9 @@ class SmsReceivedTrigger(
     companion object {
         const val TYPE = "sms_received"
         const val CONFIG_SENDER_CONTAINS = "senderContains"
+        const val CONFIG_SENDER_MODE = "senderContainsMode"
         const val CONFIG_BODY_CONTAINS = "bodyContains"
+        const val CONFIG_BODY_MODE = "bodyContainsMode"
         const val PAYLOAD_SENDER = "sender"
         const val PAYLOAD_BODY = "body"
     }
@@ -82,12 +75,12 @@ class SmsReceivedTriggerFactory(private val context: Context) : TriggerFactory {
     override val category = Category.TELEPHONY
 
     override val configFields = listOf(
-        ConfigField.Text(
+        textFilter(
             key = SmsReceivedTrigger.CONFIG_SENDER_CONTAINS,
             label = "Sender contains",
             blankMeaning = "Leave blank for any sender",
         ),
-        ConfigField.Text(
+        textFilter(
             key = SmsReceivedTrigger.CONFIG_BODY_CONTAINS,
             label = "Message contains",
             blankMeaning = "Leave blank for any message",
@@ -108,7 +101,13 @@ class SmsReceivedTriggerFactory(private val context: Context) : TriggerFactory {
 
     override fun create(config: Map<String, String>): Trigger = SmsReceivedTrigger(
         context = context,
-        senderContains = config[SmsReceivedTrigger.CONFIG_SENDER_CONTAINS],
-        bodyContains = config[SmsReceivedTrigger.CONFIG_BODY_CONTAINS],
+        senderFilter = TextFilter.fromConfig(
+            config[SmsReceivedTrigger.CONFIG_SENDER_CONTAINS],
+            config[SmsReceivedTrigger.CONFIG_SENDER_MODE],
+        ),
+        bodyFilter = TextFilter.fromConfig(
+            config[SmsReceivedTrigger.CONFIG_BODY_CONTAINS],
+            config[SmsReceivedTrigger.CONFIG_BODY_MODE],
+        ),
     )
 }

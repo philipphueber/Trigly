@@ -146,6 +146,10 @@ class ConfigSchemaContractTest {
                 is ConfigField.AppPackage -> context.packageName
 
                 is ConfigField.Text -> "sample"
+
+                // Valid as both a substring and a regex, so the sample exercises
+                // the accepting path whichever mode a factory defaults to.
+                is ConfigField.TextPattern -> "sample"
             }
         }
 }
