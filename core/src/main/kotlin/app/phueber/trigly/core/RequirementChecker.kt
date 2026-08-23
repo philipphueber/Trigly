@@ -38,6 +38,9 @@ class RequirementChecker(private val context: Context) {
             SpecialAccessKind.NOTIFICATION_POLICY ->
                 context.getSystemService(NotificationManager::class.java)
                     ?.isNotificationPolicyAccessGranted == true
+            // Its own API rather than a secure setting or an app-op lookup, which
+            // is exactly why this enum carries a kind instead of just an intent.
+            SpecialAccessKind.OVERLAY -> Settings.canDrawOverlays(context)
         }
 
         // Not a device condition — no setting the user can change makes an app

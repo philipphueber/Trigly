@@ -16,7 +16,22 @@ package app.phueber.trigly.core
  * that grants it. Deliberately a closed set: every entry is a serious ask, and
  * a new one should be a considered decision rather than a string someone types.
  */
-enum class SpecialAccessKind(val settingsAction: String, val label: String) {
+enum class SpecialAccessKind(
+    val settingsAction: String,
+    val label: String,
+    /**
+     * Whether the settings screen documents a `package:` URI for opening this
+     * app's own row. Declared rather than assumed, because most of these screens
+     * only offer the global list and handing them a package URI makes the intent
+     * unresolvable — which would send the user to the top-level settings app
+     * instead of anywhere useful.
+     *
+     * A request, not a guarantee. Android 15's Settings redirects the overlay
+     * screen into its newer implementation and shows the whole app list anyway,
+     * so the URI is worth sending and not worth promising.
+     */
+    val packageScoped: Boolean = false,
+) {
     NOTIFICATION_LISTENER(
         settingsAction = "android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS",
         label = "Notification access",
@@ -34,6 +49,27 @@ enum class SpecialAccessKind(val settingsAction: String, val label: String) {
     NOTIFICATION_POLICY(
         settingsAction = "android.settings.NOTIFICATION_POLICY_ACCESS_SETTINGS",
         label = "Do Not Disturb access",
+    ),
+
+    /**
+     * "Display over other apps", and Trigly wants it for its side effect rather
+     * than to draw anything.
+     *
+     * Holding it is one of the few exemptions from Android's ban on an app in the
+     * background starting an activity, which is the entire reason every "open"
+     * action is unreliable without it. Measured on Android 15 rather than assumed:
+     * with the permission the system logs the launch as
+     * `BAL_ALLOW_SAW_PERMISSION` and it succeeds; without it,
+     * `Background activity launch blocked!` and the start is dropped silently,
+     * even while a foreground service is running.
+     *
+     * The label says what the settings screen calls it, not what Android calls
+     * it internally — nobody is looking for "system alert window".
+     */
+    OVERLAY(
+        settingsAction = "android.settings.action.MANAGE_OVERLAY_PERMISSION",
+        label = "Display over other apps",
+        packageScoped = true,
     ),
 }
 

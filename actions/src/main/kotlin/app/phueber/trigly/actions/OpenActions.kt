@@ -59,6 +59,8 @@ class OpenUrlActionFactory(private val context: Context) : ActionFactory {
         ),
     )
 
+    override val requirements = ACTIVITY_START_REQUIREMENTS
+
     override val warning: String = BACKGROUND_START_WARNING
 
     override fun create(config: Map<String, String>): Action = OpenUrlAction(
@@ -111,6 +113,8 @@ class OpenAppActionFactory(private val context: Context) : ActionFactory {
             required = true,
         ),
     )
+
+    override val requirements = ACTIVITY_START_REQUIREMENTS
 
     override val warning: String = BACKGROUND_START_WARNING
 

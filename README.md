@@ -85,6 +85,15 @@ device without the device saying so. Almost every trigger depends on this —
 since Android 8 the system delivers most broadcasts only to a live process, so
 without the service a rule would fire only while the app was open.
 
+Actions that **open** something — a website, an app, a pre-filled email — work
+from the background too, which on modern Android takes more than calling
+`startActivity`: the system silently drops such a start unless the app holds
+"Display over other apps". Trigly asks for that permission and draws nothing
+with it; it is there purely so a rule can put something on screen when you are
+not already looking at the phone. Grant it from the rule that needs it. Without
+it those actions still work while you are using the device, and the editor says
+so rather than pretending.
+
 Rules can be **exported and imported** as versioned JSON, one rule or all of
 them. That is the phone-switch story: Android's Auto Backup needs a Google
 account and does not run on de-Googled devices, so an explicit file you own is
@@ -120,11 +129,6 @@ Not yet implemented, and each has a `TODO` at the relevant place in the code:
 - **Geofencing and activity recognition.** Would require Google Play Services;
   left out on purpose so the app works on de-Googled devices. The `location`
   trigger uses the platform API instead.
-- **Background activity starts.** Since Android 10 an app in the background
-  cannot open an app or a website — silently, with no error. The engine's
-  foreground service does *not* lift this; running one is not on the platform's
-  exemption list. The overlay permission is, so actions that open something stay
-  unreliable until that is offered.
 - **Conditions, variables and loops.** A rule is a trigger plus a flat list of
   actions. Anything more is an execution model, and the largest design decision
   still open; see the design note in `docs/actions.md`.

@@ -11,4 +11,16 @@
          webhooks and home automation. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!--
+      The overlay permission, and it is here for its side effect rather than for
+      drawing anything. Holding it is one of the few exemptions from the ban on
+      an app in the background starting an activity, which is what every "open"
+      action needs — see docs/actions.md.
+
+      Declared but not granted: this is an appop the user turns on in a settings
+      screen, so the actions that need it declare it as a ComponentRequirement
+      and the editor explains it. Nothing here asks for it at install time.
+    -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
 </manifest>

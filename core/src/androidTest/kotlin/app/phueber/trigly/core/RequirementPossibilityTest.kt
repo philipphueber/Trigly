@@ -1,5 +1,7 @@
 package app.phueber.trigly.core
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -58,6 +60,36 @@ class RequirementPossibilityTest {
             assertTrue(
                 "$kind is granted in settings, so it can never be permanent",
                 checker.isPossible(ComponentRequirement.SpecialAccess(kind)),
+            )
+        }
+    }
+
+    /**
+     * Every special access has a settings screen the Grant button sends the user
+     * to, and a wrong action string fails in the worst possible way: the button
+     * is there, it is tappable, and it drops the user at the top of Settings with
+     * nothing to explain why. The strings are hand-written constants — one of them
+     * spells it `android.settings.action.…` rather than `android.settings.…` —
+     * so they are worth resolving for real rather than reading twice.
+     *
+     * The `package:` URI is included exactly where the kind says the screen takes
+     * one, because handing it to a screen that does not makes the intent
+     * unresolvable, which is the same failure this is looking for.
+     */
+    @Test
+    fun every_special_access_has_a_settings_screen_that_resolves() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+
+        SpecialAccessKind.entries.forEach { kind ->
+            val intent = Intent(kind.settingsAction)
+            if (kind.packageScoped) {
+                intent.data = Uri.parse("package:${context.packageName}")
+            }
+
+            assertTrue(
+                "$kind: nothing on this device handles ${kind.settingsAction}" +
+                    if (kind.packageScoped) " with a package URI" else "",
+                intent.resolveActivity(context.packageManager) != null,
             )
         }
     }
