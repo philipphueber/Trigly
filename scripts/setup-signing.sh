@@ -79,15 +79,66 @@ command -v secret-tool >/dev/null 2>&1 \
 [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] \
     || die "no D-Bus session bus, so there is no keyring to talk to. Run this from your desktop session."
 
-# keytool lives inside the JDK and is not necessarily on PATH — on this machine
-# the JDK was unpacked by hand, so it is reachable only by full path.
-if [ -n "${JAVA_HOME:-}" ] && [ -x "${JAVA_HOME}/bin/keytool" ]; then
-    KEYTOOL="${JAVA_HOME}/bin/keytool"
-elif command -v keytool >/dev/null 2>&1; then
-    KEYTOOL="$(command -v keytool)"
-else
-    die "keytool not found. Set JAVA_HOME to a JDK 17, e.g. JAVA_HOME=~/.local/opt/jdk-17.0.20.1+1 $0"
-fi
+# keytool lives inside the JDK and is not necessarily on PATH — on a machine
+# where the JDK was unpacked by hand rather than installed by a package manager
+# it is reachable only by full path, and `keytool: command not found` says
+# nothing about signing.
+#
+# So it is searched for rather than demanded. Requiring a `JAVA_HOME=...` prefix
+# would make the JDK path a second thing you have to remember, and the point of
+# this script is that the password is the only one.
+find_keytool() {
+    local candidate candidates declared file
+
+    # An explicit JAVA_HOME wins, because someone who set it meant it.
+    if [ -n "${JAVA_HOME:-}" ] && [ -x "${JAVA_HOME}/bin/keytool" ]; then
+        printf '%s' "${JAVA_HOME}/bin/keytool"
+        return 0
+    fi
+
+    # Then whatever this project already builds with. Gradle reads
+    # org.gradle.java.home from either file, and a JDK good enough to compile the
+    # app is good enough to write a keystore.
+    for file in "${REPO_ROOT}/local.properties" "${REPO_ROOT}/gradle.properties"; do
+        [ -f "${file}" ] || continue
+        declared="$(sed -n 's/^[[:space:]]*org\.gradle\.java\.home[[:space:]]*=[[:space:]]*//p' "${file}" | tail -1)"
+        if [ -n "${declared}" ] && [ -x "${declared}/bin/keytool" ]; then
+            printf '%s' "${declared}/bin/keytool"
+            return 0
+        fi
+    done
+
+    if command -v keytool >/dev/null 2>&1; then
+        command -v keytool
+        return 0
+    fi
+
+    # Then the usual places, newest first: distro packages, hand-unpacked JDKs
+    # under a home directory, and the ones a version manager or an IDE installs.
+    # Any JDK will do — keytool has written PKCS12 keystores by default since 9,
+    # so this is not the place to be fussy about the version.
+    candidates="$(ls -d1 \
+        /usr/lib/jvm/*/bin/keytool \
+        /usr/lib64/jvm/*/bin/keytool \
+        /opt/java/*/bin/keytool \
+        "${HOME}"/.local/opt/*/bin/keytool \
+        "${HOME}"/.jdks/*/bin/keytool \
+        "${HOME}"/.sdkman/candidates/java/*/bin/keytool \
+        /Library/Java/JavaVirtualMachines/*/Contents/Home/bin/keytool \
+        2>/dev/null | sort -rV || true)"
+
+    while IFS= read -r candidate; do
+        if [ -n "${candidate}" ] && [ -x "${candidate}" ]; then
+            printf '%s' "${candidate}"
+            return 0
+        fi
+    done <<< "${candidates}"
+
+    return 1
+}
+
+KEYTOOL="$(find_keytool || true)"
+[ -n "${KEYTOOL}" ] || die "no JDK found. Install one, or point this at yours: JAVA_HOME=/path/to/jdk $0"
 
 [ -f "${REPO_ROOT}/settings.gradle.kts" ] \
     || die "${REPO_ROOT} does not look like the Trigly checkout."

@@ -45,7 +45,7 @@ below.
 
 Once per maintainer, not once per release:
 
-    JAVA_HOME=<jdk17> ./scripts/setup-signing.sh
+    ./scripts/setup-signing.sh
 
 **Run it in a real terminal window.** It is the one step that cannot be
 automated or delegated, because it asks for a password, and a password prompt
@@ -70,11 +70,17 @@ defaults, and `--force` replaces an existing key instead of reusing it — which
 the script otherwise refuses to do, since replacing a key means nobody can
 update an installed build, only reinstall it.
 
-`keytool` ships inside the JDK and is not necessarily on `PATH` — on a machine
-where the JDK was unpacked by hand rather than installed by the package manager,
-it is reachable only by full path, which is why `JAVA_HOME` is worth setting
-above. This is the same trap as `apksigner` below: both are JDK-adjacent tools
-that fail with `command not found` or `exec: java: not found` rather than
+No `JAVA_HOME` needed. `keytool` ships inside the JDK and is not necessarily on
+`PATH` — on a machine where the JDK was unpacked by hand rather than installed
+by the package manager it is reachable only by full path, and `keytool: command
+not found` says nothing about signing. So the script looks for one instead of
+demanding it: `JAVA_HOME` if set, then the `org.gradle.java.home` this project
+already builds with, then `PATH`, then the usual install locations, newest
+first. `JAVA_HOME=/path/to/jdk` still overrides all of that.
+
+This is the same family of trap as `apksigner` below, which does still need a
+JDK on `PATH` and not merely a `JAVA_HOME` — both are JDK-adjacent tools that
+fail with `command not found` or `exec: java: not found` rather than with
 anything that hints at signing.
 
 Losing the keystore file means the app's identity is lost: Android refuses to
