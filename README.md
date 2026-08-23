@@ -39,6 +39,11 @@ The Gradle wrapper is checked in, so no Gradle install is needed:
     ./gradlew lint                        # Android lint
     ./gradlew connectedDebugAndroidTest   # instrumented tests, needs a device or emulator
 
+A release build needs a signing key, which is not in the repository. Without
+one `./gradlew :ui:assembleRelease` still runs and produces an unsigned APK,
+so the release variant stays buildable from a plain clone; `docs/releasing.md`
+covers the key, the version numbers, and how to verify the artifact.
+
 ## Adding a trigger
 
 1. Implement `Trigger` and its `TriggerFactory` in a new file under `:triggers`.
