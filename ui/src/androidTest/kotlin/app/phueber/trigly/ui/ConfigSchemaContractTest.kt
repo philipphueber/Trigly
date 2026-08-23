@@ -6,6 +6,7 @@ import app.phueber.trigly.actions.actionFactories
 import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ComponentFactory
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.companionKeys
 import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.TriggerFactory
 import app.phueber.trigly.triggers.triggerFactories
@@ -167,6 +168,9 @@ class ConfigSchemaContractTest {
                 is ConfigField.TimeOfDay -> "8"
                 is ConfigField.Coordinates -> "52.520008"
 
+                // A captured button records what it said.
+                is ConfigField.NotificationButton -> "Snooze"
+
                 is ConfigField.Text -> "sample"
 
                 // Valid as both a substring and a regex, so the sample exercises
@@ -176,14 +180,23 @@ class ConfigSchemaContractTest {
         }.toMap()
 
     /**
-     * The companion keys the two-key kinds own, so a factory requiring both sides
-     * of one answer sees both.
+     * The companion keys a kind owns, from the one declaration in `:core` rather
+     * than a copy here — a second list is how a two-key field ends up
+     * half-populated and its factory blamed for refusing it.
+     *
+     * A `TextPattern`'s mode is skipped deliberately: absent reads as `contains`,
+     * and leaving it out is the case every older rule exercises.
      */
-    private fun extraKeysFor(field: ConfigField): List<Pair<String, String>> = when (field) {
-        is ConfigField.TimeOfDay -> listOf(field.minuteKey to "30")
-        is ConfigField.Coordinates -> listOf(field.longitudeKey to "13.404954")
-        // A TextPattern's mode is deliberately omitted: absent reads as
-        // `contains`, and leaving it out is the case every older rule exercises.
-        else -> emptyList()
+    private fun extraKeysFor(field: ConfigField): List<Pair<String, String>> =
+        field.companionKeys()
+            .filterNot { field is ConfigField.TextPattern && it == field.modeKey }
+            .map { key -> key to sampleCompanion(field, key) }
+
+    private fun sampleCompanion(field: ConfigField, key: String): String = when {
+        field is ConfigField.TimeOfDay && key == field.minuteKey -> "30"
+        field is ConfigField.Coordinates && key == field.longitudeKey -> "13.404954"
+        field is ConfigField.NotificationButton && key == field.semanticKey -> "0"
+        field is ConfigField.NotificationButton && key == field.packageKey -> context.packageName
+        else -> "sample"
     }
 }

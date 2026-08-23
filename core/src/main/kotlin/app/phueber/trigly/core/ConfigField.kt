@@ -290,8 +290,51 @@ sealed interface ConfigField {
         val modeKey: String = "${key}Mode",
     ) : ConfigField
 
+    /**
+     * A button on a notification, chosen off one that is currently on screen.
+     *
+     * The kind that owns the most keys, and each is load-bearing. [key] holds the
+     * button's label, [semanticKey] what the button *means* where the app said so,
+     * and [packageKey] which app's notification to act on — because **the target
+     * is not always the notification that fired the rule.** "When I connect to
+     * the car, press play on the music notification" has a Bluetooth trigger and
+     * a media target, and an action tied to its own trigger cannot express it.
+     * A blank package falls back to the triggering notification, which is the
+     * commoner case and stays the default.
+     *
+     * Three identifiers for the button rather than one because they fail
+     * differently: an index breaks when the app reorders, a label breaks when the
+     * app translates, and a meaning breaks only when the app stops declaring one.
+     * See [chooseButton] for the order they are tried in.
+     */
+    data class NotificationButton(
+        override val key: String,
+        override val label: String,
+        override val required: Boolean = false,
+        override val help: String? = null,
+        val semanticKey: String = "${key}Semantic",
+        val packageKey: String = "package",
+    ) : ConfigField
+
     /** One selectable value: [value] is stored, [label] is shown. */
     data class Option(val value: String, val label: String)
+}
+
+/**
+ * The extra config keys a field kind owns beyond [ConfigField.key].
+ *
+ * Declared once, here, because three places need the same answer and had grown
+ * their own copies: the editor, to hand a field its companion values; the rule
+ * editor screen, to read them out of the stored config; and the schema contract
+ * test, to build a sample a factory will accept. A fourth copy is how a two-key
+ * field ends up half-populated and its factory blamed for it.
+ */
+fun ConfigField.companionKeys(): List<String> = when (this) {
+    is ConfigField.TextPattern -> listOf(modeKey)
+    is ConfigField.TimeOfDay -> listOf(minuteKey)
+    is ConfigField.Coordinates -> listOf(longitudeKey)
+    is ConfigField.NotificationButton -> listOf(semanticKey, packageKey)
+    else -> emptyList()
 }
 
 /**
@@ -338,6 +381,9 @@ fun ConfigField.defaultValue(): String? = when (this) {
     is ConfigField.TimeOfDay -> null
     // A default coordinate would be a place. There is no sensible one.
     is ConfigField.Coordinates -> null
+    // Nothing to preselect: which button depends on a notification the editor
+    // cannot see until one is posted.
+    is ConfigField.NotificationButton -> null
     // The pattern, like any text whose blankness means "no filter". The mode key
     // is deliberately not defaulted either: absent reads as `contains`, so
     // writing it out would only add noise to every exported rule.

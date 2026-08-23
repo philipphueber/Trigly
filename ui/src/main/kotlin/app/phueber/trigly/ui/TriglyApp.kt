@@ -74,12 +74,16 @@ class AppContainer(context: Context) {
      * The adapter from `:triggers` that lets actions in `:actions` reach the
      * notification listener service. Wired here because this is the only place
      * that can see both modules.
+     *
+     * Not private any more: the editor's button picker reads the live
+     * notifications through the same port the acting action does, so the two
+     * cannot disagree about what is on screen or what its buttons are.
      */
-    private val notificationController: NotificationController = ListenerNotificationController()
+    val notifications: NotificationController = ListenerNotificationController()
 
     val registry: Registry = Registry(
         triggerFactories = triggerFactories(context),
-        actionFactories = actionFactories(context, notificationController),
+        actionFactories = actionFactories(context, notifications),
     )
 
     /**

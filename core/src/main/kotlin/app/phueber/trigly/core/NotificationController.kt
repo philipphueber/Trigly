@@ -20,6 +20,21 @@ interface NotificationController {
     val isConnected: Boolean
 
     /**
+     * Everything currently on screen, with its buttons.
+     *
+     * Serves two callers with the same snapshot. The editor's picker uses it so a
+     * button can be *chosen* rather than counted — nobody knows that Snooze is
+     * index 1 — and the acting action uses it to find its target and resolve
+     * which button that choice now refers to.
+     *
+     * Empty when the listener is not bound, which is indistinguishable from
+     * "nothing is posted" and deliberately so: [isConnected] is how a caller asks
+     * the other question, and conflating them into an exception would make the
+     * common case throw.
+     */
+    fun activeNotifications(): List<ActiveNotification>
+
+    /**
      * Dismisses a notification by its `StatusBarNotification` key, as carried in
      * the `notification_posted` trigger's payload.
      */
@@ -37,6 +52,8 @@ interface NotificationController {
      */
     companion object Unavailable : NotificationController {
         override val isConnected: Boolean = false
+
+        override fun activeNotifications(): List<ActiveNotification> = emptyList()
 
         override fun dismiss(key: String): ActionResult =
             ActionResult.Failure("notification access is not available")

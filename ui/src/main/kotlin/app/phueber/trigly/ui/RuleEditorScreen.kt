@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import app.phueber.trigly.core.ComponentDescriptor
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.companionKeys
 
 /**
  * Create or edit one rule.
@@ -348,24 +349,17 @@ private fun ComponentBlock(
                 BlockDivider()
                 Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
                     descriptor.configFields.forEach { field ->
-                        // Two kinds own a second config key — a TextPattern's
-                        // match mode and a TimeOfDay's minute — because in both
-                        // cases the pair is one decision. Every other kind
-                        // ignores these two arguments.
-                        val secondKey = when (field) {
-                            is ConfigField.TextPattern -> field.modeKey
-                            is ConfigField.TimeOfDay -> field.minuteKey
-                            is ConfigField.Coordinates -> field.longitudeKey
-                            else -> null
-                        }
+                        // Some kinds own more than one config key, because the
+                        // values are one decision: a pattern and its match mode,
+                        // an hour and its minute, a latitude and its longitude,
+                        // a button and the notification it belongs to.
                         ConfigFieldEditor(
                             field = field,
                             value = config[field.key],
                             onValueChange = { onConfigChange(field.key, it) },
-                            secondValue = secondKey?.let { config[it] },
-                            onSecondChange = { second ->
-                                secondKey?.let { onConfigChange(it, second) }
-                            },
+                            companions = field.companionKeys()
+                                .associateWith { key -> config[key] },
+                            onCompanionChange = onConfigChange,
                         )
                     }
                 }

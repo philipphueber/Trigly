@@ -1,7 +1,11 @@
 package app.phueber.trigly.triggers.notification
 
+import android.app.Notification
 import android.app.PendingIntent
+import android.os.Build
 import app.phueber.trigly.core.ActionResult
+import app.phueber.trigly.core.ActiveNotification
+import app.phueber.trigly.core.NotificationButton
 import app.phueber.trigly.core.NotificationController
 
 /**
@@ -15,6 +19,51 @@ import app.phueber.trigly.core.NotificationController
 class ListenerNotificationController : NotificationController {
 
     override val isConnected: Boolean get() = NotificationEvents.service != null
+
+    /**
+     * Flattens the live notifications into Android-free snapshots.
+     *
+     * `getSemanticAction()` is API 28, so below that every button reports no
+     * meaning and matching falls back to the label — which is the honest outcome
+     * rather than a shim, since the platform genuinely has nothing to offer there.
+     *
+     * A `SecurityException` is possible on every call, because notification access
+     * can be revoked between the picker opening and the action running. It reads
+     * as "nothing posted" here; [isConnected] is how a caller distinguishes the
+     * two, and throwing would make an ordinary revocation crash a rule.
+     */
+    override fun activeNotifications(): List<ActiveNotification> {
+        val service = NotificationEvents.service ?: return emptyList()
+
+        return runCatching {
+            service.activeNotifications.orEmpty().map { sbn ->
+                val notification = sbn.notification
+                val extras = notification?.extras
+                ActiveNotification(
+                    key = sbn.key,
+                    packageName = sbn.packageName,
+                    title = extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString(),
+                    text = extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString(),
+                    postedAtMillis = sbn.postTime,
+                    // Null, not empty, when a notification has no buttons.
+                    buttons = notification?.actions.orEmpty().mapIndexed { index, action ->
+                        NotificationButton(
+                            index = index,
+                            label = action?.title?.toString(),
+                            semanticAction = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                                action?.semanticAction
+                            } else {
+                                null
+                            },
+                            // A reply box. Firing this intent without text does
+                            // not send a reply, so it has to be visible.
+                            takesText = action?.remoteInputs?.isNotEmpty() == true,
+                        )
+                    },
+                )
+            }
+        }.getOrDefault(emptyList())
+    }
 
     override fun dismiss(key: String): ActionResult {
         val service = NotificationEvents.service ?: return notConnected()

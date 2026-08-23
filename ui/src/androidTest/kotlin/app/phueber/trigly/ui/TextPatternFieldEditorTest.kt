@@ -65,10 +65,10 @@ class TextPatternFieldEditorTest {
                         edits += field.key to it
                         pattern = it
                     },
-                    secondValue = modeValue,
-                    onSecondChange = {
-                        edits += field.modeKey to it
-                        modeValue = it
+                    companions = mapOf(field.modeKey to modeValue),
+                    onCompanionChange = { _, value ->
+                        edits += field.modeKey to value.orEmpty()
+                        modeValue = value.orEmpty()
                     },
                 )
             }

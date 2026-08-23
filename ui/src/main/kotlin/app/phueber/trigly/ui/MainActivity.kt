@@ -126,10 +126,13 @@ class MainActivity : ComponentActivity() {
                 val installedApps by rememberInstalledApps()
                 val deviceSounds by rememberDeviceSounds()
                 val pairedDevices by rememberPairedDevices()
+                // A function, not a snapshot: notifications come and go while the
+                // editor is open, so the picker reads them when it opens.
                 CompositionLocalProvider(
                     LocalInstalledApps provides installedApps,
                     LocalDeviceSounds provides deviceSounds,
                     LocalPairedDevices provides pairedDevices,
+                    LocalActiveNotifications provides container.notifications::activeNotifications,
                 ) {
                     // The page, as a Surface, for the content colour rather than
                     // for the fill — `window_background` in `res/values*` already
