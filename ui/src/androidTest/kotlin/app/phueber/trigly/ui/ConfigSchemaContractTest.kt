@@ -136,6 +136,10 @@ class ConfigSchemaContractTest {
                 is ConfigField.Number ->
                     (field.default ?: field.min ?: 1L).toString()
 
+                // A slider always has all three, and its default is by definition
+                // inside the range — the data class checks that at construction.
+                is ConfigField.Slider -> field.default.toString()
+
                 is ConfigField.Decimal ->
                     (field.default ?: field.min ?: 1.0).toString()
 

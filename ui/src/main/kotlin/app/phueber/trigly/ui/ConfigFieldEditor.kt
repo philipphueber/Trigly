@@ -24,8 +24,8 @@ import app.phueber.trigly.core.ConfigField
 /**
  * Renders one declared [ConfigField] and reports edits back out.
  *
- * This is what the whole schema exists for: 46 component types share these six
- * widgets instead of 46 hand-written forms. Adding a component means declaring
+ * This is what the whole schema exists for: 47 component types share these seven
+ * widgets instead of 47 hand-written forms. Adding a component means declaring
  * its fields; nothing here changes.
  *
  * Values are strings throughout, matching how config is stored. Numeric fields
@@ -79,6 +79,12 @@ fun ConfigFieldEditor(
                 // Decimal keyboard so latitudes can carry a sign and a point.
                 keyboard = KeyboardType.Decimal,
                 multiline = false,
+                onValueChange = onValueChange,
+            )
+
+            is ConfigField.Slider -> SliderField(
+                field = field,
+                value = value,
                 onValueChange = onValueChange,
             )
         }
@@ -192,6 +198,56 @@ private fun Hint(text: String) {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(top = 2.dp),
     )
+}
+
+/**
+ * A slider with its current value spelled out beside the label.
+ *
+ * The number is shown because a slider alone answers "roughly where" and not
+ * "what exactly", and someone reproducing a rule on another phone needs the
+ * digits. It sits in the label row rather than under the track so the reading
+ * does not move as the thumb does.
+ *
+ * A missing or unparseable stored value falls back to the declared default
+ * rather than to the minimum. Zero volume is a legitimate setting, so treating
+ * "no value yet" as 0 would silently turn a new alert silent — the field's own
+ * default is the only honest starting position.
+ */
+@Composable
+private fun SliderField(
+    field: ConfigField.Slider,
+    value: String?,
+    onValueChange: (String?) -> Unit,
+) {
+    val current = (value?.toLongOrNull() ?: field.default)
+        .coerceIn(field.min, field.max)
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = fieldLabel(field.label, required = false),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = if (field.unit == null) "$current" else "$current ${field.unit}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+
+        BlockSlider(
+            value = current.toInt(),
+            min = field.min.toInt(),
+            max = field.max.toInt(),
+            onValueChange = { onValueChange(it.toString()) },
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
 }
 
 /**

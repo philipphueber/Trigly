@@ -205,12 +205,15 @@ class PlayAlertActionFactory(private val context: Context) : ActionFactory {
                 "file: path in shared storage needs storage access; a content: " +
                 "URI from a picker does not.",
         ),
-        ConfigField.Number(
+        // A slider, not a number box: this is the one setting here whose value is
+        // a position rather than a decision. Nobody knows they want 65% — they
+        // know they want it quieter, and drag until it looks right.
+        ConfigField.Slider(
             key = PlayAlertAction.CONFIG_VOLUME_PERCENT,
             label = "Volume",
-            default = PlayAlertAction.DEFAULT_VOLUME_PERCENT.toLong(),
             min = 0,
             max = 100,
+            default = PlayAlertAction.DEFAULT_VOLUME_PERCENT.toLong(),
             unit = "%",
             help = "Of the alarm volume, which this cannot exceed.",
         ),
