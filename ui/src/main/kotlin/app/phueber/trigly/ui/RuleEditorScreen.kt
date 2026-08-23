@@ -117,6 +117,7 @@ fun RuleEditorScreen(
                         2.dp,
                         MaterialTheme.colorScheme.error,
                     ),
+                    shape = BlockShape,
                     modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
                 ) {
                     Text(
@@ -138,6 +139,7 @@ fun RuleEditorScreen(
                         2.dp,
                         MaterialTheme.colorScheme.outline,
                     ),
+                    shape = BlockShape,
                     modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
                 ) {
                     Text(
@@ -255,6 +257,7 @@ private fun SectionLabel(text: String) {
     Surface(
         color = MaterialTheme.colorScheme.primary,
         contentColor = MaterialTheme.colorScheme.onPrimary,
+        shape = BlockShape,
         modifier = Modifier.padding(top = 24.dp, bottom = 8.dp),
     ) {
         Text(

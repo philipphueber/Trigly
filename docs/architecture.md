@@ -371,9 +371,23 @@ in which a manual override would belong.
 The design is flat rectangles with hard 2dp borders: no rounding, no elevation,
 no gradients. Three decisions carry it.
 
-**Nothing is rounded, declared once.** Every Material shape role is square in
-`Theme.kt`, so dialogs, menus, text fields and buttons follow without a `shape =`
-argument at any call site.
+**One corner radius, declared once.** All five Material shape roles carry the
+same value in `Theme.kt`, so a chip cannot end up rounder than a dialog. Two
+steps are needed to make that stick, and only the first is obvious. Material's
+own components (dialogs, menus, text fields, snackbars) resolve their shape from
+the theme by themselves. Everything in `Blocks.kt` does not: Compose's `Surface`
+defaults to `RectangleShape`, so a block that omits `shape` is square regardless
+of what the theme says — which is why the blocks *were* square for a long time
+without anyone passing a shape, and why editing the theme alone would have
+rounded the dialogs and left every card behind. `BlockShape` closes that gap by
+passing `shapes.medium` explicitly at each block.
+
+Two kinds of surface stay square whatever the radius, and the test is whether
+they have an edge of their own to round. Full-bleed chrome (`BlockHeader`,
+`BlockBottomBar`) runs to the screen edges under the system bars. Cells inside a
+block — an unmet requirement under a rule, a caveat under a chosen component —
+fill their parent card to its inner edges, and rounding them would show the
+card's own fill through four notches.
 
 **One vocabulary, in `Blocks.kt`.** `BlockHeader`, `BlockCard`, `BlockButton`,
 `BlockToggle`, `BlockDivider` and friends are what the screens are assembled

@@ -30,9 +30,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -56,12 +59,40 @@ import kotlin.math.roundToInt
 private val BlockBorder = 2.dp
 
 /**
+ * The shape every block is cut to, from the theme.
+ *
+ * Read this rather than letting a `Surface` fall back to its own default. That
+ * default is `RectangleShape`, which is why the blocks looked square for as long
+ * as they did *without* anyone passing a shape — and why editing `Shapes` in
+ * `Theme.kt` used to change the dialogs, menus, text fields and the two buttons
+ * while leaving every card, toggle and chip behind. A geometry the theme cannot
+ * reach is a geometry that only half-changes.
+ *
+ * Two kinds of thing deliberately do not use it, and the test in both cases is
+ * whether the surface has an edge of its own to round:
+ *
+ *  · **Full-bleed chrome.** [BlockHeader] and [BlockBottomBar] run to the screen
+ *    edges under the system bars, where a corner radius has nothing to sit
+ *    against and reads as a rendering fault.
+ *  · **Cells inside a block.** The strips that follow a [BlockDivider] — an
+ *    unmet requirement under a rule, a caveat under a chosen component — fill
+ *    their parent card to its inner edges. Rounding them would show the card's
+ *    own fill through four notches.
+ */
+internal val BlockShape: Shape
+    @Composable @ReadOnlyComposable get() = MaterialTheme.shapes.medium
+
+/**
  * The solid slab at the top of a screen.
  *
  * Deliberately painted *behind* the status bar rather than below it: with
  * edge-to-edge the app owns those pixels, and a full-bleed band of colour is the
  * point of the design. The inset is applied to the slab's *content*, so the text
  * still clears the clock.
+ *
+ * No [BlockShape] here, and that is not an oversight: this runs to all three
+ * edges it touches, so a rounded corner would have the bare page showing through
+ * a notch at the top of the screen.
  */
 @Composable
 fun BlockHeader(
@@ -111,8 +142,9 @@ fun BlockCard(
     content: @Composable () -> Unit,
 ) {
     val border = BorderStroke(BlockBorder, MaterialTheme.colorScheme.outline)
+    val shape = BlockShape
     if (onClick == null) {
-        Surface(color = fill, border = border, modifier = modifier.fillMaxWidth()) {
+        Surface(color = fill, border = border, shape = shape, modifier = modifier.fillMaxWidth()) {
             content()
         }
     } else {
@@ -120,6 +152,7 @@ fun BlockCard(
             onClick = onClick,
             color = fill,
             border = border,
+            shape = shape,
             modifier = modifier.fillMaxWidth(),
         ) {
             content()
@@ -153,7 +186,7 @@ fun BlockButton(
     Button(
         onClick = onClick,
         enabled = enabled,
-        shape = MaterialTheme.shapes.medium,
+        shape = BlockShape,
         colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -195,6 +228,7 @@ fun BlockOutlineButton(
         color = Color.Transparent,
         contentColor = contentColor,
         border = BorderStroke(BlockBorder, contentColor),
+        shape = BlockShape,
         modifier = if (fillWidth) modifier.fillMaxWidth() else modifier,
     ) {
         Text(
@@ -224,7 +258,7 @@ fun BlockTextButton(
 ) {
     TextButton(
         onClick = onClick,
-        shape = MaterialTheme.shapes.small,
+        shape = BlockShape,
         colors = ButtonDefaults.textButtonColors(contentColor = contentColor),
         modifier = modifier,
     ) {
@@ -263,6 +297,7 @@ fun BlockToggle(
             BlockBorder,
             if (checked) MaterialTheme.colorScheme.outline else off,
         ),
+        shape = BlockShape,
         modifier = modifier.toggleable(
             value = checked,
             role = Role.Switch,
@@ -313,6 +348,7 @@ fun BlockToggleChip(
                 MaterialTheme.colorScheme.outlineVariant
             },
         ),
+        shape = BlockShape,
         modifier = modifier
             .padding(start = 6.dp)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
@@ -337,7 +373,7 @@ fun CaveatBadge(modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .size(22.dp)
-            .border(BlockBorder, MaterialTheme.extra.caution)
+            .border(BlockBorder, MaterialTheme.extra.caution, BlockShape)
             .semantics { contentDescription = CAVEAT_DESCRIPTION },
         contentAlignment = Alignment.Center,
     ) {
@@ -359,6 +395,9 @@ internal const val CAVEAT_DESCRIPTION = "Has a caveat"
  * about it, and paints a border along its top edge because the content scrolls
  * underneath — without the line, a half-scrolled card looks like it belongs to
  * the bar.
+ *
+ * Square for the same reason as [BlockHeader]: it is full-bleed, and the only
+ * edge of it that is not a screen edge already carries a [BlockDivider].
  */
 @Composable
 fun BlockBottomBar(
@@ -429,8 +468,8 @@ private fun BlockSliderThumb() {
     Box(
         modifier = Modifier
             .size(width = 14.dp, height = 30.dp)
-            .background(MaterialTheme.colorScheme.primary)
-            .border(BlockBorder, MaterialTheme.colorScheme.outline)
+            .background(MaterialTheme.colorScheme.primary, BlockShape)
+            .border(BlockBorder, MaterialTheme.colorScheme.outline, BlockShape)
     )
 }
 
@@ -450,8 +489,13 @@ private fun BlockSliderTrack(state: SliderState) {
         modifier = Modifier
             .fillMaxWidth()
             .height(18.dp)
-            .background(MaterialTheme.colorScheme.surface)
-            .border(BlockBorder, MaterialTheme.colorScheme.outline)
+            .background(MaterialTheme.colorScheme.surface, BlockShape)
+            .border(BlockBorder, MaterialTheme.colorScheme.outline, BlockShape)
+            // Clips the fill below to the trough's own corners. Without it the
+            // filled portion stays a hard rectangle and pushes out through them
+            // at any radius above zero — which is invisible while the shape is
+            // square, and therefore exactly the kind of thing left out.
+            .clip(BlockShape)
             .padding(BlockBorder)
     ) {
         Box(
