@@ -53,11 +53,21 @@ fun bluetoothDeviceMatches(
 }
 
 /**
- * Fires when a Bluetooth device connects.
+ * Fires when a Bluetooth device connects or disconnects.
  *
  * [deviceAddress] narrows it to one device and [nameFilter] to a name; either
  * being empty means "no opinion", and both empty fires for any device. See
  * [bluetoothDeviceMatches] for why a name filter exists at all.
+ *
+ * [onConnect] chooses which of the two broadcasts to listen for, and only that
+ * one is registered — the same shape as `power_connection`, whose two broadcasts
+ * are likewise already edge-shaped: receiving one *is* the event, so there is no
+ * state to deduplicate.
+ *
+ * The [TYPE] string still says `bluetooth_connected` even though the trigger now
+ * does both. It is persisted in every saved rule and in every exported file, so
+ * renaming it to match would break the thing it identifies; a type string is an
+ * identifier, not a description.
  *
  * The receiver is registered on collection and torn down in [awaitClose], so a
  * disabled rule leaves no receiver behind — that is the contract every [Trigger]
@@ -67,6 +77,7 @@ class BluetoothConnectionTrigger(
     private val context: Context,
     private val deviceAddress: String?,
     private val nameFilter: TextFilter = TextFilter.Any,
+    private val onConnect: Boolean = true,
     private val now: () -> Long = System::currentTimeMillis,
 ) : Trigger {
 
@@ -91,6 +102,7 @@ class BluetoothConnectionTrigger(
                         payload = buildMap {
                             address?.let { put(PAYLOAD_ADDRESS, it) }
                             name?.let { put(PAYLOAD_NAME, it) }
+                            put(PAYLOAD_STATE, if (onConnect) CONNECTED else DISCONNECTED)
                         },
                     )
                 )
@@ -100,7 +112,17 @@ class BluetoothConnectionTrigger(
         ContextCompat.registerReceiver(
             context,
             receiver,
-            IntentFilter(BluetoothDevice.ACTION_ACL_CONNECTED),
+            IntentFilter(
+                if (onConnect) {
+                    BluetoothDevice.ACTION_ACL_CONNECTED
+                } else {
+                    // ACTION_ACL_DISCONNECTED, not ACTION_ACL_DISCONNECT_REQUESTED:
+                    // the latter fires when a disconnection is about to be
+                    // attempted, which is not the same event and can be followed
+                    // by the device staying connected.
+                    BluetoothDevice.ACTION_ACL_DISCONNECTED
+                }
+            ),
             // A protected system broadcast, so nothing else can reach this receiver.
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
@@ -137,8 +159,12 @@ class BluetoothConnectionTrigger(
 
         /** Must match `ConfigField.TextPattern.modeKey`, which defaults to key + "Mode". */
         const val CONFIG_NAME_MODE = "nameMode"
+        const val CONFIG_STATE = "state"
         const val PAYLOAD_ADDRESS = "address"
         const val PAYLOAD_NAME = "name"
+        const val PAYLOAD_STATE = "state"
+        const val CONNECTED = "connected"
+        const val DISCONNECTED = "disconnected"
     }
 }
 
@@ -151,7 +177,7 @@ class BluetoothConnectionTriggerFactory(
 ) : TriggerFactory {
     override val type: String = BluetoothConnectionTrigger.TYPE
 
-    override val displayName = "Bluetooth device connects"
+    override val displayName = "Bluetooth device"
     override val category = Category.RADIOS
 
     override val configFields = listOf(
@@ -166,6 +192,13 @@ class BluetoothConnectionTriggerFactory(
             help = "Lists the devices this phone is paired with. Reading that " +
                 "list, and the address of a device that connects, both need the " +
                 "Bluetooth permission below.",
+        ),
+        stateChoice(
+            label = "Fires when the device",
+            onValue = BluetoothConnectionTrigger.CONNECTED,
+            onLabel = "connects",
+            offValue = BluetoothConnectionTrigger.DISCONNECTED,
+            offLabel = "disconnects",
         ),
         // The escape hatch for a rotating address, and the reason the two are
         // separate optional filters rather than a "match on…" choice: they narrow
@@ -196,6 +229,16 @@ class BluetoothConnectionTriggerFactory(
             nameFilter = TextFilter.fromConfig(
                 config[BluetoothConnectionTrigger.CONFIG_NAME],
                 config[BluetoothConnectionTrigger.CONFIG_NAME_MODE],
+            ),
+            // Absent means connect, because that is the only thing this trigger
+            // could do before it learned about disconnection, and every rule
+            // saved then has no state key to read.
+            onConnect = parseTargetOrDefault(
+                config = config,
+                key = BluetoothConnectionTrigger.CONFIG_STATE,
+                onWord = BluetoothConnectionTrigger.CONNECTED,
+                offWord = BluetoothConnectionTrigger.DISCONNECTED,
+                default = true,
             ),
         )
 }

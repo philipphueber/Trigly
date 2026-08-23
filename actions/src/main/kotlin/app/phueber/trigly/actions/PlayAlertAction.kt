@@ -38,6 +38,43 @@ enum class AlertSound(
     }
 }
 
+/** The cap, in the words the duration field now shows it in rather than raw ms. */
+private fun describeAlertCap(): String =
+    "${PlayAlertAction.MAX_DURATION_MILLIS / 1000} seconds"
+
+/**
+ * Whether an alert plays through once or keeps going.
+ *
+ * Two genuinely different jobs behind one action. A single pass is a *chime* —
+ * "the washing is done" — and its length is the tone's own, which is the one
+ * thing a duration field cannot express. Repeating is an *alarm*, and there the
+ * length is the whole point: keep going until I look at the phone.
+ */
+enum class AlertPlayback(val configValue: String, val displayName: String) {
+    ONCE("once", "play it once"),
+    REPEAT("repeat", "repeat for a set time"),
+    ;
+
+    companion object {
+        const val CONFIG_KEY = "playback"
+
+        /**
+         * Absent reads as [REPEAT], because that is what this action did before
+         * it could do anything else. Every rule saved then meant "loop for the
+         * duration", and an update must not quietly turn those into single
+         * chimes. An unknown value is an error, as everywhere else.
+         */
+        fun parse(raw: String?): AlertPlayback = when (val value = raw?.lowercase()) {
+            null -> REPEAT
+            else -> entries.firstOrNull { it.configValue == value }
+                ?: error(
+                    "$CONFIG_KEY must be one of ${entries.joinToString { it.configValue }}, " +
+                        "was '$raw'"
+                )
+        }
+    }
+}
+
 /**
  * Duration for an alert, defaulted and capped.
  *
@@ -50,6 +87,31 @@ fun alertDurationMillis(raw: String?): Long {
     val duration = raw?.toLongOrNull() ?: PlayAlertAction.DEFAULT_DURATION_MILLIS
     require(duration > 0) { "duration must be positive, was $duration" }
     return duration.coerceAtMost(PlayAlertAction.MAX_DURATION_MILLIS)
+}
+
+/**
+ * How long an alert holds the rule open for.
+ *
+ * Repeating is the duration the user set. Playing once is the tone's own length,
+ * which is only knowable after `prepare()` — and is capped and floored anyway,
+ * because `MediaPlayer` reports -1 for a malformed file and a stream can report
+ * something absurd. Neither should pin an action open, and neither should make it
+ * return before the sound is audible.
+ *
+ * Pure and top-level, like the other three sums in this file, so the arithmetic
+ * is tested rather than trusted — and without needing a `Context` to do it.
+ */
+fun alertSoundingMillis(
+    playback: AlertPlayback,
+    durationMillis: Long,
+    trackMillis: Int,
+): Long = when (playback) {
+    AlertPlayback.REPEAT -> durationMillis
+    AlertPlayback.ONCE -> trackMillis
+        .takeIf { it > 0 }
+        ?.toLong()
+        ?.coerceAtMost(PlayAlertAction.MAX_DURATION_MILLIS)
+        ?: PlayAlertAction.DEFAULT_DURATION_MILLIS
 }
 
 /**
@@ -107,6 +169,7 @@ class PlayAlertAction(
     private val customUri: String?,
     private val volumeGain: Float,
     private val durationMillis: Long,
+    private val playback: AlertPlayback = AlertPlayback.REPEAT,
 ) : Action {
 
     override suspend fun execute(event: TriggerEvent): ActionResult {
@@ -137,16 +200,13 @@ class PlayAlertAction(
                         .build()
                 )
                 player.setDataSource(context, uri)
-                // Looping plus a duration, rather than playing the tone once: a
-                // notification tone is under a second, and "alert me" means keep
-                // going until I notice.
-                player.isLooping = true
+                player.isLooping = playback == AlertPlayback.REPEAT
                 player.setVolume(volumeGain, volumeGain)
                 player.prepare()
             }
 
             player.start()
-            delay(durationMillis)
+            delay(alertSoundingMillis(playback, durationMillis, player.duration))
             ActionResult.Success
         } catch (failure: Exception) {
             // A bad custom URI, an unreadable file, a codec the device lacks.
@@ -211,6 +271,16 @@ class PlayAlertActionFactory(private val context: Context) : ActionFactory {
                 "Network sounds are refused — an imported rule could otherwise " +
                 "call home every time it fires.",
         ),
+        ConfigField.Choice(
+            key = AlertPlayback.CONFIG_KEY,
+            label = "Play it",
+            options = AlertPlayback.entries.map {
+                ConfigField.Option(it.configValue, it.displayName)
+            },
+            default = AlertPlayback.REPEAT.configValue,
+            help = "Once is a chime and lasts as long as the tone does. Repeating " +
+                "is an alarm and lasts as long as you set below.",
+        ),
         // A slider, not a number box: this is the one setting here whose value is
         // a position rather than a decision. Nobody knows they want 65% — they
         // know they want it quieter, and drag until it looks right.
@@ -229,8 +299,11 @@ class PlayAlertActionFactory(private val context: Context) : ActionFactory {
             defaultMillis = PlayAlertAction.DEFAULT_DURATION_MILLIS,
             maxMillis = PlayAlertAction.MAX_DURATION_MILLIS,
             preferred = DurationUnit.SECONDS,
-            help = "The tone repeats until this elapses. Capped at " +
-                "${PlayAlertAction.MAX_DURATION_MILLIS} ms.",
+            // Says when it does not apply, because the schema has no way to hide
+            // a field that a sibling setting has made irrelevant. Wording is the
+            // honest half of that gap until conditional visibility exists.
+            help = "Only used when repeating — playing once lasts as long as the " +
+                "tone does. Capped at ${describeAlertCap()}.",
         ),
     )
 
@@ -251,6 +324,7 @@ class PlayAlertActionFactory(private val context: Context) : ActionFactory {
             customUri = custom.ifEmpty { null },
             volumeGain = alertVolumeGain(config[PlayAlertAction.CONFIG_VOLUME_PERCENT]),
             durationMillis = alertDurationMillis(config[PlayAlertAction.CONFIG_DURATION_MILLIS]),
+            playback = AlertPlayback.parse(config[AlertPlayback.CONFIG_KEY]),
         )
     }
 }

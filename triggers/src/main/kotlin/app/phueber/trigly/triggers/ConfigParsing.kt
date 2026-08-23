@@ -30,3 +30,35 @@ internal fun parseTarget(
     null -> error("'$key' is required; expected '$onWord' or '$offWord'")
     else -> error("'$key' must be '$onWord' or '$offWord', was '${config[key]}'")
 }
+
+/**
+ * [parseTarget] for a state choice a trigger did **not** always have.
+ *
+ * The difference is the absent case, and it exists for one situation: a trigger
+ * that only ever did one thing grows a choice between two. Every rule saved
+ * before that has no `state` key at all, and [parseTarget] would refuse it —
+ * turning an app update into a set of rules that quietly stop firing, which is
+ * the worst outcome this project has. [default] is what those rules meant, so
+ * they keep meaning it.
+ *
+ * An *unknown* word is still an error. Absent is a rule written before the
+ * question existed; a typo is a wrong answer to it, and guessing a direction
+ * from one would be picking silently between "when it connects" and "when it
+ * disconnects".
+ *
+ * Note this defaults *stored data*, not the form. The schema deliberately
+ * declares no default, so a new rule prompts for a choice rather than assuming
+ * one — the two concerns look alike and are not.
+ */
+internal fun parseTargetOrDefault(
+    config: Map<String, String>,
+    key: String,
+    onWord: String,
+    offWord: String,
+    default: Boolean,
+): Boolean = when (config[key]?.lowercase()) {
+    onWord -> true
+    offWord -> false
+    null -> default
+    else -> error("'$key' must be '$onWord' or '$offWord', was '${config[key]}'")
+}
