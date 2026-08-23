@@ -61,6 +61,8 @@ class ComposeEmailActionFactory(private val context: Context) : ActionFactory {
         messageText(ComposeEmailAction.CONFIG_BODY, "Body", required = false),
     )
 
+    override val requirements = ACTIVITY_START_REQUIREMENTS
+
     override val warning: String =
         "Opens your mail app with the fields filled in. You still press send. " +
             "$BACKGROUND_START_WARNING"
@@ -105,6 +107,8 @@ class ComposeSmsActionFactory(private val context: Context) : ActionFactory {
         ConfigField.Text(ComposeSmsAction.CONFIG_TO, "To", required = true),
         messageText(ComposeSmsAction.CONFIG_BODY, "Message", required = false),
     )
+
+    override val requirements = ACTIVITY_START_REQUIREMENTS
 
     override val warning: String =
         "Opens your messaging app with the message ready. You still press send — " +
@@ -162,6 +166,8 @@ class SetAlarmActionFactory(private val context: Context) : ActionFactory {
         ConfigField.Number(SetAlarmAction.CONFIG_MINUTE, "Minute", default = 0, min = 0, max = 59),
         ConfigField.Text(SetAlarmAction.CONFIG_LABEL, "Label"),
     )
+
+    override val requirements = ACTIVITY_START_REQUIREMENTS
 
     override val warning: String = BACKGROUND_START_WARNING
 
@@ -233,6 +239,8 @@ class AddCalendarEventActionFactory(private val context: Context) : ActionFactor
             unit = "epoch ms",
         ),
     )
+
+    override val requirements = ACTIVITY_START_REQUIREMENTS
 
     override val warning: String =
         "Opens the calendar's new-event screen so you can confirm. $BACKGROUND_START_WARNING"

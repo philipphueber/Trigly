@@ -1,6 +1,8 @@
 package app.phueber.trigly.actions
 
+import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.SpecialAccessKind
 
 /** Categories used to group the action picker. */
 internal object ActionCategory {
@@ -34,6 +36,33 @@ internal fun messageText(
  * start silently, so the action reports success and nothing happens.
  */
 internal const val BACKGROUND_START_WARNING: String =
-    "Android 10 and later block apps from opening things while in the background, " +
-        "with no error. This works while you are using the phone and is unreliable " +
-        "when the screen is off."
+    "Android blocks apps from opening things while in the background, with no " +
+        "error. Granting “Display over other apps” below lifts that; without it " +
+        "this works while you are using the phone and is unreliable when the " +
+        "screen is off."
+
+/**
+ * What every action that calls `launchForRule` has to declare.
+ *
+ * A list rather than six copies of the same line, so "the actions that open
+ * something" is one fact stated in one place — the same reason
+ * [BACKGROUND_START_WARNING] exists. An action added later gets the requirement
+ * by using this, and an action that forgets it is a rule that silently does
+ * nothing with the screen off.
+ *
+ * **Why the overlay permission for an action that draws nothing.** Holding
+ * `SYSTEM_ALERT_WINDOW` is one of the few exemptions from the background
+ * activity-start ban, and it is the only one an automation app can reach: the
+ * others are having a visible window, being the input method, or the user
+ * tapping a notification. Measured on Android 15, not assumed — the system logs
+ * the allowed launch as `BAL_ALLOW_SAW_PERMISSION`, and blocks it outright
+ * without the permission even while the engine's foreground service is running.
+ *
+ * It is a requirement rather than only a warning because for automation the
+ * background case *is* the case. The warning above still carries the nuance that
+ * these actions do work while the phone is in use, so a rule that reports this as
+ * unmet is not lying about being useless.
+ */
+internal val ACTIVITY_START_REQUIREMENTS: List<ComponentRequirement> = listOf(
+    ComponentRequirement.SpecialAccess(SpecialAccessKind.OVERLAY),
+)

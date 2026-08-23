@@ -28,14 +28,60 @@ foreground service (`EngineService`, see `docs/architecture.md`), so it looks
 like the blocker should have lifted with it. It did not. A foreground service
 buys the *process* the right to stay alive; it buys the app no right to put
 something on the user's screen unasked, and Google has kept those two questions
-separate on purpose.
+separate on purpose. Measured rather than reasoned about — the system says so
+itself, with the engine's service running and nothing else changed:
 
-So the two real routes remain. `SYSTEM_ALERT_WINDOW`, listed below, is the one
-that makes these actions work unattended, at the cost of a permission the user
-grants on a settings screen. The other is to stop starting the activity and post
-a notification instead, letting the tap be the thing that starts it — worse
-automation, but it is honest about who decided. Until one of them ships, treat
-"open" actions as working when the phone is in use and unreliable when it is not.
+    Background activity launch blocked!  callingUidProcState: FOREGROUND_SERVICE
+    Abort background activity starts from 10209                    →  BAL_BLOCK
+
+### The fix: the overlay permission
+
+`SYSTEM_ALERT_WINDOW` — "Display over other apps" — **is** on the exemption
+list, and holding it is enough. No overlay has to be drawn, which is what makes
+it usable here: Trigly asks for a window-drawing permission and draws nothing,
+purely for the side effect on activity starts.
+
+The same rule, from the same truly-background state, with the permission
+granted:
+
+    START … pkg=com.android.settings from uid 10209 (BAL_ALLOW_SAW_PERMISSION)
+    result code=0
+
+Worth knowing how that was measured, because it is easy to fool yourself. An app
+that recently had a visible window keeps activity-start privileges for a grace
+period of roughly half a minute, and the system reports those launches as
+`BAL_ALLOW_VISIBLE_WINDOW` — so a test that backgrounds the app and fires
+immediately succeeds either way and proves nothing. The measurement above was
+taken with the activity *finished* rather than merely backgrounded, well past the
+grace period. Android 15 adds a visibility condition to some overlay-based
+exemptions; it does not apply to this one, which is why the API 35 result is
+quoted rather than inferred.
+
+How it is wired: `SpecialAccessKind.OVERLAY`, declared through
+`ACTIVITY_START_REQUIREMENTS` by every action that calls `launchForRule`, so the
+list of "actions that open something" is one fact in one place and a new one gets
+it by construction. `RequirementChecker` reads it with `Settings.canDrawOverlays`
+— its own API rather than a secure setting or an app-op, which is exactly why
+that enum carries a kind and not just an intent. The permission is declared in
+`:actions`' manifest but never granted at install time; the rules screen explains
+it and offers a Grant button.
+
+That button asks for this app's own row, since `OVERLAY` is the one kind whose
+settings screen documents a `package:` URI — but do not promise the user it lands
+there. On the API 35 emulator, Settings resolves the intent to
+`Settings$OverlaySettingsActivity` and then redirects into its newer `SpaActivity`
+implementation, which shows the full list of apps and ignores the URI. The URI is
+kept because it is the documented form and does scope the screen on other
+implementations; the list is a perfectly usable fallback, and
+`RequirementPossibilityTest` covers the failure that would actually hurt — an
+intent that resolves nowhere, which would drop the user at the top of Settings.
+
+**Without the permission these actions still work while the phone is in use**,
+which is why it is both a requirement *and* a warning: the requirement is
+truthful about automation, where the background case is the only case that
+matters, and the warning keeps the editor from claiming the action is useless.
+The other route, unchanged and still available, is to post a notification and let
+the tap start the activity — worse automation, but honest about who decided.
 
 ---
 
@@ -49,12 +95,12 @@ automation, but it is honest about who decided. Until one of them ships, treat
 | Speak text aloud | `speak` | — |
 | Vibrate | `vibrate` | `VIBRATE` (install-time) |
 | Play an alert sound | `play_alert` | — (storage access only for a `file:` custom sound) |
-| Open a website | `open_url` | — (background-start caveat) |
-| Open an app | `open_app` | — (see package visibility below) |
-| Compose an email | `compose_email` | — (user confirms) |
-| Compose an SMS | `compose_sms` | — (user confirms) |
-| Set an alarm | `set_alarm` | — |
-| Add a calendar event | `add_calendar_event` | — (user confirms) |
+| Open a website | `open_url` | Display over other apps, to work in the background |
+| Open an app | `open_app` | Display over other apps, to work in the background (and see package visibility below) |
+| Compose an email | `compose_email` | Display over other apps, to work in the background (user confirms) |
+| Compose an SMS | `compose_sms` | Display over other apps, to work in the background (user confirms) |
+| Set an alarm | `set_alarm` | Display over other apps, to work in the background |
+| Add a calendar event | `add_calendar_event` | Display over other apps, to work in the background (user confirms) |
 | Set stream volume | `set_volume` | — (silencing needs DND access) |
 | Set ringer mode | `set_ringer_mode` | Do Not Disturb access |
 | Copy text to clipboard | `set_clipboard` | — |
@@ -227,9 +273,11 @@ technically possible; note that many jurisdictions require a shutter sound and
 some OEM firmwares enforce it regardless of app settings.
 
 ### SYSTEM_ALERT_WINDOW — overlay popup
-Granted at `ACTION_MANAGE_OVERLAY_PERMISSION`. Worth building for its own sake
-*and* because holding it is one of the background-activity-start exemptions,
-which would fix the blocker at the top of this document for users who grant it.
+The *permission* is now asked for and used, which is what unblocked the "open"
+actions — see the top of this document. What is still unbuilt is an action that
+actually draws something: a popup a rule can put on screen over whatever the
+user is doing. That needs a window rather than a permission, and it now needs no
+new permission to get there.
 
 ### Default dialer role — answer, end, reject, screen calls
 `RoleManager.ROLE_DIALER` or `ROLE_CALL_SCREENING`. Becoming the *default phone
@@ -243,6 +291,7 @@ and far more realistic option for rejecting calls.
 
 1. `WRITE_SETTINGS` kind, then auto-rotate and brightness.
 2. `open_settings_panel`, replacing the toggles that are no longer possible.
-3. Overlay permission — a real action, and it unblocks background activity starts.
+3. An overlay *popup* action — the permission is already asked for; what is
+   missing is a window that draws something.
 4. Conditions and payload substitution, per the design note above.
 5. Accessibility actions and call roles, after the distribution decision.

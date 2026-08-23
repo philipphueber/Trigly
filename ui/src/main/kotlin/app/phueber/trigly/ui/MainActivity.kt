@@ -24,7 +24,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.core.net.toUri
 import app.phueber.trigly.core.ComponentRequirement
+import app.phueber.trigly.core.SpecialAccessKind
 import app.phueber.trigly.core.Rule
 
 class MainActivity : ComponentActivity() {
@@ -262,15 +264,25 @@ class MainActivity : ComponentActivity() {
                 requestPermission.launch(requirement.permission)
 
             is ComponentRequirement.SpecialAccess ->
-                openSettings(requirement.kind.settingsAction)
+                openSettings(requirement.kind)
 
             // Not resolvable; the UI does not offer a button for these.
             else -> Unit
         }
     }
 
-    private fun openSettings(action: String) {
-        val intent = Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    private fun openSettings(kind: SpecialAccessKind) {
+        val intent = Intent(kind.settingsAction).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        // Some of these screens land on this app's own row when handed a
+        // `package:` URI, and on a list of every installed app when not. Which
+        // ones is declared on the kind rather than guessed here, because handing
+        // the URI to a screen that does not accept it makes the intent
+        // unresolvable — and the fallback below would then drop the user at the
+        // top of Settings, which is worse than the list.
+        if (kind.packageScoped) {
+            intent.data = "package:$packageName".toUri()
+        }
         // Not every OEM ships every settings screen, and an unresolvable intent
         // would crash the app rather than merely fail to help.
         if (intent.resolveActivity(packageManager) != null) {
