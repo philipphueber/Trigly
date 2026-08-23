@@ -43,12 +43,14 @@ fun ConfigFieldEditor(
     onValueChange: (String?) -> Unit,
     modifier: Modifier = Modifier,
     /**
-     * The companion value for the one field kind that owns two config keys —
-     * [ConfigField.TextPattern]'s match mode. Defaulted so that every other kind,
-     * and every caller that only ever renders one, is unaffected.
+     * The companion value for the two field kinds that own a second config key —
+     * [ConfigField.TextPattern]'s match mode and [ConfigField.TimeOfDay]'s
+     * minute. Named for its role rather than either use, since neither is "the"
+     * meaning of a second key. Defaulted so that every other kind, and every
+     * caller that only ever renders one, is unaffected.
      */
-    modeValue: String? = null,
-    onModeChange: (String) -> Unit = {},
+    secondValue: String? = null,
+    onSecondChange: (String) -> Unit = {},
 ) {
     Column(modifier = modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         when (field) {
@@ -89,6 +91,41 @@ fun ConfigFieldEditor(
                 onPick = onValueChange,
             )
 
+            // Three kinds that keep the stored value and change the control: a
+            // duration in ms, a moment in epoch ms, and a time of day split
+            // across two keys. See TimeFields.kt.
+            is ConfigField.Duration -> DurationField(
+                field = field,
+                value = value,
+                onValueChange = onValueChange,
+            )
+
+            is ConfigField.Timestamp -> TimestampField(
+                field = field,
+                value = value,
+                onValueChange = onValueChange,
+            )
+
+            is ConfigField.TimeOfDay -> TimeOfDayField(
+                field = field,
+                hour = value,
+                minute = secondValue,
+                onChange = { hour, minute ->
+                    onValueChange(hour)
+                    onSecondChange(minute)
+                },
+            )
+
+            is ConfigField.Coordinates -> CoordinatesField(
+                field = field,
+                latitude = value,
+                longitude = secondValue,
+                onChange = { lat, lon ->
+                    onValueChange(lat)
+                    onSecondChange(lon.orEmpty())
+                },
+            )
+
             is ConfigField.Number -> TextField(
                 label = numericLabel(field.label, field.required, field.unit),
                 value = value,
@@ -111,9 +148,9 @@ fun ConfigFieldEditor(
             is ConfigField.TextPattern -> TextPatternField(
                 field = field,
                 value = value,
-                mode = TextMatchMode.parse(modeValue),
+                mode = TextMatchMode.parse(secondValue),
                 onValueChange = onValueChange,
-                onModeChange = onModeChange,
+                onModeChange = onSecondChange,
             )
 
             is ConfigField.Slider -> SliderField(
@@ -299,7 +336,7 @@ private fun FlagField(
 }
 
 @Composable
-private fun Hint(text: String) {
+internal fun Hint(text: String) {
     Text(
         text = text,
         style = MaterialTheme.typography.bodySmall,
@@ -366,7 +403,7 @@ private fun SliderField(
  * deliberately *not* uppercased: they are prose, and prose in capitals is
  * unreadable.
  */
-private fun fieldLabel(label: String, required: Boolean) =
+internal fun fieldLabel(label: String, required: Boolean) =
     (if (required) "$label *" else label).uppercase()
 
 private fun numericLabel(label: String, required: Boolean, unit: String?) =

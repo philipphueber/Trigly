@@ -6,6 +6,7 @@ import android.content.Context
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.SpecialAccessKind
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.DurationUnit
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
@@ -88,12 +89,11 @@ class AppForegroundTriggerFactory(private val context: Context) : TriggerFactory
 
     override val configFields = listOf(
         packageFilter(help = "Which app opening should fire this rule."),
-        ConfigField.Number(
+        ConfigField.Duration(
             key = AppForegroundTrigger.CONFIG_POLL_MILLIS,
             label = "Check every",
-            default = AppForegroundTrigger.DEFAULT_POLL_MILLIS,
-            min = 1000,
-            unit = "ms",
+            defaultMillis = AppForegroundTrigger.DEFAULT_POLL_MILLIS,
+            preferred = DurationUnit.SECONDS,
         ),
     )
 

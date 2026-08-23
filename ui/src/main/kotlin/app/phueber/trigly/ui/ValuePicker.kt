@@ -192,9 +192,10 @@ fun PickerValueBox(
     primary: String,
     secondary: String?,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
     leading: (@Composable () -> Unit)? = null,
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = modifier.fillMaxWidth()) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium,

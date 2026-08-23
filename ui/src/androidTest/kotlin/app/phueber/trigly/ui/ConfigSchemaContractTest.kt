@@ -124,10 +124,13 @@ class ConfigSchemaContractTest {
      * A plausible value for each declared field. Fields whose blankness is
      * meaningful are still filled here — the point is to exercise the accepting
      * path, and an optional field being present is always valid.
+     *
+     * Built as a list of pairs rather than one entry per field, because three
+     * kinds own a **second** config key and a factory that requires both would
+     * otherwise be handed half an answer and fail for the wrong reason.
      */
     private fun sampleConfig(fields: List<ConfigField>): Map<String, String> =
-        fields.associate { field ->
-            field.key to when (field) {
+        fields.flatMap { field -> extraKeysFor(field) + (field.key to when (field) {
                 is ConfigField.Choice ->
                     field.default ?: field.options.first().value
 
@@ -153,11 +156,34 @@ class ConfigSchemaContractTest {
                 // The shape the picker produces and the trigger stores.
                 is ConfigField.BluetoothAddress -> "00:11:22:33:44:55"
 
+                // Stored in milliseconds whatever unit the editor showed.
+                is ConfigField.Duration ->
+                    (field.defaultMillis ?: 1_000L).toString()
+
+                // A real instant, and a real hour: the calendar and alarm
+                // factories parse these, so a token value would fail for the
+                // right reason and read as a schema bug.
+                is ConfigField.Timestamp -> "1787900400000"
+                is ConfigField.TimeOfDay -> "8"
+                is ConfigField.Coordinates -> "52.520008"
+
                 is ConfigField.Text -> "sample"
 
                 // Valid as both a substring and a regex, so the sample exercises
                 // the accepting path whichever mode a factory defaults to.
                 is ConfigField.TextPattern -> "sample"
-            }
-        }
+            })
+        }.toMap()
+
+    /**
+     * The companion keys the two-key kinds own, so a factory requiring both sides
+     * of one answer sees both.
+     */
+    private fun extraKeysFor(field: ConfigField): List<Pair<String, String>> = when (field) {
+        is ConfigField.TimeOfDay -> listOf(field.minuteKey to "30")
+        is ConfigField.Coordinates -> listOf(field.longitudeKey to "13.404954")
+        // A TextPattern's mode is deliberately omitted: absent reads as
+        // `contains`, and leaving it out is the case every older rule exercises.
+        else -> emptyList()
+    }
 }

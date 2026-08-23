@@ -9,16 +9,21 @@ import app.phueber.trigly.core.Action
 import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.DurationUnit
 import app.phueber.trigly.core.TriggerEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /** Which of the device's own tones an alert uses when no custom sound is given. */
-enum class AlertSound(val configValue: String, val ringtoneType: Int) {
-    NOTIFICATION("notification", RingtoneManager.TYPE_NOTIFICATION),
-    ALARM("alarm", RingtoneManager.TYPE_ALARM),
-    RINGTONE("ringtone", RingtoneManager.TYPE_RINGTONE),
+enum class AlertSound(
+    val configValue: String,
+    val ringtoneType: Int,
+    val displayName: String,
+) {
+    NOTIFICATION("notification", RingtoneManager.TYPE_NOTIFICATION, "the notification tone"),
+    ALARM("alarm", RingtoneManager.TYPE_ALARM, "the alarm tone"),
+    RINGTONE("ringtone", RingtoneManager.TYPE_RINGTONE, "the ringtone"),
     ;
 
     companion object {
@@ -190,7 +195,7 @@ class PlayAlertActionFactory(private val context: Context) : ActionFactory {
             key = AlertSound.CONFIG_KEY,
             label = "Tone",
             options = AlertSound.entries.map {
-                ConfigField.Option(it.configValue, it.configValue)
+                ConfigField.Option(it.configValue, it.displayName)
             },
             default = AlertSound.ALARM.configValue,
             help = "The device's own tone of that kind. Alarm is the loudest and " +
@@ -218,13 +223,12 @@ class PlayAlertActionFactory(private val context: Context) : ActionFactory {
             unit = "%",
             help = "Of the alarm volume, which this cannot exceed.",
         ),
-        ConfigField.Number(
+        ConfigField.Duration(
             key = PlayAlertAction.CONFIG_DURATION_MILLIS,
             label = "Keep sounding for",
-            default = PlayAlertAction.DEFAULT_DURATION_MILLIS,
-            min = 1,
-            max = PlayAlertAction.MAX_DURATION_MILLIS,
-            unit = "ms",
+            defaultMillis = PlayAlertAction.DEFAULT_DURATION_MILLIS,
+            maxMillis = PlayAlertAction.MAX_DURATION_MILLIS,
+            preferred = DurationUnit.SECONDS,
             help = "The tone repeats until this elapses. Capped at " +
                 "${PlayAlertAction.MAX_DURATION_MILLIS} ms.",
         ),
