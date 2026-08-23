@@ -18,10 +18,10 @@ class PaletteHexTest {
     @Test
     fun `a six digit colour is opaque`() {
         // The trap this helper exists for: the equivalent Compose literal
-        // written without an alpha pair, Color(0x9F3D00), is transparent black
+        // written without an alpha pair, Color(0xEC6206), is transparent black
         // and compiles fine.
-        assertEquals(Color(0xFF9F3D00), hex("#9F3D00"))
-        assertEquals(1f, hex("#9F3D00").alpha, 0.001f)
+        assertEquals(Color(0xFFEC6206), hex("#EC6206"))
+        assertEquals(1f, hex("#EC6206").alpha, 0.001f)
     }
 
     @Test
@@ -32,19 +32,19 @@ class PaletteHexTest {
 
     @Test
     fun `case does not matter`() {
-        assertEquals(hex("#FFB68F"), hex("#ffb68f"))
+        assertEquals(hex("#FFA96B"), hex("#ffa96b"))
     }
 
     @Test
     fun `the eight digit form puts alpha last, as the web does`() {
-        // Half-transparent orange. Android's packed form would be 0x809F3D00 —
+        // Half-transparent orange. Android's packed form would be 0x80EC6206 —
         // alpha first — so getting this backwards is the failure that would make
         // a copied web colour mean something else here.
-        val translucent = hex("#9F3D0080")
+        val translucent = hex("#EC620680")
         assertEquals(0x80 / 255f, translucent.alpha, 0.005f)
-        assertEquals(hex("#9F3D00").red, translucent.red, 0.001f)
-        assertEquals(hex("#9F3D00").green, translucent.green, 0.001f)
-        assertEquals(hex("#9F3D00").blue, translucent.blue, 0.001f)
+        assertEquals(hex("#EC6206").red, translucent.red, 0.001f)
+        assertEquals(hex("#EC6206").green, translucent.green, 0.001f)
+        assertEquals(hex("#EC6206").blue, translucent.blue, 0.001f)
     }
 
     @Test
@@ -87,12 +87,13 @@ class PaletteHexTest {
     @Test
     fun `every declared tone parses and is opaque`() {
         val tones = listOf(
-            Tone.Orange10, Tone.Orange20, Tone.Orange30, Tone.Orange40, Tone.Orange50,
-            Tone.Orange60, Tone.Orange80, Tone.Orange90, Tone.Orange95,
-            Tone.Warm10, Tone.Warm20, Tone.Warm30, Tone.Warm40, Tone.Warm80, Tone.Warm90,
-            Tone.Olive10, Tone.Olive20, Tone.Olive30, Tone.Olive40, Tone.Olive80, Tone.Olive90,
+            Tone.Orange10, Tone.Orange30, Tone.Orange40, Tone.Orange50,
+            Tone.Orange60, Tone.Orange70, Tone.Orange80, Tone.Orange90,
+            Tone.Blue10, Tone.Blue20, Tone.Blue30, Tone.Blue40, Tone.Blue80, Tone.Blue90,
+            Tone.Lime10, Tone.Lime20, Tone.Lime30, Tone.Lime40, Tone.Lime80, Tone.Lime90,
             Tone.Paper, Tone.Ink, Tone.InkDeep,
-            Tone.Neutral10, Tone.Neutral14, Tone.Neutral20, Tone.Neutral90, Tone.Neutral96,
+            Tone.Warm20, Tone.Warm30, Tone.Warm50, Tone.Warm60, Tone.Warm80,
+            Tone.Neutral14, Tone.Neutral20, Tone.Neutral90, Tone.Neutral96,
             Tone.White,
             Tone.BlockLight, Tone.BlockLightAlt, Tone.BlockDark, Tone.BlockDarkAlt,
             Tone.Red10, Tone.Red20, Tone.Red30, Tone.Red40, Tone.Red80, Tone.Red90,
@@ -111,7 +112,7 @@ class PaletteHexTest {
      */
     @Test
     fun `the two window background tones are the ones the XML mirrors`() {
-        assertEquals(hex("#FFF8F5"), Tone.Paper)
+        assertEquals(hex("#FFFBF7"), Tone.Paper)
         assertEquals(hex("#17100C"), Tone.Ink)
     }
 }

@@ -291,7 +291,7 @@ private fun ComponentBlock(
                 BlockTextButton(
                     text = descriptor?.displayName ?: chosenType ?: emptyLabel,
                     modifier = Modifier.weight(1f),
-                    contentColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.extra.accent,
                     onClick = onChoose,
                 )
             }

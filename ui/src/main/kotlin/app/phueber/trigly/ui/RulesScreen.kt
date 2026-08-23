@@ -147,7 +147,7 @@ private fun RuleBlock(
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
                 BlockTextButton(
                     text = stringResource(R.string.rules_share),
-                    contentColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.extra.accent,
                 ) {
                     onExportRule(status.rule)
                 }

@@ -177,13 +177,17 @@ fun BlockButton(
  * already has, so a wrap-content label would sit hard against the left edge of a
  * full-width box. Off by default: a button in a row (Delete rule beside Save, the
  * choice dropdown under its label) must stay the width of its text.
+ *
+ * [contentColor] draws the label *and* the border, which is why the default is
+ * the ink accent and not `primary`: this button has no fill to land ink on, so
+ * the orange here is text on the page and has to be legible as text.
  */
 @Composable
 fun BlockOutlineButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    contentColor: Color = MaterialTheme.colorScheme.primary,
+    contentColor: Color = MaterialTheme.extra.accent,
     fillWidth: Boolean = false,
 ) {
     Surface(
@@ -250,7 +254,15 @@ fun BlockToggle(
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
         },
-        border = BorderStroke(BlockBorder, if (checked) on else off),
+        // On keeps the ink border every other block has and changes only its
+        // fill, so the switch does not appear to gain weight when it turns on —
+        // an orange border on an orange fill is a border you cannot see anyway.
+        // Off has no fill, so its border is all the control has: muted, but the
+        // thing that still draws the outline of a tappable box.
+        border = BorderStroke(
+            BlockBorder,
+            if (checked) MaterialTheme.colorScheme.outline else off,
+        ),
         modifier = modifier.toggleable(
             value = checked,
             role = Role.Switch,
@@ -292,9 +304,14 @@ fun BlockToggleChip(
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
         },
+        // Same rule as [BlockToggle]: selected changes the fill, not the frame.
         border = BorderStroke(
             BlockBorder,
-            if (selected) on else MaterialTheme.colorScheme.outlineVariant,
+            if (selected) {
+                MaterialTheme.colorScheme.outline
+            } else {
+                MaterialTheme.colorScheme.outlineVariant
+            },
         ),
         modifier = modifier
             .padding(start = 6.dp)

@@ -216,7 +216,7 @@ fun PickerValueBox(
                     Text(
                         text = primary.uppercase(),
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = MaterialTheme.extra.accent,
                     )
                     secondary?.let {
                         Text(

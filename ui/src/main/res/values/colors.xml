@@ -9,13 +9,15 @@
       Both sides are now written the same way — #RRGGBB here and `hex("#RRGGBB")`
       there — so keeping them in step is a comparison, not a conversion.
     -->
-    <color name="window_background">#FFF8F5</color>
+    <color name="window_background">#FFFBF7</color>
 
     <!--
-      The launcher icon's background layer. `Tone.Orange60` — the brightest step
-      of the brand ramp, not the darker `Orange40` the UI uses for headers: an
-      icon competes with every other icon on a home screen, where the app's
-      chrome only has to compete with its own page.
+      The launcher icon's background layer. `Tone.Orange60`, which is also
+      `colorScheme.primary` in both themes — the icon and the app's header slab
+      are now one colour rather than two neighbouring ones. This value used to be
+      the odd one out, brighter than the `Orange40` the chrome carried, on the
+      grounds that an icon competes with every other icon on a home screen while
+      chrome only competes with its own page. The chrome came up to meet it.
 
       Deliberately not overridden in values-night. An app icon that changed with
       the system theme would be a different mark on half the phones.

@@ -3,7 +3,6 @@ package app.phueber.trigly.ui
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.content.res.Configuration
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
@@ -81,22 +80,22 @@ class MainActivity : ComponentActivity() {
         // then owned by `BlockHeader` and `BlockBottomBar`.
         enableEdgeToEdge(
             // The status bar sits on `BlockHeader`, which is `colorScheme.primary`
-            // — and primary *inverts* against the theme: a dark orange band in
-            // light mode, a light peach one in dark. The no-argument default picks
-            // icon polarity from the system theme, so it is backwards in both
-            // directions, not one: measured 2.33:1 in light and 1.70:1 in dark,
-            // against the 3:1 floor for interface icons.
+            // — the logo orange, and the one role that is the *same value* in
+            // both schemes (see `Palette.kt`). So the band behind the clock does
+            // not change with the theme, and neither should the icons on it.
             //
-            // Inverting it puts light icons on the orange band and dark icons on
-            // the peach one. Read the lambda as "is the bar background dark?",
-            // which is true exactly when the app is in *light* mode.
-            statusBarStyle = SystemBarStyle.auto(
-                lightScrim = Color.TRANSPARENT,
+            // `light` is named for the background, not the icons: it asks for
+            // dark icons, which is the pair that measures 5.66:1 on `#EC6206`.
+            // Light icons on it would be 3.32:1, under the 3:1 floor once you
+            // account for the thin strokes a status-bar glyph is made of.
+            //
+            // This used to be `auto { … }` with the polarity inverted, because
+            // primary inverted with the theme and the framework default read the
+            // *page* rather than the band. One fixed band, one fixed answer.
+            statusBarStyle = SystemBarStyle.light(
+                scrim = Color.TRANSPARENT,
                 darkScrim = Color.TRANSPARENT,
-            ) { resources ->
-                val night = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
-                night != Configuration.UI_MODE_NIGHT_YES
-            },
+            ),
             // The navigation bar is left alone deliberately: it sits over the page
             // background, which does follow the theme, so the default is right.
         )
