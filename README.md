@@ -41,8 +41,11 @@ The Gradle wrapper is checked in, so no Gradle install is needed:
 
 A release build needs a signing key, which is not in the repository. Without
 one `./gradlew :ui:assembleRelease` still runs and produces an unsigned APK,
-so the release variant stays buildable from a plain clone; `docs/releasing.md`
-covers the key, the version numbers, and how to verify the artifact.
+so the release variant stays buildable from a plain clone. A maintainer makes
+one with `./scripts/setup-signing.sh`, run in a real terminal — it asks for a
+password once, keeps it in the system keyring rather than in a file, and leaves
+nothing else to do. `docs/releasing.md` covers the key, the version numbers,
+and how to verify the artifact.
 
 ## Adding a trigger
 
