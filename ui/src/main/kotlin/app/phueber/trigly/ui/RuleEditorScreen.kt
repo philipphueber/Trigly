@@ -18,9 +18,15 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -68,6 +74,23 @@ fun RuleEditorScreen(
 ) {
     var picking by remember { mutableStateOf<Picking?>(null) }
     val draft = state.draft
+
+    // Which blocks are folded shut. Kept as the collapsed set rather than the
+    // expanded one so that everything starts open: a rule with one action should
+    // look exactly as it did before this existed, and folding is something the
+    // user does rather than something they undo.
+    //
+    // Keyed by *position* — "trigger", "action-0" — because a `ComponentDraft`
+    // has no identity of its own. So Up and Down move an action out from under
+    // its own fold: the slot stays shut, not the action. That is the right way
+    // round for the job it does, which is getting a long rule down to a list of
+    // headings you can reorder.
+    //
+    // Saveable, so a rotation does not unfold the whole rule again.
+    val collapsed = rememberSaveable(saver = collapsedSaver) { mutableStateListOf<String>() }
+    fun toggle(key: String) {
+        if (!collapsed.remove(key)) collapsed += key
+    }
 
     Column(modifier = modifier.fillMaxSize().imePadding()) {
         BlockHeader(
@@ -166,6 +189,8 @@ fun RuleEditorScreen(
                 onChoose = { picking = Picking.Trigger },
                 onConfigChange = { key, value -> onConfigChange(Slot.TRIGGER, 0, key, value) },
                 onResolveRequirement = onResolveRequirement,
+                expanded = TRIGGER_KEY !in collapsed,
+                onToggleExpanded = { toggle(TRIGGER_KEY) },
             )
 
             SectionLabel("Then")
@@ -199,6 +224,8 @@ fun RuleEditorScreen(
                         }
                         BlockTextButton("Remove") { onRemoveAction(index) }
                     },
+                    expanded = actionKey(index) !in collapsed,
+                    onToggleExpanded = { toggle(actionKey(index)) },
                 )
             }
 
@@ -278,6 +305,17 @@ private fun SectionLabel(text: String) {
 /**
  * One trigger or action, as a block split into cells: what it is, what to know
  * about it, its settings, what it needs, and what can be done to it.
+ *
+ * [expanded] folds the middle away. What it hides is what you *read and fill in*
+ * — the caveat, the settings, the requirements. What it keeps is the heading, the
+ * controls that act on the block, and any fault: a rule with six actions is
+ * taller than several screens, and the thing worth compressing is the reading,
+ * while Up, Down, Remove and "this component is not available" are exactly what
+ * you still want to reach in a folded list.
+ *
+ * The fold is not offered when there would be nothing behind it — a chosen
+ * component with no settings, no requirements and no caveat has no middle, and a
+ * button that visibly does nothing is worse than no button.
  */
 @Composable
 private fun ComponentBlock(
@@ -288,9 +326,16 @@ private fun ComponentBlock(
     onChoose: () -> Unit,
     onConfigChange: (String, String?) -> Unit,
     onResolveRequirement: (ComponentRequirement) -> Unit,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
     modifier: Modifier = Modifier,
     footer: (@Composable () -> Unit)? = null,
 ) {
+    val hasMiddle = descriptor != null &&
+        (descriptor.configFields.isNotEmpty() ||
+            descriptor.requirements.isNotEmpty() ||
+            descriptor.warning != null)
+
     BlockCard(modifier = modifier) {
         Column {
             Row(
@@ -304,6 +349,16 @@ private fun ComponentBlock(
                     contentColor = MaterialTheme.extra.accent,
                     onClick = onChoose,
                 )
+                if (hasMiddle) {
+                    // Says what pressing it does, not what the state is: "Hide"
+                    // while the settings are showing. The alternative reading of
+                    // a chevron or a state label is a coin toss, and this design
+                    // has no icon vocabulary to lean on.
+                    BlockTextButton(
+                        text = if (expanded) "Hide" else "Show",
+                        onClick = onToggleExpanded,
+                    )
+                }
             }
 
             if (descriptor == null) {
@@ -323,6 +378,14 @@ private fun ComponentBlock(
                         )
                     }
                 }
+                Footer(footer)
+                return@Column
+            }
+
+            // Folded: heading and controls only. An early return rather than
+            // wrapping the three cells below in a condition, which is the same
+            // shape the unavailable-component case above already uses.
+            if (!expanded) {
                 Footer(footer)
                 return@Column
             }
@@ -407,3 +470,20 @@ private fun Footer(footer: (@Composable () -> Unit)?) {
         footer()
     }
 }
+
+/** The trigger's fold key. One trigger per rule, so it needs no index. */
+private const val TRIGGER_KEY = "trigger"
+
+private fun actionKey(index: Int) = "action-$index"
+
+/**
+ * Saves the folded set across a configuration change.
+ *
+ * A `SnapshotStateList` is not saveable on its own, and the contents are plain
+ * strings, so the list is what gets stored and `toMutableStateList` puts the
+ * observability back on the way in.
+ */
+private val collapsedSaver: Saver<SnapshotStateList<String>, Any> = listSaver(
+    save = { it.toList() },
+    restore = { it.toMutableStateList() },
+)

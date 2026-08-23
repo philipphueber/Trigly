@@ -393,4 +393,81 @@ class RuleEditorScreenTest {
         composeRule.onNodeWithText("USE WHERE I AM NOW").assertExists()
         composeRule.onNodeWithText("CAPTURE A BUTTON").assertExists()
     }
+
+    /**
+     * Folding is what makes a six-action rule navigable, so what it hides and
+     * what it keeps is the behaviour worth pinning down — not merely that a
+     * button exists.
+     */
+    @Test
+    fun a_block_folds_its_settings_away_and_back() {
+        composeRule.setContent {
+            Editor(
+                EditorState(
+                    RuleDraft(
+                        id = null,
+                        name = "Battery",
+                        trigger = ComponentDraft("battery_level", mapOf("direction" to "below")),
+                    )
+                )
+            )
+        }
+
+        composeRule.onNodeWithText("THRESHOLD (%) *").assertIsDisplayed()
+
+        composeRule.onNodeWithText("HIDE").performClick()
+        composeRule.onNodeWithText("THRESHOLD (%) *").assertDoesNotExist()
+        // The heading has to survive, or a folded block cannot be identified or
+        // reopened.
+        composeRule.onNodeWithText("BATTERY LEVEL").assertIsDisplayed()
+
+        composeRule.onNodeWithText("SHOW").performClick()
+        composeRule.onNodeWithText("THRESHOLD (%) *").assertIsDisplayed()
+    }
+
+    /**
+     * A folded action keeps the controls that act on it. Reordering a long rule is
+     * the main thing folding is *for*, so hiding Up, Down and Remove along with
+     * the settings would take away the reason to fold in the first place.
+     */
+    @Test
+    fun a_folded_action_keeps_its_controls() {
+        composeRule.setContent {
+            Editor(
+                EditorState(
+                    RuleDraft(
+                        id = null,
+                        name = "Alert",
+                        trigger = ComponentDraft("battery_level", mapOf("direction" to "below")),
+                        actions = listOf(ComponentDraft("speak", mapOf("text" to "low"))),
+                    )
+                )
+            )
+        }
+
+        // Two folding blocks on screen; the action's is the second.
+        composeRule.onAllNodesWithText("HIDE")[1].performClick()
+
+        // `assertExists`, for the reason given in the fourteen-field test below:
+        // the trigger block above is still open, so whether the action's footer
+        // has scrolled off is a question about the emulator's screen height. What
+        // this test is about is that folding did not *remove* the controls.
+        composeRule.onNodeWithText("TEST").assertExists()
+        composeRule.onNodeWithText("REMOVE").assertExists()
+        composeRule.onNodeWithText("SPEAK OUT LOUD").assertExists()
+    }
+
+    /**
+     * No fold where there is nothing behind it. An unchosen trigger has no
+     * settings, no requirements and no caveat, and a button that visibly does
+     * nothing is worse than no button.
+     */
+    @Test
+    fun a_block_with_nothing_to_fold_offers_no_fold() {
+        composeRule.setContent { Editor(EditorState(RuleDraft(id = null))) }
+
+        composeRule.onNodeWithText("CHOOSE A TRIGGER").assertIsDisplayed()
+        composeRule.onNodeWithText("HIDE").assertDoesNotExist()
+        composeRule.onNodeWithText("SHOW").assertDoesNotExist()
+    }
 }

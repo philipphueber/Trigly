@@ -248,9 +248,36 @@ test can establish.
 ### Navigation
 
 Two destinations — the list and the editor — do not justify a navigation library
-and the dependency it brings. A sealed `Screen` plus `BackHandler` is the whole
-feature. The editor gets a ViewModel keyed by rule id, so opening a different
-rule cannot inherit the previous draft.
+and the dependency it brings. A sealed `Screen` plus **one** `BackHandler` is the
+whole feature.
+
+One handler, not one per destination, and the difference is the whole reason this
+section exists. Per-destination handlers are added and removed as the screen
+changes, which means the editor's handler is disposed *by the navigation it just
+performed* — a back press then arrives while the callback that should answer it
+is being torn down. The rule list, meanwhile, registered no handler at all and
+leaned on the framework default to finish the activity, so "back on the list
+closes the app" was never something the app actually said. Now `backTarget` says
+it: a `Screen?` where null means the list is the bottom of the stack and back
+leaves. It is a pure function precisely so that the one decision here is
+checkable without a device.
+
+`Screen` is saved through `ScreenSaver`, so a rotation inside the editor does not
+dump the user back on the list. That is load-bearing rather than a courtesy — see
+below.
+
+**The editor's draft is discarded when the editor is left.** The editor gets a
+ViewModel keyed by rule id, which handles *different* rules — but an unsaved rule
+has no id, so its key can only be the constant `editor-new`, and these ViewModels
+live in the activity's store. One instance therefore served every new rule for
+the life of the activity, carrying the last draft with it: tapping "New rule"
+reopened the rule you thought you had closed. `RuleEditorViewModel.reset()` is
+the answer, called from a `DisposableEffect` in `EditorHost` because dispose is
+the one place that catches every way of leaving — back, the header arrow, a save,
+a delete — and cannot be forgotten when a fifth is added. It is guarded on
+`isChangingConfigurations`, since a rotation disposes the composition too and
+losing a draft to a turn of the phone would be worse than the bug being fixed.
+That guard is why the destination has to survive rotation.
 
 ### Where the engine runs
 
@@ -474,6 +501,29 @@ prose in which no single item could be read. The picker now marks that a caveat
 exists with one badge, and the editor states the sentence in full once the
 component is chosen, which is the moment it is actionable and swapping it out is
 still one tap away.
+
+### A component block folds
+
+The editor puts everything on one scroll, which is right for building a rule and
+wrong for finding your way around one that already has six actions. So each
+trigger and action block folds.
+
+What folds is what you *read and fill in* — the caveat, the settings, the
+requirements. What stays is the heading, any fault, and the footer: Test, Up,
+Down, Remove. Reordering a long rule is the main thing folding is for, so hiding
+the controls along with the settings would remove the reason to fold at all. A
+fault stays because "this component is not available in this version" is not
+something the user should be able to tuck away.
+
+Three smaller decisions. Everything starts **open**, so a one-action rule looks
+exactly as it did before this existed and folding is something the user does
+rather than something they have to undo. The fold is **not offered** when there
+is nothing behind it — an unchosen component, or one with no settings, no
+requirements and no caveat — because a button that visibly does nothing is worse
+than no button. And the state is keyed by *position*, `trigger` and `action-0`,
+because a `ComponentDraft` has no identity of its own: Up and Down therefore move
+an action out from under its own fold. That is the right way round for the job,
+which is getting a long rule down to a list of headings you can reorder.
 
 ### Insets are the screen's job
 
