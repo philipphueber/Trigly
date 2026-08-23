@@ -196,14 +196,15 @@ class PlayAlertActionFactory(private val context: Context) : ActionFactory {
             help = "The device's own tone of that kind. Alarm is the loudest and " +
                 "the one a silenced ringer does not affect.",
         ),
-        ConfigField.Text(
+        // A picker, not a text box: the stored value is a media URI, which is not
+        // something anyone can produce from memory or would want to read back.
+        ConfigField.SoundUri(
             key = PlayAlertAction.CONFIG_SOUND_URI,
             label = "Custom sound",
             blankMeaning = "Use the tone above",
-            help = "A content: or file: URI. Network sounds are refused — an " +
-                "imported rule could otherwise call home every time it fires. A " +
-                "file: path in shared storage needs storage access; a content: " +
-                "URI from a picker does not.",
+            help = "Any alarm, notification or ringtone this phone knows about. " +
+                "Network sounds are refused — an imported rule could otherwise " +
+                "call home every time it fires.",
         ),
         // A slider, not a number box: this is the one setting here whose value is
         // a position rather than a decision. Nobody knows they want 65% — they

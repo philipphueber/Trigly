@@ -116,10 +116,20 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Read once, here: the package query costs a few hundred
-                // milliseconds and every app-package field wants the same answer.
+                // Read once, here, for the same reason in all three cases: each is
+                // a query costing hundreds of milliseconds, and every field of
+                // that kind wants the same answer. Provided rather than passed,
+                // because only one branch of `ConfigFieldEditor` reads each and
+                // threading three lists through two screens would put them in
+                // signatures that have no use for them.
                 val installedApps by rememberInstalledApps()
-                CompositionLocalProvider(LocalInstalledApps provides installedApps) {
+                val deviceSounds by rememberDeviceSounds()
+                val pairedDevices by rememberPairedDevices()
+                CompositionLocalProvider(
+                    LocalInstalledApps provides installedApps,
+                    LocalDeviceSounds provides deviceSounds,
+                    LocalPairedDevices provides pairedDevices,
+                ) {
                     Destination(
                         screen = screen,
                         onNavigate = { screen = it },
