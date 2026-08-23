@@ -18,6 +18,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -103,10 +104,16 @@ class MainActivity : ComponentActivity() {
             TriglyTheme {
                 var screen by remember { mutableStateOf<Screen>(Screen.RuleList) }
 
+                // Same rule as the editor's exit below: showing a toast and
+                // clearing the flag are things that *happen*, not things a
+                // composition describes. Done inline, a recomposition between the
+                // toast and the clear shows the message twice.
                 val message by listViewModel.message.collectAsStateWithLifecycle()
-                message?.let {
-                    Toast.makeText(this, it, Toast.LENGTH_LONG).show()
-                    listViewModel.clearMessage()
+                LaunchedEffect(message) {
+                    message?.let {
+                        Toast.makeText(this@MainActivity, it, Toast.LENGTH_LONG).show()
+                        listViewModel.clearMessage()
+                    }
                 }
 
                 // Read once, here: the package query costs a few hundred
@@ -168,9 +175,18 @@ class MainActivity : ComponentActivity() {
         )
 
         val state by editor.state.collectAsStateWithLifecycle()
-        if (state.saved) {
-            onDone()
-            return
+
+        // An effect, not a branch. Navigating from inside composition writes the
+        // screen state while it is being read, which Compose is free to handle by
+        // recomposing — so the editor could be entered and left more than once for
+        // one save, churning the BackHandler registered beside it and leaving a
+        // back press with nothing sensible to do. `exitHandled` is what stops the
+        // signal being read again when this rule is next opened.
+        LaunchedEffect(state.finished) {
+            if (state.finished) {
+                editor.exitHandled()
+                onDone()
+            }
         }
 
         RuleEditorScreen(

@@ -20,7 +20,18 @@ data class EditorState(
     val draft: RuleDraft,
     /** Set when a save was refused. Cleared on the next edit. */
     val error: String? = null,
-    val saved: Boolean = false,
+    /**
+     * "This editor is finished with" — set by a successful save or a delete.
+     *
+     * A one-shot signal, and [RuleEditorViewModel.exitHandled] is the other half
+     * of it. It has to be, because this ViewModel is keyed by rule id and lives
+     * in the activity's store, so it outlives the screen: a flag left standing
+     * means the *next* time that rule is opened the editor reads "already
+     * finished" and closes before it is drawn. Which looks like the rule refusing
+     * to open, and leaves a back press to be swallowed by a screen that has come
+     * and gone.
+     */
+    val finished: Boolean = false,
 )
 
 class RuleEditorViewModel(
@@ -159,7 +170,7 @@ class RuleEditorViewModel(
 
         viewModelScope.launch {
             repository.upsert(rule)
-            _state.update { it.copy(saved = true, error = null) }
+            _state.update { it.copy(finished = true, error = null) }
         }
     }
 
@@ -186,9 +197,19 @@ class RuleEditorViewModel(
         val id = _state.value.draft.id ?: return
         viewModelScope.launch {
             repository.delete(id)
-            _state.update { it.copy(saved = true) }
+            _state.update { it.copy(finished = true) }
         }
     }
+
+    /**
+     * Acknowledges [EditorState.finished], so the signal fires once.
+     *
+     * The same shape as `RulesViewModel.clearMessage()`, and for the same reason:
+     * a StateFlow is the wrong tool for an event, and the fix is to let the
+     * consumer say it has dealt with it rather than leaving the flag set for the
+     * next reader to trip over.
+     */
+    fun exitHandled() = _state.update { it.copy(finished = false) }
 
     private fun fail(message: String) = _state.update { it.copy(error = message) }
 
