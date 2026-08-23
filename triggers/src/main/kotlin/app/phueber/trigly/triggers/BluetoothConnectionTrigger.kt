@@ -93,12 +93,17 @@ class BluetoothConnectionTriggerFactory(
     override val category = Category.RADIOS
 
     override val configFields = listOf(
-        ConfigField.Text(
+        // A picker over the phone's paired devices rather than a box asking for
+        // 00:11:22:33:44:55. It still stores an address — a paired device is a
+        // convenience, not the set of devices that can connect — so an address
+        // can also be typed.
+        ConfigField.BluetoothAddress(
             key = BluetoothConnectionTrigger.CONFIG_ADDRESS,
-            label = "Device address",
-            placeholder = "00:11:22:33:44:55",
-            blankMeaning = "Leave blank for any device",
-            help = "Reading the address needs the Bluetooth permission below.",
+            label = "Device",
+            blankMeaning = "Any device",
+            help = "Lists the devices this phone is paired with. Reading that " +
+                "list, and the address of a device that connects, both need the " +
+                "Bluetooth permission below.",
         ),
     )
 

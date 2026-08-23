@@ -25,6 +25,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -81,12 +82,117 @@ class RuleEditorViewModelTest {
         editor.setConfigValue(Slot.ACTION, 0, "text", "Charging")
         editor.save()
 
-        assertTrue("save should report completion", editor.state.value.saved)
+        assertTrue("save should report completion", editor.state.value.finished)
         val saved = repository.rules().first().single()
         assertEquals("Charger on", saved.name)
         assertEquals("power_connection", saved.trigger.type)
         assertEquals("connected", saved.trigger.config["state"])
         assertEquals(listOf("speak"), saved.actions.map { it.type })
+    }
+
+    /**
+     * The bug this guards is not in the ViewModel so much as in its lifetime.
+     * This one is keyed by rule id and kept in the activity's store, so it
+     * outlives the screen — and a `finished` flag left standing means the next
+     * time that rule is opened, the editor reads "already done" and closes before
+     * it is drawn. From the outside that is a rule that will not open, and a back
+     * press swallowed by a screen that came and went.
+     */
+    @Test
+    fun finishing_is_a_one_shot_signal_and_does_not_outlive_the_screen() = runTest {
+        val repository = InMemoryRuleRepository()
+        val editor = viewModel(repository)
+
+        editor.setName("Charger on")
+        editor.chooseTrigger("power_connection")
+        editor.setConfigValue(Slot.TRIGGER, 0, "state", "connected")
+        editor.addAction("speak")
+        editor.setConfigValue(Slot.ACTION, 0, "text", "Charging")
+        editor.save()
+        assertTrue(editor.state.value.finished)
+
+        // What the host does once it has navigated away.
+        editor.exitHandled()
+
+        assertFalse(
+            "a reopened editor would close itself before being drawn",
+            editor.state.value.finished,
+        )
+        // Consuming the signal must not undo the save, or the flag and the data
+        // would disagree about whether anything happened.
+        assertEquals(1, repository.rules().first().size)
+    }
+
+    @Test
+    fun testing_an_action_reports_what_it_did() = runTest {
+        val editor = viewModel()
+        editor.setName("Buzz")
+        editor.chooseTrigger("screen_state")
+        editor.addAction("vibrate")
+
+        editor.testAction(0)
+
+        val result = editor.state.value.testResult
+        assertNotNull("a test run has to say something, even when it worked", result)
+        assertTrue("expected the action's own name, got: $result", result!!.contains("Vibrate"))
+        // Nothing was saved: testing is not a side door into the repository.
+        assertTrue(editor.state.value.draft.isNew)
+    }
+
+    /**
+     * Config the factory refuses has to read as bad config, not as a failed run —
+     * they call for different fixes, and the factory's own message is the one
+     * written for a person.
+     */
+    @Test
+    fun testing_an_action_with_config_its_factory_refuses_says_so() = runTest {
+        val editor = viewModel()
+        editor.addAction("open_url")
+        editor.setConfigValue(Slot.ACTION, 0, "url", "not-a-url")
+
+        editor.testAction(0)
+
+        val result = editor.state.value.testResult
+        assertNotNull(result)
+        assertTrue("expected the component named, got: $result", result!!.contains("Open a website"))
+        assertEquals("nothing should be left running", null, editor.state.value.testing)
+    }
+
+    /**
+     * The stop half of the button, and the reason it is not optional: `play_alert`
+     * loops for up to a minute, so a test that could not be cut short would be a
+     * worse version of the trap the action's own duration cap exists to avoid.
+     */
+    @Test
+    fun pressing_test_again_stops_a_running_action() = runTest {
+        val editor = viewModel()
+        editor.addAction("play_alert")
+        // Long enough that it is certainly still running when stopped.
+        editor.setConfigValue(Slot.ACTION, 0, "durationMillis", "60000")
+
+        editor.testAction(0)
+        assertEquals("the alert should be running", 0, editor.state.value.testing)
+
+        editor.testAction(0)
+
+        assertEquals(null, editor.state.value.testing)
+        assertEquals("Stopped.", editor.state.value.testResult)
+    }
+
+    @Test
+    fun testing_a_different_action_replaces_the_running_one() = runTest {
+        val editor = viewModel()
+        editor.addAction("play_alert")
+        editor.setConfigValue(Slot.ACTION, 0, "durationMillis", "60000")
+        editor.addAction("vibrate")
+
+        editor.testAction(0)
+        assertEquals(0, editor.state.value.testing)
+
+        editor.testAction(1)
+
+        // Whatever it settles on, it must not still claim to be running the first.
+        assertTrue(editor.state.value.testing != 0)
     }
 
     @Test

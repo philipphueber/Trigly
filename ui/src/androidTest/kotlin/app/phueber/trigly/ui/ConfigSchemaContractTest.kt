@@ -145,6 +145,14 @@ class ConfigSchemaContractTest {
 
                 is ConfigField.AppPackage -> context.packageName
 
+                // A real content: URI shape, because `play_alert` refuses a sound
+                // URI that is not local — a bare "sample" would fail its factory
+                // for the right reason and make this test look like a schema bug.
+                is ConfigField.SoundUri -> "content://media/internal/audio/media/1"
+
+                // The shape the picker produces and the trigger stores.
+                is ConfigField.BluetoothAddress -> "00:11:22:33:44:55"
+
                 is ConfigField.Text -> "sample"
 
                 // Valid as both a substring and a regex, so the sample exercises

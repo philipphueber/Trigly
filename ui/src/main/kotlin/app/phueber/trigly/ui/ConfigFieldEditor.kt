@@ -73,6 +73,22 @@ fun ConfigFieldEditor(
                 onPick = onValueChange,
             )
 
+            // Same reasoning as AppPackage: stored like text, unreachable by
+            // typing. A URI nobody can compose, and a MAC address nobody knows.
+            is ConfigField.SoundUri -> SoundUriField(
+                label = fieldLabel(field.label, field.required),
+                uri = value?.ifEmpty { null },
+                blankMeaning = field.blankMeaning,
+                onPick = onValueChange,
+            )
+
+            is ConfigField.BluetoothAddress -> BluetoothAddressField(
+                label = fieldLabel(field.label, field.required),
+                address = value?.ifEmpty { null },
+                blankMeaning = field.blankMeaning,
+                onPick = onValueChange,
+            )
+
             is ConfigField.Number -> TextField(
                 label = numericLabel(field.label, field.required, field.unit),
                 value = value,
@@ -108,9 +124,9 @@ fun ConfigFieldEditor(
         }
 
         // The blank-means-something hint only helps while the field is empty.
-        // AppPackage is absent on purpose: its picker shows the blank meaning as
-        // the field's own value ("Any app"), so repeating it below would say the
-        // same thing twice.
+        // The three picker kinds are absent on purpose: a picker shows the blank
+        // meaning as the field's own value ("Any app", "Use the tone above"), so
+        // repeating it below would say the same thing twice.
         val blankHint = when (field) {
             is ConfigField.Text -> field.blankMeaning
             is ConfigField.TextPattern -> field.blankMeaning

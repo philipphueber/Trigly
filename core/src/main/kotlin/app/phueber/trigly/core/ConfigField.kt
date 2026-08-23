@@ -107,6 +107,44 @@ sealed interface ConfigField {
     ) : ConfigField
 
     /**
+     * A sound on this device, stored as its `content:` or `file:` URI. Stored and
+     * validated exactly like [Text]; separate for the same reason [AppPackage] is
+     * — nobody can produce `content://media/internal/audio/media/54` from
+     * memory, and nobody should have to go looking for it.
+     *
+     * Blankness carries the same weight it does on [AppPackage]: an alert with no
+     * custom sound uses the device's own tone, which is the sensible default and
+     * has to stay reachable once the picker has been opened.
+     */
+    data class SoundUri(
+        override val key: String,
+        override val label: String,
+        override val required: Boolean = false,
+        override val help: String? = null,
+        val blankMeaning: String? = null,
+    ) : ConfigField
+
+    /**
+     * A Bluetooth device, stored as its MAC address. Stored and validated exactly
+     * like [Text], and separate so the editor can list the devices this phone is
+     * actually paired with rather than asking for `00:11:22:33:44:55`.
+     *
+     * Paired devices are not the same set as devices that could ever connect, so
+     * the editor keeps a way to type an address — the same escape hatch
+     * [AppPackage] keeps for an app with no launcher icon. Reading the pairing
+     * list needs `BLUETOOTH_CONNECT` from API 31, so an empty list can mean "not
+     * allowed to look" rather than "nothing paired"; that is a distinction for the
+     * editor to state, not to hide.
+     */
+    data class BluetoothAddress(
+        override val key: String,
+        override val label: String,
+        override val required: Boolean = false,
+        override val help: String? = null,
+        val blankMeaning: String? = null,
+    ) : ConfigField
+
+    /**
      * A whole number on a bounded scale, set by feel rather than by typing.
      * Stored and validated exactly like [Number]; separate for the same reason
      * [AppPackage] is separate from [Text] — so the editor can offer a different
@@ -178,6 +216,10 @@ sealed interface ConfigField {
 fun ConfigField.defaultValue(): String? = when (this) {
     is ConfigField.Text -> null
     is ConfigField.AppPackage -> null
+    // Both pick something whose absence is itself a setting — the device's own
+    // tone, any Bluetooth device — so there is nothing to preselect.
+    is ConfigField.SoundUri -> null
+    is ConfigField.BluetoothAddress -> null
     // The pattern, like any text whose blankness means "no filter". The mode key
     // is deliberately not defaulted either: absent reads as `contains`, so
     // writing it out would only add noise to every exported rule.

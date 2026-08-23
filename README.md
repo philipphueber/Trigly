@@ -78,6 +78,11 @@ The pickers list only what the phone can actually run: a trigger needing an API
 this Android version does not have, or hardware the device lacks, is not offered
 at all. Each component's caveats are stated in full once it is chosen.
 
+Settings you could not type are chosen from a list — an app, a sound, a paired
+Bluetooth device — and each action has a **Test** button that runs it there and
+then, so a sound is picked by ear rather than by URI. Pressing Test again stops a
+running one.
+
 Rules run **in the background**, in a foreground service that starts at boot and
 after an app update, and stops itself when no rule is enabled. Android shows an
 ongoing notification while it runs, which is the deal: the app cannot watch the
