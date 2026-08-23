@@ -1,4 +1,6 @@
+import java.io.File
 import java.util.Properties
+import java.util.concurrent.TimeUnit
 
 plugins {
     alias(libs.plugins.android.application)
@@ -18,6 +20,65 @@ val keystoreProperties = Properties().apply {
     }
 }
 
+/**
+ * The signing password, from the system keyring rather than from a file.
+ *
+ * `scripts/setup-signing.sh` puts it there, which is what lets the password be
+ * typed once by a person and then used by builds nobody is watching — without
+ * the secret existing as plaintext anywhere on disk. The file keeps the parts
+ * that are not secrets: which keystore, which alias.
+ *
+ * A `storePassword` in `keystore.properties` still wins if one is present. That
+ * is the escape hatch for a machine with no keyring — CI, a container, a
+ * headless box — and it is checked first so that a password somebody wrote down
+ * deliberately is never silently ignored in favour of a stale keyring entry.
+ *
+ * Every failure here resolves to null, and null means the release build comes
+ * out unsigned. That is the same graceful outcome as a missing
+ * `keystore.properties`, and it matters because the keyring is genuinely absent
+ * in ordinary situations: no D-Bus in a headless session, a login keyring still
+ * locked, libsecret not installed. None of those should turn `./gradlew test`
+ * into a configuration error.
+ */
+fun signingPasswordOrNull(): String? {
+    keystoreProperties.getProperty("storePassword")?.takeIf { it.isNotBlank() }?.let { return it }
+
+    val secretTool = listOf("/usr/bin/secret-tool", "/bin/secret-tool")
+        .map(::File)
+        .firstOrNull { it.canExecute() }
+        ?: return null
+
+    // ProcessBuilder rather than providers.exec: exec() treats a non-zero exit
+    // as a build failure, and "the keyring has no entry" is an expected answer
+    // here, not a failure. Cheap enough to run at configure time — it is one
+    // D-Bus round trip, and only for this module.
+    return runCatching {
+        val process = ProcessBuilder(
+            secretTool.path, "lookup", "service", "trigly", "key", "release-keystore",
+        ).redirectErrorStream(false).start()
+
+        val output = process.inputStream.bufferedReader().use { it.readText() }
+        // A locked keyring can leave secret-tool waiting on a prompt that will
+        // never be answered in a non-interactive build, so it does not get to
+        // hang the configuration phase.
+        if (!process.waitFor(10, TimeUnit.SECONDS)) {
+            process.destroyForcibly()
+            return null
+        }
+        if (process.exitValue() != 0) return null
+        // secret-tool prints the secret with no trailing newline of its own on
+        // some versions and with one on others; only the line ending is trimmed,
+        // because a password may legitimately begin or end with a space.
+        output.removeSuffix("\n").takeIf { it.isNotEmpty() }
+    }.getOrNull()
+}
+
+val signingPassword: String? by lazy { signingPasswordOrNull() }
+
+val releaseStoreFile = keystoreProperties.getProperty("storeFile")
+    ?.let { rootProject.file(it) }
+    ?.takeIf { it.isFile }
+
 android {
     namespace = "app.phueber.trigly.ui"
     compileSdk = 35
@@ -32,12 +93,22 @@ android {
     }
 
     signingConfigs {
-        if (keystorePropertiesFile.exists()) {
+        // Three things have to be true, and any one of them missing means an
+        // unsigned build rather than a failed one: a description of the key, the
+        // key file itself, and a password to open it. Checking the file exists
+        // here rather than letting the signer discover it keeps a stale path in
+        // keystore.properties from failing the build late and obscurely.
+        val password = signingPassword
+        if (releaseStoreFile != null && password != null) {
             create("release") {
-                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
-                storePassword = keystoreProperties.getProperty("storePassword")
+                storeFile = releaseStoreFile
+                storePassword = password
                 keyAlias = keystoreProperties.getProperty("keyAlias")
-                keyPassword = keystoreProperties.getProperty("keyPassword")
+                // One password for both, which is what setup-signing.sh creates
+                // and what keytool defaults to. A key password that differs from
+                // the store password can be given its own keyring entry the day
+                // anyone needs one.
+                keyPassword = password
             }
         }
     }
