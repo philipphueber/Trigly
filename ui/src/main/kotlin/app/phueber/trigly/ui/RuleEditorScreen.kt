@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.phueber.trigly.core.ComponentDescriptor
 import app.phueber.trigly.core.ComponentRequirement
+import app.phueber.trigly.core.ConfigField
 
 /**
  * Create or edit one rule.
@@ -308,10 +309,17 @@ private fun ComponentBlock(
                 BlockDivider()
                 Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
                     descriptor.configFields.forEach { field ->
+                        // A TextPattern owns a second key for its match mode; every
+                        // other kind ignores these two arguments.
+                        val modeKey = (field as? ConfigField.TextPattern)?.modeKey
                         ConfigFieldEditor(
                             field = field,
                             value = config[field.key],
                             onValueChange = { onConfigChange(field.key, it) },
+                            modeValue = modeKey?.let { config[it] },
+                            onModeChange = { mode ->
+                                modeKey?.let { onConfigChange(it, mode) }
+                            },
                         )
                     }
                 }

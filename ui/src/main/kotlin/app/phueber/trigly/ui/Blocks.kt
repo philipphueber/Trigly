@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -261,6 +262,49 @@ fun BlockToggle(
             style = MaterialTheme.typography.labelMedium,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+        )
+    }
+}
+
+/**
+ * One of a small set of choices, as a square chip.
+ *
+ * `selectable` with `Role.RadioButton` rather than `toggleable` like
+ * [BlockToggle]: these come in groups where exactly one is on, and a screen
+ * reader should say "selected, 1 of 2" rather than announcing two independent
+ * switches that happen to be wired together.
+ *
+ * Sized for a label row rather than for a form: this sits beside a field label,
+ * so it is deliberately smaller than every other block control.
+ */
+@Composable
+fun BlockToggleChip(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val on = MaterialTheme.colorScheme.primary
+    Surface(
+        color = if (selected) on else Color.Transparent,
+        contentColor = if (selected) {
+            MaterialTheme.colorScheme.onPrimary
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        border = BorderStroke(
+            BlockBorder,
+            if (selected) on else MaterialTheme.colorScheme.outlineVariant,
+        ),
+        modifier = modifier
+            .padding(start = 6.dp)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
+    ) {
+        Text(
+            text = text.uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
         )
     }
 }

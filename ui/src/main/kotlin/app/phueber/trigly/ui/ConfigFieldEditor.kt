@@ -17,9 +17,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.TextMatchMode
+import app.phueber.trigly.core.regexErrorOrNull
 
 /**
  * Renders one declared [ConfigField] and reports edits back out.
@@ -39,6 +42,13 @@ fun ConfigFieldEditor(
     value: String?,
     onValueChange: (String?) -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * The companion value for the one field kind that owns two config keys —
+     * [ConfigField.TextPattern]'s match mode. Defaulted so that every other kind,
+     * and every caller that only ever renders one, is unaffected.
+     */
+    modeValue: String? = null,
+    onModeChange: (String) -> Unit = {},
 ) {
     Column(modifier = modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         when (field) {
@@ -82,6 +92,14 @@ fun ConfigFieldEditor(
                 onValueChange = onValueChange,
             )
 
+            is ConfigField.TextPattern -> TextPatternField(
+                field = field,
+                value = value,
+                mode = TextMatchMode.parse(modeValue),
+                onValueChange = onValueChange,
+                onModeChange = onModeChange,
+            )
+
             is ConfigField.Slider -> SliderField(
                 field = field,
                 value = value,
@@ -95,6 +113,7 @@ fun ConfigFieldEditor(
         // same thing twice.
         val blankHint = when (field) {
             is ConfigField.Text -> field.blankMeaning
+            is ConfigField.TextPattern -> field.blankMeaning
             else -> null
         }
         if (value.isNullOrEmpty() && blankHint != null) {
@@ -103,6 +122,79 @@ fun ConfigFieldEditor(
 
         // Where the caveats that used to live in KDoc reach the user.
         field.help?.let { Hint(it) }
+    }
+}
+
+/**
+ * A text filter and the mode that decides how it matches.
+ *
+ * The mode toggle sits *in* the field's label row rather than below it, because
+ * it changes what the box above means — a control that reads "CONTAINS / REGEX"
+ * next to the words "Title or text contains" answers the question the label
+ * raises.
+ *
+ * Two things only happen in regex mode. The pattern is syntax-coloured, and it
+ * is checked on every keystroke with the error shown underneath. The check is
+ * the same `Regex(...)` the factory will run at save time, so what is shown here
+ * is exactly what would otherwise be a failure at Save — moved to the moment the
+ * mistake is made, when the cursor is still next to it.
+ */
+@Composable
+private fun TextPatternField(
+    field: ConfigField.TextPattern,
+    value: String?,
+    mode: TextMatchMode,
+    onValueChange: (String?) -> Unit,
+    onModeChange: (String) -> Unit,
+) {
+    val isRegex = mode == TextMatchMode.REGEX
+    val highlight = rememberRegexHighlight(enabled = isRegex)
+    val error = if (isRegex) regexErrorOrNull(value.orEmpty()) else null
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = fieldLabel(field.label, field.required),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            TextMatchMode.entries.forEach { option ->
+                BlockToggleChip(
+                    text = option.configValue,
+                    selected = option == mode,
+                    onClick = { onModeChange(option.configValue) },
+                )
+            }
+        }
+
+        OutlinedTextField(
+            value = value.orEmpty(),
+            onValueChange = { onValueChange(it.ifEmpty { null }) },
+            singleLine = true,
+            isError = error != null,
+            visualTransformation = highlight,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Text,
+                // A pattern is not prose: capitalising it or correcting it is
+                // actively harmful, and both are on by default.
+                capitalization = KeyboardCapitalization.None,
+                autoCorrectEnabled = false,
+            ),
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        error?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
     }
 }
 

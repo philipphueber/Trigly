@@ -4,6 +4,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.TextFilter
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
@@ -29,7 +30,7 @@ import kotlinx.coroutines.flow.callbackFlow
  */
 class ClipboardTrigger(
     private val context: Context,
-    private val textContains: String?,
+    private val textFilter: TextFilter,
     private val now: () -> Long = System::currentTimeMillis,
 ) : Trigger {
 
@@ -46,9 +47,7 @@ class ClipboardTrigger(
                     ?.toString()
             }.getOrNull()
 
-            if (text != null &&
-                (textContains == null || text.contains(textContains, ignoreCase = true))
-            ) {
+            if (text != null && textFilter.matches(text)) {
                 trySend(
                     TriggerEvent(
                         triggerType = TYPE,
@@ -66,6 +65,7 @@ class ClipboardTrigger(
     companion object {
         const val TYPE = "clipboard_changed"
         const val CONFIG_TEXT_CONTAINS = "textContains"
+        const val CONFIG_TEXT_MODE = "textContainsMode"
         const val PAYLOAD_TEXT = "text"
     }
 }
@@ -77,7 +77,7 @@ class ClipboardTriggerFactory(private val context: Context) : TriggerFactory {
     override val category = Category.DEVICE
 
     override val configFields = listOf(
-        ConfigField.Text(
+        textFilter(
             key = ClipboardTrigger.CONFIG_TEXT_CONTAINS,
             label = "Only if it contains",
             blankMeaning = "Leave blank for any copied text",
@@ -100,6 +100,9 @@ class ClipboardTriggerFactory(private val context: Context) : TriggerFactory {
 
     override fun create(config: Map<String, String>): Trigger = ClipboardTrigger(
         context = context,
-        textContains = config[ClipboardTrigger.CONFIG_TEXT_CONTAINS],
+        textFilter = TextFilter.fromConfig(
+            config[ClipboardTrigger.CONFIG_TEXT_CONTAINS],
+            config[ClipboardTrigger.CONFIG_TEXT_MODE],
+        ),
     )
 }
