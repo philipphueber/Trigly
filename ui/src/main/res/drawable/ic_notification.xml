@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Trigly mark as a status-bar icon. Not the launcher icon: Android draws a
+  notification's small icon as a silhouette, tinted by the system, so only the
+  alpha channel survives and the colours in `ic_launcher_foreground.xml` would
+  be thrown away — while its generous adaptive-icon margins would remain, and
+  the glyph would come out too small to read at 24dp.
+
+  Same three shapes and the same numbers as `docs/branding/trigly-mark.svg`, on
+  the same 108 board so they can be compared line by line. Only the scale
+  differs, and it is derived rather than eyeballed: the mark spans y 29..79, so
+  50 of 108 units. A status-bar icon should sit inside a 22dp content area of a
+  24dp canvas, which is 99 of 108 units — hence 99/50 = 1.98. That puts the
+  widest points (the 44-unit bar) at 87 units, comfortably inside.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108"
+    android:tint="#FFFFFFFF">
+
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="1.98"
+        android:scaleY="1.98">
+
+        <!-- The bar of the T. -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M32,29 h44 v12 h-44 z" />
+
+        <!-- The stem, running into the arrowhead rather than stopping short. -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M49,41 h10 v22 h-10 z" />
+
+        <!-- The arrowhead. -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M42,63 h24 l-12,16 z" />
+    </group>
+</vector>

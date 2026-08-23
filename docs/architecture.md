@@ -190,6 +190,72 @@ and the dependency it brings. A sealed `Screen` plus `BackHandler` is the whole
 feature. The editor gets a ViewModel keyed by rule id, so opening a different
 rule cannot inherit the previous draft.
 
+### Where the engine runs
+
+`EngineService` in `:ui` is a foreground service, and it owns the engine's
+lifetime: the engine is constructed against the service's own `CoroutineScope`,
+so there is one answer to "is Trigly running?" rather than two that can
+disagree. Nothing outside holds a reference to it — `AppContainer` deliberately
+no longer builds one.
+
+**A live process is the mechanism, not an optimisation.** Since API 26 most
+implicit broadcasts may not be declared in a manifest, so every broadcast
+trigger registers its receiver at runtime. An engine in the application scope
+therefore has exactly the lifetime the system feels like giving the process,
+which on many OEM builds is minutes. A foreground service is the only
+arrangement Android offers where "keep running" is a promise rather than a hope,
+and the ongoing notification is a feature of that bargain rather than a tax: an
+automation app that watches the device invisibly is exactly what a user should
+not have to take on trust.
+
+**The type is `specialUse`, and there was no honest alternative.** The
+foreground-service type catalogue describes what a service is *doing* — playing
+media, syncing data, following a location — and general-purpose automation is
+none of them. `dataSync` is the tempting mislabel and is also the one Android 15
+caps at six hours a day, which would stop the engine every evening. `specialUse`
+carries no timeout; its price is a subtype string that Google reviews before a
+Play release, which is a fair price for saying what the service actually is.
+
+**Starting is the app's job; stopping is the service's.** `TriglyApp` collects
+the rule store and starts the service whenever any rule is enabled;
+`EngineService` stops itself when none is. Splitting it that way means neither
+side has to know what the other is doing, and re-asking on every rule change
+makes a service that went missing come back on the next edit rather than at the
+next reboot — starting one that is already running costs a single
+`onStartCommand`. `BootReceiver` covers the two events that end a process with
+no user involved, a reboot and an app update; `ACTION_MY_PACKAGE_REPLACED`
+matters as much as `BOOT_COMPLETED`, because otherwise every update would
+silently stop every rule until someone next opened the app.
+
+Those are also the moments the platform *allows* a foreground service to start.
+From API 31 an app may only start one while it is exempt — visible on screen,
+answering one of those two broadcasts, or excused from battery optimisation —
+and there is no API that answers "am I exempt right now?" well enough to branch
+on. So `EngineService.start` catches the refusal rather than predicting it: a
+refusal means the process woke for some other reason, and `START_STICKY` will
+bring the service back anyway. Crashing over it would turn a missed start into a
+dead app.
+
+**`sync`, not `start`.** The service calls `TriggerEngine.sync` on every
+emission from the rule store, and `sync` deliberately leaves an unchanged rule
+running. Rebuilding a trigger re-registers its receiver, and a sticky broadcast
+replays on registration — so restarting rule A because rule B was edited would
+fire A for no reason, which is the phantom firing `StateTracker` exists to
+prevent. `sync` also reports a rule it cannot build through `onStartFailure`
+instead of throwing, for the same reason a throwing action does not take down
+its rule: one rule left invalid by an import from a newer build must not stop
+the others.
+
+**What this still does not survive**, stated because the watchdog trigger's
+honesty depends on it: a force-stop from app settings, and an OEM battery
+manager that disregards the promise. The service raises the odds a long way; it
+does not make them one.
+
+Two things it is worth knowing it does *not* fix. It is not a
+background-activity-start exemption — see `docs/actions.md`, where that mistake
+is easy to make — and it is not a scheduler: a coroutine `delay` inside a
+foreground service still stops in Doze.
+
 ### Services the system owns
 
 `NotificationListenerService` and `AccessibilityService` are constructed by the

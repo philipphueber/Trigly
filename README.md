@@ -61,7 +61,8 @@ interface is wrong — fix the interface. Actions follow the same four steps in
 
 ## Status
 
-Early. Implemented: the engine, the plugin seams, the requirement model and the
+Early. Implemented: the engine and the **foreground service** that keeps it
+alive, the plugin seams, the requirement model and the
 permission flow around it, **28 triggers**, **18 actions**, a rules list screen
 that explains why a rule cannot fire, and a **rule editor** — pick a trigger and
 actions from grouped pickers, fill in a form generated from each component's
@@ -71,6 +72,13 @@ process death.
 The pickers list only what the phone can actually run: a trigger needing an API
 this Android version does not have, or hardware the device lacks, is not offered
 at all. Each component's caveats are stated in full once it is chosen.
+
+Rules run **in the background**, in a foreground service that starts at boot and
+after an app update, and stops itself when no rule is enabled. Android shows an
+ongoing notification while it runs, which is the deal: the app cannot watch the
+device without the device saying so. Almost every trigger depends on this —
+since Android 8 the system delivers most broadcasts only to a live process, so
+without the service a rule would fire only while the app was open.
 
 Rules can be **exported and imported** as versioned JSON, one rule or all of
 them. That is the phone-switch story: Android's Auto Backup needs a Google
@@ -101,19 +109,17 @@ a rule that does.
 
 Not yet implemented, and each has a `TODO` at the relevant place in the code:
 
-- **Background execution.** The engine runs in the application scope, so it
-  stops with the process — which currently makes *every* trigger unreliable, not
-  just future ones. It needs a foreground service. This is the next thing worth
-  building.
 - **Real scheduling.** The interval trigger uses a coroutine delay, which does
   not survive Doze. Time-of-day, sunrise/sunset and calendar triggers wait on it.
+  Now the largest gap, and the next thing worth building.
 - **Geofencing and activity recognition.** Would require Google Play Services;
   left out on purpose so the app works on de-Googled devices. The `location`
   trigger uses the platform API instead.
 - **Background activity starts.** Since Android 10 an app in the background
-  cannot open an app or a website without a foreground service or the overlay
-  permission — silently, with no error. Actions that open something are
-  unreliable until that lands.
+  cannot open an app or a website — silently, with no error. The engine's
+  foreground service does *not* lift this; running one is not on the platform's
+  exemption list. The overlay permission is, so actions that open something stay
+  unreliable until that is offered.
 - **Conditions, variables and loops.** A rule is a trigger plus a flat list of
   actions. Anything more is an execution model, and the largest design decision
   still open; see the design note in `docs/actions.md`.

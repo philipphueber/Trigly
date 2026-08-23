@@ -7,21 +7,52 @@ import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.Registry
 import app.phueber.trigly.core.RequirementChecker
 import app.phueber.trigly.core.RuleRepository
-import app.phueber.trigly.core.TriggerEngine
 import app.phueber.trigly.core.storage.ruleRepository
 import app.phueber.trigly.triggers.notification.ListenerNotificationController
 import app.phueber.trigly.triggers.triggerFactories
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class TriglyApp : Application() {
     lateinit var container: AppContainer
         private set
 
+    /**
+     * Lives as long as the process, which is the right lifetime for exactly one
+     * job: noticing that the engine ought to be running. The engine itself is
+     * deliberately not here — see [EngineService].
+     */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        keepEngineRunning()
+    }
+
+    /**
+     * Starts the engine whenever there is something for it to do.
+     *
+     * The pairing with [EngineService]'s self-stop is the whole design: the app
+     * decides when the service should exist, the service decides when it should
+     * not, and neither has to know what the other is doing. Every rule change
+     * re-asks the question, so a service that went missing for any reason is
+     * restarted by the next edit rather than staying dead until a reboot —
+     * starting a service that is already running costs one `onStartCommand`.
+     *
+     * This runs in every process, not just the one behind the UI, because
+     * `Application.onCreate` is the one thing that happens on every path back
+     * to life: the launcher, the system rebinding the notification listener, or
+     * `START_STICKY` bringing the service back.
+     */
+    private fun keepEngineRunning() {
+        scope.launch {
+            container.ruleRepository.rules().collect { rules ->
+                if (rules.any { it.enabled }) EngineService.start(this@TriglyApp)
+            }
+        }
     }
 }
 
@@ -32,16 +63,12 @@ class TriglyApp : Application() {
  * `:triggers` and `:actions`. Plain constructor wiring rather than a DI
  * framework: at four modules it is not worth the annotation processor, and it
  * keeps the dependency graph readable in one screen.
+ *
+ * Note what is *not* here: the `TriggerEngine`. It is built by [EngineService]
+ * against this container's registry, because an engine outliving the service
+ * that hosts it would be a second, invisible answer to "is Trigly running?".
  */
 class AppContainer(context: Context) {
-
-    /**
-     * TODO(service): the engine currently lives as long as the process, so rules
-     *  stop firing when the process is killed. It belongs in a foreground
-     *  service with a persistent notification — that is the only way background
-     *  execution survives OEM battery optimisation.
-     */
-    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /**
      * The adapter from `:triggers` that lets actions in `:actions` reach the
@@ -62,6 +89,4 @@ class AppContainer(context: Context) {
     val ruleRepository: RuleRepository = ruleRepository(context)
 
     val requirementChecker: RequirementChecker = RequirementChecker(context)
-
-    val engine: TriggerEngine = TriggerEngine(registry, applicationScope)
 }

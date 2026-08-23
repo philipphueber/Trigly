@@ -31,10 +31,12 @@ import kotlinx.coroutines.flow.flow
  * [WatchdogAlert.NEVER_SEEN] rather than as a false all-clear — see
  * [AbsenceWatchdog].
  *
- * **This is only as alive as Trigly is.** The engine currently runs in the
- * application scope, so if the system kills Trigly the watchdog dies silently
- * alongside the app it is watching. Until the engine has a foreground service
- * this is a useful signal, not a guarantee.
+ * **This is only as alive as Trigly is**, and a dead watchdog reports "all
+ * fine" by saying nothing — the one failure mode a watchdog must not have. The
+ * engine's foreground service (`EngineService` in `:ui`) is what moves that
+ * from routine to unlikely: the process now has the strongest survival claim
+ * Android offers. It is still not a guarantee. A force-stop ends both apps, and
+ * so does an OEM battery manager that disregards the promise.
  */
 class NotificationWatchdogTrigger(
     private val packageName: String,

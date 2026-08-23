@@ -9,4 +9,18 @@
     <string name="rules_share">Share</string>
     <string name="requirement_grant">Grant</string>
     <string name="export_file_name">trigly-rules.json</string>
+
+    <!--
+      The engine's ongoing notification. Sentence case, not the uppercase the
+      screens use for chrome: this is read in the shade next to other apps'
+      notifications, where Trigly's typography does not apply.
+    -->
+    <string name="engine_channel_name">Running in the background</string>
+    <string name="engine_channel_description">Shows that Trigly is watching for triggers. Android requires this notification while rules are running.</string>
+    <string name="engine_starting">Starting…</string>
+    <string name="engine_none_started">No rule could be started — open Trigly</string>
+    <plurals name="engine_watching">
+        <item quantity="one">Watching %d rule</item>
+        <item quantity="other">Watching %d rules</item>
+    </plurals>
 </resources>

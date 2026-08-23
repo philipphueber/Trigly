@@ -38,8 +38,10 @@ data class Reading(
  * Note these receivers are registered at *runtime*, not in the manifest. Since
  * API 26 most implicit broadcasts cannot be declared in a manifest at all, so
  * runtime registration is the only option — which means the hosting process must
- * be alive to receive them. Until the engine runs in a foreground service (see
- * the TODO in `AppContainer`), these triggers stop when the process dies.
+ * be alive to receive them. That is what `EngineService` in `:ui` is for: it
+ * hosts the engine in a foreground service, so the process stays up and these
+ * receivers stay registered. Without it every trigger below would work only
+ * while someone had the app open.
  */
 abstract class BroadcastTrigger(
     private val context: Context,
