@@ -358,6 +358,7 @@ class RuleEditorScreenTest {
             ConfigField.Timestamp("ts", "A moment"),
             ConfigField.TimeOfDay("tod", "A time"),
             ConfigField.Coordinates("lat", "A latitude"),
+            ConfigField.NotificationButton("btn", "A button"),
         )
 
         composeRule.setContent {
@@ -390,5 +391,6 @@ class RuleEditorScreenTest {
         composeRule.onNodeWithText("PICK A TIME").assertExists()
         composeRule.onNodeWithText("A LATITUDE").assertExists()
         composeRule.onNodeWithText("USE WHERE I AM NOW").assertExists()
+        composeRule.onNodeWithText("CAPTURE A BUTTON").assertExists()
     }
 }

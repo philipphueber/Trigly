@@ -43,14 +43,19 @@ fun ConfigFieldEditor(
     onValueChange: (String?) -> Unit,
     modifier: Modifier = Modifier,
     /**
-     * The companion value for the two field kinds that own a second config key —
-     * [ConfigField.TextPattern]'s match mode and [ConfigField.TimeOfDay]'s
-     * minute. Named for its role rather than either use, since neither is "the"
-     * meaning of a second key. Defaulted so that every other kind, and every
-     * caller that only ever renders one, is unaffected.
+     * The companion values for field kinds that own more than one config key.
+     *
+     * A map rather than a single extra value, because "one companion" turned out
+     * to be an accident of the first kind that needed one. A match mode, a
+     * minute, a longitude — and now a notification's package and a button's
+     * meaning, which is three at once. Keyed by config key so a field reads and
+     * writes the ones it declared and cannot reach another field's.
+     *
+     * Defaulted, so every single-key kind and every caller that renders one is
+     * unaffected.
      */
-    secondValue: String? = null,
-    onSecondChange: (String) -> Unit = {},
+    companions: Map<String, String?> = emptyMap(),
+    onCompanionChange: (key: String, value: String?) -> Unit = { _, _ -> },
 ) {
     Column(modifier = modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         when (field) {
@@ -109,20 +114,32 @@ fun ConfigFieldEditor(
             is ConfigField.TimeOfDay -> TimeOfDayField(
                 field = field,
                 hour = value,
-                minute = secondValue,
+                minute = companions[field.minuteKey],
                 onChange = { hour, minute ->
                     onValueChange(hour)
-                    onSecondChange(minute)
+                    onCompanionChange(field.minuteKey, minute)
                 },
             )
 
             is ConfigField.Coordinates -> CoordinatesField(
                 field = field,
                 latitude = value,
-                longitude = secondValue,
+                longitude = companions[field.longitudeKey],
                 onChange = { lat, lon ->
                     onValueChange(lat)
-                    onSecondChange(lon.orEmpty())
+                    onCompanionChange(field.longitudeKey, lon)
+                },
+            )
+
+            is ConfigField.NotificationButton -> NotificationButtonPicker(
+                field = field,
+                label = value,
+                semantic = companions[field.semanticKey],
+                packageName = companions[field.packageKey],
+                onPick = { label, semantic, pkg ->
+                    onValueChange(label)
+                    onCompanionChange(field.semanticKey, semantic)
+                    onCompanionChange(field.packageKey, pkg)
                 },
             )
 
@@ -148,9 +165,9 @@ fun ConfigFieldEditor(
             is ConfigField.TextPattern -> TextPatternField(
                 field = field,
                 value = value,
-                mode = TextMatchMode.parse(secondValue),
+                mode = TextMatchMode.parse(companions[field.modeKey]),
                 onValueChange = onValueChange,
-                onModeChange = onSecondChange,
+                onModeChange = { onCompanionChange(field.modeKey, it) },
             )
 
             is ConfigField.Slider -> SliderField(

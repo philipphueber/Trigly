@@ -37,7 +37,7 @@ class PatternTesterTest {
                 field = field,
                 value = pattern,
                 onValueChange = { edits += it },
-                secondValue = mode.configValue,
+                companions = mapOf(field.modeKey to mode.configValue),
             )
         }
         composeRule.onNodeWithText("TEST").performClick()
