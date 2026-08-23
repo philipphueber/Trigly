@@ -206,7 +206,10 @@ fun PickerValueBox(
             color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(2.dp, MaterialTheme.colorScheme.outline),
             shape = BlockShape,
-            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp)
+                .hardShadow(BlockShape),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(12.dp),

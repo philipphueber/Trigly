@@ -34,22 +34,27 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
 /*
  * The blocky vocabulary, in one place.
  *
- * Everything here is flat, square and hard-edged: a filled rectangle with a 2dp
- * border, no elevation, no gradient, no rounding. Material's own components are
- * used underneath wherever they carry behaviour worth keeping (focus, ripple,
- * accessibility roles) — what changes is the skin.
+ * Everything here is flat and hard-edged: a filled rectangle with a 2dp border,
+ * a 3dp corner, no gradient, and no elevation in the Material sense — the weight
+ * comes from [hardShadow], a solid offset copy of the block, not from a blur.
+ * Material's own components are used underneath wherever they carry behaviour
+ * worth keeping (focus, ripple, accessibility roles) — what changes is the skin.
  *
  * Having them here rather than inline is what keeps the two screens honest: a
  * border width or a padding is defined once, so the screens cannot drift apart.
@@ -81,6 +86,66 @@ private val BlockBorder = 2.dp
  */
 internal val BlockShape: Shape
     @Composable @ReadOnlyComposable get() = MaterialTheme.shapes.medium
+
+/** Offset of a block's hard shadow. [BlockControlShadow] is the small version. */
+private val BlockShadow = 4.dp
+
+/** For a toggle or a chip, where 4dp beside a 22dp control reads as a smear. */
+private val BlockControlShadow = 3.dp
+
+/**
+ * A solid offset copy of the block's own silhouette, in the ink of its border.
+ *
+ * Not elevation. Material's `shadowElevation` draws a soft gradient that fades
+ * with distance, which is a claim about light and depth; this is a flat second
+ * shape with a hard edge, which is a claim about a sticker lying on paper. The
+ * design has no light source and should not start implying one — and a blurred
+ * shadow under a 2dp border is the exact combination that reads as a Material
+ * card wearing a costume.
+ *
+ * **It reserves its own space.** The `padding` comes first, so the block is laid
+ * out `offset` smaller and the shadow is drawn into the strip that padding just
+ * freed. That is what keeps this to one call site per component: no screen has to
+ * know a shadow exists, no `Arrangement.spacedBy` needs adjusting, and nothing
+ * can be clipped by a parent that was sized before the shadow was added. The
+ * cost is that a block is genuinely 4dp narrower and shorter than it was.
+ *
+ * **The colour is `outline`, not a fixed ink**, which makes this a different idea
+ * in each theme and deliberately so. In light mode a near-black offset under a
+ * near-white page is a shadow. In dark mode ink on ink would be invisible, so it
+ * inverts to the near-white border colour and becomes a second outline, brighter
+ * than the thing casting it. Both read as weight; only one of them is a shadow,
+ * and pretending otherwise would mean hard-coding a colour that vanishes at
+ * night.
+ *
+ * Takes [shape] rather than reading [BlockShape] itself so the silhouette cannot
+ * drift from the block it sits under — a shadow with different corners from its
+ * own card is worse than no shadow.
+ *
+ * [visible] hides the shadow **without releasing its space**, which is the only
+ * way a control can gain one on selection: reserve it conditionally and the
+ * toggle changes size under the finger that just tapped it, shoving the row it
+ * sits in sideways. So an off toggle keeps a 3dp hole where its shadow would be.
+ * That hole is invisible against the page, and it is the price of the control
+ * never moving.
+ */
+@Composable
+internal fun Modifier.hardShadow(
+    shape: Shape,
+    offset: Dp = BlockShadow,
+    visible: Boolean = true,
+): Modifier {
+    val ink = MaterialTheme.colorScheme.outline
+    return this
+        .padding(end = offset, bottom = offset)
+        .drawBehind {
+            if (!visible) return@drawBehind
+            val silhouette = shape.createOutline(size, layoutDirection, this)
+            translate(left = offset.toPx(), top = offset.toPx()) {
+                drawOutline(silhouette, ink)
+            }
+        }
+}
 
 /**
  * The solid slab at the top of a screen.
@@ -144,7 +209,12 @@ fun BlockCard(
     val border = BorderStroke(BlockBorder, MaterialTheme.colorScheme.outline)
     val shape = BlockShape
     if (onClick == null) {
-        Surface(color = fill, border = border, shape = shape, modifier = modifier.fillMaxWidth()) {
+        Surface(
+            color = fill,
+            border = border,
+            shape = shape,
+            modifier = modifier.fillMaxWidth().hardShadow(shape),
+        ) {
             content()
         }
     } else {
@@ -153,7 +223,7 @@ fun BlockCard(
             color = fill,
             border = border,
             shape = shape,
-            modifier = modifier.fillMaxWidth(),
+            modifier = modifier.fillMaxWidth().hardShadow(shape),
         ) {
             content()
         }
@@ -171,7 +241,7 @@ fun BlockDivider(modifier: Modifier = Modifier) {
 }
 
 /**
- * A filled, square, full-width-by-default action.
+ * A filled, full-width-by-default action.
  *
  * The label is uppercased here rather than at every call site, so a button
  * cannot be added in the wrong case.
@@ -195,7 +265,7 @@ fun BlockButton(
             horizontal = 24.dp,
             vertical = 16.dp,
         ),
-        modifier = modifier,
+        modifier = modifier.hardShadow(BlockShape),
     ) {
         Text(text = text.uppercase(), style = MaterialTheme.typography.labelLarge)
     }
@@ -229,7 +299,8 @@ fun BlockOutlineButton(
         contentColor = contentColor,
         border = BorderStroke(BlockBorder, contentColor),
         shape = BlockShape,
-        modifier = if (fillWidth) modifier.fillMaxWidth() else modifier,
+        modifier = (if (fillWidth) modifier.fillMaxWidth() else modifier)
+            .hardShadow(BlockShape),
     ) {
         Text(
             text = text.uppercase(),
@@ -267,7 +338,7 @@ fun BlockTextButton(
 }
 
 /**
- * ON / OFF as a square cell, in place of Material's pill switch.
+ * ON / OFF as a hard-edged cell, in place of Material's pill switch.
  *
  * Built on `toggleable` with `Role.Switch` rather than drawn from scratch, so it
  * keeps the switch semantics that accessibility services and the instrumented
@@ -298,11 +369,13 @@ fun BlockToggle(
             if (checked) MaterialTheme.colorScheme.outline else off,
         ),
         shape = BlockShape,
-        modifier = modifier.toggleable(
-            value = checked,
-            role = Role.Switch,
-            onValueChange = onCheckedChange,
-        ),
+        modifier = modifier
+            .hardShadow(BlockShape, BlockControlShadow, visible = checked)
+            .toggleable(
+                value = checked,
+                role = Role.Switch,
+                onValueChange = onCheckedChange,
+            ),
     ) {
         Text(
             text = if (checked) "ON" else "OFF",
@@ -314,7 +387,7 @@ fun BlockToggle(
 }
 
 /**
- * One of a small set of choices, as a square chip.
+ * One of a small set of choices, as a hard-edged chip.
  *
  * `selectable` with `Role.RadioButton` rather than `toggleable` like
  * [BlockToggle]: these come in groups where exactly one is on, and a screen
@@ -351,6 +424,7 @@ fun BlockToggleChip(
         shape = BlockShape,
         modifier = modifier
             .padding(start = 6.dp)
+            .hardShadow(BlockShape, BlockControlShadow, visible = selected)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
     ) {
         Text(
@@ -426,8 +500,8 @@ fun BlockBottomBar(
  *
  * Material's slider underneath, for the drag handling, keyboard support and the
  * accessibility semantics that make it announce as a seek control — but wearing
- * the block skin, because the default is a rounded pill with a circular thumb
- * and nothing else in this app is round.
+ * the block skin, because the default is a fully rounded pill with a circular
+ * thumb, and this app's 3dp is a corner rather than a curve.
  *
  * The track doubles as a level meter: the filled portion *is* the value, which
  * is the whole reason to use a slider instead of a number box. The thumb is a
@@ -442,7 +516,7 @@ fun BlockBottomBar(
  * in Material3 1.3. Scoped to the two functions that need it rather than turned
  * on for the module: the day it changes, the compiler should point here and not
  * at everything. The plain `Slider` overload is stable, but it only takes
- * colours — and a rounded pill in the right colours is still a rounded pill.
+ * colours — and a pill in the right colours is still a pill.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

@@ -118,7 +118,10 @@ fun RuleEditorScreen(
                         MaterialTheme.colorScheme.error,
                     ),
                     shape = BlockShape,
-                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp)
+                        .hardShadow(BlockShape),
                 ) {
                     Text(
                         text = message,
@@ -140,7 +143,10 @@ fun RuleEditorScreen(
                         MaterialTheme.colorScheme.outline,
                     ),
                     shape = BlockShape,
-                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp)
+                        .hardShadow(BlockShape),
                 ) {
                     Text(
                         text = message,
