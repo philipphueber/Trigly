@@ -56,7 +56,7 @@ system settings reports nothing back to the app.
 | Airplane mode | `airplane_mode` | `ACTION_AIRPLANE_MODE_CHANGED` | — |
 | Wi-Fi radio on/off | `wifi_state` | `WIFI_STATE_CHANGED_ACTION` | — |
 | Bluetooth radio on/off | `bluetooth_adapter_state` | `BluetoothAdapter.ACTION_STATE_CHANGED` | `BLUETOOTH_CONNECT` (API 31+) |
-| Bluetooth device connected | `bluetooth_connected` | `ACTION_ACL_CONNECTED` | `BLUETOOTH_CONNECT` for the address and name |
+| Bluetooth device connects/disconnects | `bluetooth_connected` | `ACTION_ACL_CONNECTED`/`_DISCONNECTED` | `BLUETOOTH_CONNECT` for the address and name |
 | NFC on/off | `nfc_state` | `android.nfc.action.ADAPTER_STATE_CHANGED` | feature `android.hardware.nfc` |
 | GPS on/off | `gps_state` | `PROVIDERS_CHANGED_ACTION` | — (only *reading* a location needs permission) |
 | Screen on/off | `screen_state` | `ACTION_SCREEN_ON`/`_OFF` | — |
@@ -64,6 +64,27 @@ system settings reports nothing back to the app.
 | Dark theme | `dark_theme` | `ACTION_CONFIGURATION_CHANGED` | API 29+ |
 | Orientation | `screen_orientation` | `ACTION_CONFIGURATION_CHANGED` | — |
 | Interval | `interval` | coroutine delay | — (see blocker 2) |
+
+### The type string outlives the description
+
+`bluetooth_connected` fires on connection *or* disconnection, chosen by a state
+field, in the same shape as `power_connection` — two already-edge-shaped
+broadcasts, only the chosen one registered, no state to deduplicate.
+
+The type string still says `connected`, and stays that way. It is persisted in
+every saved rule and every exported file, so it is an identifier rather than a
+description; renaming it to match the behaviour would break exactly the thing it
+names.
+
+The migration is the part worth knowing about. `parseTarget` **errors on an
+absent key**, so simply adding a `stateChoice` to a trigger that never had one
+would make every rule saved beforehand throw at `create()` — the engine would
+report a start failure and those rules would silently stop firing on update, which
+is the loudest failure this app has no way to announce. `parseTargetOrDefault`
+exists for that: absent means what the rule meant when it was written (here,
+connect), while an unknown word is still an error, because a typo is a wrong
+answer rather than an old one. Note that it defaults *stored data* and not the
+form — the schema declares no default, so a new rule still prompts.
 
 ### A MAC address is not always an identity
 
