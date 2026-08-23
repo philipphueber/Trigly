@@ -16,6 +16,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -129,10 +131,28 @@ class MainActivity : ComponentActivity() {
                     LocalDeviceSounds provides deviceSounds,
                     LocalPairedDevices provides pairedDevices,
                 ) {
-                    Destination(
-                        screen = screen,
-                        onNavigate = { screen = it },
-                    )
+                    // The page, as a Surface, for the content colour rather than
+                    // for the fill — `window_background` in `res/values*` already
+                    // paints the fill before Compose starts, and this agrees with
+                    // it because both come from `Tone.Paper` / `Tone.Ink`.
+                    //
+                    // Without a Surface anywhere above them, the screens ran on
+                    // `LocalContentColor`'s own default, which is hard black. On
+                    // the light theme that is very nearly `onSurface` and the bug
+                    // is invisible; on the dark theme every `Text` that did not
+                    // name a colour was black on a near-black page. "ENABLED"
+                    // beside the rule's toggle was the one that showed it.
+                    //
+                    // Fixed here rather than by colouring that one label, because
+                    // the next `Text` written without a `color` would have been
+                    // wrong in exactly the same way, and would have looked right
+                    // to anyone working in light mode.
+                    Surface(color = MaterialTheme.colorScheme.background) {
+                        Destination(
+                            screen = screen,
+                            onNavigate = { screen = it },
+                        )
+                    }
                 }
             }
         }
