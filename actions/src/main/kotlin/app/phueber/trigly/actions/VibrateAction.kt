@@ -9,6 +9,7 @@ import app.phueber.trigly.core.Action
 import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.DurationUnit
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.TriggerEvent
 
@@ -75,13 +76,12 @@ class VibrateActionFactory(private val context: Context) : ActionFactory {
     override val category = ActionCategory.NOTIFY
 
     override val configFields = listOf(
-        ConfigField.Number(
+        ConfigField.Duration(
             key = VibrateAction.CONFIG_DURATION_MILLIS,
             label = "Duration",
-            default = VibrateAction.DEFAULT_DURATION_MILLIS,
-            min = 1,
-            max = VibrateAction.MAX_DURATION_MILLIS,
-            unit = "ms",
+            defaultMillis = VibrateAction.DEFAULT_DURATION_MILLIS,
+            maxMillis = VibrateAction.MAX_DURATION_MILLIS,
+            preferred = DurationUnit.MILLISECONDS,
             help = "Capped at ${VibrateAction.MAX_DURATION_MILLIS} ms.",
         ),
     )

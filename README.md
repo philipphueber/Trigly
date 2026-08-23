@@ -68,7 +68,7 @@ interface is wrong — fix the interface. Actions follow the same four steps in
 
 Early. Implemented: the engine and the **foreground service** that keeps it
 alive, the plugin seams, the requirement model and the
-permission flow around it, **28 triggers**, **18 actions**, a rules list screen
+permission flow around it, **28 triggers**, **19 actions**, a rules list screen
 that explains why a rule cannot fire, and a **rule editor** — pick a trigger and
 actions from grouped pickers, fill in a form generated from each component's
 declared config schema, and save. Rules persist in a local database and survive

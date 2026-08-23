@@ -11,11 +11,16 @@ import app.phueber.trigly.core.SpecialAccessKind
 import app.phueber.trigly.core.TriggerEvent
 
 /** Which stream a volume action targets, in the user's words. */
-enum class VolumeStream(val configValue: String, val streamType: Int) {
-    MEDIA("media", AudioManager.STREAM_MUSIC),
-    RING("ring", AudioManager.STREAM_RING),
-    ALARM("alarm", AudioManager.STREAM_ALARM),
-    NOTIFICATION("notification", AudioManager.STREAM_NOTIFICATION),
+enum class VolumeStream(
+    val configValue: String,
+    val streamType: Int,
+    /** What the picker shows. Separate from [configValue], which rules store. */
+    val displayName: String,
+) {
+    MEDIA("media", AudioManager.STREAM_MUSIC, "Media and video"),
+    RING("ring", AudioManager.STREAM_RING, "Ringtone"),
+    ALARM("alarm", AudioManager.STREAM_ALARM, "Alarms"),
+    NOTIFICATION("notification", AudioManager.STREAM_NOTIFICATION, "Notifications"),
     ;
 
     companion object {
@@ -87,15 +92,18 @@ class SetVolumeActionFactory(private val context: Context) : ActionFactory {
             key = VolumeStream.CONFIG_KEY,
             label = "Which volume",
             options = VolumeStream.entries.map {
-                ConfigField.Option(it.configValue, it.configValue)
+                ConfigField.Option(it.configValue, it.displayName)
             },
         ),
-        ConfigField.Number(
+        // A slider, like play_alert's volume: this is a position, not a number
+        // anyone decides. The architecture doc argued the case and the rule was
+        // only ever applied to the other volume in the app.
+        ConfigField.Slider(
             key = SetVolumeAction.CONFIG_PERCENT,
             label = "Set to",
-            required = true,
             min = 0,
             max = 100,
+            default = 50,
             unit = "%",
             help = "A percentage, because the number of volume steps differs by " +
                 "phone and by stream.",
@@ -117,10 +125,14 @@ class SetVolumeActionFactory(private val context: Context) : ActionFactory {
 }
 
 /** Normal, vibrate or silent. */
-enum class RingerMode(val configValue: String, val mode: Int) {
-    NORMAL("normal", AudioManager.RINGER_MODE_NORMAL),
-    VIBRATE("vibrate", AudioManager.RINGER_MODE_VIBRATE),
-    SILENT("silent", AudioManager.RINGER_MODE_SILENT),
+enum class RingerMode(
+    val configValue: String,
+    val mode: Int,
+    val displayName: String,
+) {
+    NORMAL("normal", AudioManager.RINGER_MODE_NORMAL, "ring out loud"),
+    VIBRATE("vibrate", AudioManager.RINGER_MODE_VIBRATE, "vibrate only"),
+    SILENT("silent", AudioManager.RINGER_MODE_SILENT, "silent"),
     ;
 
     companion object {
@@ -179,7 +191,7 @@ class SetRingerModeActionFactory(private val context: Context) : ActionFactory {
             key = RingerMode.CONFIG_KEY,
             label = "Switch to",
             options = RingerMode.entries.map {
-                ConfigField.Option(it.configValue, it.configValue)
+                ConfigField.Option(it.configValue, it.displayName)
             },
         ),
     )

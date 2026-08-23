@@ -162,8 +162,12 @@ class SetAlarmActionFactory(private val context: Context) : ActionFactory {
     override val category = ActionCategory.HAND_OFF
 
     override val configFields = listOf(
-        ConfigField.Number(SetAlarmAction.CONFIG_HOUR, "Hour", required = true, min = 0, max = 23),
-        ConfigField.Number(SetAlarmAction.CONFIG_MINUTE, "Minute", default = 0, min = 0, max = 59),
+        ConfigField.TimeOfDay(
+            key = SetAlarmAction.CONFIG_HOUR,
+            label = "At",
+            required = true,
+            minuteKey = SetAlarmAction.CONFIG_MINUTE,
+        ),
         ConfigField.Text(SetAlarmAction.CONFIG_LABEL, "Label"),
     )
 
@@ -227,16 +231,18 @@ class AddCalendarEventActionFactory(private val context: Context) : ActionFactor
 
     override val configFields = listOf(
         ConfigField.Text(AddCalendarEventAction.CONFIG_TITLE, "Title", required = true),
-        ConfigField.Number(
+        ConfigField.Timestamp(
             key = AddCalendarEventAction.CONFIG_BEGIN_MILLIS,
             label = "Starts at",
-            unit = "epoch ms",
-            help = "Leave empty to let the calendar app choose.",
+            blankMeaning = "The calendar app chooses",
+            help = "A fixed date and time. A rule that fires more than once will " +
+                "keep proposing this same moment, which is in the past after the " +
+                "first run — for a repeating rule, leave it blank.",
         ),
-        ConfigField.Number(
+        ConfigField.Timestamp(
             key = AddCalendarEventAction.CONFIG_END_MILLIS,
             label = "Ends at",
-            unit = "epoch ms",
+            blankMeaning = "The calendar app chooses",
         ),
     )
 

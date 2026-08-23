@@ -41,13 +41,20 @@ class CancelNotificationActionFactory(private val context: Context) : ActionFact
     override val displayName = "Clear Trigly's notifications"
     override val category = ActionCategory.NOTIFY
 
-    override val configFields = listOf(
-        ConfigField.Number(
-            key = CancelNotificationAction.CONFIG_ID,
-            label = "Notification id",
-            help = "Leave empty to clear everything Trigly has posted.",
-        ),
-    )
+    /**
+     * No fields, deliberately.
+     *
+     * There used to be a "Notification id" box, and no value a person could type
+     * into it could ever be right: `post_notification` mints its ids from
+     * `event.firedAtMillis`, so they are timestamps unknowable in advance. A wrong
+     * id matched nothing and still reported success. Clearing everything Trigly
+     * posted was the only working configuration, so that is now what the action
+     * does, and the field is gone rather than left as a trap.
+     *
+     * The `id` config key is still read by `create()`, so a rule saved with one
+     * keeps its old behaviour instead of silently widening.
+     */
+    override val configFields = emptyList<ConfigField>()
 
     override fun create(config: Map<String, String>): Action = CancelNotificationAction(
         context = context,

@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.Looper
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.DurationUnit
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
@@ -142,19 +143,14 @@ class LocationTriggerFactory(private val context: Context) : TriggerFactory {
     override val category = Category.LOCATION
 
     override val configFields = listOf(
-        ConfigField.Decimal(
+        // One field over two keys: a latitude without a longitude is not half an
+        // answer, it is no answer. The editor offers the device's own position so
+        // that "here" does not mean copying two numbers in from elsewhere.
+        ConfigField.Coordinates(
             key = LocationTrigger.CONFIG_LATITUDE,
             label = "Latitude",
             required = true,
-            min = -90.0,
-            max = 90.0,
-        ),
-        ConfigField.Decimal(
-            key = LocationTrigger.CONFIG_LONGITUDE,
-            label = "Longitude",
-            required = true,
-            min = -180.0,
-            max = 180.0,
+            longitudeKey = LocationTrigger.CONFIG_LONGITUDE,
         ),
         ConfigField.Decimal(
             key = LocationTrigger.CONFIG_RADIUS_METERS,
@@ -164,12 +160,11 @@ class LocationTriggerFactory(private val context: Context) : TriggerFactory {
             unit = "m",
         ),
         stateChoice("Fires when you", "entered", "arrive", "exited", "leave"),
-        ConfigField.Number(
+        ConfigField.Duration(
             key = LocationTrigger.CONFIG_MIN_INTERVAL_MILLIS,
             label = "Minimum time between checks",
-            default = LocationTrigger.DEFAULT_MIN_INTERVAL_MILLIS,
-            min = 1000,
-            unit = "ms",
+            defaultMillis = LocationTrigger.DEFAULT_MIN_INTERVAL_MILLIS,
+            preferred = DurationUnit.SECONDS,
             help = "Shorter intervals detect the boundary sooner and cost more battery.",
         ),
     )

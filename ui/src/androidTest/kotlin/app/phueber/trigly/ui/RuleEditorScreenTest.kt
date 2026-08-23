@@ -338,8 +338,11 @@ class RuleEditorScreenTest {
 
     @Test
     fun every_field_kind_renders_without_crashing() {
-        // Cheap guard: the six kinds are the whole editor surface, so a missing
-        // branch would break an arbitrary subset of the 46 components.
+        // The field kinds are the whole editor surface, so a missing branch would
+        // break an arbitrary subset of the 47 components. This list is
+        // hand-maintained and therefore the weak point — it silently missed four
+        // kinds once already — so a new kind belongs here as well as in the
+        // editor's `when`, which at least the compiler enforces.
         val fields = listOf<ConfigField>(
             ConfigField.Text("t", "Some text"),
             ConfigField.AppPackage("p", "An app"),
@@ -347,6 +350,14 @@ class RuleEditorScreenTest {
             ConfigField.Number("n", "A number", unit = "ms"),
             ConfigField.Decimal("d", "A decimal"),
             ConfigField.Flag("f", "A flag"),
+            ConfigField.SoundUri("s", "A sound"),
+            ConfigField.BluetoothAddress("b", "A device"),
+            ConfigField.Slider("sl", "A slider", min = 0, max = 10, default = 5),
+            ConfigField.TextPattern("tp", "A pattern"),
+            ConfigField.Duration("du", "A duration"),
+            ConfigField.Timestamp("ts", "A moment"),
+            ConfigField.TimeOfDay("tod", "A time"),
+            ConfigField.Coordinates("lat", "A latitude"),
         )
 
         composeRule.setContent {
@@ -366,5 +377,18 @@ class RuleEditorScreenTest {
         // its option labels live inside the dropdown, not on the form.
         composeRule.onNodeWithText("A CHOICE *").assertIsDisplayed()
         composeRule.onNodeWithText("CHOOSE…").assertIsDisplayed()
+
+        // The four newest kinds, each of which prompts rather than inventing a
+        // value: a defaulted timestamp would mean "the moment I opened this".
+        //
+        // `assertExists` rather than `assertIsDisplayed` from here down. Fourteen
+        // fields are taller than the test surface, so displayed-ness would be an
+        // assertion about screen height — which passes on one emulator and fails
+        // on the next, for no reason anybody wants to hear about.
+        composeRule.onNodeWithText("A DURATION").assertExists()
+        composeRule.onNodeWithText("A MOMENT").assertExists()
+        composeRule.onNodeWithText("PICK A TIME").assertExists()
+        composeRule.onNodeWithText("A LATITUDE").assertExists()
+        composeRule.onNodeWithText("USE WHERE I AM NOW").assertExists()
     }
 }

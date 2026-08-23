@@ -4,6 +4,7 @@ import app.phueber.trigly.core.Action
 import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.DurationUnit
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.TriggerEvent
 import kotlinx.coroutines.Dispatchers
@@ -118,12 +119,11 @@ class HttpRequestActionFactory : ActionFactory {
             label = "Content type",
             blankMeaning = "Defaults to ${HttpRequestAction.DEFAULT_CONTENT_TYPE}",
         ),
-        ConfigField.Number(
+        ConfigField.Duration(
             key = HttpRequestAction.CONFIG_TIMEOUT_MILLIS,
             label = "Timeout",
-            default = HttpRequestAction.DEFAULT_TIMEOUT_MILLIS.toLong(),
-            min = 1000,
-            unit = "ms",
+            defaultMillis = HttpRequestAction.DEFAULT_TIMEOUT_MILLIS.toLong(),
+            preferred = DurationUnit.SECONDS,
         ),
     )
 

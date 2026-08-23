@@ -145,6 +145,92 @@ sealed interface ConfigField {
     ) : ConfigField
 
     /**
+     * A length of time. Stored in **milliseconds**, entered in whatever unit
+     * suits.
+     *
+     * Every duration in the app used to be a raw `Number` in ms, because that is
+     * what the engine wants — defensible for a vibration and absurd for a
+     * watchdog, where half an hour reads as `1800000`. This keeps the storage and
+     * changes the control, which is the same trade [AppPackage] and [Slider]
+     * make.
+     *
+     * [maxMillis] is a real cap rather than a hint where one exists: `vibrate`
+     * and `play_alert` both bound their duration because a mistyped one is
+     * otherwise unstoppable from inside the app. The factory still enforces it —
+     * this only stops the editor offering what will be refused.
+     */
+    data class Duration(
+        override val key: String,
+        override val label: String,
+        override val required: Boolean = false,
+        override val help: String? = null,
+        val defaultMillis: Long? = null,
+        val maxMillis: Long? = null,
+        /** The unit the editor opens on, for a field usually set in minutes. */
+        val preferred: DurationUnit = DurationUnit.SECONDS,
+    ) : ConfigField
+
+    /**
+     * A moment in time, stored as epoch milliseconds.
+     *
+     * Rendered as a date control and a time control over one stored value,
+     * because that is how a person holds "next Tuesday at 09:00" and
+     * `1787900400000` is how nobody does.
+     *
+     * **Worth knowing what this cannot fix.** An absolute instant is a poor fit
+     * for a rule that fires repeatedly: after the first run the moment is in the
+     * past. The editor cannot rescue that — only an offset from the firing time
+     * could — so a component using this should say what it means for a rule that
+     * fires twice.
+     */
+    data class Timestamp(
+        override val key: String,
+        override val label: String,
+        override val required: Boolean = false,
+        override val help: String? = null,
+        val blankMeaning: String? = null,
+    ) : ConfigField
+
+    /**
+     * A time of day, as an hour and a minute.
+     *
+     * The second kind after [TextPattern] to own **two** config keys, and for the
+     * same reason: they are one decision. Splitting 09:00 across two number boxes
+     * makes the user do a conversion their phone already has a picker for.
+     *
+     * Two keys rather than one "HH:mm" string so that nothing stored has to
+     * change — [minuteKey] defaults to the hour key plus `Minute`, matching the
+     * convention [TextPattern.modeKey] set.
+     */
+    data class TimeOfDay(
+        override val key: String,
+        override val label: String,
+        override val required: Boolean = false,
+        override val help: String? = null,
+        val minuteKey: String = "${key}Minute",
+    ) : ConfigField
+
+    /**
+     * A point on the earth, as a latitude and a longitude.
+     *
+     * Two keys, like [TimeOfDay], because they are one answer to one question and
+     * a rule with only one of them set is meaningless. Kept as two stored values
+     * so nothing saved has to change.
+     *
+     * Still typeable — a place you are not currently standing has to be enterable
+     * somehow — but the editor also offers the device's own position, which is the
+     * answer for "home" and "work" and removes the copy-two-numbers-from-a-map
+     * errand that a sixth decimal place makes easy to get silently wrong.
+     */
+    data class Coordinates(
+        override val key: String,
+        override val label: String,
+        override val required: Boolean = false,
+        override val help: String? = null,
+        val longitudeKey: String = "longitude",
+    ) : ConfigField
+
+    /**
      * A whole number on a bounded scale, set by feel rather than by typing.
      * Stored and validated exactly like [Number]; separate for the same reason
      * [AppPackage] is separate from [Text] — so the editor can offer a different
@@ -209,6 +295,30 @@ sealed interface ConfigField {
 }
 
 /**
+ * The units a [ConfigField.Duration] can be entered in.
+ *
+ * Deliberately stops at hours. A rule measured in days is a scheduling problem,
+ * not a duration one, and would be badly served by a number box either way.
+ */
+enum class DurationUnit(val millis: Long, val label: String) {
+    MILLISECONDS(1, "ms"),
+    SECONDS(1_000, "sec"),
+    MINUTES(60_000, "min"),
+    HOURS(3_600_000, "hours"),
+    ;
+
+    companion object {
+        /**
+         * The largest unit that divides [millis] exactly, so a stored value comes
+         * back as the number someone would have typed: 1800000 reads as 30 min,
+         * not 1800 sec. Falls back to milliseconds, which divides everything.
+         */
+        fun bestFor(millis: Long): DurationUnit =
+            entries.lastOrNull { millis % it.millis == 0L } ?: MILLISECONDS
+    }
+}
+
+/**
  * The value the editor should start this field at — the declared default, or
  * nothing. Deliberately null rather than an empty string for text fields whose
  * blankness is meaningful; see [ConfigField.Text.blankMeaning].
@@ -220,6 +330,14 @@ fun ConfigField.defaultValue(): String? = when (this) {
     // tone, any Bluetooth device — so there is nothing to preselect.
     is ConfigField.SoundUri -> null
     is ConfigField.BluetoothAddress -> null
+    is ConfigField.Duration -> defaultMillis?.toString()
+    // Both are "not set" until picked. A timestamp defaulted to now would be a
+    // rule that quietly means "the moment you opened the editor", and a time of
+    // day defaulted to midnight is a value nobody chose.
+    is ConfigField.Timestamp -> null
+    is ConfigField.TimeOfDay -> null
+    // A default coordinate would be a place. There is no sensible one.
+    is ConfigField.Coordinates -> null
     // The pattern, like any text whose blankness means "no filter". The mode key
     // is deliberately not defaulted either: absent reads as `contains`, so
     // writing it out would only add noise to every exported rule.

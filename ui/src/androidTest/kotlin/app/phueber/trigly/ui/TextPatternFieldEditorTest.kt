@@ -65,8 +65,8 @@ class TextPatternFieldEditorTest {
                         edits += field.key to it
                         pattern = it
                     },
-                    modeValue = modeValue,
-                    onModeChange = {
+                    secondValue = modeValue,
+                    onSecondChange = {
                         edits += field.modeKey to it
                         modeValue = it
                     },

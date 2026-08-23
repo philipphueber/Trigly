@@ -339,16 +339,23 @@ private fun ComponentBlock(
                 BlockDivider()
                 Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
                     descriptor.configFields.forEach { field ->
-                        // A TextPattern owns a second key for its match mode; every
-                        // other kind ignores these two arguments.
-                        val modeKey = (field as? ConfigField.TextPattern)?.modeKey
+                        // Two kinds own a second config key — a TextPattern's
+                        // match mode and a TimeOfDay's minute — because in both
+                        // cases the pair is one decision. Every other kind
+                        // ignores these two arguments.
+                        val secondKey = when (field) {
+                            is ConfigField.TextPattern -> field.modeKey
+                            is ConfigField.TimeOfDay -> field.minuteKey
+                            is ConfigField.Coordinates -> field.longitudeKey
+                            else -> null
+                        }
                         ConfigFieldEditor(
                             field = field,
                             value = config[field.key],
                             onValueChange = { onConfigChange(field.key, it) },
-                            modeValue = modeKey?.let { config[it] },
-                            onModeChange = { mode ->
-                                modeKey?.let { onConfigChange(it, mode) }
+                            secondValue = secondKey?.let { config[it] },
+                            onSecondChange = { second ->
+                                secondKey?.let { onConfigChange(it, second) }
                             },
                         )
                     }

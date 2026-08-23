@@ -2,6 +2,7 @@ package app.phueber.trigly.triggers.notification
 
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.DurationUnit
 import app.phueber.trigly.triggers.Category
 import app.phueber.trigly.triggers.packageFilter
 import app.phueber.trigly.triggers.stateChoice
@@ -116,19 +117,17 @@ class NotificationWatchdogTriggerFactory : TriggerFactory {
             required = true,
             help = "The app whose ongoing notification should always be present.",
         ),
-        ConfigField.Number(
+        ConfigField.Duration(
             key = NotificationWatchdogTrigger.CONFIG_ABSENCE_MILLIS,
             label = "Alert after it has been gone for",
-            default = NotificationWatchdogTrigger.DEFAULT_ABSENCE_MILLIS,
-            min = 1000,
-            unit = "ms",
+            defaultMillis = NotificationWatchdogTrigger.DEFAULT_ABSENCE_MILLIS,
+            preferred = DurationUnit.MINUTES,
         ),
-        ConfigField.Number(
+        ConfigField.Duration(
             key = NotificationWatchdogTrigger.CONFIG_POLL_MILLIS,
             label = "Check every",
-            default = NotificationWatchdogTrigger.DEFAULT_POLL_MILLIS,
-            min = 1000,
-            unit = "ms",
+            defaultMillis = NotificationWatchdogTrigger.DEFAULT_POLL_MILLIS,
+            preferred = DurationUnit.MINUTES,
             help = "Must not be longer than the absence window, or alerts arrive late.",
         ),
         ConfigField.Flag(
