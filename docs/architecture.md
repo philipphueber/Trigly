@@ -97,11 +97,24 @@ cannot be drawn from it. So each factory also declares its fields as
 `ConfigField` — the same pattern as `ComponentRequirement`: declared on the
 *factory*, consumed by the UI, invisible to the engine.
 
-Six field kinds cover all 46 components: `Text`, `Choice`, `Number`, `Decimal`,
-`Flag`, `AppPackage`. `Choice` carries the most weight, because the fourteen
+Seven field kinds cover all 47 components: `Text`, `Choice`, `Number`,
+`Decimal`, `Flag`, `AppPackage`, `Slider`. `Choice` carries the most weight,
+because the fourteen
 two-word state fields (`enabled`/`disabled`, `plugged`/`unplugged`,
 `entered`/`exited`) use a different word pair per component — which is precisely
 why the words must be declared per factory instead of inferred from the key name.
+
+Two of the seven exist purely so the editor can offer a better control for
+something an existing kind could already store. `AppPackage` stores like `Text`
+but renders as a picker, because nobody knows the dialer is
+`com.google.android.dialer`. `Slider` stores like `Number` but renders as a
+track, and the line between them is not "has bounds" — it is what the bounds
+*mean*. A `Number` bound is a guard rail on a value you have decided (a 5000 ms
+poll interval), where a slider would be fiddly to hit and illegible once set. A
+`Slider` value is a position — half volume — where the digits are the least
+interesting part. Adding a kind for presentation is cheap because the `when` in
+`ConfigFieldEditor` and in `ConfigSchemaContractTest` are both exhaustive: the
+compiler names every place that has to handle it.
 
 **The schema renders; the factory still validates.** Nothing in `ConfigField`
 duplicates the `require()` checks inside `create()`. Bounds like `Number.min`

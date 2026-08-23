@@ -106,6 +106,42 @@ sealed interface ConfigField {
         val blankMeaning: String? = null,
     ) : ConfigField
 
+    /**
+     * A whole number on a bounded scale, set by feel rather than by typing.
+     * Stored and validated exactly like [Number]; separate for the same reason
+     * [AppPackage] is separate from [Text] — so the editor can offer a different
+     * control.
+     *
+     * The distinction is not "does it have bounds" but *what the bounds mean*.
+     * `Number` bounds are a guard rail on a value you know: a poll interval of
+     * 5000 ms is a decision, and a slider would make it fiddly to hit and
+     * illegible once set. A `Slider` value is a position — half volume, a
+     * quarter brightness — where the exact digits are the least interesting part
+     * and dragging is how anyone actually thinks about it.
+     *
+     * [min] and [max] are required, unlike on [Number]: a scale with an open end
+     * is not a scale, and there would be nothing to draw.
+     */
+    data class Slider(
+        override val key: String,
+        override val label: String,
+        val min: Long,
+        val max: Long,
+        val default: Long,
+        override val help: String? = null,
+        val unit: String? = null,
+    ) : ConfigField {
+        /** A slider always has a position, so it always has a value. */
+        override val required: Boolean get() = false
+
+        init {
+            require(min < max) { "$key: min ($min) must be below max ($max)" }
+            require(default in min..max) {
+                "$key: default ($default) is outside $min..$max"
+            }
+        }
+    }
+
     /** One selectable value: [value] is stored, [label] is shown. */
     data class Option(val value: String, val label: String)
 }
@@ -122,4 +158,7 @@ fun ConfigField.defaultValue(): String? = when (this) {
     is ConfigField.Number -> default?.toString()
     is ConfigField.Decimal -> default?.toString()
     is ConfigField.Flag -> default.toString()
+    // Never null: a slider is drawn at a position whether or not one was stored,
+    // so the stored value has to agree with what is on screen from the start.
+    is ConfigField.Slider -> default.toString()
 }

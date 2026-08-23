@@ -1,13 +1,16 @@
 package app.phueber.trigly.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -16,9 +19,12 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -31,6 +37,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 
 /*
  * The blocky vocabulary, in one place.
@@ -311,5 +318,86 @@ fun BlockBottomBar(
                 content()
             }
         }
+    }
+}
+
+/**
+ * A value on a scale, dragged rather than typed.
+ *
+ * Material's slider underneath, for the drag handling, keyboard support and the
+ * accessibility semantics that make it announce as a seek control — but wearing
+ * the block skin, because the default is a rounded pill with a circular thumb
+ * and nothing else in this app is round.
+ *
+ * The track doubles as a level meter: the filled portion *is* the value, which
+ * is the whole reason to use a slider instead of a number box. The thumb is a
+ * hard bar rather than a dot so it reads as a handle you grab and not as a
+ * decoration sitting on top of the fill.
+ *
+ * Rounds to whole numbers on the way out. Every scale this is used for counts in
+ * whole units, and a stored "73.41999" would be both wrong-looking and a
+ * needlessly long string in the config map.
+ *
+ * The opt-in is for `SliderState` and the thumb/track slots, still experimental
+ * in Material3 1.3. Scoped to the two functions that need it rather than turned
+ * on for the module: the day it changes, the compiler should point here and not
+ * at everything. The plain `Slider` overload is stable, but it only takes
+ * colours — and a rounded pill in the right colours is still a rounded pill.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun BlockSlider(
+    value: Int,
+    min: Int,
+    max: Int,
+    onValueChange: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Slider(
+        value = value.toFloat(),
+        onValueChange = { onValueChange(it.roundToInt()) },
+        valueRange = min.toFloat()..max.toFloat(),
+        modifier = modifier,
+        thumb = { BlockSliderThumb() },
+        track = { state -> BlockSliderTrack(state) },
+    )
+}
+
+@Composable
+private fun BlockSliderThumb() {
+    Box(
+        modifier = Modifier
+            .size(width = 14.dp, height = 30.dp)
+            .background(MaterialTheme.colorScheme.primary)
+            .border(BlockBorder, MaterialTheme.colorScheme.outline)
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BlockSliderTrack(state: SliderState) {
+    val span = (state.valueRange.endInclusive - state.valueRange.start)
+    // A zero-width range cannot happen — ConfigField.Slider rejects min >= max —
+    // but this composable is reusable, and dividing by zero here would paint NaN.
+    val fraction = if (span > 0f) {
+        ((state.value - state.valueRange.start) / span).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(18.dp)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(BlockBorder, MaterialTheme.colorScheme.outline)
+            .padding(BlockBorder)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .fillMaxWidth(fraction)
+                .background(MaterialTheme.colorScheme.primary)
+        )
     }
 }
