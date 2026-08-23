@@ -1,7 +1,9 @@
 package app.phueber.trigly.core
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asFlow
@@ -156,7 +158,69 @@ class TriggerEngineTest {
 
             engine.stop()
         }
+
+    /**
+     * `sync` and `runningRuleIds` are reached from two different threads in the
+     * real app and must not corrupt each other.
+     *
+     * This is not hypothetical. The hosting service calls `sync` from the
+     * coroutine collecting the rule store, on `Dispatchers.Default` — while
+     * `onStartCommand`, which Android delivers on the **main thread**, reads
+     * `runningRuleIds` to label its notification. Every rule change triggers both
+     * at once, because the app re-starts the service on each change. An
+     * unsynchronised map there means iterating one thread's `HashMap` while
+     * another restructures it: a `ConcurrentModificationException` on the main
+     * thread, or a count that is simply wrong.
+     *
+     * Real threads rather than a test dispatcher, because a single-threaded
+     * dispatcher is exactly the condition that hides this.
+     */
+    @Test
+    fun `sync and runningRuleIds are safe to call from two threads`() {
+        val scope = CoroutineScope(Dispatchers.Default)
+        val engine = TriggerEngine(idleRegistry(CountingTriggerFactory()), scope)
+        val failures = java.util.concurrent.CopyOnWriteArrayList<Throwable>()
+
+        // Alternating sets, so every round both starts and stops something and
+        // the map is genuinely restructured rather than merely written to.
+        val even = listOf(idleRule("a"), idleRule("b"))
+        val odd = listOf(idleRule("b"), idleRule("c"))
+
+        val writer = Thread {
+            runCatching {
+                repeat(STRESS_ROUNDS) { round ->
+                    engine.sync(if (round % 2 == 0) even else odd)
+                }
+            }.onFailure(failures::add)
+        }
+
+        val reader = Thread {
+            runCatching {
+                repeat(STRESS_ROUNDS) {
+                    // .size forces the snapshot to be built, which is where an
+                    // unguarded map throws.
+                    engine.runningRuleIds.size
+                }
+            }.onFailure(failures::add)
+        }
+
+        writer.start()
+        reader.start()
+        writer.join()
+        reader.join()
+
+        engine.stop()
+        scope.cancel()
+
+        assertEquals("concurrent access threw: $failures", emptyList<Throwable>(), failures)
+    }
 }
+
+/**
+ * Enough rounds to make an unsynchronised map fail essentially every run, while
+ * still finishing in well under a second.
+ */
+private const val STRESS_ROUNDS = 5_000
 
 private const val TRIGGER_TYPE = "fake"
 private const val ACTION_TYPE = "action-0"

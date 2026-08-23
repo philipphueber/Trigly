@@ -63,6 +63,7 @@ class EngineService : Service() {
      * from re-posting a notification that would say "no rule could be started"
      * in the moment before the first emission arrives.
      */
+    @Volatile
     private var hasRules = false
 
     private val notifications: NotificationManager
