@@ -230,7 +230,7 @@ object RuleJson {
             NODE_ALL -> ConditionNode.All(children())
             NODE_ANY -> ConditionNode.Any(children())
             else -> throw IllegalArgumentException(
-                "Unknown condition kind '\$node' in $where."
+                "Unknown condition kind '$node' in $where."
             )
         }
     }

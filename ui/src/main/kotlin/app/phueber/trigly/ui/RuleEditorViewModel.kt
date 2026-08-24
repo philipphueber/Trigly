@@ -12,6 +12,7 @@ import app.phueber.trigly.core.RequirementChecker
 import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.RuleRepository
 import app.phueber.trigly.core.TriggerEvent
+import app.phueber.trigly.core.checks
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -76,6 +77,19 @@ class RuleEditorViewModel(
     val actionOptions: List<ComponentDescriptor>
         get() = registry.actionDescriptors.filter(checker::isAvailable)
 
+    /**
+     * What the condition picker offers: the same device-availability filter as
+     * [triggerOptions], narrowed to components whose descriptor says
+     * `supportsCondition`. Filtered here rather than left to the picker or the
+     * factory, because a component that cannot answer a state question would
+     * build a rule that never fires — silently and permanently, the one failure
+     * mode this project keeps designing against. See `docs/conditions.md`.
+     */
+    val conditionOptions: List<ComponentDescriptor>
+        get() = registry.triggerDescriptors
+            .filter { it.supportsCondition }
+            .filter(checker::isAvailable)
+
     init {
         load()
     }
@@ -115,6 +129,8 @@ class RuleEditorViewModel(
         load()
     }
 
+    // A condition check resolves through this same lookup, under Slot.TRIGGER —
+    // see the KDoc on [Slot] for why there is no third value for it.
     fun descriptorFor(slot: Slot, type: String): ComponentDescriptor? = when (slot) {
         Slot.TRIGGER -> registry.triggerDescriptor(type)
         Slot.ACTION -> registry.actionDescriptor(type)
@@ -124,14 +140,128 @@ class RuleEditorViewModel(
 
     fun setEnabled(enabled: Boolean) = edit { copy(enabled = enabled) }
 
-    fun chooseTrigger(type: String) = edit {
+    /**
+     * Replaces the type of the trigger at [index], migrating compatible config
+     * across the swap the same way [chooseTrigger] always has.
+     *
+     * Also how a not-yet-chosen first trigger gets its first type: [index] 0
+     * against an empty list has nothing to replace, so it appends instead —
+     * which is what lets [chooseTrigger] stay a thin wrapper over this rather
+     * than a second copy of the same logic.
+     */
+    fun changeTriggerType(index: Int, type: String) = edit {
+        val fields = registry.triggerDescriptor(type)?.configFields.orEmpty()
+        val replacement = ComponentDraft(
+            type = type,
+            config = migrateConfig(triggers.getOrNull(index)?.config.orEmpty(), fields),
+        )
+        copy(
+            triggers = if (index in triggers.indices) {
+                triggers.mapIndexed { i, t -> if (i == index) replacement else t }
+            } else {
+                triggers + replacement
+            }
+        )
+    }
+
+    /**
+     * Sets or replaces the *first* trigger edge.
+     *
+     * Kept as its own entry point, rather than folded into [changeTriggerType]
+     * at every call site, because it is the one a one-trigger rule — still the
+     * common case — is built and re-picked through, and because it is what the
+     * rest of the app already calls by this name.
+     */
+    fun chooseTrigger(type: String) = changeTriggerType(0, type)
+
+    fun addTrigger(type: String) = edit {
+        val fields = registry.triggerDescriptor(type)?.configFields.orEmpty()
+        copy(triggers = triggers + ComponentDraft(type, defaultConfigFor(fields)))
+    }
+
+    fun removeTrigger(index: Int) = edit {
+        copy(triggers = triggers.filterIndexed { i, _ -> i != index })
+    }
+
+    /** Order has no engine meaning — the first level is an OR of edges — but a
+     * rule with several edges still reads better with them in the order the
+     * person arranged them, the same courtesy [moveAction] extends to actions.
+     */
+    fun moveTrigger(from: Int, to: Int) = edit {
+        if (from !in triggers.indices || to !in triggers.indices) return@edit this
+        val reordered = triggers.toMutableList()
+        reordered.add(to, reordered.removeAt(from))
+        copy(triggers = reordered)
+    }
+
+    /**
+     * Adds a check to whatever is at [path] — the root itself for an empty
+     * path — picking its component from [conditionOptions] first.
+     *
+     * The one function behind three different-looking moments: filling the
+     * "Only if" section's empty state, adding a second top-level condition
+     * (which promotes the first into a group), and adding a check inside an
+     * existing group. All three are "add this child at this address," which is
+     * exactly what [addCondition] does.
+     */
+    fun addConditionCheck(path: List<Int>, type: String) = edit {
+        val fields = registry.triggerDescriptor(type)?.configFields.orEmpty()
+        val check = ConditionDraft.Check(ComponentDraft(type, defaultConfigFor(fields)))
+        copy(conditions = addCondition(conditions, path, check))
+    }
+
+    /**
+     * Adds an empty AND-group at [path]. Unlike a check, a group needs no
+     * picker — there is nothing to choose yet, only somewhere to put what gets
+     * added to it next.
+     */
+    fun addConditionGroup(path: List<Int>) = edit {
+        val group = ConditionDraft.Group(ConditionDraft.Op.ALL, emptyList())
+        copy(conditions = addCondition(conditions, path, group))
+    }
+
+    /**
+     * Removes the node at [path], root included — an empty [path] clears the
+     * whole section back to its empty state rather than leaving a node with
+     * nothing in it.
+     */
+    fun removeCondition(path: List<Int>) = edit {
+        copy(conditions = replaceCondition(conditions, path) { null })
+    }
+
+    fun setConditionOp(path: List<Int>, op: ConditionDraft.Op) = edit {
+        copy(
+            conditions = replaceCondition(conditions, path) { existing ->
+                (existing as? ConditionDraft.Group)?.copy(op = op) ?: existing
+            }
+        )
+    }
+
+    /** Replaces the component a condition check asks about, migrating config
+     * across the swap the same way [changeTriggerType] does for a trigger.
+     */
+    fun changeConditionType(path: List<Int>, type: String) = edit {
         val fields = registry.triggerDescriptor(type)?.configFields.orEmpty()
         copy(
-            trigger = ComponentDraft(
-                type = type,
-                // Keeps compatible settings when swapping between similar triggers.
-                config = migrateConfig(trigger?.config.orEmpty(), fields),
-            )
+            conditions = replaceCondition(conditions, path) { existing ->
+                val oldConfig = (existing as? ConditionDraft.Check)?.component?.config.orEmpty()
+                ConditionDraft.Check(ComponentDraft(type, migrateConfig(oldConfig, fields)))
+            }
+        )
+    }
+
+    fun setConditionConfigValue(path: List<Int>, key: String, value: String?) = edit {
+        fun update(config: Map<String, String>) =
+            if (value.isNullOrEmpty()) config - key else config + (key to value)
+        copy(
+            conditions = replaceCondition(conditions, path) { existing ->
+                val check = existing as? ConditionDraft.Check
+                if (check == null) {
+                    existing
+                } else {
+                    check.copy(component = check.component.copy(config = update(check.component.config)))
+                }
+            }
         )
     }
 
@@ -165,6 +295,12 @@ class RuleEditorViewModel(
         copy(actions = reordered)
     }
 
+    /**
+     * Edits one config value on a trigger edge or an action. A condition
+     * check's config goes through [setConditionConfigValue] instead — it needs
+     * a tree path rather than a flat index, so it could not share this
+     * signature and still address anything below the top level.
+     */
     fun setConfigValue(slot: Slot, index: Int, key: String, value: String?) = edit {
         // Null and blank both mean "not set", so the factory sees an absent key
         // rather than an empty string. Several components treat absence as
@@ -173,7 +309,11 @@ class RuleEditorViewModel(
             if (value.isNullOrEmpty()) config - key else config + (key to value)
 
         when (slot) {
-            Slot.TRIGGER -> copy(trigger = trigger?.copy(config = update(trigger.config)))
+            Slot.TRIGGER -> copy(
+                triggers = triggers.mapIndexed { i, t ->
+                    if (i == index) t.copy(config = update(t.config)) else t
+                }
+            )
             Slot.ACTION -> copy(
                 actions = actions.mapIndexed { i, action ->
                     if (i == index) action.copy(config = update(action.config)) else action
@@ -303,9 +443,30 @@ class RuleEditorViewModel(
 
     /** @return a human-readable problem, or null if every component builds. */
     private fun validate(rule: Rule): String? {
-        runCatching { registry.createTrigger(rule.trigger) }
-            .exceptionOrNull()
-            ?.let { return describe(it, registry.displayNameOf(rule.trigger.type)) }
+        // Unsuffixed for the common one-trigger rule, so its message reads
+        // exactly as it always has; only a gate with several edges needs to say
+        // which one is at fault.
+        rule.gate.triggers.forEachIndexed { index, spec ->
+            runCatching { registry.createTrigger(spec) }
+                .exceptionOrNull()
+                ?.let {
+                    val name = registry.displayNameOf(spec.type)
+                    val label = if (rule.gate.hasSeveralTriggers) "$name (trigger ${index + 1})" else name
+                    return describe(it, label)
+                }
+        }
+
+        // A condition check is built the same way a trigger is — it names the
+        // same factory, only asked a different question — so the same
+        // construction failure is possible and gets the same treatment.
+        rule.gate.conditions?.checks()?.forEachIndexed { index, spec ->
+            runCatching { registry.createTrigger(spec) }
+                .exceptionOrNull()
+                ?.let {
+                    val name = registry.displayNameOf(spec.type)
+                    return describe(it, "$name (condition ${index + 1})")
+                }
+        }
 
         rule.actions.forEachIndexed { index, spec ->
             runCatching { registry.createAction(spec) }

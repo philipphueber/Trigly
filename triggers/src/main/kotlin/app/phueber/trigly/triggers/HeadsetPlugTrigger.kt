@@ -2,6 +2,7 @@ package app.phueber.trigly.triggers
 
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerFactory
 
@@ -35,6 +36,18 @@ class HeadsetPlugTrigger(
             stateKey = key,
             emit = plugged == onPlugged,
         )
+    }
+
+    // ACTION_HEADSET_PLUG is sticky, same as the battery broadcasts, so a null
+    // receiver registration hands back the last plug state without waiting for
+    // the next event.
+    override suspend fun currentlyHolds(): Boolean? {
+        val intent = runCatching {
+            appContext.registerReceiver(null, IntentFilter(Intent.ACTION_HEADSET_PLUG))
+        }.getOrNull() ?: return null
+        val state = intent.getIntExtra(EXTRA_STATE, -1)
+        if (state < 0) return null
+        return (state == 1) == onPlugged
     }
 
     companion object {
@@ -73,4 +86,6 @@ class HeadsetPlugTriggerFactory(private val context: Context) : TriggerFactory {
             offWord = HeadsetPlugTrigger.UNPLUGGED,
         ),
     )
+
+    override val supportsCondition = true
 }

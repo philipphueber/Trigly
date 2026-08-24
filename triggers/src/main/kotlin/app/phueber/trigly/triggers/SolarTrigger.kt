@@ -96,6 +96,52 @@ class SolarTrigger(
         return null
     }
 
+    /**
+     * The passive form: is it currently daytime (configured for sunrise) or
+     * currently dark (configured for sunset) at the configured place?
+     *
+     * The cheapest condition in the project, and the one `docs/conditions.md`
+     * singles out for it: no permission, no manager, no clock drift to worry
+     * about — just [solarTime], the same pure calculation [nextOccurrenceMillis]
+     * already trusts, asked about today instead of searched over
+     * [SEARCH_DAYS]. Both ends of the day are computed regardless of which one
+     * this instance fires on, because "is it daytime" is a question about the
+     * whole day, not about one instant in it.
+     *
+     * A polar day or polar night is not a failure to answer — see
+     * [NoSolarEvent] — it is the answer: above the Arctic circle, "is it
+     * daytime" has a real yes-or-no even on the day the sun never sets or
+     * never rises. [solarTime] decides which one applies with the same
+     * cosine-range test for sunrise and sunset on a given day (the sign of the
+     * hour angle only comes in afterwards, to tell them apart), so the two
+     * calls below always agree on which [NoSolarEvent] a day is, or agree that
+     * the day has both. The one `null` branch is not a third legitimate answer
+     * — it means that invariant broke, and returning a guessed true or false
+     * would bury exactly the bug that needs to surface instead.
+     */
+    override suspend fun currentlyHolds(): Boolean? {
+        val today = Instant.ofEpochMilli(now()).atZone(zone).toLocalDate()
+        val sunrise = solarTime(today, latitude, longitude, SolarEvent.SUNRISE, zone)
+        val sunset = solarTime(today, latitude, longitude, SolarEvent.SUNSET, zone)
+
+        val isDaytime = when {
+            sunrise is SolarResult.At && sunset is SolarResult.At -> {
+                val nowMillis = now()
+                val sunriseMillis = sunrise.time.toInstant().toEpochMilli()
+                val sunsetMillis = sunset.time.toInstant().toEpochMilli()
+                // Half-open: the instant of sunrise itself already counts as
+                // day, the instant of sunset itself already counts as night.
+                nowMillis >= sunriseMillis && nowMillis < sunsetMillis
+            }
+
+            sunrise is SolarResult.None && sunrise.why == NoSolarEvent.POLAR_DAY -> true
+            sunrise is SolarResult.None && sunrise.why == NoSolarEvent.POLAR_NIGHT -> false
+            else -> null
+        } ?: return null
+
+        return if (event == SolarEvent.SUNRISE) isDaytime else !isDaytime
+    }
+
     companion object {
         const val TYPE = "solar"
         const val CONFIG_LATITUDE = "latitude"
@@ -156,4 +202,6 @@ class SolarTriggerFactory : TriggerFactory {
             ),
         )
     }
+
+    override val supportsCondition = true
 }

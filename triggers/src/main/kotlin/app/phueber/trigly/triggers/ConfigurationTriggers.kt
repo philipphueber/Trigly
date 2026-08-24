@@ -3,6 +3,7 @@ package app.phueber.trigly.triggers
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
+import android.os.Build
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerFactory
@@ -38,6 +39,15 @@ class DarkThemeTrigger(
         )
     }
 
+    // Reads the same `resources.configuration` the broadcast's Intent is built
+    // from, so there is no second source to disagree with the edge. Gated the
+    // same as the factory's requirement: below API 29 the mask bit exists but
+    // is not user-controlled, so it cannot answer what this trigger is asking.
+    override suspend fun currentlyHolds(): Boolean? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        return isNightMode(appContext.resources.configuration.uiMode) == onDark
+    }
+
     companion object {
         const val TYPE = "dark_theme"
         const val CONFIG_STATE = "state"
@@ -60,6 +70,8 @@ class DarkThemeTriggerFactory(private val context: Context) : TriggerFactory {
     // Night mode exists earlier as a battery-saver side effect, but a
     // user-controlled system dark theme is API 29 and up.
     override val requirements = listOf(ComponentRequirement.MinApiLevel(29))
+
+    override val supportsCondition = true
 
     override fun create(config: Map<String, String>): Trigger = DarkThemeTrigger(
         context = context,
@@ -96,6 +108,17 @@ class OrientationTrigger(
         )
     }
 
+    // Same `resources.configuration` the broadcast reads, so edge and level
+    // cannot disagree. Square-ish devices can report neither landscape nor
+    // portrait — the same case [read] returns null for above — and there is
+    // no orientation to hold or not hold, so this does too.
+    override suspend fun currentlyHolds(): Boolean? =
+        when (appContext.resources.configuration.orientation) {
+            Configuration.ORIENTATION_LANDSCAPE -> onLandscape
+            Configuration.ORIENTATION_PORTRAIT -> !onLandscape
+            else -> null
+        }
+
     companion object {
         const val TYPE = "screen_orientation"
         const val CONFIG_STATE = "state"
@@ -114,6 +137,8 @@ class OrientationTriggerFactory(private val context: Context) : TriggerFactory {
     override val configFields = listOf(
         stateChoice("Fires when the screen rotates to", "landscape", "landscape", "portrait", "portrait"),
     )
+
+    override val supportsCondition = true
 
     override fun create(config: Map<String, String>): Trigger = OrientationTrigger(
         context = context,

@@ -3,6 +3,7 @@ package app.phueber.trigly.triggers
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.nfc.NfcAdapter
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerFactory
@@ -39,6 +40,14 @@ class NfcStateTrigger(
         )
     }
 
+    // Unlike the broadcast action/extra above, NfcAdapter itself is the stable,
+    // documented way to get the default adapter — null on a device with no NFC
+    // hardware, which is a different fact from "NFC is off" and must not read as
+    // either enabled or disabled.
+    override suspend fun currentlyHolds(): Boolean? = runCatching {
+        NfcAdapter.getDefaultAdapter(appContext)?.isEnabled
+    }.getOrNull()?.let { it == onEnabled }
+
     companion object {
         const val TYPE = "nfc_state"
         const val CONFIG_STATE = "state"
@@ -67,6 +76,8 @@ class NfcStateTriggerFactory(private val context: Context) : TriggerFactory {
     override val requirements = listOf(
         ComponentRequirement.SystemFeature(PackageManager.FEATURE_NFC),
     )
+
+    override val supportsCondition = true
 
     override fun create(config: Map<String, String>): Trigger = NfcStateTrigger(
         context = context,

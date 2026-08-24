@@ -47,6 +47,14 @@ class AutoSyncTrigger(
         awaitClose { ContentResolver.removeStatusChangeListener(handle) }
     }
 
+    // Same static getter the listener above reads back after being told
+    // *something* changed — there is no separate "current value" API to
+    // disagree with it. Wrapped defensively; nothing in the platform docs
+    // promises this can never throw.
+    override suspend fun currentlyHolds(): Boolean? =
+        runCatching { ContentResolver.getMasterSyncAutomatically() }.getOrNull()
+            ?.let { it == onEnabled }
+
     companion object {
         const val TYPE = "auto_sync"
         const val CONFIG_STATE = "state"
@@ -65,6 +73,8 @@ class AutoSyncTriggerFactory : TriggerFactory {
     override val configFields = listOf(
         stateChoice("Fires when auto-sync is", "enabled", "turned on", "disabled", "turned off"),
     )
+
+    override val supportsCondition = true
 
     override fun create(config: Map<String, String>): Trigger = AutoSyncTrigger(
         onEnabled = parseTarget(

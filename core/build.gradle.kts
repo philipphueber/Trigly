@@ -24,6 +24,17 @@ android {
 
     sourceSets["main"].java.srcDirs("src/main/kotlin")
     sourceSets["test"].java.srcDirs("src/test/kotlin")
+    sourceSets["androidTest"].java.srcDirs("src/androidTest/kotlin")
+
+    // The committed schema JSON, packaged into the test APK so
+    // `MigrationTestHelper` can read it — it looks the schemas up as assets at
+    // runtime, and without this a migration test fails complaining the schema is
+    // missing rather than that the migration is wrong.
+    //
+    // Pointed at the same directory KSP writes, deliberately: copying the files
+    // under src/androidTest/assets would work today and go stale the first time a
+    // schema is added, which is exactly when a migration test matters most.
+    sourceSets["androidTest"].assets.srcDir("$projectDir/schemas")
 }
 
 ksp {

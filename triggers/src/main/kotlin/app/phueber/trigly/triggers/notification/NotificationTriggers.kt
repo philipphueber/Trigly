@@ -1,6 +1,8 @@
 package app.phueber.trigly.triggers.notification
 
+import android.app.Notification
 import android.app.NotificationManager
+import android.service.notification.StatusBarNotification
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.triggers.Category
@@ -49,6 +51,24 @@ fun matchesNotification(
     return true
 }
 
+/**
+ * Turns a live [StatusBarNotification] into the shape [matchesNotification]
+ * already knows how to test, so the posted-notification condition below asks
+ * exactly the question the edge asks through one matcher rather than two
+ * definitions of "matches" that could drift apart.
+ */
+private fun StatusBarNotification.toPostedNotification(): PostedNotification {
+    val extras = notification?.extras
+    return PostedNotification(
+        key = key,
+        packageName = packageName,
+        title = extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString(),
+        text = extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString(),
+        postedAtMillis = postTime,
+        ongoing = isOngoing,
+    )
+}
+
 /** Fires when a notification is posted, optionally narrowed by app and text. */
 class NotificationPostedTrigger(
     private val packageName: String?,
@@ -73,6 +93,28 @@ class NotificationPostedTrigger(
             )
         }
 
+    /**
+     * As an edge this is "a notification arrived"; as a condition it is "one from
+     * that app is currently showing" — a different question, see
+     * `docs/conditions.md`. Reads the same live list the notification actions act
+     * on and runs it through [matchesNotification], so this and [events] cannot
+     * disagree about what counts as a match.
+     *
+     * An empty active-notification list is ambiguous: it means either nothing is
+     * posted, or the listener has no access to tell. [NotificationEvents.service]
+     * being unbound is what distinguishes the two, and only the second answers
+     * null — reporting false there would make the condition fail closed on a
+     * revoked permission with nothing on screen to say why.
+     */
+    override suspend fun currentlyHolds(): Boolean? {
+        val service = NotificationEvents.service ?: return null
+        val active = runCatching { service.activeNotifications }.getOrNull() ?: return null
+
+        return active.any { sbn ->
+            matchesNotification(sbn.toPostedNotification(), packageName, text, includeOngoing)
+        }
+    }
+
     companion object {
         const val TYPE = "notification_posted"
         const val CONFIG_PACKAGE = "package"
@@ -90,6 +132,7 @@ class NotificationPostedTriggerFactory : TriggerFactory {
 
     override val displayName = "Notification appears"
     override val category = Category.NOTIFICATIONS
+    override val supportsCondition = true
 
     override val configFields = listOf(
         packageFilter(help = "Which app's notifications should fire this rule."),
@@ -155,6 +198,19 @@ class DndModeTrigger(private val onDnd: Boolean) : Trigger {
             )
         }
 
+    /**
+     * DND is a real state, not just an edge — [NotificationEvents.interruptionFilter]
+     * already tracks the current value for exactly this reason. [FILTER_UNKNOWN]
+     * is the value before the listener has ever connected (see its doc), and that
+     * is not "DND off": it is "no idea yet", so it answers null rather than a
+     * guess.
+     */
+    override suspend fun currentlyHolds(): Boolean? {
+        val filter = NotificationEvents.interruptionFilter.value
+        if (filter == NotificationEvents.FILTER_UNKNOWN) return null
+        return isDndOn(filter) == onDnd
+    }
+
     companion object {
         const val TYPE = "dnd_mode"
         const val CONFIG_STATE = "state"
@@ -169,6 +225,7 @@ class DndModeTriggerFactory : TriggerFactory {
 
     override val displayName = "Do Not Disturb"
     override val category = Category.NOTIFICATIONS
+    override val supportsCondition = true
 
     override val configFields = listOf(
         stateChoice("Fires when Do Not Disturb is", "on", "switched on", "off", "switched off"),

@@ -3,10 +3,12 @@ package app.phueber.trigly.triggers
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Build
 import android.telephony.TelephonyCallback
 import android.telephony.TelephonyManager
 import androidx.annotation.RequiresApi
+import androidx.core.content.ContextCompat
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.Trigger
@@ -81,6 +83,35 @@ class CallStateTrigger(
         awaitClose { telephony.unregisterTelephonyCallback(callback) }
     }
 
+    /**
+     * Only [CallEvent.INCOMING] has a state to ask about: "ringing" is a level
+     * — `CALL_STATE_RINGING` — for as long as it lasts. Every other event this
+     * trigger fires on is a transition with nothing left to read at rest:
+     * ANSWERED and OUTGOING both read back as the same `CALL_STATE_OFFHOOK` as
+     * an ordinary minute mid-call, so a level check could not tell them apart
+     * without lying, and ENDED/MISSED describe something that already
+     * finished, not a condition anyone is currently in.
+     *
+     * Gated the same way [events] is: below API 31 and without
+     * `READ_PHONE_STATE` there is no honest answer, only a guess.
+     */
+    @SuppressLint("MissingPermission") // READ_PHONE_STATE is declared as a requirement.
+    override suspend fun currentlyHolds(): Boolean? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
+        if (target != CallEvent.INCOMING) return null
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return null
+        }
+
+        val telephony = context.getSystemService(TelephonyManager::class.java) ?: return null
+        return runCatching {
+            @Suppress("DEPRECATION") // No callback-based "current state" query exists.
+            telephony.callState == TelephonyManager.CALL_STATE_RINGING
+        }.getOrNull()
+    }
+
     companion object {
         const val TYPE = "call_state"
         const val PAYLOAD_EVENT = "event"
@@ -115,6 +146,8 @@ class CallStateTriggerFactory(private val context: Context) : TriggerFactory {
         ComponentRequirement.RuntimePermission(Manifest.permission.READ_PHONE_STATE),
         ComponentRequirement.MinApiLevel(Build.VERSION_CODES.S),
     )
+
+    override val supportsCondition = true
 
     override fun create(config: Map<String, String>): Trigger =
         CallStateTrigger(context, CallEvent.parse(config[CallEvent.CONFIG_KEY]))

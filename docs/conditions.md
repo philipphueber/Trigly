@@ -1,6 +1,6 @@
 # Conditions and gates
 
-**Status: Phase 1 built, the rest is design.** `docs/actions.md` calls this the
+**Status: Phases 1–5 built; the editor is the remainder.** `docs/actions.md` calls this the
 largest single design decision left in the project and asks for it to have its own
 document. This is that document. Decisions here were taken by Philipp on
 2026-08-24; the reasoning and the constraints are written down so the
@@ -190,15 +190,34 @@ kind of reassurance that gets planned around.
 ## Phasing
 
 1. **Built.** The gate and condition model — including the first-level OR of
-   edges — the capability seam, and the pure evaluation, with tests. No storage
-   change, no engine change, no UI: nothing user-visible, and the part where the
-   edge/level problem is actually solved.
-2. Storage version and backward compatibility.
-3. Engine: merge the first level's edges, and evaluate the conditions before
-   running actions.
-4. `currentlyHolds()` for the state-capable triggers — mechanical, one at a time,
-   each independently testable.
-5. The passive forms and the passive-only checks: time window, location check.
-6. The editor: a trigger slot, condition slots, and nested groups.
+   edges — the capability seam, and the pure evaluation, with tests.
+2. **Built.** Storage: database version 2, one nullable `conditionsJson` column,
+   several edges as extra `TRIGGER` rows (which needed no migration).
+3. **Built.** Engine: the first level's edges merged into one flow per rule, and
+   the conditions evaluated before the actions run.
+4. **Built.** `currentlyHolds()` across the state-capable triggers — twenty-four
+   components now answer, and `docs/triggers.md` records how each reads its level
+   and where the honest answer is null.
+5. **Built.** The passive forms (`notification_posted`, `notification_watchdog`,
+   `dnd_mode`, `screen_content`, `solar`, `package_change`) and the two
+   passive-only checks, `time_window` and `location_check`.
+6. **Remaining.** The editor: trigger slots, condition slots, nested groups, and
+   offering each component only where it can answer.
 
-Phase 1 is invariant to every later decision, which is why it went first.
+Phase 1 was invariant to every later decision, which is why it went first — and it
+held: nothing in phases 2–5 changed the model.
+
+## What implementing it taught
+
+Four triggers turned out to have no honest level for at least one of their
+settings, and each is a place where returning false would have been a lie the
+evaluator could not see through. They are listed in `docs/triggers.md` under
+"Where the honest answer is null" — Bluetooth classic audio, call state beyond
+ringing, package visibility on API 30+, and the foreground app beyond its lookback
+window. That four of them exist is the argument for `null` being a distinct answer
+rather than a tidy-looking `Boolean`.
+
+One trigger had to grow a config field to have a passive form at all:
+`package_change` fired on install or removal of *any* app, so "is that app
+installed" had no subject. It gained an optional package filter, blank meaning the
+old any-app behaviour, so existing rules are untouched.

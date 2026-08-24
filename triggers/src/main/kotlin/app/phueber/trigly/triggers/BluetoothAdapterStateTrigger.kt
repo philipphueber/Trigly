@@ -2,6 +2,7 @@ package app.phueber.trigly.triggers
 
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.Intent
 import app.phueber.trigly.core.ComponentRequirement
@@ -39,6 +40,13 @@ class BluetoothAdapterStateTrigger(
         )
     }
 
+    // Adapter on/off is read from the manager rather than BLUETOOTH_CONNECT-gated
+    // APIs (device name/address) — this call needs no permission at all, but OEM
+    // builds have been known to throw here anyway, hence the runCatching.
+    override suspend fun currentlyHolds(): Boolean? = runCatching {
+        appContext.getSystemService(BluetoothManager::class.java)?.adapter?.isEnabled
+    }.getOrNull()?.let { it == onEnabled }
+
     companion object {
         const val TYPE = "bluetooth_adapter_state"
         const val CONFIG_STATE = "state"
@@ -62,6 +70,8 @@ class BluetoothAdapterStateTriggerFactory(private val context: Context) : Trigge
     override val requirements = listOf(
         ComponentRequirement.RuntimePermission(Manifest.permission.BLUETOOTH_CONNECT),
     )
+
+    override val supportsCondition = true
 
     override fun create(config: Map<String, String>): Trigger = BluetoothAdapterStateTrigger(
         context = context,

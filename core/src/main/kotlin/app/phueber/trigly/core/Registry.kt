@@ -18,6 +18,16 @@ data class ComponentDescriptor(
     val requirements: List<ComponentRequirement>,
     val configFields: List<ConfigField>,
     val warning: String?,
+    /**
+     * Whether this can be used as a *condition* as well as a trigger — see
+     * `docs/conditions.md`. Always false for an action, which has no state to be
+     * asked about.
+     *
+     * On the descriptor so the editor can decide which slots to offer a component
+     * in without instantiating one, which is the same reason [configFields] and
+     * [requirements] are here.
+     */
+    val supportsCondition: Boolean = false,
 )
 
 private fun ComponentFactory.describe() = ComponentDescriptor(
@@ -26,6 +36,7 @@ private fun ComponentFactory.describe() = ComponentDescriptor(
     category = category,
     requirements = requirements,
     configFields = configFields,
+    supportsCondition = this is TriggerFactory && supportsCondition,
     warning = warning,
 )
 

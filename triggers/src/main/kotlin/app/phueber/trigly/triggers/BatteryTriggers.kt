@@ -2,6 +2,7 @@ package app.phueber.trigly.triggers
 
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.BatteryManager
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.Trigger
@@ -14,6 +15,17 @@ import app.phueber.trigly.core.TriggerFactory
  * dimension has not crossed the threshold.
  */
 private const val BATTERY_ACTION = Intent.ACTION_BATTERY_CHANGED
+
+/**
+ * The current battery snapshot, read without waiting for the next broadcast.
+ *
+ * Registering a null receiver for a sticky action is the idiomatic way to poll
+ * one: the system hands back the last broadcast Intent immediately instead of
+ * queuing a live registration. Wrapped in [runCatching] because there is no
+ * documented guarantee the sticky value still exists on every OEM skin.
+ */
+private fun Context.currentBatteryIntent(): Intent? =
+    runCatching { registerReceiver(null, IntentFilter(BATTERY_ACTION)) }.getOrNull()
 
 /** Percentage from the raw level/scale pair, or null if the extras are absent. */
 fun batteryPercent(level: Int, scale: Int): Int? =
@@ -42,6 +54,15 @@ class BatteryLevelTrigger(
             stateKey = state,
             emit = state == STATE_MET,
         )
+    }
+
+    override suspend fun currentlyHolds(): Boolean? {
+        val intent = appContext.currentBatteryIntent() ?: return null
+        val percent = batteryPercent(
+            level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1),
+            scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1),
+        ) ?: return null
+        return thresholdState(percent, threshold, direction) == STATE_MET
     }
 
     companion object {
@@ -83,6 +104,8 @@ class BatteryLevelTriggerFactory(private val context: Context) : TriggerFactory 
         threshold = requiredInt(config, BatteryLevelTrigger.CONFIG_THRESHOLD, type),
         direction = Direction.parse(config[Direction.CONFIG_KEY]),
     )
+
+    override val supportsCondition = true
 }
 
 class BatteryTemperatureTrigger(
@@ -107,6 +130,13 @@ class BatteryTemperatureTrigger(
             stateKey = state,
             emit = state == STATE_MET,
         )
+    }
+
+    override suspend fun currentlyHolds(): Boolean? {
+        val intent = appContext.currentBatteryIntent() ?: return null
+        val tenths = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
+        if (tenths == Int.MIN_VALUE) return null
+        return thresholdState(tenths, thresholdTenthsC, direction) == STATE_MET
     }
 
     companion object {
@@ -151,6 +181,8 @@ class BatteryTemperatureTriggerFactory(private val context: Context) : TriggerFa
             requiredInt(config, BatteryTemperatureTrigger.CONFIG_THRESHOLD_C, type) * 10,
         direction = Direction.parse(config[Direction.CONFIG_KEY]),
     )
+
+    override val supportsCondition = true
 }
 
 /**
@@ -197,6 +229,13 @@ class ChargingTypeTrigger(
             stateKey = actual?.configValue ?: UNPLUGGED,
             emit = actual == source,
         )
+    }
+
+    override suspend fun currentlyHolds(): Boolean? {
+        val intent = appContext.currentBatteryIntent() ?: return null
+        val plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1)
+        if (plugged < 0) return null
+        return ChargingSource.ofPluggedValue(plugged) == source
     }
 
     companion object {
@@ -269,4 +308,6 @@ class ChargingTypeTriggerFactory(private val context: Context) : TriggerFactory 
             config[ChargingSource.CONFIG_KEY] ?: ChargingSource.AC.configValue
         ),
     )
+
+    override val supportsCondition = true
 }
