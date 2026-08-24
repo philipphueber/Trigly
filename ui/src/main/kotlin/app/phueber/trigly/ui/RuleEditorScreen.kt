@@ -18,9 +18,15 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -68,6 +74,34 @@ fun RuleEditorScreen(
 ) {
     var picking by remember { mutableStateOf<Picking?>(null) }
     val draft = state.draft
+
+    // Which blocks are folded shut. Kept as the collapsed set rather than the
+    // expanded one so that everything starts open: a rule with one action should
+    // look exactly as it did before this existed, and folding is something the
+    // user does rather than something they undo.
+    //
+    // Keyed by *position* — "trigger", "action-0" — because a `ComponentDraft`
+    // has no identity of its own. So Up and Down move an action out from under
+    // its own fold: the slot stays shut, not the action. That is the right way
+    // round for the job it does, which is getting a long rule down to a list of
+    // headings you can reorder.
+    //
+    // Saveable, so a rotation does not unfold the whole rule again.
+    val collapsed = rememberSaveable(saver = stringListSaver) { mutableStateListOf<String>() }
+    fun toggle(key: String) {
+        if (!collapsed.remove(key)) collapsed += key
+    }
+
+    // Which blocks are currently showing their caveat prose. Separate from the
+    // fold and separate from the block itself: the caveat is hidden by default
+    // even in an open block, and the one way to see it is to tap its badge. Kept
+    // out here, keyed by position like the fold, so it survives a rotation and so
+    // Up/Down move the *slot's* state rather than the action's — the same choice,
+    // for the same reason, as [collapsed].
+    val shownCaveats = rememberSaveable(saver = stringListSaver) { mutableStateListOf<String>() }
+    fun toggleCaveat(key: String) {
+        if (!shownCaveats.remove(key)) shownCaveats += key
+    }
 
     Column(modifier = modifier.fillMaxSize().imePadding()) {
         BlockHeader(
@@ -166,6 +200,10 @@ fun RuleEditorScreen(
                 onChoose = { picking = Picking.Trigger },
                 onConfigChange = { key, value -> onConfigChange(Slot.TRIGGER, 0, key, value) },
                 onResolveRequirement = onResolveRequirement,
+                expanded = TRIGGER_KEY !in collapsed,
+                onToggleExpanded = { toggle(TRIGGER_KEY) },
+                caveatShown = TRIGGER_KEY in shownCaveats,
+                onToggleCaveat = { toggleCaveat(TRIGGER_KEY) },
             )
 
             SectionLabel("Then")
@@ -199,6 +237,10 @@ fun RuleEditorScreen(
                         }
                         BlockTextButton("Remove") { onRemoveAction(index) }
                     },
+                    expanded = actionKey(index) !in collapsed,
+                    onToggleExpanded = { toggle(actionKey(index)) },
+                    caveatShown = actionKey(index) in shownCaveats,
+                    onToggleCaveat = { toggleCaveat(actionKey(index)) },
                 )
             }
 
@@ -278,6 +320,24 @@ private fun SectionLabel(text: String) {
 /**
  * One trigger or action, as a block split into cells: what it is, what to know
  * about it, its settings, what it needs, and what can be done to it.
+ *
+ * [expanded] folds the middle away. What it hides is what you *read and fill in*
+ * — the settings and the requirements. What it keeps is the heading, the caveat
+ * badge, the controls that act on the block, and any fault: a rule with six
+ * actions is taller than several screens, and the thing worth compressing is the
+ * reading, while Up, Down, Remove and "this component is not available" are
+ * exactly what you still want to reach in a folded list.
+ *
+ * The caveat is not part of that middle. Its prose is hidden by default whether
+ * the block is open or shut, and [caveatShown] — driven by the badge in the
+ * header — is the only thing that reveals it. So it sits above the fold, reachable
+ * even from a folded block: a caveat is worth reading before reordering a rule,
+ * not only while filling one in.
+ *
+ * The fold is not offered when there would be nothing behind it — a chosen
+ * component with no settings and no requirements has no middle, and a button that
+ * visibly does nothing is worse than no button. A lone caveat does not bring the
+ * fold back, because the caveat has its own control.
  */
 @Composable
 private fun ComponentBlock(
@@ -288,9 +348,17 @@ private fun ComponentBlock(
     onChoose: () -> Unit,
     onConfigChange: (String, String?) -> Unit,
     onResolveRequirement: (ComponentRequirement) -> Unit,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
+    caveatShown: Boolean,
+    onToggleCaveat: () -> Unit,
     modifier: Modifier = Modifier,
     footer: (@Composable () -> Unit)? = null,
 ) {
+    val hasMiddle = descriptor != null &&
+        (descriptor.configFields.isNotEmpty() ||
+            descriptor.requirements.isNotEmpty())
+
     BlockCard(modifier = modifier) {
         Column {
             Row(
@@ -304,6 +372,42 @@ private fun ComponentBlock(
                     contentColor = MaterialTheme.extra.accent,
                     onClick = onChoose,
                 )
+                // The one control for the caveat, in the header so it stays with
+                // the block whether it is folded or open, and beside the fold
+                // button so the two reads — "show me the settings", "tell me the
+                // catch" — sit together.
+                if (descriptor?.warning != null) {
+                    CaveatBadge(shown = caveatShown, onToggle = onToggleCaveat)
+                }
+                if (hasMiddle) {
+                    // Says what pressing it does, not what the state is: "Hide"
+                    // while the settings are showing. The alternative reading of
+                    // a chevron or a state label is a coin toss, and this design
+                    // has no icon vocabulary to lean on.
+                    BlockTextButton(
+                        text = if (expanded) "Hide" else "Show",
+                        onClick = onToggleExpanded,
+                    )
+                }
+            }
+
+            // The caveat prose, hidden until the badge above is tapped, and shown
+            // regardless of the fold — above the early returns below on purpose,
+            // so a folded block can still surface its catch. The picker only ever
+            // marks that this exists; here is where the sentence lives.
+            if (descriptor?.warning != null && caveatShown) {
+                BlockDivider()
+                Surface(
+                    color = MaterialTheme.extra.cautionContainer,
+                    contentColor = MaterialTheme.extra.onCautionContainer,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = descriptor.warning!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(14.dp),
+                    )
+                }
             }
 
             if (descriptor == null) {
@@ -327,22 +431,12 @@ private fun ComponentBlock(
                 return@Column
             }
 
-            // The full caveat, at the one moment it is actionable: the component
-            // is chosen, the fields are in front of you, and swapping it out is
-            // still a tap away. The picker only marks that this exists.
-            descriptor.warning?.let {
-                BlockDivider()
-                Surface(
-                    color = MaterialTheme.extra.cautionContainer,
-                    contentColor = MaterialTheme.extra.onCautionContainer,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        text = it,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(14.dp),
-                    )
-                }
+            // Folded: heading and controls only. An early return rather than
+            // wrapping the three cells below in a condition, which is the same
+            // shape the unavailable-component case above already uses.
+            if (!expanded) {
+                Footer(footer)
+                return@Column
             }
 
             if (descriptor.configFields.isNotEmpty()) {
@@ -407,3 +501,21 @@ private fun Footer(footer: (@Composable () -> Unit)?) {
         footer()
     }
 }
+
+/** The trigger's fold key. One trigger per rule, so it needs no index. */
+private const val TRIGGER_KEY = "trigger"
+
+private fun actionKey(index: Int) = "action-$index"
+
+/**
+ * Saves a set of position keys across a configuration change — the folded blocks
+ * and the blocks whose caveat is open both use it.
+ *
+ * A `SnapshotStateList` is not saveable on its own, and the contents are plain
+ * strings, so the list is what gets stored and `toMutableStateList` puts the
+ * observability back on the way in.
+ */
+private val stringListSaver: Saver<SnapshotStateList<String>, Any> = listSaver(
+    save = { it.toList() },
+    restore = { it.toMutableStateList() },
+)

@@ -249,8 +249,36 @@ test can establish.
 
 Three destinations — the list, the editor, and the notification inspector — do
 not justify a navigation library and the dependency it brings. A sealed `Screen`
-plus `BackHandler` is the whole feature. The editor gets a ViewModel keyed by
-rule id, so opening a different rule cannot inherit the previous draft.
+plus **one** `BackHandler` is the whole feature.
+
+One handler, not one per destination, and the difference is the whole reason this
+section exists. Per-destination handlers are added and removed as the screen
+changes, which means the editor's handler is disposed *by the navigation it just
+performed* — a back press then arrives while the callback that should answer it
+is being torn down. The rule list, meanwhile, registered no handler at all and
+leaned on the framework default to finish the activity, so "back on the list
+closes the app" was never something the app actually said. Now `backTarget` says
+it: a `Screen?` where null means the list is the bottom of the stack and back
+leaves, and every other destination — the editor, the inspector — maps back to
+the list. It is a pure function precisely so that the one decision here is
+checkable without a device.
+
+`Screen` is saved through `ScreenSaver`, so a rotation inside the editor does not
+dump the user back on the list. That is load-bearing rather than a courtesy — see
+below.
+
+**The editor's draft is discarded when the editor is left.** The editor gets a
+ViewModel keyed by rule id, which handles *different* rules — but an unsaved rule
+has no id, so its key can only be the constant `editor-new`, and these ViewModels
+live in the activity's store. One instance therefore served every new rule for
+the life of the activity, carrying the last draft with it: tapping "New rule"
+reopened the rule you thought you had closed. `RuleEditorViewModel.reset()` is
+the answer, called from a `DisposableEffect` in `EditorHost` because dispose is
+the one place that catches every way of leaving — back, the header arrow, a save,
+a delete — and cannot be forgotten when a fifth is added. It is guarded on
+`isChangingConfigurations`, since a rotation disposes the composition too and
+losing a draft to a turn of the phone would be worse than the bug being fixed.
+That guard is why the destination has to survive rotation.
 
 ### The notification inspector
 
@@ -361,6 +389,16 @@ hundreds and losing stale UI events is better than losing the service.
 Each bus also exposes whether its service is connected. A trigger whose service
 is not bound is not quiet, it is broken, and that difference has to be
 expressible.
+
+Actions reach those services the other way round, through a port in `:core` that
+`:triggers` implements over the live service — `NotificationController` for the
+notification listener. That is what keeps `:actions` from depending on
+`:triggers`: the dismiss and button actions call *into* it, and `play_alert`'s
+"stop when the notification goes away" *reads* through it. Reading is a poll, not
+a subscription, for the reason the watchdog trigger polls: the bus carries edges,
+and something that starts after the edge has passed would wait for it forever. An
+action that needs to observe the system, rather than act on it, belongs on this
+port too — never on a bus in a sibling module.
 
 ## Look and feel
 
@@ -494,13 +532,52 @@ wrong: a refused save, a permission that is missing, a rule that cannot fire.
 Once two thirds of the triggers carry a caveat, drawing them all in red teaches
 people to ignore red.
 
-Caveats are also shown at a different *time* than they used to be. The picker
-printed each component's full warning under its name, on the reasoning that a
-caveat matters most before the choice is made — but the list became a wall of
-prose in which no single item could be read. The picker now marks that a caveat
-exists with one badge, and the editor states the sentence in full once the
-component is chosen, which is the moment it is actionable and swapping it out is
-still one tap away.
+Caveats are also shown at a different *time* than they used to be, and the rule
+is now the same everywhere: **the prose is hidden by default, and the one thing
+that reveals it is its badge.** The picker once printed each component's full
+warning under its name, on the reasoning that a caveat matters most before the
+choice is made — but the list became a wall of prose in which no single item
+could be read. Two thirds of the triggers carry a caveat, so the same wall grows
+in the editor the moment a rule has a few components.
+
+So `CaveatBadge` is both the marker and the control. It carries the `!` glyph, it
+reads to the accessibility tree as a toggle, and tapping it is what brings the
+sentence — in the picker it opens in place under the component's name, in the
+editor it opens under the block's heading. In the editor the badge lives in the
+header rather than inside the fold, so it stays with a block that has been folded
+shut for reordering: a caveat is worth reading before moving an action, not only
+while filling one in. Nothing shows the sentence on its own — not opening a block,
+not choosing the component — which is what keeps a long rule and a 28-item picker
+both readable while still admitting, at a glance, that there is something to know.
+
+### A component block folds
+
+The editor puts everything on one scroll, which is right for building a rule and
+wrong for finding your way around one that already has six actions. So each
+trigger and action block folds.
+
+What folds is what you *read and fill in* — the settings and the requirements.
+What stays is the heading, the caveat badge, any fault, and the footer: Test, Up,
+Down, Remove. Reordering a long rule is the main thing folding is for, so hiding
+the controls along with the settings would remove the reason to fold at all. A
+fault stays because "this component is not available in this version" is not
+something the user should be able to tuck away. The caveat *badge* stays for the
+same reason the fault does — that there is a catch is not tuckable — while the
+caveat *prose* is governed by the badge, not the fold, and can be read from a
+folded block (see "Warnings are not errors").
+
+Three smaller decisions. Everything starts **open**, so a one-action rule looks
+exactly as it did before this existed and folding is something the user does
+rather than something they have to undo. The fold is **not offered** when there
+is nothing behind it — an unchosen component, or one with no settings and no
+requirements — because a button that visibly does nothing is worse than no
+button; a lone caveat does not bring it back, because the caveat has its own
+control. And the state is keyed by *position*, `trigger` and `action-0`, because
+a `ComponentDraft` has no identity of its own: Up and Down therefore move an
+action out from under its own fold. The revealed-caveat state is kept the same
+way and for the same reasons — a separate positional set, saved across rotation.
+That is the right way round for the job, which is getting a long rule down to a
+list of headings you can reorder.
 
 ### Insets are the screen's job
 

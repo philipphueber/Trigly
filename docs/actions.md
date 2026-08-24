@@ -94,7 +94,7 @@ the tap start the activity — worse automation, but honest about who decided.
 | Show a toast | `toast` | — (suppressed in background from API 12) |
 | Speak text aloud | `speak` | — |
 | Vibrate | `vibrate` | `VIBRATE` (install-time) |
-| Play an alert sound | `play_alert` | — (storage access only for a `file:` custom sound) |
+| Play an alert sound | `play_alert` | — (storage access only for a `file:` custom sound; notification access only for "stop when the notification goes away") |
 | Open a website | `open_url` | Display over other apps, to work in the background |
 | Open an app | `open_app` | Display over other apps, to work in the background (and see package visibility below) |
 | Compose an email | `compose_email` | Display over other apps, to work in the background (user confirms) |
@@ -123,9 +123,10 @@ Design lines held deliberately:
 - **`vibrate` is capped at 10 seconds.** A config typo of 30000 for 300 is
   otherwise unstoppable short of killing the app.
 - **`play_alert` is capped at 60 seconds**, for the same reason and more
-  urgently: the tone loops, so the failure mode is a phone alarming in a meeting
-  with no in-app stop button. Disabling the rule cancels a running alert, which
-  is why the action suspends for its duration instead of firing and forgetting.
+  urgently: the tone loops, so the failure mode is a phone alarming in a meeting.
+  Disabling the rule cancels a running alert, which is why the action suspends
+  for its duration instead of firing and forgetting — and it is what makes
+  "stop when the notification goes away" possible at all.
 - **`play_alert` custom sounds are `content:`/`file:` only.** A remote sound URI
   in an imported rule would be a beacon: it would report to a stranger's server
   every time the rule fired. Same reasoning as https-only `http_request`.
@@ -161,6 +162,51 @@ And a **reply button is refused, not pressed**. It carries a `RemoteInput`, and
 firing its intent with no text attached does nothing — the picker marks those and
 the action fails with a reason, because reporting success for a press that
 achieved nothing is the failure this action exists to stop having.
+
+### Stopping an alert when the notification goes away
+
+An alarm that sounds until the phone is looked at is the point of `play_alert`,
+and until now "I have looked at it" had no expression: the sound ran its set time
+whatever the user did, and the only way to cut it short was to disable the rule —
+which means opening Trigly to silence a noise made *about another app*. The
+natural gesture is the notification itself. Swipe the thing away and the alarm
+about it should stop.
+
+With the option on, the alert ends the moment the notification that fired the
+rule is no longer posted, or when the duration runs out, whichever comes first.
+The duration stays the safety net rather than becoming decorative: an *ongoing*
+notification never goes away on its own, and without the cap such a rule would be
+an alarm with no end.
+
+Three deliberate choices in how it watches:
+
+- **The notification is identified by the key from the event, never from
+  configuration.** A stored key is stale by the next post, which is the same
+  reason `notification_button` stores an app and a label instead. Within one
+  firing the key is exactly right: an app that *updates* its notification keeps
+  the key, so a progress notification that keeps changing still counts as
+  present.
+- **Presence is polled, twice a second, not subscribed to.** The same reason the
+  watchdog trigger polls (`docs/triggers.md`): removal is an edge, and an alert
+  that started after the notification was already gone would wait forever for an
+  edge that had already passed. Checking before the first sleep is what covers
+  that case, and half a second is short enough that the silence reads as a
+  consequence of the swipe.
+- **When the option cannot work, the action says so.** Two ways it cannot: the
+  rule was fired by something that is not a notification, or notification access
+  is not granted. Both play the alert for its full length and then report a
+  failure naming which it was. The alternative — falling back quietly — leaves
+  someone believing an alarm has a stop gesture that does nothing, and they find
+  out in a meeting.
+
+Access revoked mid-alert reads as "the notification is gone" and stops the sound,
+because the listener reports an empty list either way. That is the safe direction
+to be wrong in: the mistake is a silence, not an alarm nobody can stop.
+
+Not covered by an automated test on a device, and worth stating rather than
+implying: nothing in the suite grants notification access, so the decision and
+the polling loop are unit-tested against a fake listener and the real gesture is
+checked by hand.
 
 ### Why `play_alert` exists next to `post_notification`
 

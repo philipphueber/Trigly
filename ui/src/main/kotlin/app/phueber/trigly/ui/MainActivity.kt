@@ -19,10 +19,12 @@ import androidx.activity.viewModels
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -103,7 +105,31 @@ class MainActivity : ComponentActivity() {
         )
         setContent {
             TriglyTheme {
-                var screen by remember { mutableStateOf<Screen>(Screen.RuleList) }
+                // Saveable, so rotating the phone does not throw the user out of
+                // the editor — and so a rotation is not mistaken for leaving it,
+                // which is what `EditorHost` keys discarding the draft on.
+                var screen by rememberSaveable(stateSaver = ScreenSaver) {
+                    mutableStateOf<Screen>(Screen.RuleList)
+                }
+
+                // One handler for the whole app, registered once and never
+                // removed while the activity lives.
+                //
+                // It used to be one handler per destination, added and removed as
+                // the screen changed. That is the arrangement that makes back
+                // unreliable: the editor's handler is disposed *by the navigation
+                // it just performed*, so a back press arrives while the callback
+                // that should answer it is being torn down. The rule list had no
+                // handler at all and leaned on the framework default to finish the
+                // activity — which is also why "back on the list closes the app"
+                // was never something this app actually stated.
+                //
+                // Now it states it. [backTarget] holds the decision; null means
+                // the list is the bottom of the stack and back leaves.
+                BackHandler {
+                    val target = backTarget(screen)
+                    if (target == null) finish() else screen = target
+                }
 
                 // Same rule as the editor's exit below: showing a toast and
                 // clearing the flag are things that *happen*, not things a
@@ -183,7 +209,11 @@ class MainActivity : ComponentActivity() {
             }
 
             Screen.NotificationInspector -> {
-                BackHandler { onNavigate(Screen.RuleList) }
+                // No BackHandler here: the app has one handler for the whole
+                // activity, and `backTarget` already routes the inspector back to
+                // the list. A per-destination handler is the arrangement that
+                // refactor removed — see the Navigation section in the docs.
+                //
                 // Re-read on each refresh rather than held: what is posted changes
                 // while the screen is open, and a stale list is the one thing a
                 // diagnostic must not show.
@@ -198,7 +228,6 @@ class MainActivity : ComponentActivity() {
             }
 
             is Screen.RuleEditor -> {
-                BackHandler { onNavigate(Screen.RuleList) }
                 EditorHost(
                     ruleId = screen.ruleId,
                     onDone = { onNavigate(Screen.RuleList) },
@@ -222,6 +251,25 @@ class MainActivity : ComponentActivity() {
                 ruleId = ruleId,
             ),
         )
+
+        // Why a new rule was not starting empty.
+        //
+        // These ViewModels live in the *activity's* store, and the key for an
+        // unsaved rule is necessarily the constant "editor-new" — there is no id
+        // to key on yet. So one instance served every new rule for the life of
+        // the activity, and its draft was whatever the last one had been: saved,
+        // abandoned, half-typed. Tapping "New rule" reopened the rule you thought
+        // you had closed.
+        //
+        // Discarded on dispose rather than on the way in, because dispose is the
+        // one place that catches *every* way of leaving — back, the header arrow,
+        // a save, a delete — and cannot be forgotten when a fourth is added.
+        // Guarded on `isChangingConfigurations` because a rotation disposes the
+        // composition too, and losing the draft to a turn of the phone would be a
+        // worse bug than the one being fixed.
+        DisposableEffect(Unit) {
+            onDispose { if (!isChangingConfigurations) editor.reset() }
+        }
 
         val state by editor.state.collectAsStateWithLifecycle()
 
