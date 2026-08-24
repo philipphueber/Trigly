@@ -10,6 +10,7 @@ import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.DurationUnit
+import app.phueber.trigly.core.FieldCondition
 import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.SharedPayloadKeys
 import app.phueber.trigly.core.TriggerEvent
@@ -423,11 +424,15 @@ class PlayAlertActionFactory(
             defaultMillis = PlayAlertAction.DEFAULT_DURATION_MILLIS,
             maxMillis = PlayAlertAction.MAX_DURATION_MILLIS,
             preferred = DurationUnit.SECONDS,
-            // Says when it does not apply, because the schema has no way to hide
-            // a field that a sibling setting has made irrelevant. Wording is the
-            // honest half of that gap until conditional visibility exists.
-            help = "Only used when repeating — playing once lasts as long as the " +
-                "tone does. Capped at ${describeAlertCap()}.",
+            // Gone entirely when the tone plays once, rather than shown with a
+            // sentence explaining that it does nothing. A single pass lasts as
+            // long as the tone does, which is the one length a duration field
+            // cannot express — so there is nothing here to set.
+            shownWhen = FieldCondition(
+                key = AlertPlayback.CONFIG_KEY,
+                value = AlertPlayback.REPEAT.configValue,
+            ),
+            help = "Capped at ${describeAlertCap()}.",
         ),
         // Last, because it reads as a qualifier on the duration above rather
         // than a setting of its own: whichever comes first.

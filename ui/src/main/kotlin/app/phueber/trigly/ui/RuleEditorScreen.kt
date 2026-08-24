@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import app.phueber.trigly.core.ComponentDescriptor
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.shownWith
 import app.phueber.trigly.core.companionKeys
 
 /**
@@ -70,6 +71,13 @@ fun RuleEditorScreen(
     onDelete: () -> Unit,
     onBack: () -> Unit,
     onResolveRequirement: (ComponentRequirement) -> Unit,
+    /**
+     * Whether a requirement is already met. Passed in rather than checked here
+     * because it reads live device state — a permission granted in system
+     * settings, an access toggled — which a stateless screen has no business
+     * reaching for, and which the activity re-evaluates when it resumes.
+     */
+    isRequirementSatisfied: (ComponentRequirement) -> Boolean = { false },
     modifier: Modifier = Modifier,
 ) {
     var picking by remember { mutableStateOf<Picking?>(null) }
@@ -204,6 +212,7 @@ fun RuleEditorScreen(
                 onToggleExpanded = { toggle(TRIGGER_KEY) },
                 caveatShown = TRIGGER_KEY in shownCaveats,
                 onToggleCaveat = { toggleCaveat(TRIGGER_KEY) },
+                isRequirementSatisfied = isRequirementSatisfied,
             )
 
             SectionLabel("Then")
@@ -241,6 +250,7 @@ fun RuleEditorScreen(
                     onToggleExpanded = { toggle(actionKey(index)) },
                     caveatShown = actionKey(index) in shownCaveats,
                     onToggleCaveat = { toggleCaveat(actionKey(index)) },
+                    isRequirementSatisfied = isRequirementSatisfied,
                 )
             }
 
@@ -322,7 +332,9 @@ private fun SectionLabel(text: String) {
  * about it, its settings, what it needs, and what can be done to it.
  *
  * [expanded] folds the middle away. What it hides is what you *read and fill in*
- * — the settings and the requirements. What it keeps is the heading, the caveat
+ * — the settings that apply, and the requirements not yet met. A setting a
+ * sibling has made irrelevant, and a permission already granted, are not hidden
+ * by the fold: they are not drawn at all. What it keeps is the heading, the caveat
  * badge, the controls that act on the block, and any fault: a rule with six
  * actions is taller than several screens, and the thing worth compressing is the
  * reading, while Up, Down, Remove and "this component is not available" are
@@ -335,8 +347,8 @@ private fun SectionLabel(text: String) {
  * not only while filling one in.
  *
  * The fold is not offered when there would be nothing behind it — a chosen
- * component with no settings and no requirements has no middle, and a button that
- * visibly does nothing is worse than no button. A lone caveat does not bring the
+ * component with no applicable settings and nothing left to grant has no middle,
+ * and a button that visibly does nothing is worse than no button. A lone caveat does not bring the
  * fold back, because the caveat has its own control.
  */
 @Composable
@@ -352,12 +364,17 @@ private fun ComponentBlock(
     onToggleExpanded: () -> Unit,
     caveatShown: Boolean,
     onToggleCaveat: () -> Unit,
+    isRequirementSatisfied: (ComponentRequirement) -> Boolean,
     modifier: Modifier = Modifier,
     footer: (@Composable () -> Unit)? = null,
 ) {
-    val hasMiddle = descriptor != null &&
-        (descriptor.configFields.isNotEmpty() ||
-            descriptor.requirements.isNotEmpty())
+    // Only what applies right now. A setting a sibling has made irrelevant is
+    // not drawn at all, and a requirement already granted has nothing left to
+    // say — see the fold's KDoc above.
+    val fields = descriptor?.configFields.orEmpty().shownWith(config)
+    val unmet = descriptor?.requirements.orEmpty().filterNot(isRequirementSatisfied)
+
+    val hasMiddle = descriptor != null && (fields.isNotEmpty() || unmet.isNotEmpty())
 
     BlockCard(modifier = modifier) {
         Column {
@@ -439,10 +456,10 @@ private fun ComponentBlock(
                 return@Column
             }
 
-            if (descriptor.configFields.isNotEmpty()) {
+            if (fields.isNotEmpty()) {
                 BlockDivider()
                 Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
-                    descriptor.configFields.forEach { field ->
+                    fields.forEach { field ->
                         // Some kinds own more than one config key, because the
                         // values are one decision: a pattern and its match mode,
                         // an hour and its minute, a latitude and its longitude,
@@ -461,10 +478,10 @@ private fun ComponentBlock(
 
             // Stated while the rule is being built, so nobody saves something
             // that cannot fire and then wonders why.
-            if (descriptor.requirements.isNotEmpty()) {
+            if (unmet.isNotEmpty()) {
                 BlockDivider()
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    descriptor.requirements.forEach { requirement ->
+                    unmet.forEach { requirement ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()

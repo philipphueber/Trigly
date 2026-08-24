@@ -30,12 +30,29 @@ sealed interface ConfigField {
      */
     val help: String?
 
+    /**
+     * When this field applies at all, or null for always.
+     *
+     * Some settings are made irrelevant by a sibling: `play_alert`'s "keep
+     * sounding for" means nothing once the tone is set to play once. Before this
+     * existed the only honest option was to say so in [help] and leave the field
+     * on screen, which asks someone to read a sentence explaining why the box
+     * they are looking at does nothing.
+     *
+     * Declared on the field rather than computed by the editor so the rule lives
+     * with the schema that owns it — a new field's author decides when it
+     * applies, and no screen has to learn about it.
+     */
+    val shownWhen: FieldCondition?
+        get() = null
+
     /** Free text. */
     data class Text(
         override val key: String,
         override val label: String,
         override val required: Boolean = false,
         override val help: String? = null,
+        override val shownWhen: FieldCondition? = null,
         val placeholder: String? = null,
         /**
          * What leaving this empty *means*, when empty is a real setting rather
@@ -56,6 +73,7 @@ sealed interface ConfigField {
         val options: List<Option>,
         override val required: Boolean = true,
         override val help: String? = null,
+        override val shownWhen: FieldCondition? = null,
         val default: String? = null,
     ) : ConfigField
 
@@ -65,6 +83,7 @@ sealed interface ConfigField {
         override val label: String,
         override val required: Boolean = false,
         override val help: String? = null,
+        override val shownWhen: FieldCondition? = null,
         val min: Long? = null,
         val max: Long? = null,
         val default: Long? = null,
@@ -77,6 +96,7 @@ sealed interface ConfigField {
         override val label: String,
         override val required: Boolean = false,
         override val help: String? = null,
+        override val shownWhen: FieldCondition? = null,
         val min: Double? = null,
         val max: Double? = null,
         val default: Double? = null,
@@ -88,6 +108,7 @@ sealed interface ConfigField {
         override val key: String,
         override val label: String,
         override val help: String? = null,
+        override val shownWhen: FieldCondition? = null,
         val default: Boolean = false,
     ) : ConfigField {
         override val required: Boolean get() = false
@@ -103,6 +124,7 @@ sealed interface ConfigField {
         override val label: String,
         override val required: Boolean = false,
         override val help: String? = null,
+        override val shownWhen: FieldCondition? = null,
         val blankMeaning: String? = null,
     ) : ConfigField
 
@@ -121,6 +143,7 @@ sealed interface ConfigField {
         override val label: String,
         override val required: Boolean = false,
         override val help: String? = null,
+        override val shownWhen: FieldCondition? = null,
         val blankMeaning: String? = null,
     ) : ConfigField
 
@@ -141,6 +164,7 @@ sealed interface ConfigField {
         override val label: String,
         override val required: Boolean = false,
         override val help: String? = null,
+        override val shownWhen: FieldCondition? = null,
         val blankMeaning: String? = null,
     ) : ConfigField
 
@@ -164,6 +188,7 @@ sealed interface ConfigField {
         override val label: String,
         override val required: Boolean = false,
         override val help: String? = null,
+        override val shownWhen: FieldCondition? = null,
         val defaultMillis: Long? = null,
         val maxMillis: Long? = null,
         /** The unit the editor opens on, for a field usually set in minutes. */
@@ -188,6 +213,7 @@ sealed interface ConfigField {
         override val label: String,
         override val required: Boolean = false,
         override val help: String? = null,
+        override val shownWhen: FieldCondition? = null,
         val blankMeaning: String? = null,
     ) : ConfigField
 
@@ -207,6 +233,7 @@ sealed interface ConfigField {
         override val label: String,
         override val required: Boolean = false,
         override val help: String? = null,
+        override val shownWhen: FieldCondition? = null,
         val minuteKey: String = "${key}Minute",
     ) : ConfigField
 
@@ -227,6 +254,7 @@ sealed interface ConfigField {
         override val label: String,
         override val required: Boolean = false,
         override val help: String? = null,
+        override val shownWhen: FieldCondition? = null,
         val longitudeKey: String = "longitude",
     ) : ConfigField
 
@@ -253,6 +281,7 @@ sealed interface ConfigField {
         val max: Long,
         val default: Long,
         override val help: String? = null,
+        override val shownWhen: FieldCondition? = null,
         val unit: String? = null,
     ) : ConfigField {
         /** A slider always has a position, so it always has a value. */
@@ -286,6 +315,7 @@ sealed interface ConfigField {
         override val label: String,
         override val required: Boolean = false,
         override val help: String? = null,
+        override val shownWhen: FieldCondition? = null,
         val blankMeaning: String? = null,
         val modeKey: String = "${key}Mode",
     ) : ConfigField
@@ -312,6 +342,7 @@ sealed interface ConfigField {
         override val label: String,
         override val required: Boolean = false,
         override val help: String? = null,
+        override val shownWhen: FieldCondition? = null,
         val semanticKey: String = "${key}Semantic",
         val packageKey: String = "package",
     ) : ConfigField
@@ -319,6 +350,40 @@ sealed interface ConfigField {
     /** One selectable value: [value] is stored, [label] is shown. */
     data class Option(val value: String, val label: String)
 }
+
+/**
+ * "Show this field only when a sibling has one of these values."
+ *
+ * Deliberately just equality against a set of strings. Config is a
+ * `Map<String, String>`, the fields that gate others are choices and flags, and
+ * an expression language here would be a second, worse validator competing with
+ * the `create()` that already owns cross-field rules — see [ConfigField].
+ */
+data class FieldCondition(val key: String, val isAnyOf: Set<String>) {
+    constructor(key: String, value: String) : this(key, setOf(value))
+}
+
+/**
+ * The fields to draw, given what has been filled in so far.
+ *
+ * The sibling's *effective* value decides it: what is stored, or failing that
+ * what the sibling would show — [defaultValue]. That matters for a rule nobody
+ * has touched yet, where the gating key is absent from the config while the
+ * editor is plainly displaying its default. Reading only the stored value would
+ * hide "keep sounding for" on every new alert, because "repeat" had not been
+ * written down yet.
+ *
+ * A condition naming a key that no sibling declares keeps the field visible. A
+ * typo should look like a condition that does nothing, not like a field that
+ * vanished.
+ */
+fun List<ConfigField>.shownWith(config: Map<String, String>): List<ConfigField> =
+    filter { field ->
+        val condition = field.shownWhen ?: return@filter true
+        val sibling = firstOrNull { it.key == condition.key } ?: return@filter true
+        val effective = config[condition.key] ?: sibling.defaultValue()
+        effective in condition.isAnyOf
+    }
 
 /**
  * The extra config keys a field kind owns beyond [ConfigField.key].

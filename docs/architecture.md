@@ -86,6 +86,16 @@ shows an enabled-but-unfirable rule what is missing, with a button to the
 permission dialog or settings screen. Requirements are re-read when the app
 resumes, because a grant made in system settings reports nothing back.
 
+**A requirement that is met is not shown at all.** The text exists so nobody
+saves a rule that cannot fire; once the access is granted it has nothing left to
+say, and a "Grant" button next to something already granted invites pressing it
+again. So the editor draws only the *unmet* ones, and a component whose
+requirements are all satisfied has no requirements section. The check is passed
+into the screen rather than performed there — it reads live device state, which a
+stateless screen has no business reaching for — and the activity bumps a counter
+on resume so returning from a settings screen re-evaluates it. Without that
+bump the row would linger after the grant and read as the grant having failed.
+
 `docs/triggers.md` catalogues every planned trigger against this model, plus
 the cross-cutting blockers — no foreground service, no scheduler — that gate
 whole groups of them.
@@ -96,6 +106,25 @@ Config is stored as `Map<String, String>`. The engine is happy with that; a form
 cannot be drawn from it. So each factory also declares its fields as
 `ConfigField` — the same pattern as `ComponentRequirement`: declared on the
 *factory*, consumed by the UI, invisible to the engine.
+
+**A field can declare when it applies.** `shownWhen` on a `ConfigField` names a
+sibling key and the values that make this field relevant; the editor draws only
+the fields whose condition holds. `play_alert`'s "keep sounding for" is the case
+it was built for: a tone set to play once lasts exactly as long as the tone does,
+which is the one length a duration field cannot express, so the field is not
+drawn rather than drawn with a sentence explaining that it does nothing.
+
+Two details decide whether it behaves: the sibling's *effective* value is what is
+stored **or failing that its own default**, because an untouched rule has nothing
+stored for the gating key while the editor is plainly showing its default — the
+naive version hides the duration on every newly added alert. And a condition
+naming a key no sibling declares leaves the field visible, so a typo looks like a
+condition that does nothing rather than a field that vanished. Both are pinned by
+tests, since neither is visible by reading the schema.
+
+Deliberately just equality against a set of strings. An expression language here
+would be a second, worse validator competing with the `create()` that already
+owns cross-field rules.
 
 Fourteen field kinds cover all 47 components: `Text`, `TextPattern`, `Choice`,
 `Number`, `Decimal`, `Flag`, `AppPackage`, `SoundUri`, `BluetoothAddress`,
