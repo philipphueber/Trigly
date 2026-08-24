@@ -504,13 +504,23 @@ wrong: a refused save, a permission that is missing, a rule that cannot fire.
 Once two thirds of the triggers carry a caveat, drawing them all in red teaches
 people to ignore red.
 
-Caveats are also shown at a different *time* than they used to be. The picker
-printed each component's full warning under its name, on the reasoning that a
-caveat matters most before the choice is made — but the list became a wall of
-prose in which no single item could be read. The picker now marks that a caveat
-exists with one badge, and the editor states the sentence in full once the
-component is chosen, which is the moment it is actionable and swapping it out is
-still one tap away.
+Caveats are also shown at a different *time* than they used to be, and the rule
+is now the same everywhere: **the prose is hidden by default, and the one thing
+that reveals it is its badge.** The picker once printed each component's full
+warning under its name, on the reasoning that a caveat matters most before the
+choice is made — but the list became a wall of prose in which no single item
+could be read. Two thirds of the triggers carry a caveat, so the same wall grows
+in the editor the moment a rule has a few components.
+
+So `CaveatBadge` is both the marker and the control. It carries the `!` glyph, it
+reads to the accessibility tree as a toggle, and tapping it is what brings the
+sentence — in the picker it opens in place under the component's name, in the
+editor it opens under the block's heading. In the editor the badge lives in the
+header rather than inside the fold, so it stays with a block that has been folded
+shut for reordering: a caveat is worth reading before moving an action, not only
+while filling one in. Nothing shows the sentence on its own — not opening a block,
+not choosing the component — which is what keeps a long rule and a 28-item picker
+both readable while still admitting, at a glance, that there is something to know.
 
 ### A component block folds
 
@@ -518,22 +528,28 @@ The editor puts everything on one scroll, which is right for building a rule and
 wrong for finding your way around one that already has six actions. So each
 trigger and action block folds.
 
-What folds is what you *read and fill in* — the caveat, the settings, the
-requirements. What stays is the heading, any fault, and the footer: Test, Up,
+What folds is what you *read and fill in* — the settings and the requirements.
+What stays is the heading, the caveat badge, any fault, and the footer: Test, Up,
 Down, Remove. Reordering a long rule is the main thing folding is for, so hiding
 the controls along with the settings would remove the reason to fold at all. A
 fault stays because "this component is not available in this version" is not
-something the user should be able to tuck away.
+something the user should be able to tuck away. The caveat *badge* stays for the
+same reason the fault does — that there is a catch is not tuckable — while the
+caveat *prose* is governed by the badge, not the fold, and can be read from a
+folded block (see "Warnings are not errors").
 
 Three smaller decisions. Everything starts **open**, so a one-action rule looks
 exactly as it did before this existed and folding is something the user does
 rather than something they have to undo. The fold is **not offered** when there
-is nothing behind it — an unchosen component, or one with no settings, no
-requirements and no caveat — because a button that visibly does nothing is worse
-than no button. And the state is keyed by *position*, `trigger` and `action-0`,
-because a `ComponentDraft` has no identity of its own: Up and Down therefore move
-an action out from under its own fold. That is the right way round for the job,
-which is getting a long rule down to a list of headings you can reorder.
+is nothing behind it — an unchosen component, or one with no settings and no
+requirements — because a button that visibly does nothing is worse than no
+button; a lone caveat does not bring it back, because the caveat has its own
+control. And the state is keyed by *position*, `trigger` and `action-0`, because
+a `ComponentDraft` has no identity of its own: Up and Down therefore move an
+action out from under its own fold. The revealed-caveat state is kept the same
+way and for the same reasons — a separate positional set, saved across rotation.
+That is the right way round for the job, which is getting a long rule down to a
+list of headings you can reorder.
 
 ### Insets are the screen's job
 

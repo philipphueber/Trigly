@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,12 +34,13 @@ import app.phueber.trigly.core.ComponentDescriptor
  * the raw type string, so someone who has read the docs can type
  * `battery_level` directly.
  *
- * The list is names only. It used to print each component's full warning under
- * its name, on the reasoning that a caveat is most useful *before* the choice is
- * made — but two thirds of the triggers carry one, so the list became a wall of
- * prose in which no single item could be read. A caveat is now a one-glyph
- * marker here and the full sentence in the editor once the component is chosen,
- * which is the point at which it is actually actionable.
+ * The list is names and a marker. It used to print each component's full warning
+ * under its name, on the reasoning that a caveat is most useful *before* the
+ * choice is made — but two thirds of the triggers carry one, so the list became a
+ * wall of prose in which no single item could be read. A caveat is now the
+ * one-glyph `CaveatBadge`, and tapping it opens the sentence in place under that
+ * row rather than picking the component; the badge is consulted by the same
+ * gesture in the editor, so the caveat has one behaviour everywhere.
  *
  * [options] is expected to be pre-filtered to what the device supports; see
  * `RuleEditorViewModel.triggerOptions`.
@@ -126,19 +128,46 @@ fun ComponentPickerDialog(
 
 @Composable
 private fun ComponentRow(option: ComponentDescriptor, onPick: (String) -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onPick(option.type) }
-            .padding(horizontal = 12.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(
-            text = option.displayName.uppercase(),
-            style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.weight(1f).padding(end = 8.dp),
-        )
-        if (option.warning != null) CaveatBadge()
+    // Keyed by type, so scrolling a caveat out of the lazy list and back does not
+    // silently close it — and so two components' caveats never share one flag.
+    // Closed by default: the whole point of the badge is that the sentence stays
+    // out of the list until it is asked for.
+    var caveatShown by rememberSaveable(option.type) { mutableStateOf(false) }
+
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onPick(option.type) }
+                .padding(horizontal = 12.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = option.displayName.uppercase(),
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.weight(1f).padding(end = 8.dp),
+            )
+            // The badge's tap is consumed by its own toggle, so opening the
+            // caveat does not also pick the component out from under the reader.
+            if (option.warning != null) {
+                CaveatBadge(shown = caveatShown, onToggle = { caveatShown = !caveatShown })
+            }
+        }
+
+        // Revealed in place, below the name it belongs to, and only when opened.
+        option.warning?.takeIf { caveatShown }?.let { warning ->
+            Surface(
+                color = MaterialTheme.extra.cautionContainer,
+                contentColor = MaterialTheme.extra.onCautionContainer,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = warning,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                )
+            }
+        }
     }
 }
