@@ -1,6 +1,6 @@
 # Conditions and gates
 
-**Status: Phases 1–5 built; the editor is the remainder.** `docs/actions.md` calls this the
+**Status: built, end to end.** `docs/actions.md` calls this the
 largest single design decision left in the project and asks for it to have its own
 document. This is that document. Decisions here were taken by Philipp on
 2026-08-24; the reasoning and the constraints are written down so the
@@ -201,8 +201,12 @@ kind of reassurance that gets planned around.
 5. **Built.** The passive forms (`notification_posted`, `notification_watchdog`,
    `dnd_mode`, `screen_content`, `solar`, `package_change`) and the two
    passive-only checks, `time_window` and `location_check`.
-6. **Remaining.** The editor: trigger slots, condition slots, nested groups, and
-   offering each component only where it can answer.
+6. **Built.** The editor: a first level that stays invisible until a second edge
+   exists, an "Only if" section holding the nested AND/OR tree, and pickers
+   filtered by `supportsCondition` so a component that cannot answer is never
+   offered rather than offered and refused. Adding a sibling to a lone check
+   promotes it into a group and removing back to one un-promotes it, so a single
+   condition carries no AND/OR chrome — the same rule the single trigger follows.
 
 Phase 1 was invariant to every later decision, which is why it went first — and it
 held: nothing in phases 2–5 changed the model.
