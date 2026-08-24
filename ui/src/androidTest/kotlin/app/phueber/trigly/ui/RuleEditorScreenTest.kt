@@ -92,7 +92,7 @@ class RuleEditorScreenTest {
     }
 
     @Test
-    fun declared_fields_are_rendered_with_display_names_and_warnings() {
+    fun declared_fields_are_rendered_with_display_names() {
         composeRule.setContent {
             Editor(
                 EditorState(
@@ -109,10 +109,46 @@ class RuleEditorScreenTest {
         composeRule.onNodeWithText("TEXT APPEARS ON SCREEN").assertIsDisplayed()
         // A declared field, rendered from the schema. Required, hence the marker.
         composeRule.onNodeWithText("SCREEN CONTAINS *").assertIsDisplayed()
-        // The warning that used to live only in KDoc.
+    }
+
+    @Test
+    fun a_caveat_is_hidden_until_its_badge_is_tapped() {
+        composeRule.setContent {
+            Editor(
+                EditorState(
+                    RuleDraft(
+                        id = null,
+                        name = "Visual",
+                        // A trigger that carries a warning.
+                        trigger = ComponentDraft("screen_content"),
+                    )
+                )
+            )
+        }
+
+        // The block is open — its fields are showing — but the caveat prose is
+        // not: hiding it is the whole change, and an open block must not leak it.
+        composeRule.onNodeWithText("SCREEN CONTAINS *").assertIsDisplayed()
         assertTrue(
+            "the caveat prose must not be shown before the badge is tapped",
+            composeRule.onAllNodesWithText("The noisiest trigger available", substring = true)
+                .fetchSemanticsNodes().isEmpty()
+        )
+
+        // The badge is the one way to it.
+        composeRule.onNodeWithContentDescription(CAVEAT_DESCRIPTION).performClick()
+        assertTrue(
+            "tapping the badge reveals the caveat prose",
             composeRule.onAllNodesWithText("The noisiest trigger available", substring = true)
                 .fetchSemanticsNodes().isNotEmpty()
+        )
+
+        // And tapping it again puts it away.
+        composeRule.onNodeWithContentDescription(CAVEAT_DESCRIPTION).performClick()
+        assertTrue(
+            "tapping the badge again hides it",
+            composeRule.onAllNodesWithText("The noisiest trigger available", substring = true)
+                .fetchSemanticsNodes().isEmpty()
         )
     }
 
@@ -303,7 +339,7 @@ class RuleEditorScreenTest {
     fun the_picker_marks_a_caveat_instead_of_printing_it() {
         // Two thirds of the triggers carry a warning. Printing each one in the
         // list made it unreadable, so the list marks that a caveat exists and
-        // the editor states it once the component is chosen.
+        // shows the sentence only when its badge is tapped.
         val caveated = registry.triggerDescriptors.first { it.warning != null }
 
         composeRule.setContent {
@@ -318,6 +354,28 @@ class RuleEditorScreenTest {
         composeRule.onNodeWithText(caveated.displayName.uppercase()).assertIsDisplayed()
         composeRule.onNodeWithContentDescription(CAVEAT_DESCRIPTION).assertIsDisplayed()
         composeRule.onNodeWithText(caveated.warning!!).assertDoesNotExist()
+    }
+
+    @Test
+    fun the_pickers_caveat_badge_opens_the_prose_without_picking() {
+        val caveated = registry.triggerDescriptors.first { it.warning != null }
+        var picked: String? = null
+
+        composeRule.setContent {
+            ComponentPickerDialog(
+                title = "Choose a trigger",
+                options = listOf(caveated),
+                onPick = { picked = it },
+                onDismiss = {},
+            )
+        }
+
+        // Tapping the badge reveals the sentence in place — and does not fall
+        // through to the row's own click, which would pick the component out from
+        // under someone who only wanted to read the catch.
+        composeRule.onNodeWithContentDescription(CAVEAT_DESCRIPTION).performClick()
+        composeRule.onNodeWithText(caveated.warning!!).assertIsDisplayed()
+        assertEquals("reading the caveat must not pick the component", null, picked)
     }
 
     @Test

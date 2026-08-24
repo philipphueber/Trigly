@@ -451,17 +451,33 @@ fun BlockToggleChip(
 }
 
 /**
- * "There is something to know about this one."
+ * "There is something to know about this one" — and the only control that shows
+ * what.
  *
- * Not a warning in itself — a promise that the editor will explain, which is
- * what lets a 28-item list stay readable without hiding that a caveat exists.
+ * The caveat prose is hidden by default everywhere it can appear: a 28-item
+ * picker and a rule with six actions both turn into a wall of amber if every
+ * caveat prints itself, and the sentence is worth reading precisely because it
+ * is not competing with thirty others. So the glyph is what a list carries, and
+ * tapping it is what brings the sentence — here, once, at the moment someone
+ * asked for it.
+ *
+ * [shown] is fed back in rather than held here so the prose and the badge cannot
+ * disagree, and so whoever owns the layout decides where the revealed sentence
+ * goes. It reads as a toggle to the accessibility tree, so its open/closed state
+ * is spoken rather than left to the glyph.
  */
 @Composable
-fun CaveatBadge(modifier: Modifier = Modifier) {
+fun CaveatBadge(
+    shown: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Box(
         modifier = modifier
             .size(22.dp)
+            .clip(BlockShape)
             .border(BlockBorder, MaterialTheme.extra.caution, BlockShape)
+            .toggleable(value = shown, role = Role.Button, onValueChange = { onToggle() })
             .semantics { contentDescription = CAVEAT_DESCRIPTION },
         contentAlignment = Alignment.Center,
     ) {
