@@ -274,6 +274,16 @@ class RuleEditorViewModel(
 
     fun clearTestResult() = _state.update { it.copy(testResult = null) }
 
+    /**
+     * Stops a running test and leaves the draft alone.
+     *
+     * What the editor calls when it is left: [reset] would also throw the draft
+     * away, which is wrong on exit — a rotation is an exit too, and the draft has
+     * to survive it. Silencing a looping `play_alert` is the part that must
+     * happen whenever the screen goes away.
+     */
+    fun stopTest() = cancelTest(null)
+
     private fun cancelTest(message: String?) {
         testJob?.cancel()
         testJob = null
