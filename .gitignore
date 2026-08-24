@@ -10,6 +10,11 @@ local.properties
 *.aab
 captures/
 
+# Built release artifacts, collected here by `:ui:distRelease` for a human to
+# pick up. Output of a build, so not tracked — the published copy lives on the
+# release, not in the repository.
+dist/
+
 # Release signing. The keystore and its passwords are per-maintainer and
 # must never be committed; docs/releasing.md says how to recreate them.
 keystore.properties

@@ -123,12 +123,23 @@ unsigned build rather than a late and obscure failure in the signer.
 
 ## Building
 
-    JAVA_HOME=<jdk17> ./gradlew :ui:assembleRelease
+    JAVA_HOME=<jdk17> ./gradlew :ui:distRelease
 
-The artifact lands in `ui/build/outputs/apk/release/`, and its name is the
-first thing to read: `ui-release.apk` when a key was found, and
-`ui-release-unsigned.apk` when none was. The build succeeds either way, so
-the filename is the cheapest signal that signing actually happened.
+That assembles the release variant and copies the APK to **`dist/trigly.apk`**
+at the repository root. `:ui:assembleRelease` alone still works and still leaves
+its output at `ui/build/outputs/apk/release/ui-release.apk`; the extra step
+exists because that path is buried and that name describes the *module* rather
+than the thing a person is being asked to install.
+
+**Read the filename in `dist/` before publishing anything.** It is `trigly.apk`
+when a key was found and **`trigly-unsigned.apk`** when none was — the rename is
+deliberately conditional, because the build succeeds either way and the filename
+is the cheapest signal that signing actually happened. Collapsing both into one
+name would remove the only warning there is. `distRelease` prints the path it
+wrote for the same reason.
+
+`dist/` is gitignored: it is a build output, and the published copy belongs on
+the release rather than in the repository.
 
 An APK, not an App Bundle: the distribution channel is a direct download, where
 a single installable file is the whole point. `bundleRelease` is the format
@@ -152,10 +163,8 @@ Signed-ness and version are both worth checking, because both fail quietly.
 
     export PATH="<jdk17>/bin:$PATH"
 
-    $ANDROID_HOME/build-tools/<ver>/apksigner verify --print-certs \
-        ui/build/outputs/apk/release/ui-release.apk
-    $ANDROID_HOME/build-tools/<ver>/aapt2 dump badging \
-        ui/build/outputs/apk/release/ui-release.apk | head -1
+    $ANDROID_HOME/build-tools/<ver>/apksigner verify --print-certs dist/trigly.apk
+    $ANDROID_HOME/build-tools/<ver>/aapt2 dump badging dist/trigly.apk | head -1
 
 The first must print a certificate — "DOES NOT VERIFY" is the unsigned outcome
 described above. The second must show the `versionCode` and `versionName` the

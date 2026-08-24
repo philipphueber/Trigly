@@ -87,8 +87,8 @@ android {
         applicationId = "app.phueber.trigly"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.0.2"
+        versionCode = 3
+        versionName = "0.0.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -146,6 +146,47 @@ android {
 
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+    }
+}
+
+/**
+ * Puts the release APK where a person can find it: `<repo>/dist/trigly.apk`.
+ *
+ * The build's own output is buried at `ui/build/outputs/apk/release/` under a
+ * name that describes the *module* — `ui-release.apk` — which is the wrong name
+ * for the thing being handed to someone to install, and a path nobody should
+ * have to be told twice. `dist/` at the root is where a release artifact goes.
+ *
+ * **The filename still carries the signing signal, because that is the only one
+ * there is.** An unsigned release build is a success, not an error — a
+ * contributor without the key can and should be able to check that R8 does not
+ * break the release variant — so the one thing that says whether signing
+ * happened is what the file is called. Copying both possible inputs to one
+ * output name would throw that away, so unsigned stays visibly unsigned.
+ */
+val distRelease by tasks.registering(Copy::class) {
+    group = "distribution"
+    description = "Copies the release APK to <repo>/dist as trigly.apk."
+
+    dependsOn("assembleRelease")
+
+    from(layout.buildDirectory.dir("outputs/apk/release")) {
+        include("*.apk")
+        rename { original ->
+            if (original.contains("unsigned")) "trigly-unsigned.apk" else "trigly.apk"
+        }
+    }
+    into(rootProject.layout.projectDirectory.dir("dist"))
+
+    doLast {
+        // Reports what was actually written, not what was hoped for: naming
+        // trigly.apk here regardless would undo the whole point of keeping the
+        // unsigned build visibly unsigned.
+        val written = rootProject.file("dist")
+            .listFiles { file -> file.name.startsWith("trigly") && file.extension == "apk" }
+            .orEmpty()
+            .sortedBy { it.name }
+        written.forEach { logger.lifecycle("Release artifact: $it") }
     }
 }
 
