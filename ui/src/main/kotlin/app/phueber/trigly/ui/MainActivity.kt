@@ -22,6 +22,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -36,6 +37,18 @@ import app.phueber.trigly.core.Rule
 class MainActivity : ComponentActivity() {
 
     private val container by lazy { (application as TriglyApp).container }
+
+    /**
+     * Bumped whenever this activity resumes, to re-read permission state.
+     *
+     * Granting happens in a system settings screen, which reports nothing back —
+     * the same round trip `onResume` already refreshes the rule list for. The
+     * editor needs it too, since it now hides a requirement once it is met, and
+     * a row that stayed on screen after the grant would look like the grant had
+     * not worked. Compose state, so reading it inside composition is what makes
+     * the redraw happen.
+     */
+    private var grantEpoch by mutableIntStateOf(0)
 
     private val listViewModel: RulesViewModel by viewModels {
         RulesViewModel.factory(
@@ -321,6 +334,13 @@ class MainActivity : ComponentActivity() {
             onDelete = editor::delete,
             onBack = onDone,
             onResolveRequirement = ::resolve,
+            // Re-made whenever the activity has resumed, so returning from a
+            // settings screen re-reads what is granted. The epoch is read here
+            // rather than inside the lambda so the change is visible to Compose
+            // as a new lambda, not as a value nobody subscribed to.
+            isRequirementSatisfied = remember(grantEpoch) {
+                { requirement -> container.requirementChecker.isSatisfied(requirement) }
+            },
         )
     }
 
@@ -329,6 +349,7 @@ class MainActivity : ComponentActivity() {
         // Covers the round trip to a system settings screen, which reports
         // nothing back.
         listViewModel.refresh()
+        grantEpoch++
     }
 
     /**

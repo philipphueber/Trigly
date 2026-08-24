@@ -11,6 +11,7 @@ import androidx.compose.ui.test.performTextReplacement
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import app.phueber.trigly.actions.actionFactories
+import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.Registry
@@ -45,7 +46,10 @@ class RuleEditorScreenTest {
     private var backs = 0
 
     @Composable
-    private fun Editor(state: EditorState) {
+    private fun Editor(
+        state: EditorState,
+        isRequirementSatisfied: (ComponentRequirement) -> Boolean = { false },
+    ) {
         RuleEditorScreen(
             state = state,
             triggerOptions = registry.triggerDescriptors,
@@ -69,6 +73,7 @@ class RuleEditorScreenTest {
             onDelete = {},
             onBack = { backs++ },
             onResolveRequirement = {},
+            isRequirementSatisfied = isRequirementSatisfied,
         )
     }
 
@@ -109,6 +114,123 @@ class RuleEditorScreenTest {
         composeRule.onNodeWithText("TEXT APPEARS ON SCREEN").assertIsDisplayed()
         // A declared field, rendered from the schema. Required, hence the marker.
         composeRule.onNodeWithText("SCREEN CONTAINS *").assertIsDisplayed()
+    }
+
+    @Test
+    fun the_alert_duration_is_hidden_when_the_tone_plays_once() {
+        composeRule.setContent {
+            Editor(
+                EditorState(
+                    RuleDraft(
+                        id = null,
+                        name = "Chime",
+                        trigger = ComponentDraft("power_connection", mapOf("state" to "connected")),
+                        actions = listOf(
+                            ComponentDraft("play_alert", mapOf("playback" to "once"))
+                        ),
+                    )
+                )
+            )
+        }
+
+        // The tone still needs choosing; the length does not exist for one pass.
+        // assertExists rather than assertIsDisplayed: the action block is below
+        // the fold of a scrolling form, and being on screen is not the claim.
+        // Required, hence the marker — the same convention the field tests above
+        // rely on. Asserted so this is "only the duration is gone", not "the
+        // block failed to render".
+        composeRule.onNodeWithText("PLAY IT *").assertExists()
+        composeRule.onNodeWithText("KEEP SOUNDING FOR").assertDoesNotExist()
+    }
+
+    @Test
+    fun the_alert_duration_is_shown_when_repeating() {
+        composeRule.setContent {
+            Editor(
+                EditorState(
+                    RuleDraft(
+                        id = null,
+                        name = "Alarm",
+                        trigger = ComponentDraft("power_connection", mapOf("state" to "connected")),
+                        actions = listOf(
+                            ComponentDraft("play_alert", mapOf("playback" to "repeat"))
+                        ),
+                    )
+                )
+            )
+        }
+
+        composeRule.onNodeWithText("KEEP SOUNDING FOR").assertExists()
+    }
+
+    @Test
+    fun the_alert_duration_is_shown_on_an_untouched_action() {
+        // Nothing stored for `playback` yet, and the editor is showing its
+        // default of "repeat" — so the duration must be there. Reading only the
+        // stored value would hide it on every newly added alert.
+        composeRule.setContent {
+            Editor(
+                EditorState(
+                    RuleDraft(
+                        id = null,
+                        name = "Fresh",
+                        trigger = ComponentDraft("power_connection", mapOf("state" to "connected")),
+                        actions = listOf(ComponentDraft("play_alert")),
+                    )
+                )
+            )
+        }
+
+        composeRule.onNodeWithText("KEEP SOUNDING FOR").assertExists()
+    }
+
+    @Test
+    fun a_requirement_that_is_met_is_not_shown_at_all() {
+        // The requirement text exists so nobody saves a rule that cannot fire.
+        // Once it is granted it has nothing left to say, and a "Grant" button
+        // beside it invites pressing something already done.
+        val requirement = registry.triggerDescriptors
+            .first { it.requirements.any { r -> r.isResolvable } }
+
+        composeRule.setContent {
+            Editor(
+                EditorState(
+                    RuleDraft(
+                        id = null,
+                        name = "Granted",
+                        trigger = ComponentDraft(requirement.type),
+                    )
+                ),
+                isRequirementSatisfied = { true },
+            )
+        }
+
+        composeRule.onNodeWithText("GRANT").assertDoesNotExist()
+        requirement.requirements.forEach { r ->
+            composeRule.onNodeWithText(r.describe()).assertDoesNotExist()
+        }
+    }
+
+    @Test
+    fun a_requirement_that_is_not_met_still_offers_to_grant_it() {
+        val requirement = registry.triggerDescriptors
+            .first { it.requirements.any { r -> r.isResolvable } }
+
+        composeRule.setContent {
+            Editor(
+                EditorState(
+                    RuleDraft(
+                        id = null,
+                        name = "Ungranted",
+                        trigger = ComponentDraft(requirement.type),
+                    )
+                ),
+                isRequirementSatisfied = { false },
+            )
+        }
+
+        val resolvable = requirement.requirements.first { it.isResolvable }
+        composeRule.onNodeWithText(resolvable.describe()).assertExists()
     }
 
     @Test
