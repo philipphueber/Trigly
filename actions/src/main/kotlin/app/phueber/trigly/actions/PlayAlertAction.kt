@@ -10,10 +10,13 @@ import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.DurationUnit
+import app.phueber.trigly.core.NotificationController
+import app.phueber.trigly.core.SharedPayloadKeys
 import app.phueber.trigly.core.TriggerEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Which of the device's own tones an alert uses when no custom sound is given. */
 enum class AlertSound(
@@ -141,6 +144,84 @@ fun isPlayableSoundUri(raw: String): Boolean {
 }
 
 /**
+ * What, if anything, cuts an alert short before its time is up.
+ *
+ * A sum type rather than a nullable key, because "the option is on but cannot
+ * work here" is a third case and the one worth reporting. Silently falling back
+ * to the full duration would leave someone believing their alarm stops when they
+ * swipe the notification away, and find out otherwise in a meeting.
+ */
+sealed interface AlertStop {
+
+    /** Nothing to watch: the alert sounds for its whole length. */
+    data object Duration : AlertStop
+
+    /** Stop as soon as the notification with this key is no longer posted. */
+    data class WhenGone(val key: String) : AlertStop
+
+    /** Asked for, but impossible here. [reason] is reported after the alert. */
+    data class Unwatchable(val reason: String) : AlertStop
+}
+
+/**
+ * Decides what an alert watches, from the option and what is actually available.
+ *
+ * Pure, because the two ways this can be impossible are exactly the cases nobody
+ * tests by hand: a rule whose trigger is not a notification at all, and
+ * notification access not being granted. Both have to be *reported* rather than
+ * quietly ignored, and both are a decision rather than an effect.
+ *
+ * The key comes from the event, never from configuration. A notification key is
+ * minted by the posting app on every post, so a stored one would be stale by the
+ * time the rule ran — see `docs/actions.md`. Within one firing, though, it is
+ * exactly the right handle: an app updating its notification keeps the same key,
+ * so a progress notification that keeps changing still counts as present.
+ */
+fun alertStop(
+    stopWhenGone: Boolean,
+    event: TriggerEvent,
+    notificationAccess: Boolean,
+): AlertStop {
+    if (!stopWhenGone) return AlertStop.Duration
+
+    val key = event.payload[SharedPayloadKeys.NOTIFICATION_KEY]
+    return when {
+        key.isNullOrBlank() -> AlertStop.Unwatchable(
+            "\"stop when the notification goes away\" needs a notification to watch, " +
+                "and this rule was fired by ${event.triggerType}, which carries no " +
+                "notification — the alert played for its full length"
+        )
+        !notificationAccess -> AlertStop.Unwatchable(
+            "\"stop when the notification goes away\" needs notification access, which " +
+                "is not granted or not bound yet — the alert played for its full length"
+        )
+        else -> AlertStop.WhenGone(key)
+    }
+}
+
+/**
+ * Suspends until the notification with [key] is no longer on screen.
+ *
+ * Polled, not subscribed, and for the same reason the watchdog trigger polls:
+ * presence is a state the listener only reports the *edges* of, and an alert
+ * that started while the notification was already gone would never hear an edge
+ * at all. Checking before the first delay is what covers that case.
+ *
+ * A revoked access reads as "gone", because [NotificationController] reports an
+ * empty list either way. That is the safe direction to be wrong in: the mistake
+ * is a silence, not an alarm nobody can stop.
+ */
+suspend fun awaitNotificationGone(
+    notifications: NotificationController,
+    key: String,
+    pollMillis: Long = PlayAlertAction.PRESENCE_POLL_MILLIS,
+) {
+    while (notifications.activeNotifications().any { it.key == key }) {
+        delay(pollMillis)
+    }
+}
+
+/**
  * Sounds an alert loud enough to be noticed, for a set length of time.
  *
  * The point of this over `post_notification` is the two things a notification
@@ -161,7 +242,8 @@ fun isPlayableSoundUri(raw: String): Boolean {
  *    alarms through, which is the default on most devices.
  *
  * The action suspends for the duration so the engine can cancel it — disabling
- * the rule mid-alert stops the sound, which is the only in-app way to stop one.
+ * the rule mid-alert stops the sound. With [stopWhenGone] on there is a second,
+ * far more natural stop: swiping away the notification that caused the alert.
  */
 class PlayAlertAction(
     private val context: Context,
@@ -170,6 +252,8 @@ class PlayAlertAction(
     private val volumeGain: Float,
     private val durationMillis: Long,
     private val playback: AlertPlayback = AlertPlayback.REPEAT,
+    private val notifications: NotificationController = NotificationController.Unavailable,
+    private val stopWhenGone: Boolean = false,
 ) : Action {
 
     override suspend fun execute(event: TriggerEvent): ActionResult {
@@ -187,6 +271,10 @@ class PlayAlertAction(
         val uri = resolveUri() ?: return ActionResult.Failure(
             "no ${sound.configValue} sound is set on this device"
         )
+
+        // Decided before a note is played, so that an option that cannot work
+        // here is reported even if the sound itself goes fine.
+        val stop = alertStop(stopWhenGone, event, notifications.isConnected)
 
         val player = MediaPlayer()
         return try {
@@ -206,8 +294,23 @@ class PlayAlertAction(
             }
 
             player.start()
-            delay(alertSoundingMillis(playback, durationMillis, player.duration))
-            ActionResult.Success
+            val soundingMillis = alertSoundingMillis(playback, durationMillis, player.duration)
+
+            if (stop is AlertStop.WhenGone) {
+                // Whichever comes first. The duration stays the safety net: an
+                // ongoing notification that never goes away must not turn the
+                // cap into "until the battery dies".
+                withTimeoutOrNull(soundingMillis) {
+                    awaitNotificationGone(notifications, stop.key)
+                }
+            } else {
+                delay(soundingMillis)
+            }
+
+            when (stop) {
+                is AlertStop.Unwatchable -> ActionResult.Failure(stop.reason)
+                else -> ActionResult.Success
+            }
         } catch (failure: Exception) {
             // A bad custom URI, an unreadable file, a codec the device lacks.
             // Reported rather than thrown: one broken action must not take down
@@ -232,6 +335,7 @@ class PlayAlertAction(
         const val CONFIG_SOUND_URI = "soundUri"
         const val CONFIG_VOLUME_PERCENT = "volumePercent"
         const val CONFIG_DURATION_MILLIS = "durationMillis"
+        const val CONFIG_STOP_WHEN_GONE = "stopWhenGone"
 
         const val DEFAULT_DURATION_MILLIS = 3_000L
         const val DEFAULT_VOLUME_PERCENT = 100
@@ -241,10 +345,30 @@ class PlayAlertAction(
          * the only way to stop it is to disable the rule or kill the app.
          */
         const val MAX_DURATION_MILLIS = 60_000L
+
+        /**
+         * How often presence is re-checked while an alert is sounding.
+         *
+         * Half a second is under the threshold at which a stop feels like a
+         * consequence of the swipe rather than a coincidence, and it is 120
+         * checks across the longest alert this action can play — cheap enough
+         * not to need a cleverer mechanism.
+         */
+        const val PRESENCE_POLL_MILLIS = 500L
     }
 }
 
-class PlayAlertActionFactory(private val context: Context) : ActionFactory {
+class PlayAlertActionFactory(
+    private val context: Context,
+    /**
+     * Only used by the "stop when the notification goes away" option, so it
+     * defaults to unavailable rather than being required: an alert with the
+     * option off works with no notification access at all, and demanding the
+     * access at the factory would hide the whole action from anyone who has not
+     * granted it.
+     */
+    private val notifications: NotificationController = NotificationController.Unavailable,
+) : ActionFactory {
     override val type = PlayAlertAction.TYPE
 
     override val displayName = "Play an alert sound"
@@ -305,13 +429,24 @@ class PlayAlertActionFactory(private val context: Context) : ActionFactory {
             help = "Only used when repeating — playing once lasts as long as the " +
                 "tone does. Capped at ${describeAlertCap()}.",
         ),
+        // Last, because it reads as a qualifier on the duration above rather
+        // than a setting of its own: whichever comes first.
+        ConfigField.Flag(
+            key = PlayAlertAction.CONFIG_STOP_WHEN_GONE,
+            label = "Stop when the notification goes away",
+            help = "For a rule a notification fires: the sound stops the moment " +
+                "that notification is swiped away or cleared by its app, instead " +
+                "of running the full time. Needs notification access. The time " +
+                "above still applies as the upper limit.",
+        ),
     )
 
     override val warning: String =
         "Plays on the alarm stream, so it is heard through a silent ringer. It " +
             "cannot be louder than the alarm volume, and Do Not Disturb can still " +
-            "silence it unless alarms are allowed through. Disabling the rule is " +
-            "the only way to cut a long alert short."
+            "silence it unless alarms are allowed through. A long alert can be cut " +
+            "short by dismissing the notification that caused it, if the option " +
+            "below is on, and otherwise only by disabling the rule."
 
     override fun create(config: Map<String, String>): Action {
         val custom = config[PlayAlertAction.CONFIG_SOUND_URI]?.trim().orEmpty()
@@ -325,6 +460,8 @@ class PlayAlertActionFactory(private val context: Context) : ActionFactory {
             volumeGain = alertVolumeGain(config[PlayAlertAction.CONFIG_VOLUME_PERCENT]),
             durationMillis = alertDurationMillis(config[PlayAlertAction.CONFIG_DURATION_MILLIS]),
             playback = AlertPlayback.parse(config[AlertPlayback.CONFIG_KEY]),
+            notifications = notifications,
+            stopWhenGone = config[PlayAlertAction.CONFIG_STOP_WHEN_GONE]?.toBoolean() ?: false,
         )
     }
 }

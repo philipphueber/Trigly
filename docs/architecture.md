@@ -362,6 +362,16 @@ Each bus also exposes whether its service is connected. A trigger whose service
 is not bound is not quiet, it is broken, and that difference has to be
 expressible.
 
+Actions reach those services the other way round, through a port in `:core` that
+`:triggers` implements over the live service — `NotificationController` for the
+notification listener. That is what keeps `:actions` from depending on
+`:triggers`: the dismiss and button actions call *into* it, and `play_alert`'s
+"stop when the notification goes away" *reads* through it. Reading is a poll, not
+a subscription, for the reason the watchdog trigger polls: the bus carries edges,
+and something that starts after the edge has passed would wait for it forever. An
+action that needs to observe the system, rather than act on it, belongs on this
+port too — never on a bus in a sibling module.
+
 ## Look and feel
 
 ### Colours live in one file
