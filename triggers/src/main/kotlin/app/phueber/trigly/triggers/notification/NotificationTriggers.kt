@@ -6,6 +6,7 @@ import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.triggers.Category
 import app.phueber.trigly.triggers.packageFilter
 import app.phueber.trigly.triggers.stateChoice
+import app.phueber.trigly.core.notificationHaystack
 import app.phueber.trigly.triggers.textFilter
 import app.phueber.trigly.core.SharedPayloadKeys
 import app.phueber.trigly.core.SpecialAccessKind
@@ -42,7 +43,7 @@ fun matchesNotification(
     if (packageName != null && notification.packageName != packageName) return false
 
     if (!text.isEmpty) {
-        val haystack = "${notification.title.orEmpty()} ${notification.text.orEmpty()}"
+        val haystack = notificationHaystack(notification.title, notification.text)
         if (!text.matches(haystack)) return false
     }
     return true
