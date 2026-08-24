@@ -198,6 +198,24 @@ carries both findings — what the notification API looked for *and* what the sc
 route said — since "no such button" and "accessibility is not granted" send
 someone to different settings.
 
+**It needs the phone unlocked, and refuses early when it is not.** With a secure
+lock set and the keyguard showing, `canPressThroughShade` returns false before the
+shade is touched. Three independent things would stop it anyway — lock-screen
+privacy can redact the notification so the label is never drawn, action buttons are
+often not rendered on the keyguard at all, and firing one there demands
+authentication — and a rule cannot answer an unlock prompt, since
+`KeyguardManager.requestDismissKeyguard` needs an `Activity` and a rule fired by
+the engine has none. Opening the shade to fail would leave an unlock prompt on
+screen that nobody asked for. A phone with *no* secure lock is still attempted: the
+keyguard is a swipe with nothing behind it, and pre-refusing there would report
+"locked" about a press that would have worked.
+
+Worth contrasting with the ordinary route, which has none of this: sending a
+`PendingIntent` touches no UI and works with the phone locked and in a pocket. The
+one caveat there is that a button whose intent starts an *activity* still cannot
+come to the foreground past the keyguard — but a broadcast or service intent, which
+is what most notification buttons use, completes.
+
 The scan itself handles the other three causes explicitly rather than by retrying:
 it iterates `getWindows()` for system windows (1), sends `ACTION_EXPAND` to
 candidate rows and searches again (2), and never filters nodes by the target

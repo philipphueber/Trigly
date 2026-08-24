@@ -1,11 +1,13 @@
 package app.phueber.trigly.triggers.accessibility
 
 import android.accessibilityservice.AccessibilityService
+import android.app.KeyguardManager
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.UiController
 import app.phueber.trigly.core.UiNode
+import app.phueber.trigly.core.canPressThroughShade
 import app.phueber.trigly.core.findPressTarget
 import kotlinx.coroutines.delay
 
@@ -56,6 +58,21 @@ class ServiceUiController : UiController {
 
         if (label.isBlank()) {
             return ActionResult.Failure("no button name to look for")
+        }
+
+        // Checked before the shade is touched, because on a locked phone the
+        // alternative is to open it, fail, and leave an unlock prompt on screen
+        // that nobody asked for. See `canPressThroughShade` for why a phone with
+        // no secure lock is still worth trying.
+        val keyguard = service.getSystemService(KeyguardManager::class.java)
+        if (keyguard != null &&
+            !canPressThroughShade(keyguard.isKeyguardLocked, keyguard.isDeviceSecure)
+        ) {
+            return ActionResult.Failure(
+                "the screen is locked, and pressing a button through the shade needs " +
+                    "an unlocked phone — a rule cannot answer the unlock prompt. " +
+                    "Buttons the app exposes properly do not have this limit."
+            )
         }
 
         // Opening the shade is a visible side effect, and the reason this whole
