@@ -36,7 +36,96 @@ class NotificationControlActionsTest {
     fun `dismiss targets the notification that fired the rule`() = runTest {
         val controller = FakeNotificationController()
 
-        val result = DismissNotificationAction(controller, key = null)
+        val result = DismissNotificationAction(controller, targetPackage = null)
+            .execute(fromNotificationRule)
+
+        assertEquals(ActionResult.Success, result)
+        assertEquals(listOf("dismiss:0|com.example|42|null|10123"), controller.calls)
+    }
+
+    /**
+     * The whole point of the selector: a rule whose trigger has nothing to do
+     * with notifications can still dismiss one. "When I leave the house, clear
+     * the shopping-list reminder."
+     */
+    @Test
+    fun `a chosen app dismisses that app's notification on a rule with no notification`() =
+        runTest {
+            val controller = FakeNotificationController(
+                active = listOf(
+                    notification("0|com.shopping|7|null|10", "com.shopping", postedAt = 5_000),
+                )
+            )
+
+            val result = DismissNotificationAction(controller, targetPackage = "com.shopping")
+                .execute(fromOtherRule)
+
+            assertEquals(ActionResult.Success, result)
+            assertEquals(listOf("dismiss:0|com.shopping|7|null|10"), controller.calls)
+        }
+
+    @Test
+    fun `a chosen app takes its newest notification`() = runTest {
+        val controller = FakeNotificationController(
+            active = listOf(
+                notification("0|com.shopping|1|null|10", "com.shopping", postedAt = 1_000),
+                notification("0|com.shopping|9|null|10", "com.shopping", postedAt = 9_000),
+                notification("0|com.other|3|null|10", "com.other", postedAt = 5_000),
+            )
+        )
+
+        DismissNotificationAction(controller, targetPackage = "com.shopping")
+            .execute(fromOtherRule)
+
+        assertEquals(listOf("dismiss:0|com.shopping|9|null|10"), controller.calls)
+    }
+
+    @Test
+    fun `a chosen app wins over the notification that fired the rule`() = runTest {
+        // Naming an app means that app. Falling back to the trigger's
+        // notification would dismiss the wrong one and report success.
+        val controller = FakeNotificationController(
+            active = listOf(
+                notification("0|com.shopping|7|null|10", "com.shopping", postedAt = 5_000),
+            )
+        )
+
+        DismissNotificationAction(controller, targetPackage = "com.shopping")
+            .execute(fromNotificationRule)
+
+        assertEquals(listOf("dismiss:0|com.shopping|7|null|10"), controller.calls)
+    }
+
+    @Test
+    fun `a chosen app with nothing showing fails rather than dismissing something else`() =
+        runTest {
+            val controller = FakeNotificationController(
+                active = listOf(
+                    notification("0|com.other|3|null|10", "com.other", postedAt = 5_000),
+                )
+            )
+
+            val result = DismissNotificationAction(controller, targetPackage = "com.shopping")
+                .execute(fromNotificationRule)
+
+            assertTrue("expected a failure, got $result", result is ActionResult.Failure)
+            assertTrue(
+                "the reason should name the app: ${(result as ActionResult.Failure).reason}",
+                result.reason.contains("com.shopping"),
+            )
+            assertTrue("must not dismiss anything", controller.calls.isEmpty())
+        }
+
+    /**
+     * The trigger's notification does not need to be in the active list to be
+     * dismissed — the payload names it exactly. Looking it up would only add a
+     * way to fail.
+     */
+    @Test
+    fun `the triggering notification is dismissed without consulting the active list`() = runTest {
+        val controller = FakeNotificationController(active = emptyList())
+
+        val result = DismissNotificationAction(controller, targetPackage = null)
             .execute(fromNotificationRule)
 
         assertEquals(ActionResult.Success, result)
@@ -44,24 +133,29 @@ class NotificationControlActionsTest {
     }
 
     @Test
-    fun `an explicitly configured key wins over the payload`() = runTest {
+    fun `a key saved by an old rule is still honoured`() = runTest {
+        // The raw-key text box is gone, but a rule saved when it existed must
+        // keep doing what it did rather than being retargeted.
         val controller = FakeNotificationController()
 
-        DismissNotificationAction(controller, key = "chosen-key").execute(fromNotificationRule)
+        DismissNotificationAction(controller, targetPackage = null, legacyKey = "chosen-key")
+            .execute(fromNotificationRule)
 
         assertEquals(listOf("dismiss:chosen-key"), controller.calls)
     }
 
     @Test
-    fun `with no key anywhere it fails and explains, rather than doing nothing`() = runTest {
-        val controller = FakeNotificationController()
+    fun `with no app and no notification it fails and explains, rather than doing nothing`() =
+        runTest {
+            val controller = FakeNotificationController()
 
-        val result = DismissNotificationAction(controller, key = null).execute(fromOtherRule)
+            val result = DismissNotificationAction(controller, targetPackage = null)
+                .execute(fromOtherRule)
 
-        assertTrue(result is ActionResult.Failure)
-        assertTrue((result as ActionResult.Failure).reason.contains("notification key"))
-        assertTrue("must not call the controller", controller.calls.isEmpty())
-    }
+            assertTrue(result is ActionResult.Failure)
+            assertTrue((result as ActionResult.Failure).reason.contains("choose an app"))
+            assertTrue("must not call the controller", controller.calls.isEmpty())
+        }
 
     @Test
     fun `a controller failure is reported as the action's failure`() = runTest {
@@ -69,7 +163,7 @@ class NotificationControlActionsTest {
             result = ActionResult.Failure("notification access is not granted")
         )
 
-        val result = DismissNotificationAction(controller, key = null)
+        val result = DismissNotificationAction(controller, targetPackage = null)
             .execute(fromNotificationRule)
 
         assertEquals("notification access is not granted", (result as ActionResult.Failure).reason)
@@ -227,6 +321,17 @@ class NotificationControlActionsTest {
         postedAtMillis = 1,
         buttons = buttons,
     )
+
+    /** A notification with no buttons, for the dismiss selector's "which one" tests. */
+    private fun notification(key: String, packageName: String, postedAt: Long) =
+        ActiveNotification(
+            key = key,
+            packageName = packageName,
+            title = "Reminder",
+            text = "Milk",
+            postedAtMillis = postedAt,
+            buttons = emptyList(),
+        )
 }
 
 class DndModeTest {

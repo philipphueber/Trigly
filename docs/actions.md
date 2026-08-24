@@ -163,6 +163,43 @@ firing its intent with no text attached does nothing — the picker marks those 
 the action fails with a reason, because reporting success for a press that
 achieved nothing is the failure this action exists to stop having.
 
+### Choosing which notification to dismiss
+
+`dismiss_notification` had the same mistake as `notification_button`, left
+standing after that one was fixed. Its raw-key text box was removed for the right
+reason — a key is minted by the posting app and cannot be typed in advance — but
+**nothing replaced it**, so the action could only ever dismiss the notification
+that fired the rule. "When I leave the house, clear the shopping-list reminder"
+was not expressible, and with no field on the block there was nothing to suggest
+otherwise. Removing an unusable field is only half the job; the other half is
+offering the usable one.
+
+It now selects the way the button action does, through the same
+`chooseNotification` in `:core`: an **app** chosen in the editor means that app's
+newest live notification, and no app chosen means the one the trigger reported.
+The fallback stays the default, because "when my bank notifies me, dismiss it"
+should need no configuration.
+
+Three decisions worth keeping:
+
+- **An app picker, not a capture off a live notification.** The button action has
+  to capture, because buttons only exist while the notification is on screen.
+  Dismissing needs nothing but the app, so requiring the notification to be
+  showing while the rule is written would be a restriction with no reason behind
+  it.
+- **A named app never falls back.** If that app has nothing showing, the action
+  fails and says so. Quietly dismissing the trigger's notification instead would
+  be the wrong notification, reported as success.
+- **With no app, the payload key is used directly — no lookup.** The key already
+  names one exact notification. Routing it through the active list, as the button
+  action must, would add a way to fail that dismissing by key does not have: a
+  notification already gone, or a list that came back empty, would become
+  "nothing to dismiss" instead of a harmless no-op.
+
+A `key` stored by a rule saved when the text box existed is still read and still
+wins. It will usually be stale — that is why the field went — but honouring it
+keeps such a rule behaving as it did rather than silently retargeting it.
+
 ### Stopping an alert when the notification goes away
 
 An alarm that sounds until the phone is looked at is the point of `play_alert`,
