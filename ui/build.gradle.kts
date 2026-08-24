@@ -79,6 +79,19 @@ val releaseStoreFile = keystoreProperties.getProperty("storeFile")
     ?.let { rootProject.file(it) }
     ?.takeIf { it.isFile }
 
+/**
+ * The version, in one place because two things now read it: the manifest, and the
+ * name of the release artifact. `docs/releasing.md` describes what each number is
+ * for; the release tag is this string prefixed with `v`.
+ *
+ * Declared here rather than inside `defaultConfig` so the dist task can name a
+ * file after it without reaching into the Android extension at execution time.
+ * A second literal in the task would be a version the build could disagree with
+ * itself about, and the only symptom would be an APK whose name lies.
+ */
+val triglyVersionName = "0.0.3"
+val triglyVersionCode = 3
+
 android {
     namespace = "app.phueber.trigly.ui"
     compileSdk = 35
@@ -87,8 +100,8 @@ android {
         applicationId = "app.phueber.trigly"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.0.3"
+        versionCode = triglyVersionCode
+        versionName = triglyVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -150,12 +163,19 @@ android {
 }
 
 /**
- * Puts the release APK where a person can find it: `<repo>/dist/trigly.apk`.
+ * Puts the release APK where a person can find it, under a name that says what
+ * it is: `<repo>/dist/trigly-<version>.apk`.
  *
  * The build's own output is buried at `ui/build/outputs/apk/release/` under a
  * name that describes the *module* — `ui-release.apk` — which is the wrong name
  * for the thing being handed to someone to install, and a path nobody should
  * have to be told twice. `dist/` at the root is where a release artifact goes.
+ *
+ * The version is in the filename because these files outlive the directory they
+ * were built in: they get downloaded, forwarded, and kept, and a folder holding
+ * three files all called `trigly.apk` cannot say which is which. A name carrying
+ * `0.0.3` answers "what am I about to install" without a checksum or a `dump
+ * badging`.
  *
  * **The filename still carries the signing signal, because that is the only one
  * there is.** An unsigned release build is a success, not an error — a
@@ -166,24 +186,38 @@ android {
  */
 val distRelease by tasks.registering(Copy::class) {
     group = "distribution"
-    description = "Copies the release APK to <repo>/dist as trigly.apk."
+    description = "Copies the release APK to <repo>/dist as trigly-<version>.apk."
 
     dependsOn("assembleRelease")
+
+    // Captured at configuration time: the task action must not read the Android
+    // extension, and a literal here could disagree with the manifest.
+    val version = triglyVersionName
 
     from(layout.buildDirectory.dir("outputs/apk/release")) {
         include("*.apk")
         rename { original ->
-            if (original.contains("unsigned")) "trigly-unsigned.apk" else "trigly.apk"
+            if (original.contains("unsigned")) {
+                "trigly-$version-unsigned.apk"
+            } else {
+                "trigly-$version.apk"
+            }
         }
     }
     into(rootProject.layout.projectDirectory.dir("dist"))
 
     doLast {
-        // Reports what was actually written, not what was hoped for: naming
-        // trigly.apk here regardless would undo the whole point of keeping the
+        // Reports what was actually written, not what was hoped for: naming the
+        // signed file here regardless would undo the whole point of keeping an
         // unsigned build visibly unsigned.
+        //
+        // Filtered to this version, because versioned names mean `dist/` keeps
+        // the previous releases too — and listing those as if they had just been
+        // built is how the wrong APK gets published.
         val written = rootProject.file("dist")
-            .listFiles { file -> file.name.startsWith("trigly") && file.extension == "apk" }
+            .listFiles { file ->
+                file.name.startsWith("trigly-$version") && file.extension == "apk"
+            }
             .orEmpty()
             .sortedBy { it.name }
         written.forEach { logger.lifecycle("Release artifact: $it") }

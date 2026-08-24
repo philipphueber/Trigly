@@ -125,21 +125,33 @@ unsigned build rather than a late and obscure failure in the signer.
 
     JAVA_HOME=<jdk17> ./gradlew :ui:distRelease
 
-That assembles the release variant and copies the APK to **`dist/trigly.apk`**
-at the repository root. `:ui:assembleRelease` alone still works and still leaves
-its output at `ui/build/outputs/apk/release/ui-release.apk`; the extra step
-exists because that path is buried and that name describes the *module* rather
-than the thing a person is being asked to install.
+That assembles the release variant and copies the APK to
+**`dist/trigly-<version>.apk`** at the repository root — `dist/trigly-0.0.3.apk`
+for `versionName` `0.0.3`. `:ui:assembleRelease` alone still works and still
+leaves its output at `ui/build/outputs/apk/release/ui-release.apk`; the extra
+step exists because that path is buried and that name describes the *module*
+rather than the thing a person is being asked to install.
 
-**Read the filename in `dist/` before publishing anything.** It is `trigly.apk`
-when a key was found and **`trigly-unsigned.apk`** when none was — the rename is
-deliberately conditional, because the build succeeds either way and the filename
-is the cheapest signal that signing actually happened. Collapsing both into one
-name would remove the only warning there is. `distRelease` prints the path it
-wrote for the same reason.
+The version is in the name because these files outlive the directory they were
+built in — they get downloaded, forwarded and kept, and three files all called
+`trigly.apk` cannot say which is which. `versionName` is declared once, as
+`triglyVersionName` in `ui/build.gradle.kts`, and both the manifest and this
+filename read it; a second literal would be a version the build could disagree
+with itself about, and the only symptom would be an APK whose name lies.
+
+**Read the filename in `dist/` before publishing anything.** It is
+`trigly-<version>.apk` when a key was found and
+**`trigly-<version>-unsigned.apk`** when none was — the rename is deliberately
+conditional, because the build succeeds either way and the filename is the
+cheapest signal that signing actually happened. Collapsing both into one name
+would remove the only warning there is. `distRelease` prints the path it wrote
+for the same reason, filtered to the version just built so an older artifact
+sitting in `dist/` is never mistaken for the new one.
 
 `dist/` is gitignored: it is a build output, and the published copy belongs on
-the release rather than in the repository.
+the release rather than in the repository. It accumulates past releases, which is
+useful locally and is why the publishing step names the version explicitly rather
+than globbing.
 
 An APK, not an App Bundle: the distribution channel is a direct download, where
 a single installable file is the whole point. `bundleRelease` is the format
@@ -163,8 +175,10 @@ Signed-ness and version are both worth checking, because both fail quietly.
 
     export PATH="<jdk17>/bin:$PATH"
 
-    $ANDROID_HOME/build-tools/<ver>/apksigner verify --print-certs dist/trigly.apk
-    $ANDROID_HOME/build-tools/<ver>/aapt2 dump badging dist/trigly.apk | head -1
+    $ANDROID_HOME/build-tools/<ver>/apksigner verify --print-certs \
+        dist/trigly-<version>.apk
+    $ANDROID_HOME/build-tools/<ver>/aapt2 dump badging \
+        dist/trigly-<version>.apk | head -1
 
 The first must print a certificate — "DOES NOT VERIFY" is the unsigned outcome
 described above. The second must show the `versionCode` and `versionName` the
