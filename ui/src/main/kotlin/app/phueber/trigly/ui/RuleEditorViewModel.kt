@@ -46,7 +46,7 @@ class RuleEditorViewModel(
     private val repository: RuleRepository,
     private val registry: Registry,
     val checker: RequirementChecker,
-    ruleId: String?,
+    private val ruleId: String?,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(EditorState(RuleDraft(id = ruleId)))
@@ -77,15 +77,42 @@ class RuleEditorViewModel(
         get() = registry.actionDescriptors.filter(checker::isAvailable)
 
     init {
-        if (ruleId != null) {
-            viewModelScope.launch {
-                // A one-shot read: the editor works on a snapshot, so an external
-                // change while editing cannot yank the form out from under typing.
-                repository.rules().first().firstOrNull { it.id == ruleId }?.let { rule ->
-                    _state.value = EditorState(rule.toDraft())
-                }
+        load()
+    }
+
+    /**
+     * Puts the editor back to where it starts: empty for a new rule, and the
+     * stored rule for an existing one.
+     */
+    private fun load() {
+        _state.value = EditorState(RuleDraft(id = ruleId))
+
+        if (ruleId == null) return
+        viewModelScope.launch {
+            // A one-shot read: the editor works on a snapshot, so an external
+            // change while editing cannot yank the form out from under typing.
+            repository.rules().first().firstOrNull { it.id == ruleId }?.let { rule ->
+                _state.value = EditorState(rule.toDraft())
             }
         }
+    }
+
+    /**
+     * Throws the current draft away.
+     *
+     * Called when the editor screen is genuinely left, because this ViewModel
+     * outlives it — see `MainActivity.EditorHost`. Without it the draft for an
+     * unsaved rule persisted under the one key an unsaved rule can have,
+     * "editor-new", and reappeared the next time "New rule" was tapped.
+     *
+     * A running test is cancelled here too, and that is not incidental:
+     * `play_alert` loops for up to a minute, and until now walking out of the
+     * editor left it sounding with no way to stop it.
+     */
+    fun reset() {
+        testJob?.cancel()
+        testJob = null
+        load()
     }
 
     fun descriptorFor(slot: Slot, type: String): ComponentDescriptor? = when (slot) {

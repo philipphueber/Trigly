@@ -27,6 +27,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -484,6 +485,61 @@ class RuleEditorViewModelTest {
 
         assertTrue(editor.triggerOptions.isEmpty())
         assertNotNull(editor.descriptorFor(Slot.TRIGGER, "from_the_future"))
+    }
+
+    /**
+     * The bug: "New rule" showed the last one.
+     *
+     * An unsaved rule has no id, so its editor can only be keyed on the constant
+     * "editor-new" — and these ViewModels live in the activity's store, so that
+     * one instance served every new rule for the life of the activity, carrying
+     * the previous draft with it. [RuleEditorViewModel.reset] is what the screen
+     * calls when it is genuinely left, and this is the behaviour it owes.
+     */
+    @Test
+    fun resetting_a_new_rule_leaves_it_empty() = runTest {
+        val editor = viewModel()
+
+        editor.setName("Half-built")
+        editor.chooseTrigger("power_connection")
+        editor.addAction("speak")
+
+        editor.reset()
+
+        val draft = editor.state.value.draft
+        assertEquals("", draft.name)
+        assertNull("a reset new rule must have no trigger", draft.trigger)
+        assertTrue("a reset new rule must have no actions", draft.actions.isEmpty())
+        assertTrue("and must still be a new rule", draft.isNew)
+    }
+
+    /**
+     * For a rule that exists, "empty" is the wrong target — the stored rule is.
+     * Reset reloads rather than blanks, so abandoning an edit and reopening shows
+     * what is saved, not the abandoned typing and not a blank form.
+     */
+    @Test
+    fun resetting_an_existing_rule_reloads_what_is_stored() = runTest {
+        val stored = Rule(
+            id = "rule-1",
+            name = "Charger on",
+            trigger = ComponentSpec("power_connection", mapOf("state" to "connected")),
+            actions = listOf(ComponentSpec("speak", mapOf("text" to "Charging"))),
+        )
+        val repository = InMemoryRuleRepository()
+        repository.upsert(stored)
+
+        val editor = viewModel(repository, ruleId = "rule-1")
+        assertEquals("Charger on", editor.state.value.draft.name)
+
+        editor.setName("Abandoned edit")
+        editor.removeAction(0)
+        editor.reset()
+
+        val draft = editor.state.value.draft
+        assertEquals("Charger on", draft.name)
+        assertEquals(listOf("speak"), draft.actions.map { it.type })
+        assertEquals("rule-1", draft.id)
     }
 
     private class FakeTriggerFactory(
