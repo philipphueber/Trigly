@@ -417,7 +417,10 @@ actions; conditions and control flow mean an execution model, a value type, and
 somewhere to store state between runs.
 
 That is the largest single design decision left in the project, and it wants its
-own document rather than a bullet in a catalogue. The two ends of the range:
+own document rather than a bullet in a catalogue. **It now has one:
+`docs/conditions.md`**, where the decision taken is that a condition *is* a
+trigger and triggers compose into an AND/OR tree. The two ends of the range that
+were considered:
 
 - **Conditions only** — an optional predicate on a rule, evaluated against the
   trigger payload, plus `TriggerEvent` values usable in action config
@@ -428,7 +431,9 @@ own document rather than a bullet in a catalogue. The two ends of the range:
   debugging and safety.
 
 Recommend starting with conditions and payload substitution, and only moving
-further if real rules demand it.
+further if real rules demand it. The chosen design is narrower than either end:
+no variables, no control flow, and conditions reuse the trigger catalogue rather
+than introducing a second component family. See `docs/conditions.md`.
 
 ---
 
