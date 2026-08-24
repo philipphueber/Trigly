@@ -80,6 +80,15 @@ fun ConfigFieldEditor(
                 onPick = onValueChange,
             )
 
+            // Same reasoning again, with the identifier being one of our own:
+            // a rule id is a UUID, so the list is the only way in.
+            is ConfigField.RuleRef -> RuleRefField(
+                label = fieldLabel(field.label, field.required),
+                ruleId = value?.ifEmpty { null },
+                blankMeaning = field.blankMeaning,
+                onPick = onValueChange,
+            )
+
             // Same reasoning as AppPackage: stored like text, unreachable by
             // typing. A URI nobody can compose, and a MAC address nobody knows.
             is ConfigField.SoundUri -> SoundUriField(

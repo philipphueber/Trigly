@@ -2,7 +2,9 @@ package app.phueber.trigly.actions
 
 import android.content.Context
 import app.phueber.trigly.core.ActionFactory
+import app.phueber.trigly.core.InMemoryRuleRepository
 import app.phueber.trigly.core.NotificationController
+import app.phueber.trigly.core.RuleRepository
 import app.phueber.trigly.core.UiController
 
 /**
@@ -30,6 +32,12 @@ fun actionFactories(
      * so nothing here requires accessibility access to be granted.
      */
     ui: UiController = UiController.Unavailable,
+    /**
+     * The rule store, for the one action whose subject is Trigly itself. The
+     * same instance the engine reads, or the switch it writes would take effect
+     * on nothing.
+     */
+    rules: RuleRepository = InMemoryRuleRepository(),
 ): List<ActionFactory> = listOf(
     // Tell the user something
     PostNotificationActionFactory(context),
@@ -48,6 +56,9 @@ fun actionFactories(
     ComposeSmsActionFactory(context),
     SetAlarmActionFactory(context),
     AddCalendarEventActionFactory(context),
+
+    // Trigly's own rules
+    SetRuleEnabledActionFactory(rules),
 
     // Device state
     SetVolumeActionFactory(context),

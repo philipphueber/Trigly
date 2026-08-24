@@ -104,6 +104,7 @@ the tap start the activity — worse automation, but honest about who decided.
 | Set stream volume | `set_volume` | — (silencing needs DND access) |
 | Set ringer mode | `set_ringer_mode` | Do Not Disturb access |
 | Copy text to clipboard | `set_clipboard` | — |
+| Turn a rule on or off | `set_rule_enabled` | — |
 | HTTP request | `http_request` | `INTERNET` (install-time) |
 | Dismiss another app's notification | `dismiss_notification` | Notification access |
 | Press a notification's button | `notification_button` | Notification access |
@@ -162,6 +163,44 @@ And a **reply button is refused, not pressed**. It carries a `RemoteInput`, and
 firing its intent with no text attached does nothing — the picker marks those and
 the action fails with a reason, because reporting success for a press that
 achieved nothing is the failure this action exists to stop having.
+
+### Rules that switch each other
+
+`set_rule_enabled` is the first action whose subject is Trigly rather than the
+device, and it needed no engine machinery at all: `EngineService` collects the
+rule store and `TriggerEngine.sync` starts and stops rules against the `enabled`
+flag, so **writing the flag is the mechanism**. Starting and stopping was already
+the engine's job; this only changes its mind.
+
+What it makes expressible is the class of rules that arm and disarm each other —
+a one-shot that fires and turns itself off, a "driving mode" that enables a group
+on Bluetooth connect, a guard that disables everything expensive at 10% battery.
+
+The target is stored as the rule's **id**, not its name, and the field is a picker
+for the same reason `dismiss_notification` takes an app rather than a key: a name
+can be edited, and a reference that broke when someone tidied a title would fail
+silently. `ConfigField.RuleRef` shows the name and stores the id. It has no
+typed-entry escape hatch, unlike the app picker — an id is a UUID, so there is no
+value anyone could usefully type.
+
+Two consequences documented in the action's own warning, because both are
+discovered by confusion otherwise:
+
+- **Turning off the rule that is running stops the rest of its actions.** The
+  engine cancels the coroutine those actions are running in — that is the same
+  cancellation that makes disabling a rule a working stop button for a long
+  `play_alert`. So "do the thing, then disable myself" has to put the disable
+  last.
+- **Two rules that switch each other on will keep doing so.** Nothing inside a
+  single action can detect that, and refusing to write when the target is another
+  switching rule would break the legitimate arm/disarm pairs this exists for.
+
+Idempotent on purpose: enabling an already-enabled rule writes nothing and
+reports success. A write would churn the engine into restarting a rule that was
+already running, and a failure would make "make sure this is on" an action that
+fails precisely when it has nothing to do. A rule that has since been deleted is
+the opposite case and fails loudly, naming the id — silently doing nothing is how
+an automation is discovered to be broken months later.
 
 ### A button the system does not expose
 

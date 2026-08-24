@@ -115,6 +115,27 @@ sealed interface ConfigField {
     }
 
     /**
+     * One of the user's own rules, stored as its **id**.
+     *
+     * The id and not the name, for the same reason a trigger's `type` string is
+     * an identifier rather than a description: a rule can be renamed, and a rule
+     * that stops being found because someone tidied up its title would be a
+     * silent failure of exactly the kind this app keeps trying not to have. The
+     * editor shows the name and stores the id — the trade [AppPackage] already
+     * makes.
+     *
+     * A picker, necessarily: an id is a UUID nobody can type or recognise.
+     */
+    data class RuleRef(
+        override val key: String,
+        override val label: String,
+        override val required: Boolean = true,
+        override val help: String? = null,
+        override val shownWhen: FieldCondition? = null,
+        val blankMeaning: String? = null,
+    ) : ConfigField
+
+    /**
      * An installed app's package name. Stored and validated exactly like [Text];
      * separate so the editor can offer a picker instead of asking someone to
      * type "com.google.android.dialer" from memory.
@@ -434,6 +455,8 @@ enum class DurationUnit(val millis: Long, val label: String) {
 fun ConfigField.defaultValue(): String? = when (this) {
     is ConfigField.Text -> null
     is ConfigField.AppPackage -> null
+    // Nothing to preselect: which rule is the whole question.
+    is ConfigField.RuleRef -> null
     // Both pick something whose absence is itself a setting — the device's own
     // tone, any Bluetooth device — so there is nothing to preselect.
     is ConfigField.SoundUri -> null

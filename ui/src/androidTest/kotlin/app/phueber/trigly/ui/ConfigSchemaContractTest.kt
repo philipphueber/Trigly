@@ -149,6 +149,12 @@ class ConfigSchemaContractTest {
 
                 is ConfigField.AppPackage -> context.packageName
 
+                // Any id: this exercises the accepting path, and the action's
+                // "no such rule" case is a *runtime* outcome, not a config the
+                // factory should refuse. A factory that rejected an id for not
+                // existing yet would make an exported rule unimportable.
+                is ConfigField.RuleRef -> "rule-sample-id"
+
                 // A real content: URI shape, because `play_alert` refuses a sound
                 // URI that is not local — a bare "sample" would fail its factory
                 // for the right reason and make this test look like a schema bug.
