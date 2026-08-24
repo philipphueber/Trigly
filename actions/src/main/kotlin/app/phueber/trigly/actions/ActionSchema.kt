@@ -12,6 +12,13 @@ internal object ActionCategory {
     const val DEVICE = "Device settings"
     const val NETWORK = "Network"
     const val NOTIFICATIONS = "Other apps' notifications"
+
+    /**
+     * Actions whose subject is Trigly itself rather than the device. Kept
+     * separate because "turn a rule off" belongs with neither the settings it
+     * does not touch nor the apps it does not reach.
+     */
+    const val RULES = "Trigly's own rules"
 }
 
 /** The message field that several actions share. */

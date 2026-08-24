@@ -126,16 +126,18 @@ Deliberately just equality against a set of strings. An expression language here
 would be a second, worse validator competing with the `create()` that already
 owns cross-field rules.
 
-Fourteen field kinds cover all 47 components: `Text`, `TextPattern`, `Choice`,
-`Number`, `Decimal`, `Flag`, `AppPackage`, `SoundUri`, `BluetoothAddress`,
-`Slider`, `Duration`, `Timestamp`, `TimeOfDay`, `Coordinates`. `Choice` carries the most weight, because the fourteen
-two-word state fields (`enabled`/`disabled`, `plugged`/`unplugged`,
-`entered`/`exited`) use a different word pair per component — which is precisely
-why the words must be declared per factory instead of inferred from the key name.
+Field kinds cover every component: `Text`, `TextPattern`, `Choice`, `Number`,
+`Decimal`, `Flag`, `AppPackage`, `SoundUri`, `BluetoothAddress`,
+`NotificationButton`, `RuleRef`, `Slider`, `Duration`, `Timestamp`, `TimeOfDay`,
+`Coordinates`. `Choice` carries the most weight, because the fourteen two-word
+state fields (`enabled`/`disabled`, `plugged`/`unplugged`, `entered`/`exited`)
+use a different word pair per component — which is precisely why the words must
+be declared per factory instead of inferred from the key name.
 
-**Eight of the fourteen exist purely so the editor can offer a better control for
+**Most of them exist purely so the editor can offer a better control for
 something an existing kind could already store**, and that is the pattern to
-follow rather than an accident to tidy up. Every one of them keeps the stored
+follow rather than an accident to tidy up. `RuleRef` is the newest: a rule id is
+a UUID, so `Text` could hold it and nobody could ever fill it in. Every one of them keeps the stored
 value byte-for-byte and changes only the control, which is why adding them
 migrated nothing: no saved rule, no exported file, no `RuleJson` version.
 

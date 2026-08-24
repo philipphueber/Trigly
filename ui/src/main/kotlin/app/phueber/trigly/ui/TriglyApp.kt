@@ -93,16 +93,21 @@ class AppContainer(context: Context) {
      */
     val ui: UiController = ServiceUiController()
 
-    val registry: Registry = Registry(
-        triggerFactories = triggerFactories(context),
-        actionFactories = actionFactories(context, notifications, ui),
-    )
-
     /**
      * Durable storage. Rules are hand-built by the user, so losing them to a
      * process death — which the in-memory stand-in did — was never shippable.
+     *
+     * Declared **before** [registry] on purpose: property initialisers run in
+     * declaration order, and the registry now hands this to the action that
+     * switches rules. Below the registry it would be read while still null, and
+     * the symptom would be an action that quietly switches nothing.
      */
     val ruleRepository: RuleRepository = ruleRepository(context)
+
+    val registry: Registry = Registry(
+        triggerFactories = triggerFactories(context),
+        actionFactories = actionFactories(context, notifications, ui, ruleRepository),
+    )
 
     val requirementChecker: RequirementChecker = RequirementChecker(context)
 }

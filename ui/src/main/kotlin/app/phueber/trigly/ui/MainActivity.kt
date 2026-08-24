@@ -167,11 +167,21 @@ class MainActivity : ComponentActivity() {
                 val pairedDevices by rememberPairedDevices()
                 // A function, not a snapshot: notifications come and go while the
                 // editor is open, so the picker reads them when it opens.
+                // The rules themselves, for the field that points at one. A
+                // snapshot rather than a reader function, unlike the
+                // notifications above: the list is already collected here and
+                // changes redraw the editor anyway.
+                val allRules by listViewModel.statuses.collectAsStateWithLifecycle()
+                val ruleChoices = remember(allRules) {
+                    allRules.map { RuleChoice(it.rule.id, it.rule.name, it.rule.enabled) }
+                }
+
                 CompositionLocalProvider(
                     LocalInstalledApps provides installedApps,
                     LocalDeviceSounds provides deviceSounds,
                     LocalPairedDevices provides pairedDevices,
                     LocalActiveNotifications provides container.notifications::activeNotifications,
+                    LocalRules provides ruleChoices,
                 ) {
                     // The page, as a Surface, for the content colour rather than
                     // for the fill — `window_background` in `res/values*` already
