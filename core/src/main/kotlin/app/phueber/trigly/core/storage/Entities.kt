@@ -7,6 +7,7 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.room.Relation
 import app.phueber.trigly.core.ComponentSpec
+import app.phueber.trigly.core.Gate
 import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.RuleJson
 
@@ -23,6 +24,12 @@ data class RuleEntity(
     val enabled: Boolean,
     /** User-visible ordering of the rule list. */
     val position: Int,
+    /**
+     * The gate's condition tree as JSON, or null when the rule has none — which
+     * is every rule written before gates existed. See `MIGRATION_1_2` for why a
+     * tree is stored as JSON rather than in the flat components table.
+     */
+    val conditionsJson: String? = null,
 )
 
 /**
@@ -74,7 +81,14 @@ data class RuleWithComponents(
  * it can happen through a partial restore or a hand-edited database.
  */
 fun RuleWithComponents.toRuleOrNull(): Rule? {
-    val trigger = components.firstOrNull { it.role == ComponentRole.TRIGGER } ?: return null
+    // Ordered, because the first level is an ordered list the editor can
+    // rearrange — and because a rule that came back with its edges shuffled
+    // would read as a different rule.
+    val triggers = components
+        .filter { it.role == ComponentRole.TRIGGER }
+        .sortedBy { it.ordinal }
+        .map { it.toSpec() }
+        .ifEmpty { return null }
 
     val actions = components
         .filter { it.role == ComponentRole.ACTION }
@@ -84,7 +98,17 @@ fun RuleWithComponents.toRuleOrNull(): Rule? {
     return Rule(
         id = rule.id,
         name = rule.name,
-        trigger = trigger.toSpec(),
+        gate = Gate(
+            triggers = triggers,
+            // Unreadable conditions drop to null rather than losing the rule, the
+            // same trade `toSpec` makes for config. The rule then fires
+            // unconditionally, which is worth being uneasy about — but the
+            // alternative is a rule that vanishes from the list, and a rule the
+            // user can see and fix beats one they cannot.
+            conditions = rule.conditionsJson?.let { json ->
+                runCatching { RuleJson.decodeConditions(json) }.getOrNull()
+            },
+        ),
         actions = actions,
         enabled = rule.enabled,
     )
@@ -102,18 +126,23 @@ fun Rule.toEntity(position: Int) = RuleEntity(
     name = name,
     enabled = enabled,
     position = position,
+    conditionsJson = gate.conditions?.let(RuleJson::encodeConditions),
 )
 
 fun Rule.toComponentEntities(): List<ComponentEntity> = buildList {
-    add(
-        ComponentEntity(
-            ruleId = id,
-            role = ComponentRole.TRIGGER,
-            ordinal = 0,
-            type = trigger.type,
-            configJson = RuleJson.encodeConfig(trigger.config),
+    // One row per edge. The ordinal is what makes the first level's order durable,
+    // exactly as it already does for actions.
+    gate.triggers.forEachIndexed { index, spec ->
+        add(
+            ComponentEntity(
+                ruleId = id,
+                role = ComponentRole.TRIGGER,
+                ordinal = index,
+                type = spec.type,
+                configJson = RuleJson.encodeConfig(spec.config),
+            )
         )
-    )
+    }
     actions.forEachIndexed { index, spec ->
         add(
             ComponentEntity(

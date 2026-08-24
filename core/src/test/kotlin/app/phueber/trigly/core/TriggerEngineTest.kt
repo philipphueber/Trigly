@@ -63,7 +63,7 @@ class TriggerEngineTest {
             val h = harness(this, listOf(event(1)), listOf(RecordingAction()))
 
             assertThrows(UnknownComponentException::class.java) {
-                h.engine.startRule(h.rule.copy(trigger = ComponentSpec("nope")))
+                h.engine.startRule(h.rule.withTrigger(ComponentSpec("nope")))
             }
         }
 
@@ -148,7 +148,7 @@ class TriggerEngineTest {
 
             engine.sync(
                 listOf(
-                    idleRule("bad").copy(trigger = ComponentSpec("nope")),
+                    idleRule("bad").withTrigger(ComponentSpec("nope")),
                     idleRule("good"),
                 )
             )

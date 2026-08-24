@@ -68,6 +68,26 @@ two triggers reading `ACTION_BATTERY_CHANGED` share a file because they share
 the extras and the sticky-broadcast caveats. Adding one still does not touch the
 other's logic, which is the property that matters.
 
+### A trigger can also be a condition
+
+`Trigger` carries a second, defaulted capability — `currentlyHolds()` — so the
+same component can be *watched* as an edge or *asked* as a level. That is what
+lets a condition be a trigger rather than a second component family, and
+`TriggerFactory.supportsCondition` is how the editor knows which slots to offer a
+component in without instantiating one.
+
+`Gate` and `ConditionNode` in `:core` are the model: a first level of one or more
+edge triggers — an OR when there are several — plus an optional AND/OR tree of
+checks that must hold when one of them fires. Both are built and tested;
+neither is wired into `Rule`, storage, the engine or the editor yet. The full
+design, the capability matrix for all thirty-one triggers, and why a *passive*
+time check sidesteps the missing scheduler entirely, are in `docs/conditions.md`.
+
+Two invariants from there that constrain anything touching this: an unknown state
+never holds — a check that cannot answer must not be read as denial *or* as
+satisfaction — and the gate's shape is what keeps edges and levels apart, so the
+editor needs no rules about which component may go where.
+
 ### Requirements
 
 Triggers and actions declare what they need — a runtime permission, a settings

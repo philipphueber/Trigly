@@ -24,6 +24,27 @@ data class TriggerEvent(
  */
 interface Trigger {
     fun events(): Flow<TriggerEvent>
+
+    /**
+     * Whether this holds **right now**, or null when the question does not apply.
+     *
+     * The seam that lets a trigger be used as a condition — see
+     * `docs/conditions.md`. A trigger is an edge ("the screen turned on"); a
+     * condition is a level ("the screen is on"). Most triggers backed by a sticky
+     * broadcast or a queryable manager can answer both; a pure event such as
+     * `sms_received` cannot, and says so by leaving this defaulted.
+     *
+     * **Null is not false.** It means "this cannot be asked", which a caller must
+     * treat as not holding rather than as denial — see [ConditionNode.holds].
+     * Returning false from a trigger that has no state would be a lie the
+     * evaluator cannot see through.
+     *
+     * Defaulted so that adding conditions did not touch thirty-one existing
+     * triggers, and so each can opt in on its own. Suspending because answering
+     * may mean a one-shot location read or a binder call, and blocking the
+     * engine's dispatcher for it would stall every other rule.
+     */
+    suspend fun currentlyHolds(): Boolean? = null
 }
 
 /**
@@ -35,4 +56,19 @@ interface Trigger {
  */
 interface TriggerFactory : ComponentFactory {
     fun create(config: Map<String, String>): Trigger
+
+    /**
+     * Whether this component can also be used as a condition.
+     *
+     * Declared on the factory rather than discovered by instantiating one, for
+     * the same reason [configFields] and requirements are: the editor needs to
+     * know which slots to offer a component in *before* anything is built.
+     *
+     * The pair to keep honest: a factory saying true must produce a [Trigger]
+     * whose [Trigger.currentlyHolds] actually answers. Saying true and returning
+     * null yields a condition that never holds — a rule that cannot fire, with
+     * nothing on screen to say why.
+     */
+    val supportsCondition: Boolean
+        get() = false
 }

@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.RuleRepository
 import kotlinx.coroutines.flow.Flow
@@ -11,7 +13,7 @@ import kotlinx.coroutines.flow.map
 
 @Database(
     entities = [RuleEntity::class, ComponentEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class TriglyDatabase : RoomDatabase() {
@@ -19,6 +21,25 @@ abstract class TriglyDatabase : RoomDatabase() {
 
     companion object {
         const val NAME = "trigly.db"
+    }
+}
+
+/**
+ * Adds the gate's condition tree to the rules table.
+ *
+ * One nullable column, and null is the honest representation of "this rule has no
+ * conditions" — which is every rule that existed before gates. The tree is stored
+ * as JSON rather than relationally: it is a *tree*, and the components table is a
+ * flat list with an ordinal, which cannot express nesting without becoming a
+ * parent-pointer scheme nobody would enjoy reading.
+ *
+ * Several trigger edges needed no migration at all. The components table already
+ * carries a role and an ordinal, so a second `TRIGGER` row is a shape it always
+ * supported.
+ */
+internal val MIGRATION_1_2 = object : Migration(1, 2) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE rules ADD COLUMN conditionsJson TEXT")
     }
 }
 
@@ -39,6 +60,7 @@ internal fun triglyDatabase(context: Context): TriglyDatabase =
         // built by hand, and silently deleting them on a schema change is not an
         // acceptable failure mode. A missing migration should fail loudly in
         // development instead.
+        .addMigrations(MIGRATION_1_2)
         .build()
 
 /**
