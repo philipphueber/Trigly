@@ -1,8 +1,11 @@
 package app.phueber.trigly.triggers
 
+import android.app.AppOpsManager
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
+import android.os.Build
+import android.os.Process
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.SpecialAccessKind
 import app.phueber.trigly.core.ConfigField
@@ -64,6 +67,41 @@ class AppForegroundTrigger(
         }
     }
 
+    /**
+     * The same [UsageStatsManager] [events] polls, asked for a snapshot instead
+     * of a stream: walk a trailing window of events and track whichever package
+     * most recently moved to the foreground without a matching move to the
+     * background since. Reusing the query this way means the edge and the level
+     * can never disagree about what "foreground" means.
+     *
+     * The one case this cannot see: an app that has held the foreground for
+     * longer than [FOREGROUND_LOOKBACK_MILLIS] with nothing else in between
+     * scrolls out of the window entirely and reads as "nothing foregrounded."
+     * The same staleness trade `docs/conditions.md` accepts for a cached
+     * location fix — a wider window costs more to scan for a case that is rare
+     * in practice.
+     */
+    override suspend fun currentlyHolds(): Boolean? {
+        if (!context.hasUsageAccess()) return null
+        val usage = context.getSystemService(UsageStatsManager::class.java) ?: return null
+
+        val end = now()
+        val events = runCatching { usage.queryEvents(end - FOREGROUND_LOOKBACK_MILLIS, end) }
+            .getOrNull() ?: return null
+
+        var foreground: String? = null
+        val event = UsageEvents.Event()
+        while (events.hasNextEvent()) {
+            events.getNextEvent(event)
+            when (event.eventType) {
+                FOREGROUND_EVENT -> foreground = event.packageName
+                BACKGROUND_EVENT -> if (event.packageName == foreground) foreground = null
+            }
+        }
+
+        return if (packageName == null) foreground != null else foreground == packageName
+    }
+
     companion object {
         const val TYPE = "app_foreground"
         const val CONFIG_PACKAGE = "package"
@@ -72,13 +110,37 @@ class AppForegroundTrigger(
 
         const val DEFAULT_POLL_MILLIS = 5_000L
 
+        private const val FOREGROUND_LOOKBACK_MILLIS = 60 * 60 * 1_000L
+
         /**
          * `MOVE_TO_FOREGROUND` was renamed `ACTIVITY_RESUMED` in API 29; both
          * are the same constant value, so one reference covers every version.
          */
         @Suppress("DEPRECATION")
         private val FOREGROUND_EVENT = UsageEvents.Event.MOVE_TO_FOREGROUND
+
+        /** `MOVE_TO_BACKGROUND`'s API-29 rename, same reasoning as above. */
+        @Suppress("DEPRECATION")
+        private val BACKGROUND_EVENT = UsageEvents.Event.MOVE_TO_BACKGROUND
     }
+}
+
+/**
+ * Usage access is an app op, not a runtime permission — [Context.checkSelfPermission]
+ * has no idea it exists. Mirrors the check `RequirementChecker` makes for the
+ * [app.phueber.trigly.core.SpecialAccessKind.USAGE_STATS] requirement below,
+ * duplicated here rather than shared because that class lives in `:core` and
+ * cannot depend back on `:triggers`.
+ */
+private fun Context.hasUsageAccess(): Boolean {
+    val appOps = getSystemService(AppOpsManager::class.java) ?: return false
+    val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        appOps.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), packageName)
+    } else {
+        @Suppress("DEPRECATION")
+        appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), packageName)
+    }
+    return mode == AppOpsManager.MODE_ALLOWED
 }
 
 class AppForegroundTriggerFactory(private val context: Context) : TriggerFactory {
@@ -104,6 +166,8 @@ class AppForegroundTriggerFactory(private val context: Context) : TriggerFactory
     override val requirements = listOf(
         ComponentRequirement.SpecialAccess(SpecialAccessKind.USAGE_STATS),
     )
+
+    override val supportsCondition = true
 
     override fun create(config: Map<String, String>): Trigger = AppForegroundTrigger(
         context = context,

@@ -3,6 +3,7 @@ package app.phueber.trigly.core
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
 
 /**
@@ -86,24 +87,73 @@ class TriggerEngine(
     }
 
     /**
-     * (Re)starts one rule. Resolving the trigger and actions happens here, so a
+     * (Re)starts one rule. Resolving the gate and actions happens here, so a
      * rule naming an unknown type fails at start with [UnknownComponentException]
      * rather than silently never firing. [sync] is the caller that catches that;
      * this one throws, so a deliberate single-rule start still reports it.
+     *
+     * **One job per rule, even with several trigger edges.** A gate's first level
+     * is an OR of edges, and a rule with three of them is *semantically* three
+     * copies of itself — but three independent collectors would run the actions
+     * concurrently when two edges fire together, and a rule has always done one
+     * thing at a time. So the edges are merged into a single flow and collected
+     * once: same semantics, and cancellation stays the single stop button that
+     * `stopRule` and the editor's Test button rely on.
+     *
+     * Condition triggers are built here too, once, rather than per event. They are
+     * asked for their state on every fire, and constructing a fresh one each time
+     * would pay the factory's cost — and, for anything holding a resource, do so
+     * repeatedly.
      */
     fun startRule(rule: Rule) = synchronized(lock) {
         stopRule(rule.id)
 
-        val trigger = registry.createTrigger(rule.trigger)
+        val edges = rule.gate.triggers.map(registry::createTrigger)
         val actions = rule.actions.map(registry::createAction)
 
+        // Built up front so an unknown *condition* type fails at start like an
+        // unknown trigger, rather than at the first fire — which would be a rule
+        // that looks healthy until the moment it matters.
+        val checks: Map<ComponentSpec, Trigger> = rule.gate.conditions
+            ?.checks()
+            .orEmpty()
+            .distinct()
+            .associateWith(registry::createTrigger)
+
         val job = scope.launch {
-            trigger.events().collect { event ->
+            edges.map { it.events() }.merge().collect { event ->
+                if (!gateHolds(rule, checks)) return@collect
                 actions.forEach { action -> run(rule, action, event) }
             }
         }
         jobs[rule.id] = Running(rule, job)
         Unit
+    }
+
+    /**
+     * Whether the rule's conditions hold right now.
+     *
+     * A rule with no conditions always passes, which is every rule written before
+     * gates existed.
+     *
+     * A condition that throws is treated as not holding, and that direction is
+     * deliberate: a state nobody could read is unknown, and firing unattended
+     * actions on an unknown state is the worse of the two failures — see
+     * [ConditionNode.holds]. Cancellation is rethrown, because a cancelled rule is
+     * not a rule whose conditions failed.
+     */
+    private suspend fun gateHolds(rule: Rule, checks: Map<ComponentSpec, Trigger>): Boolean {
+        val conditions = rule.gate.conditions ?: return true
+
+        return conditions.holds { spec ->
+            try {
+                checks[spec]?.currentlyHolds()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (t: Throwable) {
+                null
+            }
+        }
     }
 
     /**

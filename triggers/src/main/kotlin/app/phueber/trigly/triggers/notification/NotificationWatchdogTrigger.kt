@@ -74,20 +74,35 @@ class NotificationWatchdogTrigger(
     }
 
     /**
-     * Null service means notification access is off or the listener is not bound
-     * yet. Treated as "not present", which is the safe reading: the watchdog
-     * should complain when it cannot see, not assume the best.
+     * Null when there is no way to know — access is off, the listener has not
+     * bound yet, or the call throws. What "no information" should mean depends on
+     * who is asking, so this stays neutral and lets the two callers narrow it
+     * differently: [isPresent] folds it to false, because the watchdog should
+     * complain when it cannot see, not assume the best; [currentlyHolds] keeps it
+     * as null, because a condition must not report the watched notification
+     * absent just because the listener is unbound — that would be a rule failing
+     * closed with nothing to say why.
      */
-    private fun isPresent(): Boolean {
-        val service = NotificationEvents.service ?: return false
+    private fun isPresentOrNull(): Boolean? {
+        val service = NotificationEvents.service ?: return null
 
-        val active = runCatching { service.activeNotifications }.getOrNull() ?: return false
+        val active = runCatching { service.activeNotifications }.getOrNull() ?: return null
 
         return active.any { notification ->
             notification.packageName == packageName &&
                 (!requireOngoing || notification.isOngoing)
         }
     }
+
+    private fun isPresent(): Boolean = isPresentOrNull() ?: false
+
+    /**
+     * The edge fires on absence; the passive form asks the opposite question —
+     * "is the watched notification present" — using the exact same presence
+     * check the poll loop already relies on, so the two cannot disagree about
+     * what "present" means.
+     */
+    override suspend fun currentlyHolds(): Boolean? = isPresentOrNull()
 
     companion object {
         const val TYPE = "notification_watchdog"
@@ -109,6 +124,7 @@ class NotificationWatchdogTriggerFactory : TriggerFactory {
 
     override val displayName = "App's notification goes missing"
     override val category = Category.NOTIFICATIONS
+    override val supportsCondition = true
 
     override val configFields = listOf(
         packageFilter(

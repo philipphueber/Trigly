@@ -35,6 +35,14 @@ class GpsProviderTrigger(
         )
     }
 
+    // Same manager call as read() above, reused directly for the condition case —
+    // still no permission needed to ask, and still wrapped since some OEMs guard
+    // it anyway.
+    override suspend fun currentlyHolds(): Boolean? = runCatching {
+        appContext.getSystemService(LocationManager::class.java)
+            ?.isProviderEnabled(LocationManager.GPS_PROVIDER)
+    }.getOrNull()?.let { it == onEnabled }
+
     companion object {
         const val TYPE = "gps_state"
         const val CONFIG_STATE = "state"
@@ -53,6 +61,8 @@ class GpsProviderTriggerFactory(private val context: Context) : TriggerFactory {
     override val configFields = listOf(
         stateChoice("Fires when GPS is", "enabled", "switched on", "disabled", "switched off"),
     )
+
+    override val supportsCondition = true
 
     override fun create(config: Map<String, String>): Trigger = GpsProviderTrigger(
         context = context,

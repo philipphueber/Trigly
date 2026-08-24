@@ -45,6 +45,12 @@ class WifiStateTrigger(
         )
     }
 
+    // WifiManager answers directly what the broadcast can only report a change
+    // to — no need to wait for the next transition.
+    override suspend fun currentlyHolds(): Boolean? = runCatching {
+        appContext.getSystemService(WifiManager::class.java)?.isWifiEnabled
+    }.getOrNull()?.let { it == onEnabled }
+
     companion object {
         const val TYPE = "wifi_state"
         const val CONFIG_STATE = "state"
@@ -69,6 +75,8 @@ class WifiStateTriggerFactory(private val context: Context) : TriggerFactory {
                 "Matching a specific network name needs location permission.",
         ),
     )
+
+    override val supportsCondition = true
 
     override fun create(config: Map<String, String>): Trigger = WifiStateTrigger(
         context = context,

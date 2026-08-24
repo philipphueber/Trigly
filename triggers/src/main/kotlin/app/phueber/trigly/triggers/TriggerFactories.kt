@@ -30,6 +30,13 @@ fun triggerFactories(context: Context): List<TriggerFactory> = listOf(
     IntervalTriggerFactory(),
     SolarTriggerFactory(),
 
+    // Conditions only — these have no event stream and can never start a rule.
+    // They live in this list anyway because a condition *is* a trigger, asked
+    // rather than watched; the editor decides which slots to offer them in from
+    // `supportsCondition`. See `docs/conditions.md`.
+    TimeWindowCheckFactory(),
+    LocationCheckFactory(context),
+
     // Power
     BatteryLevelTriggerFactory(context),
     BatteryTemperatureTriggerFactory(context),

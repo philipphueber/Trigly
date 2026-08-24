@@ -2,6 +2,7 @@ package app.phueber.trigly.triggers
 
 import android.content.Context
 import android.content.Intent
+import android.os.PowerManager
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerFactory
 
@@ -28,6 +29,17 @@ class ScreenStateTrigger(
     override fun read(intent: Intent) = Reading(
         payload = mapOf(PAYLOAD_STATE to if (onScreenOn) ON else OFF),
     )
+
+    // No sticky broadcast exists for ACTION_SCREEN_ON/OFF, so the current state
+    // has to come from the manager itself rather than a replayed Intent.
+    // isInteractive is the platform's own name for the same "screen is on" the
+    // broadcasts report.
+    override suspend fun currentlyHolds(): Boolean? {
+        val interactive = runCatching {
+            appContext.getSystemService(PowerManager::class.java)?.isInteractive
+        }.getOrNull() ?: return null
+        return interactive == onScreenOn
+    }
 
     companion object {
         const val TYPE = "screen_state"
@@ -62,4 +74,6 @@ class ScreenStateTriggerFactory(private val context: Context) : TriggerFactory {
             offWord = ScreenStateTrigger.OFF,
         ),
     )
+
+    override val supportsCondition = true
 }

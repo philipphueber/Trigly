@@ -124,10 +124,9 @@ class RuleStorageTest {
 
     @Test
     fun an_empty_config_stays_empty() = runTest {
-        val bare = rule.copy(
-            trigger = ComponentSpec("screen_state", emptyMap()),
-            actions = listOf(ComponentSpec("cancel_notification", emptyMap())),
-        )
+        val bare = rule
+            .withTrigger(ComponentSpec("screen_state", emptyMap()))
+            .copy(actions = listOf(ComponentSpec("cancel_notification", emptyMap())))
 
         repository.upsert(bare)
 

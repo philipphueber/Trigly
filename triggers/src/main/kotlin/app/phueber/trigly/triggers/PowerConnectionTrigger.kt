@@ -2,6 +2,8 @@ package app.phueber.trigly.triggers
 
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.os.BatteryManager
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerFactory
 
@@ -26,6 +28,19 @@ class PowerConnectionTrigger(
     override fun read(intent: Intent) = Reading(
         payload = mapOf(PAYLOAD_STATE to if (onConnect) CONNECTED else DISCONNECTED),
     )
+
+    // ACTION_POWER_CONNECTED/DISCONNECTED are edge-only, not sticky, so there is
+    // nothing to register a null receiver against. ACTION_BATTERY_CHANGED is
+    // sticky and carries EXTRA_PLUGGED, which is the same fact this trigger
+    // watches for — a nonzero value means some charger is attached.
+    override suspend fun currentlyHolds(): Boolean? {
+        val intent = runCatching {
+            appContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        }.getOrNull() ?: return null
+        val plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1)
+        if (plugged < 0) return null
+        return (plugged != 0) == onConnect
+    }
 
     companion object {
         const val TYPE = "power_connection"
@@ -55,4 +70,6 @@ class PowerConnectionTriggerFactory(private val context: Context) : TriggerFacto
             offWord = PowerConnectionTrigger.DISCONNECTED,
         ),
     )
+
+    override val supportsCondition = true
 }

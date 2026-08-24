@@ -2,6 +2,8 @@ package app.phueber.trigly.triggers
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerFactory
 
@@ -17,10 +19,16 @@ import app.phueber.trigly.core.TriggerFactory
  *
  * On API 30+ package visibility rules restrict what can be *looked up* about
  * other apps, but the broadcast itself still arrives with its package name.
+ *
+ * [packageName] narrows the edge to one app; blank keeps the original "any app"
+ * behaviour every saved rule from before this field existed already has. It is
+ * also what the passive form needs — see [currentlyHolds] — because "is it
+ * installed" is a question about a specific app, not about installs in general.
  */
 class PackageChangeTrigger(
     context: Context,
     private val onInstalled: Boolean,
+    private val packageName: String? = null,
     now: () -> Long = System::currentTimeMillis,
 ) : BroadcastTrigger(context, now) {
 
@@ -34,19 +42,59 @@ class PackageChangeTrigger(
 
     override fun read(intent: Intent): Reading? {
         if (intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)) return null
-        val packageName = intent.data?.schemeSpecificPart ?: return null
+        val changedPackage = intent.data?.schemeSpecificPart ?: return null
+        if (packageName != null && changedPackage != packageName) return null
 
         return Reading(
             payload = mapOf(
-                PAYLOAD_PACKAGE to packageName,
+                PAYLOAD_PACKAGE to changedPackage,
                 PAYLOAD_STATE to if (onInstalled) INSTALLED else REMOVED,
             ),
         )
     }
 
+    /**
+     * The passive form: is [packageName] installed right now — or, when this is
+     * configured for removal, is it currently absent? [onInstalled] is the
+     * trigger's own direction, and the condition respects it rather than always
+     * asking "is it installed": a rule built around "when this app is
+     * uninstalled" wants its condition twin to ask the same thing, not its
+     * opposite.
+     *
+     * Null with no [packageName] configured, because "is it installed" has no
+     * "it" to ask about — the edge is happy watching every app on the device,
+     * but a level needs a subject, and inventing one (or defaulting to true)
+     * would be a guess dressed up as an answer.
+     */
+    override suspend fun currentlyHolds(): Boolean? {
+        val target = packageName ?: return null
+
+        val installed = try {
+            appContext.packageManager.getPackageInfo(target, 0)
+            true
+        } catch (notFound: PackageManager.NameNotFoundException) {
+            // Package visibility (API 30+) makes a genuinely absent package and
+            // one that IS installed but simply not visible to this app raise the
+            // exact same exception — deliberately, so that a lookup cannot be
+            // used to fingerprint what else is on the device. Trigly declares no
+            // <queries> entry for arbitrary packages and holds no
+            // QUERY_ALL_PACKAGES, so below API 30 "not found" is trustworthy and
+            // genuinely means absent, but at 30 and above this app cannot tell
+            // "absent" apart from "hidden from me" — and answering false on a
+            // guess is exactly the lie `Trigger.currentlyHolds` warns against.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) return null
+            false
+        } catch (unexpected: Exception) {
+            return null
+        }
+
+        return installed == onInstalled
+    }
+
     companion object {
         const val TYPE = "app_install_state"
         const val CONFIG_STATE = "state"
+        const val CONFIG_PACKAGE = "package"
         const val PAYLOAD_PACKAGE = "package"
         const val PAYLOAD_STATE = "state"
         const val INSTALLED = "installed"
@@ -67,6 +115,11 @@ class PackageChangeTriggerFactory(private val context: Context) : TriggerFactory
             offValue = "removed", offLabel = "uninstalled",
             help = "App updates are ignored — only genuine installs and removals fire.",
         ),
+        packageFilter(
+            help = "Leave blank to watch every app. Used as a trigger, blank means " +
+                "\"any app\"; used as a condition (\"is this app installed\"), a " +
+                "specific app is required — there is no state to ask about otherwise.",
+        ),
     )
 
     override fun create(config: Map<String, String>): Trigger = PackageChangeTrigger(
@@ -77,7 +130,10 @@ class PackageChangeTriggerFactory(private val context: Context) : TriggerFactory
             onWord = PackageChangeTrigger.INSTALLED,
             offWord = PackageChangeTrigger.REMOVED,
         ),
+        packageName = config[PackageChangeTrigger.CONFIG_PACKAGE]?.takeIf { it.isNotBlank() },
     )
+
+    override val supportsCondition = true
 }
 
 /**

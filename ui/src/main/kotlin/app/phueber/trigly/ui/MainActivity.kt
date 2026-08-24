@@ -351,6 +351,22 @@ class MainActivity : ComponentActivity() {
             isRequirementSatisfied = remember(grantEpoch) {
                 { requirement -> container.requirementChecker.isSatisfied(requirement) }
             },
+            // The gate: several trigger edges, and the condition tree. Every one
+            // of these defaults to a no-op on the screen, so leaving any of them
+            // unwired would show the affordance and do nothing when tapped —
+            // which is why they are all listed here explicitly rather than
+            // relying on the defaults.
+            conditionOptions = editor.conditionOptions,
+            onAddTrigger = editor::addTrigger,
+            onChangeTriggerType = editor::changeTriggerType,
+            onRemoveTrigger = editor::removeTrigger,
+            onMoveTrigger = editor::moveTrigger,
+            onAddConditionCheck = editor::addConditionCheck,
+            onAddConditionGroup = editor::addConditionGroup,
+            onRemoveCondition = editor::removeCondition,
+            onSetConditionOp = editor::setConditionOp,
+            onChangeConditionType = editor::changeConditionType,
+            onConditionConfigChange = editor::setConditionConfigValue,
         )
     }
 

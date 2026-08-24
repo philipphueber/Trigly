@@ -36,7 +36,20 @@ object RuleJson {
      * is refused rather than half-read — losing a rule silently is worse than
      * failing to import.
      */
-    const val VERSION = 1
+    const val VERSION = 2
+
+    /**
+     * The version a rule set is *written* as, which is not always [VERSION].
+     *
+     * Gates only need version 2 when a rule actually uses one — several edges, or
+     * conditions. A rule set of plain single-trigger rules is written as version 1
+     * in the version-1 shape, so an export stays importable by an older build for
+     * as long as it does not use the new features. Stamping 2 unconditionally
+     * would break that for no gain: the file would be identical apart from the
+     * number, and an old build would refuse it.
+     */
+    private fun versionFor(rules: List<Rule>): Int =
+        if (rules.any { it.gate.hasSeveralTriggers || it.gate.conditions != null }) 2 else 1
 
     private const val KEY_VERSION = "version"
     private const val KEY_RULES = "rules"
@@ -44,6 +57,13 @@ object RuleJson {
     private const val KEY_NAME = "name"
     private const val KEY_ENABLED = "enabled"
     private const val KEY_TRIGGER = "trigger"
+    private const val KEY_TRIGGERS = "triggers"
+    private const val KEY_CONDITIONS = "conditions"
+    private const val KEY_NODE = "node"
+    private const val KEY_CHILDREN = "children"
+    private const val NODE_CHECK = "check"
+    private const val NODE_ALL = "all"
+    private const val NODE_ANY = "any"
     private const val KEY_ACTIONS = "actions"
     private const val KEY_TYPE = "type"
     private const val KEY_CONFIG = "config"
@@ -55,16 +75,44 @@ object RuleJson {
 
     /** A whole rule set, for moving to a new phone. Indented so it is diffable. */
     fun encode(rules: List<Rule>): String = JSONObject()
-        .put(KEY_VERSION, VERSION)
+        .put(KEY_VERSION, versionFor(rules))
         .put(KEY_RULES, JSONArray(rules.map(::ruleToJson)))
         .toString(2)
 
+    /**
+     * A rule that uses no gate features is written in the old shape — a single
+     * `trigger` object and no `conditions` — so that a file of ordinary rules is
+     * byte-comparable with what previous versions produced and readable by them.
+     * Only a rule that needs the new shape gets it.
+     */
     private fun ruleToJson(rule: Rule): JSONObject = JSONObject()
         .put(KEY_ID, rule.id)
         .put(KEY_NAME, rule.name)
         .put(KEY_ENABLED, rule.enabled)
-        .put(KEY_TRIGGER, specToJson(rule.trigger))
+        .apply {
+            if (rule.gate.hasSeveralTriggers) {
+                put(KEY_TRIGGERS, JSONArray(rule.gate.triggers.map(::specToJson)))
+            } else {
+                put(KEY_TRIGGER, specToJson(rule.gate.triggers.first()))
+            }
+            rule.gate.conditions?.let { put(KEY_CONDITIONS, conditionsToJson(it)) }
+        }
         .put(KEY_ACTIONS, JSONArray(rule.actions.map(::specToJson)))
+
+    private fun conditionsToJson(node: ConditionNode): JSONObject = when (node) {
+        is ConditionNode.Check -> JSONObject()
+            .put(KEY_NODE, NODE_CHECK)
+            .put(KEY_TYPE, node.spec.type)
+            .put(KEY_CONFIG, JSONObject(node.spec.config.toMap()))
+
+        is ConditionNode.All -> JSONObject()
+            .put(KEY_NODE, NODE_ALL)
+            .put(KEY_CHILDREN, JSONArray(node.children.map(::conditionsToJson)))
+
+        is ConditionNode.Any -> JSONObject()
+            .put(KEY_NODE, NODE_ANY)
+            .put(KEY_CHILDREN, JSONArray(node.children.map(::conditionsToJson)))
+    }
 
     private fun specToJson(spec: ComponentSpec): JSONObject = JSONObject()
         .put(KEY_TYPE, spec.type)
@@ -103,8 +151,14 @@ object RuleJson {
         val name = json.optString(KEY_NAME).takeIf { it.isNotBlank() }
             ?: throw IllegalArgumentException("Rule $position has no name.")
 
+        // Either shape: `triggers` for a first-level OR, `trigger` for the single
+        // edge every version before gates wrote. Both accepted for as long as
+        // files written by those versions exist, which is forever.
+        val triggersJson = json.optJSONArray(KEY_TRIGGERS)
         val triggerJson = json.optJSONObject(KEY_TRIGGER)
-            ?: throw IllegalArgumentException("Rule $position ('$name') has no trigger.")
+        if (triggersJson == null && triggerJson == null) {
+            throw IllegalArgumentException("Rule $position ('$name') has no trigger.")
+        }
 
         val actionsJson = json.optJSONArray(KEY_ACTIONS)
             ?: throw IllegalArgumentException("Rule $position ('$name') has no actions list.")
@@ -117,17 +171,76 @@ object RuleJson {
             specFromJson(obj, "action ${i + 1} of rule $position ('$name')")
         }
 
+        val triggers = when {
+            triggersJson != null -> (0 until triggersJson.length()).map { i ->
+                val obj = triggersJson.optJSONObject(i)
+                    ?: throw IllegalArgumentException(
+                        "Trigger ${i + 1} of rule $position ('$name') is not an object."
+                    )
+                specFromJson(obj, "trigger ${i + 1} of rule $position ('$name')")
+            }
+            else -> listOf(
+                specFromJson(triggerJson!!, "the trigger of rule $position ('$name')")
+            )
+        }
+        require(triggers.isNotEmpty()) {
+            "Rule $position ('$name') has an empty trigger list."
+        }
+
         return Rule(
             // A missing id is tolerated — a hand-written or hand-edited file is a
             // legitimate way to author rules, and the id carries no meaning.
             id = json.optString(KEY_ID).takeIf { it.isNotBlank() } ?: newId(),
             name = name,
-            trigger = specFromJson(triggerJson, "the trigger of rule $position ('$name')"),
+            gate = Gate(
+                triggers = triggers,
+                conditions = json.optJSONObject(KEY_CONDITIONS)?.let { obj ->
+                    conditionsFromJson(obj, "rule $position ('$name')")
+                },
+            ),
             actions = actions,
             // Absent means enabled: a rule someone chose to export is one they use.
             enabled = json.optBoolean(KEY_ENABLED, true),
         )
     }
+
+    /**
+     * Reads one condition node.
+     *
+     * An unknown node kind is an error rather than a skip. Dropping a node would
+     * change what the rule *means* — losing an `All` branch makes a rule fire in
+     * cases its author excluded — and a rule that silently does more than it was
+     * told is worse than an import that stops and says why.
+     */
+    private fun conditionsFromJson(json: JSONObject, where: String): ConditionNode {
+        fun children(): List<ConditionNode> {
+            val array = json.optJSONArray(KEY_CHILDREN)
+                ?: throw IllegalArgumentException("A group in $where has no children.")
+            return (0 until array.length()).map { i ->
+                val obj = array.optJSONObject(i)
+                    ?: throw IllegalArgumentException(
+                        "Child ${i + 1} of a group in $where is not an object."
+                    )
+                conditionsFromJson(obj, where)
+            }
+        }
+
+        return when (val node = json.optString(KEY_NODE)) {
+            NODE_CHECK -> ConditionNode.Check(specFromJson(json, "a condition of $where"))
+            NODE_ALL -> ConditionNode.All(children())
+            NODE_ANY -> ConditionNode.Any(children())
+            else -> throw IllegalArgumentException(
+                "Unknown condition kind '$node' in $where."
+            )
+        }
+    }
+
+    /** The condition tree on its own, for the database column. */
+    fun encodeConditions(node: ConditionNode): String = conditionsToJson(node).toString()
+
+    /** @throws IllegalArgumentException on anything unreadable. */
+    fun decodeConditions(json: String): ConditionNode =
+        conditionsFromJson(JSONObject(json), "stored conditions")
 
     private fun specFromJson(json: JSONObject, where: String): ComponentSpec {
         val type = json.optString(KEY_TYPE).takeIf { it.isNotBlank() }

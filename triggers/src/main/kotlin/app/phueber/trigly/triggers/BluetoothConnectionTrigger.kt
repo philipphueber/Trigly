@@ -1,7 +1,10 @@
 package app.phueber.trigly.triggers
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -11,13 +14,18 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.DurationUnit
+import app.phueber.trigly.core.FieldCondition
 import app.phueber.trigly.core.TextFilter
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
 
 /**
  * Whether a connecting device is the one a rule asked for.
@@ -62,7 +70,9 @@ fun bluetoothDeviceMatches(
  * [onConnect] chooses which of the two broadcasts to listen for, and only that
  * one is registered — the same shape as `power_connection`, whose two broadcasts
  * are likewise already edge-shaped: receiving one *is* the event, so there is no
- * state to deduplicate.
+ * state to deduplicate. When [onConnect] is false and [disconnectDebounceMillis]
+ * is positive, the connect broadcast is registered too, but only to detect a
+ * reconnect during the settle window — see [events].
  *
  * The [TYPE] string still says `bluetooth_connected` even though the trigger now
  * does both. It is persisted in every saved rule and in every exported file, so
@@ -78,10 +88,33 @@ class BluetoothConnectionTrigger(
     private val deviceAddress: String?,
     private val nameFilter: TextFilter = TextFilter.Any,
     private val onConnect: Boolean = true,
+    private val disconnectDebounceMillis: Long = 0L,
     private val now: () -> Long = System::currentTimeMillis,
 ) : Trigger {
 
     override fun events(): Flow<TriggerEvent> = callbackFlow {
+        // The disconnect edge currently waiting out its settle window, if any. A
+        // reconnect for the matched device cancels it outright — the cheap,
+        // deterministic half of the debounce. [currentlyHolds] backs it up for the
+        // case where no reconnect broadcast ever arrives to cancel it (a genuinely
+        // classic-profile device, for instance), by re-checking state instead of
+        // relying only on having seen every edge.
+        var pendingDisconnect: Job? = null
+
+        fun emit(address: String?, name: String?, state: String) {
+            trySend(
+                TriggerEvent(
+                    triggerType = TYPE,
+                    firedAtMillis = now(),
+                    payload = buildMap {
+                        address?.let { put(PAYLOAD_ADDRESS, it) }
+                        name?.let { put(PAYLOAD_NAME, it) }
+                        put(PAYLOAD_STATE, state)
+                    },
+                )
+            )
+        }
+
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(received: Context?, intent: Intent?) {
                 if (intent == null) return
@@ -95,39 +128,121 @@ class BluetoothConnectionTrigger(
 
                 if (!bluetoothDeviceMatches(deviceAddress, nameFilter, address, name)) return
 
-                trySend(
-                    TriggerEvent(
-                        triggerType = TYPE,
-                        firedAtMillis = now(),
-                        payload = buildMap {
-                            address?.let { put(PAYLOAD_ADDRESS, it) }
-                            name?.let { put(PAYLOAD_NAME, it) }
-                            put(PAYLOAD_STATE, if (onConnect) CONNECTED else DISCONNECTED)
-                        },
-                    )
-                )
+                when (intent.action) {
+                    BluetoothDevice.ACTION_ACL_CONNECTED -> {
+                        if (onConnect) {
+                            // A connection that appears is real — nothing to debounce
+                            // on this side, a flicker of *missing* connects is not a
+                            // thing a broadcast receiver can even observe.
+                            emit(address, name, CONNECTED)
+                        } else {
+                            // The registration below only adds this broadcast when a
+                            // disconnect debounce is running, so reaching here means
+                            // exactly that: the device came back before the settle
+                            // window elapsed, so the disconnect we were about to
+                            // report never really happened.
+                            pendingDisconnect?.cancel()
+                            pendingDisconnect = null
+                        }
+                    }
+
+                    BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
+                        if (disconnectDebounceMillis <= 0) {
+                            emit(address, name, DISCONNECTED)
+                        } else {
+                            pendingDisconnect?.cancel()
+                            pendingDisconnect = launch {
+                                delay(disconnectDebounceMillis)
+                                // null means the state could not be re-read (missing
+                                // permission, or a classic-profile device this API
+                                // cannot see at all — see currentlyHolds). Suppressing
+                                // a real disconnect because it could not be verified
+                                // is the worse failure, so anything but a confirmed
+                                // reconnect (== false) still emits.
+                                if (currentlyHolds() != false) {
+                                    emit(address, name, DISCONNECTED)
+                                }
+                                pendingDisconnect = null
+                            }
+                        }
+                    }
+                }
             }
+        }
+
+        val filter = IntentFilter(
+            if (onConnect) {
+                BluetoothDevice.ACTION_ACL_CONNECTED
+            } else {
+                // ACTION_ACL_DISCONNECTED, not ACTION_ACL_DISCONNECT_REQUESTED:
+                // the latter fires when a disconnection is about to be
+                // attempted, which is not the same event and can be followed
+                // by the device staying connected.
+                BluetoothDevice.ACTION_ACL_DISCONNECTED
+            }
+        )
+        if (!onConnect && disconnectDebounceMillis > 0) {
+            // Only registered to notice a reconnect inside the settle window; it is
+            // never itself the event this trigger fires in this direction.
+            filter.addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
         }
 
         ContextCompat.registerReceiver(
             context,
             receiver,
-            IntentFilter(
-                if (onConnect) {
-                    BluetoothDevice.ACTION_ACL_CONNECTED
-                } else {
-                    // ACTION_ACL_DISCONNECTED, not ACTION_ACL_DISCONNECT_REQUESTED:
-                    // the latter fires when a disconnection is about to be
-                    // attempted, which is not the same event and can be followed
-                    // by the device staying connected.
-                    BluetoothDevice.ACTION_ACL_DISCONNECTED
-                }
-            ),
+            filter,
             // A protected system broadcast, so nothing else can reach this receiver.
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
 
-        awaitClose { context.unregisterReceiver(receiver) }
+        awaitClose {
+            pendingDisconnect?.cancel()
+            context.unregisterReceiver(receiver)
+        }
+    }
+
+    /**
+     * Whether the configured device's connection state matches [onConnect] right
+     * now — the condition seam from `docs/conditions.md`, and the recheck the
+     * disconnect debounce leans on.
+     *
+     * [BluetoothManager.getConnectedDevices] with [BluetoothProfile.GATT] is the
+     * only public, synchronous way to ask "is this device connected" — no
+     * reflection, no proxy. It is also only ever right about LE: a classic
+     * profile (A2DP, HEADSET — a car head unit's profile, typically) keeps no GATT
+     * link, so it never appears in that list even while genuinely connected.
+     * `BluetoothAdapter.getBondedDevices()` cannot fill that gap either — bonded
+     * only means paired, and a paired device is routinely sitting disconnected in
+     * a pocket. The classic answer exists (`BluetoothProfile.ServiceListener` via
+     * `getProfileProxy`), but it is asynchronous and per-profile, not a fit for a
+     * suspend function meant to answer quickly.
+     *
+     * So a positive match is trustworthy — the device is on the GATT list, it is
+     * connected, full stop. An absence is not: it is either a genuinely
+     * disconnected device, or a classic-profile device this call cannot see at
+     * all, and there is no honest way here to tell those apart. Reporting "not
+     * connected" anyway would be exactly the wrong false `docs/conditions.md`
+     * warns about, so an absence returns null — a rule gated on this can still
+     * fire, it just cannot fire on the strength of a classic device having
+     * *disconnected*, only of one currently seen connected, or of the permission
+     * and read failures below.
+     */
+    // BLUETOOTH_CONNECT is checked on the first line and null returned without
+    // it; lint does not follow the helper, and the file's other reads are
+    // suppressed the same way.
+    @SuppressLint("MissingPermission")
+    override suspend fun currentlyHolds(): Boolean? {
+        if (!context.hasBluetoothConnectPermission()) return null
+
+        val manager = context.getSystemService(BluetoothManager::class.java) ?: return null
+        val connectedMatch = runCatching {
+            manager.getConnectedDevices(BluetoothProfile.GATT).any { device ->
+                val (address, name) = identify(device)
+                bluetoothDeviceMatches(deviceAddress, nameFilter, address, name)
+            }
+        }.getOrNull() ?: return null
+
+        return if (connectedMatch) onConnect else null
     }
 
     /**
@@ -160,6 +275,7 @@ class BluetoothConnectionTrigger(
         /** Must match `ConfigField.TextPattern.modeKey`, which defaults to key + "Mode". */
         const val CONFIG_NAME_MODE = "nameMode"
         const val CONFIG_STATE = "state"
+        const val CONFIG_DISCONNECT_DEBOUNCE_MILLIS = "disconnectDebounceMillis"
         const val PAYLOAD_ADDRESS = "address"
         const val PAYLOAD_NAME = "name"
         const val PAYLOAD_STATE = "state"
@@ -179,6 +295,12 @@ class BluetoothConnectionTriggerFactory(
 
     override val displayName = "Bluetooth device"
     override val category = Category.RADIOS
+
+    // See BluetoothConnectionTrigger.currentlyHolds: it answers for real when the
+    // device is seen connected, and honestly declines (null) rather than guess
+    // when it is not — which is enough to satisfy the contract this flag makes,
+    // just not on every configuration.
+    override val supportsCondition = true
 
     override val configFields = listOf(
         // A picker over the phone's paired devices rather than a box asking for
@@ -213,6 +335,24 @@ class BluetoothConnectionTriggerFactory(
                 "minutes, so a rule pinned to an address stops matching. Pairing " +
                 "the device also fixes that.",
         ),
+        // Only shown for the disconnect direction: a connection that appears is
+        // real, so there is nothing to debounce on the connect side. Defaults to
+        // off so a rule saved before this existed keeps firing on the raw edge.
+        ConfigField.Duration(
+            key = BluetoothConnectionTrigger.CONFIG_DISCONNECT_DEBOUNCE_MILLIS,
+            label = "Wait before firing",
+            shownWhen = FieldCondition(
+                key = BluetoothConnectionTrigger.CONFIG_STATE,
+                value = BluetoothConnectionTrigger.DISCONNECTED,
+            ),
+            defaultMillis = 0L,
+            preferred = DurationUnit.SECONDS,
+            help = "A car head unit, in particular, can drop and reconnect within " +
+                "seconds. Waiting this long after a disconnect and re-checking " +
+                "before firing absorbs that flicker, at the cost of the same " +
+                "delay on every genuine disconnect. Zero fires immediately, as " +
+                "before.",
+        ),
     )
 
     // Without it the trigger still fires, but events carry no device address,
@@ -240,5 +380,10 @@ class BluetoothConnectionTriggerFactory(
                 offWord = BluetoothConnectionTrigger.DISCONNECTED,
                 default = true,
             ),
+            // Absent, or on the connect direction where the field is hidden, means
+            // off — the raw edge, exactly what every rule saved before this existed
+            // already gets.
+            disconnectDebounceMillis = config[BluetoothConnectionTrigger.CONFIG_DISCONNECT_DEBOUNCE_MILLIS]
+                ?.toLongOrNull() ?: 0L,
         )
 }

@@ -1,6 +1,7 @@
 package app.phueber.trigly.triggers.accessibility
 
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.triggers.Category
@@ -62,11 +63,75 @@ private class UiEventTrigger(
             )
         }
 
+    /**
+     * The passive form only exists for [ScreenContentTrigger] — [eventType]
+     * distinguishes the two, since this class' whole reason to exist is that
+     * click and content-change differ in nothing else. A click is an instant:
+     * there is no "is it currently clicked" to ask, so [UiClickTrigger] leaves
+     * this at the interface default of null unconditionally, the same as
+     * `sms_received` and `interval` in `docs/conditions.md`'s "no passive form"
+     * list.
+     *
+     * For content, the question is "is the configured text on screen right
+     * now" — a different question from the edge's "did text just appear",
+     * because an event only carries whichever node just changed, while this
+     * asks about everything currently visible. That needs the live node tree,
+     * which [events] never touches; [AccessibilityService.rootInActiveWindow]
+     * is what [ServiceUiController] already reads for the same reason, from
+     * the same service reference on [AccessibilityEvents].
+     */
+    override suspend fun currentlyHolds(): Boolean? {
+        if (eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return null
+
+        val service = AccessibilityEvents.service ?: return null
+        val root = service.rootInActiveWindow ?: return null
+
+        // Not the configured app's window at all, so none of its content can be
+        // on screen — a real "no", not "cannot tell", because we did get an
+        // answer about what window is actually in front.
+        if (packageName != null && root.packageName?.toString() != packageName) return false
+
+        return text.matches(visibleScreenText(root))
+    }
+
     companion object {
         const val PAYLOAD_PACKAGE = "package"
         const val PAYLOAD_TEXT = "text"
         const val PAYLOAD_CLASS = "class"
     }
+}
+
+/**
+ * Every visible node's text and content description in [root]'s subtree,
+ * flattened into one haystack for [TextFilter] to search.
+ *
+ * A single joined string, not a per-node search, because [ScreenContentTrigger]
+ * asks whether the configured text is *anywhere* on screen — reusing
+ * [TextFilter.matches] as the one place that decides "matches" keeps this
+ * condition and the edge it is the passive form of agreeing by construction,
+ * rather than by two hand-written checks staying in sync.
+ *
+ * [AccessibilityNodeInfo.isVisibleToUser] is what keeps "on screen now" honest:
+ * a scrolled-off row or a collapsed section is still in the tree but is not
+ * what the user is currently looking at, and folding its text in would answer
+ * a question about what could be scrolled into view rather than what is
+ * showing right now.
+ */
+private fun visibleScreenText(root: AccessibilityNodeInfo): String = buildString {
+    fun walk(node: AccessibilityNodeInfo) {
+        if (node.isVisibleToUser) {
+            node.text?.let { append(it).append(' ') }
+            node.contentDescription?.let { append(it).append(' ') }
+        }
+        for (index in 0 until node.childCount) {
+            node.getChild(index)?.let(::walk)
+        }
+    }
+    // A tree read racing an app tearing down its UI can throw partway through;
+    // whatever text was already collected is still honest, just possibly
+    // incomplete, which is the same trade `expandRows` in ServiceUiController
+    // makes for the same reason.
+    runCatching { walk(root) }
 }
 
 /** Fires when the user taps something, anywhere on the device. */
@@ -149,6 +214,8 @@ class ScreenContentTriggerFactory : TriggerFactory {
             config[ScreenContentTrigger.CONFIG_TEXT_MODE],
         ),
     )
+
+    override val supportsCondition = true
 }
 
 /**

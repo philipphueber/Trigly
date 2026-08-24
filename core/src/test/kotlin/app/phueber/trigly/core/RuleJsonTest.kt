@@ -70,10 +70,9 @@ class RuleJsonTest {
 
     @Test
     fun `an empty config map round trips as empty, not null`() {
-        val bare = rule.copy(
-            trigger = ComponentSpec("screen_state", emptyMap()),
-            actions = listOf(ComponentSpec("cancel_notification", emptyMap())),
-        )
+        val bare = rule
+            .withTrigger(ComponentSpec("screen_state", emptyMap()))
+            .copy(actions = listOf(ComponentSpec("cancel_notification", emptyMap())))
 
         val decoded = RuleJson.decode(RuleJson.encode(bare)).single()
 

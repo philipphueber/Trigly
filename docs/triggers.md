@@ -67,6 +67,87 @@ system settings reports nothing back to the app.
 | Charger type (USB/mains/wireless) | `charging_type` | `ACTION_BATTERY_CHANGED` → `EXTRA_PLUGGED` | — |
 | Device restarted / app updated | `device_restart` | `BOOT_COMPLETED`/`MY_PACKAGE_REPLACED`, via `BootEvents` | `RECEIVE_BOOT_COMPLETED` |
 | Sunrise / sunset | `solar` | calculated (NOAA), typed location | — |
+| Time of day *(condition only)* | `time_window` | the clock | — |
+| In an area *(condition only)* | `location_check` | one-shot position read | `ACCESS_FINE_LOCATION` |
+
+### Conditions: the same triggers, asked instead of watched
+
+Most of these triggers can now also answer *"do you hold right now?"* — which is
+what lets a condition be a trigger rather than a second component family. The
+model, the capability matrix and the phasing are in `docs/conditions.md`; what
+belongs here is what each one had to do to answer, because the answers were not
+uniform.
+
+Three ways a trigger reads its own level:
+
+- **The sticky broadcast it already listens to.** `registerReceiver(null, filter)`
+  returns the last broadcast immediately, which is how battery level,
+  temperature, charger type, charger attached and headset answer. `power_connection`
+  is the interesting one: its *own* broadcasts are edge-only and not sticky, so it
+  reads `EXTRA_PLUGGED` off `ACTION_BATTERY_CHANGED` instead.
+- **A manager.** Wi-Fi, Bluetooth adapter, NFC, GPS provider, airplane mode,
+  auto-sync, dark theme, orientation, screen (`PowerManager.isInteractive`, since
+  `ACTION_SCREEN_ON` has no sticky form).
+- **A live read of something else's state.** The notification triggers ask the
+  listener for what is posted now; `screen_content` walks the accessibility tree;
+  `solar` computes both of today's bounds and answers "is it light".
+
+**Where the honest answer is null.** A trigger that cannot answer must say so
+rather than return false — see `docs/conditions.md`. Four cases found while
+implementing, each a place where false would have been a lie:
+
+- **`bluetooth_connected` for classic audio.** `BluetoothManager.getConnectedDevices`
+  covers GATT/LE only; a car head unit on A2DP/HFP never appears there even while
+  connected, and bonded is not connected. Absence is therefore unknown, not
+  disconnected — verified against `android.jar` rather than assumed.
+- **`call_state` for anything but ringing.** `ANSWERED` and `OUTGOING` both read
+  back as `CALL_STATE_OFFHOOK`, indistinguishable from any other mid-call moment;
+  `ENDED` and `MISSED` describe something already over. Only `INCOMING` has a
+  level, so the rest answer null.
+- **`package_change` on API 30+.** Package visibility makes "genuinely absent" and
+  "installed but filtered from us" raise the same `NameNotFoundException`. Below
+  API 30 not-found is trustworthy and answers false; from 30 it answers null.
+- **`app_foreground` beyond its lookback.** The usage-stats query walks a trailing
+  window, so an app that has held the foreground longer than that, with nothing
+  else in between, reads as "nothing foregrounded" — the same staleness trade a
+  cached location fix makes.
+
+### Two conditions that are not triggers at all
+
+`time_window` and `location_check` have **no event stream**: their `events()` is
+empty and they can never start a rule. They exist because asking is cheap where
+watching is not.
+
+`time_window` is the one that changes what is possible today. A time *trigger*
+needs `AlarmManager` — blocker 2, still unbuilt — while a time *condition* needs
+only the clock, so "when the doorbell rings, if it is between 22:00 and 07:00"
+works now. Boundaries are inclusive start, exclusive end, so adjacent windows
+abut exactly; a window whose start equals its end reads as "no restriction"
+rather than "never", which is a judgement call recorded on the function itself.
+The wraparound case is a pure function with eighteen tests, because 22:00–07:00
+is where this kind of code goes wrong.
+
+`location_check` reads a position **once** — `getCurrentLocation` on API 30+, else
+`getLastKnownLocation` — instead of holding GPS open the way the location trigger
+must. It reuses that trigger's Haversine helper rather than duplicating the maths,
+and it answers null for every unreadable case: permission absent, no provider
+enabled, no fix returned. Its warning states both real costs, staleness and the
+post-reboot location denial.
+
+### Bluetooth disconnects can be debounced
+
+A car head unit can flicker — disconnect, reconnect within seconds — and firing on
+every raw edge makes rules thrash. `bluetooth_connected` gained an optional settle
+time on the **disconnect** direction only (default 0, so existing rules are
+untouched); connect stays immediate, because a connection that appears is real.
+
+The mechanism worth knowing: during the settle window the trigger also listens for
+`ACTION_ACL_CONNECTED` and cancels the pending emission when the device comes back.
+That edge-based cancellation is what gives the debounce teeth, because for a
+classic-profile device the state re-check *cannot* confirm a reconnect (see the
+null case above). The re-check is a secondary safety net and fails **open**: if it
+cannot verify, the disconnect is emitted, since suppressing a real disconnect
+would make the rule silently never fire.
 
 ### The type string outlives the description
 
