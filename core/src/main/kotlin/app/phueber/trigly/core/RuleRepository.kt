@@ -21,12 +21,12 @@ interface RuleRepository {
 }
 
 /**
- * Non-persistent implementation, used by tests and by the UI until a real
- * database lands.
+ * Non-persistent implementation, for tests and previews.
  *
- * TODO(persistence): replace with a Room-backed implementation. Rules must
- *  survive process death — an automation app that forgets its rules on reboot
- *  is useless — so this is not a shippable default.
+ * **Not the app's repository.** `RoomRuleRepository` is — rules have to survive
+ * process death, since an automation app that forgets its rules on reboot is
+ * useless. This one exists because most tests want a store they can seed in a
+ * line and throw away, without a database or a `Context`.
  */
 class InMemoryRuleRepository(initial: List<Rule> = emptyList()) : RuleRepository {
     private val state = MutableStateFlow(initial)

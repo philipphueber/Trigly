@@ -3,6 +3,8 @@ package app.phueber.trigly.ui
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import app.phueber.trigly.triggers.BootEvents
+import app.phueber.trigly.triggers.BootReason
 
 /**
  * Brings the engine back after the two events that end a process without the
@@ -28,7 +30,15 @@ import android.content.Intent
 class BootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action !in STARTS_THE_ENGINE) return
+        val reason = REASONS[intent.action] ?: return
+
+        // Recorded *before* the engine is started, and that order is the whole
+        // mechanism behind the `device_restart` trigger. This broadcast is what
+        // starts the engine, so no trigger can be listening for it — by the time
+        // one could be, it has been delivered. Leaving the record here means the
+        // trigger can read it the moment it is collected, a few milliseconds
+        // later in this same process. See [BootEvents].
+        BootEvents.record(reason, System.currentTimeMillis())
 
         // No check for "are any rules enabled?" first: that is a database read,
         // it would need goAsync() and a coroutine in a receiver, and the service
@@ -39,9 +49,9 @@ class BootReceiver : BroadcastReceiver() {
     }
 
     private companion object {
-        val STARTS_THE_ENGINE = setOf(
-            Intent.ACTION_BOOT_COMPLETED,
-            Intent.ACTION_MY_PACKAGE_REPLACED,
+        val REASONS = mapOf(
+            Intent.ACTION_BOOT_COMPLETED to BootReason.RESTART,
+            Intent.ACTION_MY_PACKAGE_REPLACED to BootReason.APP_UPDATED,
         )
     }
 }

@@ -64,6 +64,9 @@ system settings reports nothing back to the app.
 | Dark theme | `dark_theme` | `ACTION_CONFIGURATION_CHANGED` | API 29+ |
 | Orientation | `screen_orientation` | `ACTION_CONFIGURATION_CHANGED` | — |
 | Interval | `interval` | coroutine delay | — (see blocker 2) |
+| Charger type (USB/mains/wireless) | `charging_type` | `ACTION_BATTERY_CHANGED` → `EXTRA_PLUGGED` | — |
+| Device restarted / app updated | `device_restart` | `BOOT_COMPLETED`/`MY_PACKAGE_REPLACED`, via `BootEvents` | `RECEIVE_BOOT_COMPLETED` |
+| Sunrise / sunset | `solar` | calculated (NOAA), typed location | — |
 
 ### The type string outlives the description
 
@@ -125,10 +128,15 @@ returning a `stateKey`.
 
 ## Tier 1 — remaining
 
-### USB vs AC charging
-`ACTION_BATTERY_CHANGED` → `BatteryManager.EXTRA_PLUGGED`, compared against
-`BATTERY_PLUGGED_USB` / `_AC` / `_WIRELESS`. Same source and file as the battery
-triggers; no permission. **Smallest remaining item.**
+### ~~USB vs AC charging~~ — done
+
+Built as `charging_type`, in `BatteryTriggers.kt` beside the two triggers that
+read the same sticky broadcast. `EXTRA_PLUGGED` is matched as a **bitmask**, not
+by equality: it is documented as flags, and equality would fall through to
+"unplugged" on any device that ever set two at once — a rule that silently never
+fires. The tracked state is the plug kind itself, so swapping USB for mains
+without an unplug in between is still a change the trigger sees, and unplugging
+re-arms it.
 
 ### Wi-Fi SSID
 Not the same as the radio toggle. From API 31 read `WifiInfo` off
@@ -145,15 +153,32 @@ apps at all from API 26. Use `ConnectivityManager.registerNetworkCallback` with 
 fits `callbackFlow` the same way `BroadcastTrigger` does — likely wants a sibling
 base class, `NetworkCallbackTrigger`.
 
-### Device restart
-`ACTION_BOOT_COMPLETED` with `RECEIVE_BOOT_COMPLETED`. This one *must* be a
-manifest-declared receiver, and it is exempt from the implicit-broadcast ban.
-**No longer blocked** — `BootReceiver` already handles that broadcast to start
-the engine, so this trigger is a matter of getting the event from that receiver
-to a `Trigger`, not of building the plumbing. Note that
-`ACTION_LOCKED_BOOT_COMPLETED` is a separate question and a bigger one: the rule
-database is credential-encrypted and unreadable before first unlock, so
-supporting direct boot means moving storage, not adding an action string.
+### ~~Device restart~~ — done
+
+Built as `device_restart`, and it is the one trigger that cannot wait for its own
+broadcast. `BOOT_COMPLETED` is what *starts* the engine, so by the time any
+trigger is collecting it has been delivered and gone — registering a receiver for
+it would be waiting for something that already happened.
+
+So `BootReceiver` records the reason in `BootEvents` **before** it starts the
+service, and the trigger reads that record when it is collected a few
+milliseconds later in the same process. Nothing is persisted: the only question is
+"did *this* process start because of a boot", and a new process is a new answer.
+Two details carry the correctness. The record is **not consumed** by reading, so
+two rules on the same trigger both fire. And it is bounded by a one-minute
+freshness window, because the record outlives the moment: without the bound, a
+rule toggled off and on at lunchtime would announce the morning's reboot.
+
+The trigger's flow is single-shot — it emits at most once and completes, rather
+than idling forever pretending it might fire again this process.
+
+App update is the same shape of event (the process dies, nothing the user did),
+so it is the same trigger with a second setting rather than a near-duplicate type.
+
+Still out of scope, and still for the recorded reason:
+`ACTION_LOCKED_BOOT_COMPLETED`. The rule database is credential-encrypted and
+unreadable before first unlock, so supporting direct boot means moving storage,
+not adding an action string.
 
 ### SIM change / roaming
 There is no public SIM-state broadcast. Use
@@ -180,11 +205,25 @@ in the UI.
 avoid: computing the next occurrence from *now* rather than from the scheduled
 time, which makes the rule drift later on every fire.
 
-### Sunrise / sunset
-Pure calculation from latitude, longitude, and date (NOAA solar equations) —
-then scheduled like any other time trigger. Worth noting for privacy: if the
-user types a location, this needs **no permission at all**. Only auto-detection
-needs `ACCESS_COARSE_LOCATION`. Offer the manual path first.
+### ~~Sunrise / sunset~~ — done, with the scheduler caveat
+
+Built as `solar`, and the manual path is the one offered: the location is
+**typed**, so the trigger needs no permission at all — no location access, no
+network. Auto-detection (which would need `ACCESS_COARSE_LOCATION`) is still not
+offered, deliberately.
+
+`solarTime()` in `SolarTime.kt` is the NOAA calculation, pure and tested against
+published times for Berlin, Sydney and Svalbard to within two minutes. Two things
+it does rather than approximate: it returns a *reason* — polar day or polar night
+— instead of a time on days when the sun genuinely does not rise or set, and it
+takes the zone explicitly so a rule about a place you are not standing in is
+still right.
+
+**It shares `interval`'s scheduling weakness and says so in its warning.** The
+wait is a coroutine `delay`, so it only fires while the engine's process is alive
+and not in Doze, and a sunset hours away is exactly the wait Doze interrupts.
+Blocker 2 is still the fix; when `AlarmManager` scheduling lands, this trigger's
+`events()` is the single place that changes.
 
 ### Calendar event
 Query `CalendarContract.Instances` with `READ_CALENDAR`. There is no "event
@@ -400,11 +439,12 @@ geofencing.
 ## Suggested order
 
 1. ~~Foreground service (blocker 1).~~ Done — `EngineService`.
-2. **Scheduler (blocker 2)** — now the top item, and unlocks five time-based
-   triggers at once.
-3. **Device restart** — unblocked by the service, and small: `BootReceiver`
-   already receives the broadcast.
-4. USB vs AC — an hour, same file as the battery triggers.
+2. **Scheduler (blocker 2)** — now the top item, and it has grown a second
+   customer: `solar` is built but waits with a coroutine `delay`, so it inherits
+   `interval`'s Doze weakness until this lands. It still unlocks the remaining
+   time-based triggers at once.
+3. ~~Device restart.~~ Done — `device_restart`, via `BootEvents`.
+4. ~~USB vs AC.~~ Done — `charging_type`.
 5. Network callbacks (mobile data, Wi-Fi SSID), sensors, calendar.
 6. Decide distribution, which gates whether the accessibility and SMS triggers
    that now exist can ship in a Play build — and now also the `specialUse`

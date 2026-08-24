@@ -10,7 +10,6 @@
     <string name="rules_export_all">Export all</string>
     <string name="rules_share">Share</string>
     <string name="requirement_grant">Grant</string>
-    <string name="export_file_name">trigly-rules.json</string>
 
     <!--
       The engine's ongoing notification. Sentence case, not the uppercase the

@@ -28,11 +28,13 @@ import app.phueber.trigly.triggers.notification.NotificationWatchdogTriggerFacto
 fun triggerFactories(context: Context): List<TriggerFactory> = listOf(
     // Time
     IntervalTriggerFactory(),
+    SolarTriggerFactory(),
 
     // Power
     BatteryLevelTriggerFactory(context),
     BatteryTemperatureTriggerFactory(context),
     PowerConnectionTriggerFactory(context),
+    ChargingTypeTriggerFactory(context),
 
     // Radios
     AirplaneModeTriggerFactory(context),
@@ -47,6 +49,7 @@ fun triggerFactories(context: Context): List<TriggerFactory> = listOf(
     HeadsetPlugTriggerFactory(context),
     DarkThemeTriggerFactory(context),
     OrientationTriggerFactory(context),
+    DeviceRestartTriggerFactory(),
 
     // Apps and system settings
     PackageChangeTriggerFactory(context),
