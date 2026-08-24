@@ -28,7 +28,10 @@ class TriglyAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        AccessibilityEvents.ui.setConnected(true)
+        // attach() rather than setConnected(true): the instance is also what the
+        // screen-press fallback needs, and the two must never disagree about
+        // whether a service is available.
+        AccessibilityEvents.attach(this)
         refreshKeyboardVisibility()
     }
 
@@ -56,7 +59,7 @@ class TriglyAccessibilityService : AccessibilityService() {
     override fun onInterrupt() = Unit
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
-        AccessibilityEvents.ui.setConnected(false)
+        AccessibilityEvents.detach()
         return super.onUnbind(intent)
     }
 

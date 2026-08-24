@@ -412,6 +412,22 @@ and something that starts after the edge has passed would wait for it forever. A
 action that needs to observe the system, rather than act on it, belongs on this
 port too — never on a bus in a sibling module.
 
+**An action that needs the screen goes through a second port, not the bus.**
+`UiController` is that port, implemented in `:triggers` over the accessibility
+service, and it exists for exactly one job: pressing a notification button that an
+app drew itself with `RemoteViews`, for which Android exposes no `PendingIntent`
+at all. The shape mirrors `NotificationController` — an interface in `:core`, an
+`Unavailable` no-op default so nothing requires the grant, and the live adapter
+reading the current service from the bus object on every call.
+
+What is deliberately *not* in the port is tree reading for triggers: those get
+flattened events from the bus, and giving actions a window onto the whole
+accessibility tree would widen the most invasive permission the app has for no
+gain. The port takes one intent-shaped request ("press this label in the shade")
+rather than exposing nodes, and the decision inside it that is easy to get wrong —
+which node a press should land on — is a pure function in `:core` with tests, not
+something only observable by watching a phone.
+
 **An event that arrives before the engine exists needs a record, not a listener.**
 `BootEvents` is the one case: `BOOT_COMPLETED` is what starts the engine, so no
 trigger can be registered in time to hear it, and `device_restart` would be a

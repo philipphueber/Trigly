@@ -7,7 +7,9 @@ import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.Registry
 import app.phueber.trigly.core.RequirementChecker
 import app.phueber.trigly.core.RuleRepository
+import app.phueber.trigly.core.UiController
 import app.phueber.trigly.core.storage.ruleRepository
+import app.phueber.trigly.triggers.accessibility.ServiceUiController
 import app.phueber.trigly.triggers.notification.ListenerNotificationController
 import app.phueber.trigly.triggers.triggerFactories
 import kotlinx.coroutines.CoroutineScope
@@ -81,9 +83,19 @@ class AppContainer(context: Context) {
      */
     val notifications: NotificationController = ListenerNotificationController()
 
+    /**
+     * The adapter to the accessibility service, wired here for the same reason.
+     *
+     * Used by exactly one action, and only when that rule has opted in: pressing
+     * a notification button that the app drew itself, which Android exposes no
+     * `PendingIntent` for. Constructing it is free and grants nothing — the
+     * service does nothing until the user enables it in system settings.
+     */
+    val ui: UiController = ServiceUiController()
+
     val registry: Registry = Registry(
         triggerFactories = triggerFactories(context),
-        actionFactories = actionFactories(context, notifications),
+        actionFactories = actionFactories(context, notifications, ui),
     )
 
     /**
