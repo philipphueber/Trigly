@@ -1,0 +1,159 @@
+package app.phueber.trigly.triggers
+
+import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.Trigger
+import app.phueber.trigly.core.TriggerEvent
+import app.phueber.trigly.core.TriggerFactory
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import java.time.Instant
+import java.time.ZoneId
+
+/**
+ * Fires at sunrise or sunset for a place the user names.
+ *
+ * The place is typed, not sensed, and that is the feature: sunrise is a
+ * calculation from latitude, longitude and the date, so this trigger needs **no
+ * permission at all** — no location access, no network. `docs/triggers.md` asks
+ * for that path to be offered first, and this is it. The maths lives in
+ * [solarTime], pure and unit-tested, because "why did my rule fire at the wrong
+ * time" is not a question anyone should have to debug on a device.
+ *
+ * **Scheduling is the honest weakness.** Like [IntervalTrigger], this waits with
+ * a coroutine `delay`, so it only fires while the engine's process is alive and
+ * not in Doze — a sunset hours away is exactly the sort of wait Doze interrupts.
+ * The docs are clear that wall-clock accuracy needs `AlarmManager`, which the
+ * project has not built yet; when it lands, this trigger's `events()` is the one
+ * place that changes. Until then the warning below says so rather than implying a
+ * precision this cannot deliver.
+ *
+ * Days with no sunrise or sunset — real, above the Arctic circle — are skipped
+ * rather than approximated: the loop moves to the next day instead of inventing
+ * an instant. A polar-summer rule quietly not firing is correct; the sun did not
+ * set.
+ */
+class SolarTrigger(
+    private val latitude: Double,
+    private val longitude: Double,
+    private val event: SolarEvent,
+    private val zone: ZoneId = ZoneId.systemDefault(),
+    private val now: () -> Long = System::currentTimeMillis,
+) : Trigger {
+
+    init {
+        require(isValidCoordinate(latitude, longitude)) {
+            "latitude/longitude out of range: $latitude, $longitude"
+        }
+    }
+
+    override fun events(): Flow<TriggerEvent> = flow {
+        while (true) {
+            val fireAt = nextOccurrenceMillis(now()) ?: break
+            // Computed from the scheduled instant, never from "now plus a day" —
+            // the drift bug `docs/triggers.md` warns about for recurring time
+            // triggers is exactly that mistake.
+            delay((fireAt - now()).coerceAtLeast(0))
+            emit(
+                TriggerEvent(
+                    triggerType = TYPE,
+                    firedAtMillis = now(),
+                    payload = mapOf(PAYLOAD_EVENT to event.configValue),
+                )
+            )
+            // Past the emitted instant, so the same day cannot be scheduled twice
+            // if the clock has not visibly advanced.
+            delay(1_000)
+        }
+    }
+
+    /**
+     * The next time this event happens strictly after [fromMillis], or null if it
+     * does not happen within [SEARCH_DAYS].
+     *
+     * Searching forward a bounded number of days rather than one is what handles
+     * the poles: a rule for sunset inside the Arctic summer has no occurrence for
+     * weeks, and the bound is what stops the search being unbounded work. Null
+     * ends the flow, which is the honest outcome — this rule cannot fire from
+     * here, and pretending to wait forever would hide that.
+     */
+    internal fun nextOccurrenceMillis(fromMillis: Long): Long? {
+        val from = Instant.ofEpochMilli(fromMillis).atZone(zone)
+
+        for (offset in 0..SEARCH_DAYS) {
+            val result = solarTime(
+                date = from.toLocalDate().plusDays(offset.toLong()),
+                latitude = latitude,
+                longitude = longitude,
+                event = event,
+                zone = zone,
+            )
+            if (result is SolarResult.At) {
+                val millis = result.time.toInstant().toEpochMilli()
+                if (millis > fromMillis) return millis
+            }
+        }
+        return null
+    }
+
+    companion object {
+        const val TYPE = "solar"
+        const val CONFIG_LATITUDE = "latitude"
+        const val CONFIG_LONGITUDE = "longitude"
+        const val PAYLOAD_EVENT = "event"
+
+        /**
+         * Long enough to cross a polar summer or winter, which is the only case
+         * that needs more than one day.
+         */
+        const val SEARCH_DAYS = 200
+    }
+}
+
+class SolarTriggerFactory : TriggerFactory {
+    override val type = SolarTrigger.TYPE
+
+    override val displayName = "Sunrise or sunset"
+    override val category = Category.TIME
+
+    override val configFields = listOf(
+        ConfigField.Choice(
+            key = SolarEvent.CONFIG_KEY,
+            label = "Fires at",
+            options = SolarEvent.entries.map {
+                ConfigField.Option(it.configValue, it.displayName)
+            },
+            required = false,
+            default = SolarEvent.SUNRISE.configValue,
+        ),
+        ConfigField.Coordinates(
+            key = SolarTrigger.CONFIG_LATITUDE,
+            longitudeKey = SolarTrigger.CONFIG_LONGITUDE,
+            label = "Where",
+            required = true,
+            help = "Typed, not sensed — which is why this trigger needs no " +
+                "location permission. Roughly right is enough: a few kilometres " +
+                "moves sunrise by seconds.",
+        ),
+    )
+
+    override val warning: String =
+        "Waits in the app's own process, so it only fires while Trigly is running " +
+            "and can be delayed when the system suspends the app. Fine for lights " +
+            "and volume; not an alarm clock."
+
+    override fun create(config: Map<String, String>): Trigger {
+        fun coordinate(key: String): Double {
+            val raw = config[key] ?: error("${SolarTrigger.TYPE} needs '$key'")
+            return raw.toDoubleOrNull() ?: error("$key must be a number, was '$raw'")
+        }
+
+        return SolarTrigger(
+            latitude = coordinate(SolarTrigger.CONFIG_LATITUDE),
+            longitude = coordinate(SolarTrigger.CONFIG_LONGITUDE),
+            event = SolarEvent.parse(
+                config[SolarEvent.CONFIG_KEY] ?: SolarEvent.SUNRISE.configValue
+            ),
+        )
+    }
+}

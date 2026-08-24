@@ -412,6 +412,20 @@ and something that starts after the edge has passed would wait for it forever. A
 action that needs to observe the system, rather than act on it, belongs on this
 port too — never on a bus in a sibling module.
 
+**An event that arrives before the engine exists needs a record, not a listener.**
+`BootEvents` is the one case: `BOOT_COMPLETED` is what starts the engine, so no
+trigger can be registered in time to hear it, and `device_restart` would be a
+trigger waiting forever for a broadcast already delivered. The manifest receiver
+in `:ui` writes the reason there *before* starting the service, and the trigger
+reads it on collection — the write always precedes the engine, so the ordering is
+a fact of the sequence rather than a race to win. Two properties make it correct
+rather than merely working: reading does not consume, so several rules on one
+trigger all fire; and the record is bounded by a freshness window, because it
+outlives its moment and a rule enabled hours later must not announce the morning's
+reboot. Nothing is persisted — "did *this* process start because of a boot" has a
+new answer in every process. Any future trigger for an event that precedes the
+engine belongs on this shape, not on a receiver.
+
 ## Look and feel
 
 ### Colours live in one file

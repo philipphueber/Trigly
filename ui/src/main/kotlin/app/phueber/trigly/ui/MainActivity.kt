@@ -252,27 +252,33 @@ class MainActivity : ComponentActivity() {
             ),
         )
 
-        // Why a new rule has to be told to start empty.
+        // Why the editor has to be told what to show.
         //
-        // These ViewModels live in the *activity's* store, and the key for an
-        // unsaved rule is necessarily the constant "editor-new" — there is no id
-        // to key on yet. So one instance serves every new rule for the life of
-        // the activity, and left alone its draft is whatever the last one had
-        // been: saved, abandoned, half-typed. Tapping "New rule" then reopens the
-        // rule you thought you had closed.
+        // These ViewModels live in the *activity's* store, so they outlive the
+        // screen. A new rule has no id to key on, so its editor is necessarily
+        // keyed on the constant "editor-new" and one instance serves every new
+        // rule for the life of the activity; an existing rule keeps its own
+        // instance under "editor-<id>". Either way, left alone the draft is
+        // whatever was last typed into it — saved, abandoned, half-finished — and
+        // reopening shows that instead of what the rule actually is.
         //
-        // Cleared on *entry*, not on exit. An earlier version reset on dispose,
-        // reasoning that dispose catches every way of leaving — but it does not
-        // catch them reliably: the disposal that coincides with a configuration
-        // change must be guarded out (or a rotation wipes the draft), and any exit
-        // that is guarded out leaves the retained ViewModel dirty for the next
-        // entry. That was the "new rule is sometimes prefilled" bug. Entry has no
-        // such gap. `OnFreshEntry` fires on a genuine open and stays quiet across
-        // a rotation, so the draft survives the turn of the phone and never
-        // survives the walk back to the list.
-        if (ruleId == null) {
-            OnFreshEntry { editor.reset() }
-        }
+        // Seeded on *entry*, not cleared on exit. An earlier version reset on
+        // dispose, reasoning that dispose catches every way of leaving — it does
+        // not catch them reliably: the disposal that coincides with a
+        // configuration change has to be guarded out (or a rotation wipes the
+        // draft), and any exit that is guarded out leaves the retained ViewModel
+        // dirty for the next entry. That was the "new rule is sometimes
+        // prefilled" bug. Entry has no such gap: there is one way in, and it is
+        // either a genuine open or a configuration-change restoration.
+        //
+        // Every rule, not just a new one. `reset()` means "show what this editor
+        // should start from", which is empty for a new rule and the *stored* rule
+        // for an existing one — so abandoning an edit and reopening shows what is
+        // saved rather than the abandoned typing. For an existing rule that means
+        // a blank form for the frame or two the read takes, which is the honest
+        // way round: a flash of "loading" beats a flash of stale edits that look
+        // committed.
+        OnFreshEntry { editor.reset() }
 
         // Exit still has one job of its own: stop a test that is still running.
         // `play_alert` loops for up to a minute, and walking out of the editor

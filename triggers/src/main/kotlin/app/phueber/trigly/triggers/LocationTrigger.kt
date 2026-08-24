@@ -169,9 +169,36 @@ class LocationTriggerFactory(private val context: Context) : TriggerFactory {
         ),
     )
 
+    // The reboot sentence is not a nicety. Since Android 12 a foreground service
+    // started while the app was in the background — which BOOT_COMPLETED is, even
+    // though it is an *allowed* start — permanently loses while-in-use location
+    // access for that service instance. The platform says so in logcat and
+    // nowhere the user can see:
+    //
+    //   Foreground service started from background can not have location/camera/
+    //   microphone access: service app.phueber.trigly/.ui.EngineService
+    //
+    // Everything then looks healthy: the engine is running, every broadcast
+    // trigger fires, and the requirement check passes because ACCESS_FINE_LOCATION
+    // genuinely *is* granted — it is the service instance that is restricted, which
+    // nothing in the app models. The rule simply never fires, and that is
+    // indistinguishable from "you have not reached the area yet".
+    //
+    // Saying it is the honest stopgap, not the fix. The fix is for the engine to
+    // notice it was boot-started and re-`startForeground` from a foreground
+    // context, or to run location work in a UI-started service.
+    //
+    // Deliberately no remedy in the sentence. Opening the app is *not* one:
+    // `MainActivity` does call `EngineService.start`, but on an already-running
+    // service that only re-delivers `onStartCommand` — the instance, and its
+    // restriction, are the same one. Naming a remedy that does not work would be
+    // worse than naming none, so the warning states the condition only.
     override val warning: String =
         "Holds an active GPS request while the rule is enabled, which is expensive. " +
-            "Prefer a generous radius and a long check interval."
+            "Prefer a generous radius and a long check interval. Known limitation: " +
+            "after a reboot Android denies the background engine location access, so " +
+            "this rule cannot fire until the engine is started fresh — and nothing " +
+            "else in the app reports that."
 
     override val requirements = listOf(
         ComponentRequirement.RuntimePermission(Manifest.permission.ACCESS_FINE_LOCATION),
