@@ -1,7 +1,9 @@
 package app.phueber.trigly.core
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -114,6 +116,29 @@ class FindPressTargetTest {
         root.add(node(id = "label", text = ""))
 
         assertNull(findPressTarget(root, "   "))
+    }
+
+    // --- whether the shade can be used at all ---------------------------------
+
+    @Test
+    fun `a locked phone with a real lock cannot be pressed through`() {
+        // The shade would open over the keyguard, the buttons are usually not
+        // drawn there, and firing one demands an unlock a rule cannot give.
+        assertFalse(canPressThroughShade(keyguardLocked = true, deviceSecure = true))
+    }
+
+    @Test
+    fun `a locked phone with no lock set is still worth trying`() {
+        // The keyguard is a swipe with nothing behind it. Refusing here would
+        // report "locked" to someone who has no lock, about a feature that would
+        // have worked.
+        assertTrue(canPressThroughShade(keyguardLocked = true, deviceSecure = false))
+    }
+
+    @Test
+    fun `an unlocked phone can be pressed through, lock set or not`() {
+        assertTrue(canPressThroughShade(keyguardLocked = false, deviceSecure = true))
+        assertTrue(canPressThroughShade(keyguardLocked = false, deviceSecure = false))
     }
 
     @Test

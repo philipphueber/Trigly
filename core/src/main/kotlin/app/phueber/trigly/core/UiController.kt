@@ -79,6 +79,33 @@ private fun findLabelled(node: UiNode, wanted: String): UiNode? {
 }
 
 /**
+ * Whether pressing through the rendered shade can work at all right now.
+ *
+ * A locked phone is the case this exists for, and the answer is not simply "no".
+ *
+ * With a **secure** lock — a PIN, pattern, password or biometric — it is no, and
+ * refusing immediately is the honest outcome. Three separate things stop it, any
+ * one of which is enough: lock-screen privacy can redact a notification, so the
+ * label is not drawn at all; action buttons are frequently not rendered on the
+ * keyguard even when the notification is; and where they are, firing one demands
+ * authentication first. A rule cannot answer that prompt —
+ * `KeyguardManager.requestDismissKeyguard` needs an `Activity`, and a rule fired
+ * by the engine has none — so the best case is a shade opened in front of a locked
+ * phone, an unlock prompt nobody asked for, and no press.
+ *
+ * With **no** secure lock, the keyguard is a swipe with nothing behind it, the
+ * shade opens over it, and the press has a real chance. So that case is attempted
+ * rather than pre-refused: reporting "locked" to someone whose phone has no lock
+ * set would be wrong, and wrong in the direction of a feature that appears not to
+ * work.
+ *
+ * Pure, because the interesting part is this rule and not the two framework
+ * calls that feed it.
+ */
+fun canPressThroughShade(keyguardLocked: Boolean, deviceSecure: Boolean): Boolean =
+    !(keyguardLocked && deviceSecure)
+
+/**
  * Presses things the notification API cannot reach.
  *
  * The port exists for exactly one job: a notification whose visible buttons are

@@ -312,7 +312,8 @@ class TriggerNotificationButtonActionFactory(
                 "offers no way to press them directly. This opens the notification " +
                 "shade and taps the button by name instead. Needs accessibility " +
                 "access, briefly shows the shade, and depends on your phone's " +
-                "layout — so it is off unless you need it.",
+                "layout — so it is off unless you need it. It also needs the phone " +
+                "unlocked: a rule cannot get past your PIN.",
         ),
     )
 
