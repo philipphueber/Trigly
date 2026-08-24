@@ -542,6 +542,29 @@ class RuleEditorViewModelTest {
         assertEquals("rule-1", draft.id)
     }
 
+    /**
+     * The editor's *exit* now calls [RuleEditorViewModel.stopTest], not [reset],
+     * and that difference is the fix: leaving the editor — a rotation is a leave
+     * too — must not throw the draft away. Emptying a new rule happens on entry
+     * instead. So stopping a test has to silence a run and touch nothing else.
+     */
+    @Test
+    fun stopping_a_test_leaves_the_draft_alone() = runTest {
+        val editor = viewModel()
+
+        editor.setName("Half-built")
+        editor.chooseTrigger("power_connection")
+        editor.addAction("speak")
+
+        editor.stopTest()
+
+        val draft = editor.state.value.draft
+        assertEquals("Half-built", draft.name)
+        assertEquals("power_connection", draft.trigger?.type)
+        assertEquals(listOf("speak"), draft.actions.map { it.type })
+        assertNull("stopping a test must not leave a run marked active", editor.state.value.testing)
+    }
+
     private class FakeTriggerFactory(
         override val type: String,
         override val displayName: String,

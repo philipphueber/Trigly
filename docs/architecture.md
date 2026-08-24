@@ -267,18 +267,30 @@ checkable without a device.
 dump the user back on the list. That is load-bearing rather than a courtesy — see
 below.
 
-**The editor's draft is discarded when the editor is left.** The editor gets a
-ViewModel keyed by rule id, which handles *different* rules — but an unsaved rule
-has no id, so its key can only be the constant `editor-new`, and these ViewModels
-live in the activity's store. One instance therefore served every new rule for
-the life of the activity, carrying the last draft with it: tapping "New rule"
-reopened the rule you thought you had closed. `RuleEditorViewModel.reset()` is
-the answer, called from a `DisposableEffect` in `EditorHost` because dispose is
-the one place that catches every way of leaving — back, the header arrow, a save,
-a delete — and cannot be forgotten when a fifth is added. It is guarded on
-`isChangingConfigurations`, since a rotation disposes the composition too and
-losing a draft to a turn of the phone would be worse than the bug being fixed.
-That guard is why the destination has to survive rotation.
+**A new rule is emptied when the editor is entered, not when it is left.** The
+editor gets a ViewModel keyed by rule id, which handles *different* rules — but an
+unsaved rule has no id, so its key can only be the constant `editor-new`, and
+these ViewModels live in the activity's store. One instance therefore serves
+every new rule for the life of the activity, carrying the last draft with it:
+left alone, tapping "New rule" reopens the rule you thought you had closed.
+
+The first fix reset the draft on *exit*, from a `DisposableEffect`'s `onDispose`,
+reasoning that dispose catches every way of leaving. It does not catch them
+reliably. The disposal that coincides with a configuration change has to be
+guarded out with `isChangingConfigurations` — otherwise a rotation, which also
+disposes the composition, would wipe the draft — and any exit that is guarded out
+leaves the retained ViewModel dirty, so the *next* entry inherits the stale
+draft. That was the "new rule is sometimes prefilled" report: an exit that
+happened to coincide with a configuration change skipped the reset.
+
+Entry has no such gap. `OnFreshEntry` calls `RuleEditorViewModel.reset()` when the
+new-rule editor is genuinely opened, and stays quiet when the same entry is
+rebuilt by a configuration change — the distinction is `rememberSaveable`, which a
+real entry starts fresh and a rotation restores. `Screen` is still saved through
+`ScreenSaver` so the destination survives rotation, and the draft rides along with
+the retained ViewModel; what does *not* survive is walking back to the list and
+opening a new rule, which is exactly right. Exit keeps one job of its own —
+`stopTest()`, so a looping `play_alert` is silenced when the screen goes away.
 
 ### The notification inspector
 
