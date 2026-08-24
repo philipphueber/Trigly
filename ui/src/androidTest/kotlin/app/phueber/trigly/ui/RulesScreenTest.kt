@@ -35,6 +35,7 @@ class RulesScreenTest {
     private val exported = mutableListOf<String>()
     private var newRuleTaps = 0
     private var importTaps = 0
+    private var inspectTaps = 0
 
     /** Display names come from the factories, so the screen is handed a lookup. */
     private val describe: (String) -> String = { type ->
@@ -56,8 +57,22 @@ class RulesScreenTest {
             onExportAll = { exported += "all" },
             onExportRule = { exported += it.id },
             onImport = { importTaps++ },
+            onInspectNotifications = { inspectTaps++ },
             describeComponent = describe,
         )
+    }
+
+    /**
+     * Reachable with no rules in the list: someone whose first notification rule
+     * never fired is exactly who needs it, and they may well have deleted it.
+     */
+    @Test
+    fun the_notification_inspector_is_reachable_from_an_empty_list() {
+        composeRule.setContent { Screen(emptyList()) }
+
+        composeRule.onNodeWithText("INSPECT").performClick()
+
+        assertEquals(1, inspectTaps)
     }
 
     @Test

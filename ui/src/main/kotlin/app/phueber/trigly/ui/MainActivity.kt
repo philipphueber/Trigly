@@ -164,6 +164,7 @@ class MainActivity : ComponentActivity() {
     /** The two destinations, split out so the providers above stay readable. */
     @androidx.compose.runtime.Composable
     private fun Destination(screen: Screen, onNavigate: (Screen) -> Unit) {
+        val installedApps = LocalInstalledApps.current
         when (screen) {
             Screen.RuleList -> {
                 val statuses by listViewModel.statuses.collectAsStateWithLifecycle()
@@ -176,7 +177,23 @@ class MainActivity : ComponentActivity() {
                     onExportAll = { export(listViewModel.exportAll(), "trigly-rules.json") },
                     onExportRule = ::exportSingle,
                     onImport = { openDocument.launch(arrayOf("application/json", "text/*")) },
+                    onInspectNotifications = { onNavigate(Screen.NotificationInspector) },
                     describeComponent = container.registry::displayNameOf,
+                )
+            }
+
+            Screen.NotificationInspector -> {
+                BackHandler { onNavigate(Screen.RuleList) }
+                // Re-read on each refresh rather than held: what is posted changes
+                // while the screen is open, and a stale list is the one thing a
+                // diagnostic must not show.
+                var seen by remember { mutableStateOf(container.notifications.activeNotifications()) }
+                NotificationInspectorScreen(
+                    notifications = seen,
+                    listenerConnected = container.notifications.isConnected,
+                    onRefresh = { seen = container.notifications.activeNotifications() },
+                    onBack = { onNavigate(Screen.RuleList) },
+                    describeApp = installedApps::labelFor,
                 )
             }
 

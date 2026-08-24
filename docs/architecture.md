@@ -247,10 +247,37 @@ test can establish.
 
 ### Navigation
 
-Two destinations — the list and the editor — do not justify a navigation library
-and the dependency it brings. A sealed `Screen` plus `BackHandler` is the whole
-feature. The editor gets a ViewModel keyed by rule id, so opening a different
-rule cannot inherit the previous draft.
+Three destinations — the list, the editor, and the notification inspector — do
+not justify a navigation library and the dependency it brings. A sealed `Screen`
+plus `BackHandler` is the whole feature. The editor gets a ViewModel keyed by
+rule id, so opening a different rule cannot inherit the previous draft.
+
+### The notification inspector
+
+A diagnostic destination, and the only screen in the app that exists to explain
+the app rather than to configure it. Every notification rule is written against
+values nobody can see from outside the process: which package posted a
+notification, what the platform considers its *title* versus its *text*, whether
+it carries `FLAG_ONGOING_EVENT`, and what its buttons are called underneath their
+icons. Guessing those and finding out from a rule that silently never fires is a
+loop with no feedback in it at all, and it is the most likely reason a working
+build looks broken.
+
+**It renders the strings the matchers use, not a tidied version of them.** The
+joined haystack comes from `notificationHaystack` in `:core` — the same function
+`matchesNotification` calls, which is why that formatting was lifted out of the
+matcher rather than reproduced in the screen. A screen that reconstructed an
+approximation would be worse than no screen, because its whole value is being
+believed: someone comparing a pattern against what it is shown has to be
+comparing it against the real thing. Values are quoted and monospaced for the
+same reason — a missing title still contributes its separating space, and an
+anchored pattern failing on an invisible leading space is exactly the puzzle this
+screen is for.
+
+Its two empty states are different problems and are reported as such: notification
+access not granted, versus granted with nothing currently posted. Only what is
+posted *now* can be inspected — there is no history, because the listener keeps
+none — so the screen says so instead of looking broken while it waits.
 
 ### Where the engine runs
 

@@ -44,6 +44,13 @@ data class ActiveNotification(
     val text: String?,
     val postedAtMillis: Long,
     val buttons: List<NotificationButton>,
+    /**
+     * `FLAG_ONGOING_EVENT` — a progress bar, a media control, a foreground
+     * service's own notice. Carried because two things turn on it and neither is
+     * guessable from outside: `notification_posted` excludes these by default, and
+     * `notification_watchdog` looks for exactly them.
+     */
+    val ongoing: Boolean = false,
 )
 
 /**
@@ -111,3 +118,23 @@ fun chooseButton(
  * "the app declared no meaning" is never mistaken for a meaning to match on.
  */
 const val SEMANTIC_ACTION_NONE = 0
+
+/**
+ * The single string a notification's text filters are matched against.
+ *
+ * Title and body joined by a space, because a person reads a notification as one
+ * piece of text — which is also why a regex can straddle the two and why `^`
+ * anchors to the start of the *title* rather than the start of the body.
+ *
+ * Defined here rather than inside the matcher because two callers need the same
+ * answer: the trigger, which matches against it, and the inspector, which shows
+ * it. A screen that displayed a lovingly reconstructed approximation of this
+ * would be worse than no screen, since its whole purpose is to be believed.
+ *
+ * A missing title still contributes its space, and that is deliberately not
+ * tidied away — it is what the matcher sees, so a pattern beginning `^` behaves
+ * differently on a notification with no title, and someone debugging that needs
+ * to be shown the space rather than told about it.
+ */
+fun notificationHaystack(title: String?, text: String?): String =
+    "${title.orEmpty()} ${text.orEmpty()}"

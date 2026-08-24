@@ -45,6 +45,8 @@ class ListenerNotificationController : NotificationController {
                     title = extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString(),
                     text = extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString(),
                     postedAtMillis = sbn.postTime,
+                    ongoing = notification != null &&
+                        (notification.flags and Notification.FLAG_ONGOING_EVENT) != 0,
                     // Null, not empty, when a notification has no buttons.
                     buttons = notification?.actions.orEmpty().mapIndexed { index, action ->
                         NotificationButton(
