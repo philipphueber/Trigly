@@ -163,6 +163,60 @@ firing its intent with no text attached does nothing — the picker marks those 
 the action fails with a reason, because reporting success for a press that
 achieved nothing is the failure this action exists to stop having.
 
+### A button the system does not expose
+
+`NotificationListenerService` + `actionIntent.send()` is the right mechanism, and
+it is worth being precise about what it fixes. Four things stop an accessibility
+scan finding a notification's buttons:
+
+1. **Wrong window** — the buttons live in a SystemUI window, so
+   `getRootInActiveWindow()` never contains them.
+2. **Collapsed rows have no button nodes** until expanded.
+3. **Custom `RemoteViews`** — an app that builds its own layout may not mark its
+   buttons clickable or give them a content description.
+4. **Package filtering** — the nodes belong to `com.android.systemui`, not the
+   posting app.
+
+Reading `Notification.actions` bypasses 1, 2 and 4 completely. **It does not
+bypass 3**, and the difference matters: if the app never created
+`Notification.Action`s at all — drawing its buttons inside `RemoteViews` instead —
+then `actions` is *empty*. There is no `PendingIntent` anywhere for those buttons.
+No amount of cleverness in the listener reaches them, because the thing to send
+does not exist. Blitzer.de's "MELDEN" / "BEENDEN" is this case.
+
+So `notification_button` gained an opt-in **"use the screen if the button is not
+exposed"**. When the notification offers no matching action, and only when the
+rule has asked for it, the action opens the shade, presses the button *by name*,
+and closes the shade again — through the accessibility service, which is the only
+component that can touch SystemUI's tree.
+
+**Opt-in, and off by default**, because it is worse in every respect: it shows the
+shade to the user, it depends on how an OEM lays that shade out, and a custom
+layout that labels nothing defeats it too. A rule that did all that without being
+asked would be indistinguishable from the phone acting on its own. The refusal
+carries both findings — what the notification API looked for *and* what the screen
+route said — since "no such button" and "accessibility is not granted" send
+someone to different settings.
+
+The scan itself handles the other three causes explicitly rather than by retrying:
+it iterates `getWindows()` for system windows (1), sends `ACTION_EXPAND` to
+candidate rows and searches again (2), and never filters nodes by the target
+package — the package only narrows *which row to expand*, and the press target is
+always chosen by label (4).
+
+**The clickable-node trap is the part worth knowing.** The node carrying the word
+"BEENDEN" is normally a non-clickable `TextView` inside a clickable container:
+`performAction(ACTION_CLICK)` on it returns false and does nothing, with no error
+— which reads as "the button is broken" rather than "you pressed the wrong node".
+`findPressTarget` in `:core` finds the node that *says* the label, then walks up
+to the nearest ancestor that will *take* a click. It stops at the nearest one, not
+the outermost, because the outermost clickable node in a shade is usually the
+notification itself and clicking that opens the app. It refuses rather than
+guessing when nothing above the label is clickable, and it requires an exact
+label match — "BEENDEN" must not press "BEENDEN UND LÖSCHEN". That logic is pure
+and unit-tested against a fake tree, since on a device its failure looks like a
+shade opening and nothing happening.
+
 ### Choosing which notification to dismiss
 
 `dismiss_notification` had the same mistake as `notification_button`, left

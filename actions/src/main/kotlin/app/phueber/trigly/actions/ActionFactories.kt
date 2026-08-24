@@ -3,6 +3,7 @@ package app.phueber.trigly.actions
 import android.content.Context
 import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.NotificationController
+import app.phueber.trigly.core.UiController
 
 /**
  * Every action type this module provides.
@@ -22,6 +23,13 @@ fun actionFactories(
      * implementation so tests and previews can assemble without it.
      */
     notifications: NotificationController = NotificationController.Unavailable,
+    /**
+     * The accessibility service, for the one action that can fall back to
+     * pressing through the rendered shade. Same source as [notifications] —
+     * `:ui` is the only module that can see both services — and the same default,
+     * so nothing here requires accessibility access to be granted.
+     */
+    ui: UiController = UiController.Unavailable,
 ): List<ActionFactory> = listOf(
     // Tell the user something
     PostNotificationActionFactory(context),
@@ -51,6 +59,6 @@ fun actionFactories(
 
     // Other apps' notifications, via the listener service
     DismissNotificationActionFactory(notifications),
-    TriggerNotificationButtonActionFactory(notifications),
+    TriggerNotificationButtonActionFactory(notifications, ui),
     SetDndActionFactory(context),
 )
