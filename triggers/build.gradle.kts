@@ -38,5 +38,6 @@ dependencies {
     testImplementation(libs.turbine)
 
     androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.kotlinx.coroutines.test)
 }
