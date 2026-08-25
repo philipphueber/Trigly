@@ -114,31 +114,56 @@ implementing, each a place where false would have been a lie:
   else in between, reads as "nothing foregrounded": the same staleness trade a
   cached location fix makes.
 
-### Telling the location component to stop watching
+### Watching an area and checking one
 
 `location` is the component whose two roles cost wildly different amounts.
 Watching an area holds an open request for position updates for as long as the
 rule is on, which is the most expensive thing this app can do to a battery.
 Answering "am I in the area now" costs one fix, when something else asks.
 
-Until this switch existed, a rule paid for the first whether it needed it or
-not. The engine collects every leaf's `events()`, so a location leaf that a
-person only ever meant as a condition in an `ALL` group still held the request
-open. The expensive behaviour was the default and nothing on screen said so.
+A rule used to pay for the first whether it needed it or not. The engine collects
+every leaf's `events()`, so a location leaf that a person only ever meant as a
+condition in an `ALL` group still held the request open. The expensive behaviour
+was the default and nothing on screen said so.
 
-`location` now has an **Only check, never watch** switch. With it on, `events()`
-is empty before the location service is even looked up, so nothing on that path
-can open a request, and `producesEvents(config)` answers false so the editor
-stops offering this leaf as the thing that starts a rule. That pair has to
-agree: a config that declares no events and then produces some is a leaf the
-tree was told to ignore, and a config that declares events and produces none is
-a rule that waits forever.
+There are two picker rows now.
 
-It is a switch rather than a guess. The component could try to infer the answer
-from where it sits in the tree, and a guess is the thing being replaced here: a
-person who wants the cheap behaviour should be able to say so and see that they
-said it. A missing or unreadable value means watching, which is what every rule
-saved before the switch existed already did.
+| Row | Type | Events | Cost |
+|---|---|---|---|
+| Enter or leave an area | `location` | yes | holds a position request while the rule is on |
+| Is in an area | `location_check` | no | one position fix, when asked |
+
+`Is in an area` declares `producesEvents = false`, and its `events()` returns an
+empty flow before the location service is even looked up, so nothing on that path
+can open a request. That pair has to agree: a type that declares no events and
+produces some is a leaf the tree was told to ignore, and one that declares events
+and produces none is a rule that waits forever.
+
+**Two rows rather than one row with a switch, and the difference is not
+cosmetic.** The first version of this was a "Only check, never watch" flag on the
+watching component, which meant `canStart` had to ask about a whole
+`ComponentSpec` rather than a type, since the answer depended on config. Worse,
+the flag could be turned on *after* the leaf existed: a rule whose only trigger
+was a location leaf became unstartable in place, which needed a save-time refusal
+to catch. As a picker row none of that applies. `RuleEditorViewModel.triggerOptionsFor`
+already derives what a slot may offer from `canStart`, so `Is in an area` is
+simply absent from a slot where it would be the only trigger, exactly as
+`time_window` is. The state cannot be reached rather than being caught late.
+
+The save-time refusal stays, because an imported file can still describe a rule
+that nothing can start.
+
+The two share their config keys, so the ordinary "change this block's type"
+carries the coordinates and the radius across when someone changes their mind.
+The checking row drops one field, the interval between checks, because nothing
+there is watching.
+
+That swap also found a bug in `migrateConfig`, which decided what to carry from
+`newFields.map { it.key }`. A field can own more than one key when the values are
+one answer, and a `Coordinates` field owns the longitude as a companion. Swapping
+the two rows kept the latitude and silently dropped the longitude. Migration now
+asks `companionKeys()`, which the editor already used for drawing the same
+fields.
 
 ### The one condition that is not a trigger at all
 
@@ -409,6 +434,7 @@ the elapsed-time callback.
 | Call incoming/outgoing/answered/ended/missed | `call_state` | `READ_PHONE_STATE`, API 31+ |
 | SMS received | `sms_received` | `RECEIVE_SMS`, Play-restricted |
 | Entered/left an area *(and, as a condition, currently in it)* | `location` | `ACCESS_FINE_LOCATION` |
+| In an area, checked and never watched | `location_check` | `ACCESS_FINE_LOCATION` |
 | Work profile available/unavailable | `work_profile` | None |
 | Auto-sync changed | `auto_sync` | None |
 | Clipboard changed | `clipboard_changed` | Platform-restricted |

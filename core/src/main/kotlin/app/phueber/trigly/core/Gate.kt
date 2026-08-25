@@ -158,17 +158,18 @@ private suspend fun TriggerNode.holdsAt(
  * `Registry`. Both are passed in rather than read here, because `:core`'s model
  * must not need the registry to describe itself.
  *
- * Both are asked about a whole [ComponentSpec] rather than a type string,
- * because a component can be configured not to watch anything: the location
- * component offers a switch that turns its own event stream off, so whether it
- * can start a rule is a question about this leaf, not about the component. See
- * `TriggerFactory.producesEvents` with a config.
+ * Both are asked about a type string, because whether a component can start a
+ * rule is a property of the component. A component that only ever answers a
+ * question says so as itself: `time_window` and `location_check` both declare
+ * `producesEvents = false`, and the second exists as its own type rather than as
+ * a switch on the watching one precisely so that this stays a question about the
+ * type. See `docs/triggers.md`.
  */
 fun TriggerNode.canStart(
-    hasEvents: (ComponentSpec) -> Boolean,
-    hasState: (ComponentSpec) -> Boolean,
+    hasEvents: (String) -> Boolean,
+    hasState: (String) -> Boolean,
 ): Boolean = when (this) {
-    is TriggerNode.One -> hasEvents(spec)
+    is TriggerNode.One -> hasEvents(spec.type)
 
     is TriggerNode.Group -> when (op) {
         TriggerNode.Op.ANY -> children.any { it.canStart(hasEvents, hasState) }
@@ -186,8 +187,8 @@ fun TriggerNode.canStart(
  * A group can be asked if all of its children can, whatever the operator: asking
  * "is (a or b) true now" is answerable exactly when both a and b are.
  */
-fun TriggerNode.canHold(hasState: (ComponentSpec) -> Boolean): Boolean = when (this) {
-    is TriggerNode.One -> hasState(spec)
+fun TriggerNode.canHold(hasState: (String) -> Boolean): Boolean = when (this) {
+    is TriggerNode.One -> hasState(spec.type)
     is TriggerNode.Group -> children.all { it.canHold(hasState) }
 }
 

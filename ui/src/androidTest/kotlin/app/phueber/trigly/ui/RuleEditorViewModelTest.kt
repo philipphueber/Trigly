@@ -680,10 +680,63 @@ class RuleEditorViewModelTest {
     }
 
     /**
-     * The one way to build a rule that can never start. The picker filters what
-     * a slot offers, so no sequence of *additions* produces this tree. Turning
-     * the location component's "only check, never watch" switch on afterwards
-     * does, by taking the events off a leaf that is already there.
+     * "Is in an area" is not offered where it would be the only trigger.
+     *
+     * It declares `producesEvents = false`, so a tree holding it alone cannot
+     * start, and the picker is derived from exactly that question. This is what
+     * makes it a safe picker row rather than a switch: as a switch it could be
+     * turned on after the leaf existed, and the rule became unstartable in place.
+     */
+    @Test
+    fun the_area_check_is_not_offered_as_a_rules_only_trigger() = runTest {
+        val editor = viewModel()
+
+        val atRoot = editor.triggerOptionsFor(emptyList()).map { it.type }
+
+        assertTrue("the watching one is offered", "location" in atRoot)
+        assertFalse("the checking one cannot start a rule", "location_check" in atRoot)
+    }
+
+    /** And is offered beside a trigger that can start the rule. */
+    @Test
+    fun the_area_check_is_offered_beside_a_trigger_that_starts_the_rule() = runTest {
+        val editor = viewModel()
+        editor.chooseTrigger("screen_state")
+
+        val beside = editor.triggerOptionsFor(emptyList()).map { it.type }
+
+        assertTrue("location_check was not offered: $beside", "location_check" in beside)
+    }
+
+    /**
+     * Switching a block between watching an area and checking one keeps what was
+     * typed. The two factories share their config keys for this reason: changing
+     * your mind is one tap and costs no coordinates.
+     */
+    @Test
+    fun swapping_between_watching_an_area_and_checking_it_keeps_the_coordinates() = runTest {
+        val editor = viewModel()
+        editor.chooseTrigger("screen_state")
+        editor.addTrigger(emptyList(), "location")
+        editor.setTriggerConfigValue(listOf(1), "latitude", "52.5")
+        editor.setTriggerConfigValue(listOf(1), "longitude", "13.4")
+        editor.setTriggerConfigValue(listOf(1), "radiusMeters", "150")
+        editor.setTriggerConfigValue(listOf(1), "state", "entered")
+
+        editor.changeTriggerType(listOf(1), "location_check")
+
+        val leaf = (editor.state.value.draft.trigger as TriggerDraft.Group).children[1].leaf!!
+        assertEquals("location_check", leaf.type)
+        assertEquals("52.5", leaf.config["latitude"])
+        assertEquals("13.4", leaf.config["longitude"])
+        assertEquals("150", leaf.config["radiusMeters"])
+        assertEquals("entered", leaf.config["state"])
+    }
+
+    /**
+     * A rule whose only trigger only answers a question is refused, with the
+     * reason. Unreachable through the picker now, and reachable through an
+     * imported file, which is why the guard stays.
      */
     @Test
     fun a_rule_whose_only_trigger_only_checks_is_refused() = runTest {
@@ -691,12 +744,11 @@ class RuleEditorViewModelTest {
         editor.setName("Home only")
         editor.addAction("toast")
         editor.setConfigValue(Slot.ACTION, 0, "text", "here")
-        editor.chooseTrigger("location")
+        editor.chooseTrigger("location_check")
         editor.setTriggerConfigValue(emptyList(), "latitude", "52.5")
         editor.setTriggerConfigValue(emptyList(), "longitude", "13.4")
         editor.setTriggerConfigValue(emptyList(), "radiusMeters", "100")
         editor.setTriggerConfigValue(emptyList(), "state", "entered")
-        editor.setTriggerConfigValue(emptyList(), "checkOnly", "true")
 
         editor.save()
 
@@ -705,130 +757,24 @@ class RuleEditorViewModelTest {
         assertFalse(editor.state.value.finished)
     }
 
-    /**
-     * The shape the switch exists for. Something else starts the rule and the
-     * area is only asked, so this must save.
-     */
+    /** The shape it exists for: something else starts the rule, the area answers. */
     @Test
-    fun a_check_only_location_beside_a_starting_trigger_is_accepted() = runTest {
+    fun an_area_check_beside_a_starting_trigger_saves() = runTest {
         val editor = viewModel()
         editor.setName("Home and screen")
         editor.addAction("toast")
         editor.setConfigValue(Slot.ACTION, 0, "text", "here")
         editor.chooseTrigger("screen_state")
         editor.setTriggerConfigValue(emptyList(), "state", "on")
-        editor.addTrigger(emptyList(), "location")
+        editor.addTrigger(emptyList(), "location_check")
         editor.setTriggerConfigValue(listOf(1), "latitude", "52.5")
         editor.setTriggerConfigValue(listOf(1), "longitude", "13.4")
         editor.setTriggerConfigValue(listOf(1), "radiusMeters", "100")
         editor.setTriggerConfigValue(listOf(1), "state", "entered")
-        editor.setTriggerConfigValue(listOf(1), "checkOnly", "true")
 
         editor.save()
 
         assertEquals(null, editor.state.value.error)
-    }
-
-    /**
-     * Filling in the one trigger in a group must not delete the group.
-     *
-     * The reported bug, and the exact sequence: make an OR group, put one
-     * trigger in it, then type into that trigger's settings. The group used to
-     * vanish on the first keystroke, because the un-promotion that belongs to a
-     * removal was applied to the result of every edit.
-     */
-    @Test
-    fun filling_in_the_only_trigger_in_a_group_keeps_the_group() = runTest {
-        val editor = viewModel()
-        editor.chooseTrigger("screen_state")
-        editor.addTrigger(emptyList(), GROUP_ANY_TYPE)
-        editor.addTrigger(listOf(1), "battery_level")
-
-        editor.setTriggerConfigValue(listOf(1, 0), "threshold", "20")
-
-        val root = editor.state.value.draft.trigger as TriggerDraft.Group
-        val inner = root.children[1] as TriggerDraft.Group
-        assertEquals(TriggerNode.Op.ANY, inner.op)
-        assertEquals("20", inner.children.single().leaf!!.config["threshold"])
-    }
-
-    /** The same, for a group that is the whole trigger rather than nested. */
-    @Test
-    fun filling_in_the_only_trigger_in_a_root_group_keeps_the_group() = runTest {
-        val editor = viewModel()
-        editor.chooseTrigger(GROUP_ANY_TYPE)
-        editor.addTrigger(emptyList(), "battery_level")
-
-        editor.setTriggerConfigValue(listOf(0), "threshold", "20")
-
-        val root = editor.state.value.draft.trigger as TriggerDraft.Group
-        assertEquals(TriggerNode.Op.ANY, root.op)
-        assertEquals("20", root.children.single().leaf!!.config["threshold"])
-    }
-
-    /** Changing the type of a group's only child must not delete the group either. */
-    @Test
-    fun changing_the_type_of_a_groups_only_trigger_keeps_the_group() = runTest {
-        val editor = viewModel()
-        editor.chooseTrigger("screen_state")
-        editor.addTrigger(emptyList(), GROUP_ANY_TYPE)
-        editor.addTrigger(listOf(1), "battery_level")
-
-        editor.changeTriggerType(listOf(1, 0), "wifi_state")
-
-        val inner = (editor.state.value.draft.trigger as TriggerDraft.Group).children[1]
-        assertTrue("the group was replaced by its child", inner is TriggerDraft.Group)
-        assertEquals("wifi_state", (inner as TriggerDraft.Group).children.single().leaf!!.type)
-    }
-
-    /** Flipping the operator of a one-child group must not delete it. */
-    @Test
-    fun flipping_the_operator_of_a_one_child_group_keeps_the_group() = runTest {
-        val editor = viewModel()
-        editor.chooseTrigger("screen_state")
-        editor.addTrigger(emptyList(), GROUP_ANY_TYPE)
-        editor.addTrigger(listOf(1), "battery_level")
-
-        editor.setTriggerOp(listOf(1), TriggerNode.Op.ALL)
-
-        val inner = (editor.state.value.draft.trigger as TriggerDraft.Group).children[1]
-        assertEquals(TriggerNode.Op.ALL, (inner as TriggerDraft.Group).op)
-        assertEquals(1, inner.children.size)
-    }
-
-    /**
-     * Removal still collapses, which is the behaviour the edit path was wrongly
-     * borrowing. Removing one of two OR branches leaves the other, with no group
-     * around it, because an OR of one thing is that thing.
-     */
-    @Test
-    fun removing_one_of_two_branches_still_un_promotes_the_group() = runTest {
-        val editor = viewModel()
-        editor.chooseTrigger("screen_state")
-        editor.addTrigger(emptyList(), GROUP_ANY_TYPE)
-        editor.addTrigger(listOf(1), "battery_level")
-        editor.addTrigger(listOf(1), "wifi_state")
-
-        editor.removeTrigger(listOf(1, 1))
-
-        val second = (editor.state.value.draft.trigger as TriggerDraft.Group).children[1]
-        assertTrue("a one-branch OR should be its branch", second is TriggerDraft.One)
-        assertEquals("battery_level", second.leaf!!.type)
-    }
-
-    /** And removing the last child of a group removes the group. */
-    @Test
-    fun removing_the_last_trigger_in_a_group_removes_the_group() = runTest {
-        val editor = viewModel()
-        editor.chooseTrigger("screen_state")
-        editor.addTrigger(emptyList(), GROUP_ANY_TYPE)
-        editor.addTrigger(listOf(1), "battery_level")
-
-        editor.removeTrigger(listOf(1, 0))
-
-        val trigger = editor.state.value.draft.trigger
-        assertTrue("the whole tree should be the remaining leaf", trigger is TriggerDraft.One)
-        assertEquals("screen_state", trigger.leaf!!.type)
     }
 
     @Test

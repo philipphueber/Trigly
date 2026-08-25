@@ -109,15 +109,11 @@ of by the tree's shape:
 - `TriggerNode.canHold(hasState)`: can this tree be asked for a state at all?
   A group can if every child can, whatever its operator.
 
-Both are asked about a whole `ComponentSpec`, not a type string, and that is a
-correction rather than a detail. A component can be configured not to watch
-anything. The location component is the case: watching an area holds an open
-position request for as long as the rule is on, and it offers a switch that
-turns its own event stream off (`TriggerFactory.producesEvents(config)`, whose
-default ignores the config so no other component has to say anything). Asked by
-type alone, the answer describes the component in general and misses the switch,
-so a rule whose only location leaf was set to check rather than watch would look
-able to start when nothing in it can.
+Both are asked about a type string, because whether a component can start a rule
+is a property of the component. Two components say `producesEvents = false`:
+`time_window`, and `location_check`. The second is the cheap half of the location
+component, and it is its own type rather than a switch on the watching one for
+exactly this reason. See "Watching an area and checking one" in `triggers.md`.
 
 The editor uses `canStart`/`canHold` to decide which components a slot may
 offer, which is the one job the old gate shape used to do by construction. It

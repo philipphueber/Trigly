@@ -279,12 +279,11 @@ class RuleEditorViewModel(
         }
     }
 
-    // Asked of the whole spec, so a leaf configured not to watch is not counted
-    // as one that could start the rule. See `Registry.producesEvents`.
-    private fun hasEvents(spec: ComponentSpec): Boolean = registry.producesEvents(spec)
+    private fun hasEvents(type: String): Boolean =
+        registry.triggerDescriptor(type)?.producesEvents ?: false
 
-    private fun hasState(spec: ComponentSpec): Boolean =
-        registry.supportsCondition(spec.type)
+    private fun hasState(type: String): Boolean =
+        registry.triggerDescriptor(type)?.supportsCondition ?: false
 
     fun addAction(type: String) = edit {
         val fields = registry.actionDescriptor(type)?.configFields.orEmpty()
