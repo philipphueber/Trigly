@@ -213,6 +213,40 @@ gives a rule it has not seen the next free position. Placing it beside the
 original would mean shifting the position of every rule below it, and a list that
 reorders itself around a copy is a bigger surprise than a copy at the bottom.
 
+### A control that does not fit
+
+A button label given no line limit wraps to whatever width it is handed, and a
+button squeezed narrow enough wraps *per character*. A real phone showed a
+block's footer whose last control read as a vertical column of single letters,
+one under the next. It was still tappable and still reported the right text to
+the accessibility tree, so nothing failed and nothing said anything: the row ran
+out of room and the text obeyed.
+
+Two halves, and both are needed.
+
+**Every button label in `Blocks.kt` is `maxLines = 1, softWrap = false`.** A
+label that does not fit is clipped, which reads as wrong, rather than rearranging
+itself into something that looks deliberate. This is the property a button label
+should have had from the start.
+
+**A row whose contents can grow wraps.** The block footer is a `FlowRow`,
+because how many controls land in it is not fixed: a component declares its own
+tools, so a shortcut trigger contributes "Add to home screen" beside "Add
+trigger" and "Remove", and an action block in the middle of a list can hold its
+tools, both reorder arrows and Remove. Capping the count is not an option, since
+each of those controls is the only route to something. "Add to home screen" is
+the one way a shortcut trigger ever fires, so a footer that dropped its fourth
+control to save space would save a rule that can never run.
+
+Rows with a *fixed* set of controls stay `Row`s. The pattern to keep for those is
+the one the requirement rows already use: give the text `weight(1f)` so it
+absorbs the squeeze, and let the button keep its intrinsic width.
+
+The tests assert *height*, not presence. `assertIsDisplayed` passes on a crushed
+button, and so does anything that looks for the text. A six-letter label stacked
+one letter per line is six line heights tall, and that is what the assertion
+looks at: measured against the pre-fix code, `REMOVE` came back 112dp tall.
+
 ### Nesting depth costs a rail, not a thumb
 
 A level of nesting costs 6dp: a 2dp accent rail and a 4dp gap. It used to cost

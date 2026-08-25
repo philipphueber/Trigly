@@ -1,10 +1,13 @@
 package app.phueber.trigly.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
@@ -13,6 +16,7 @@ import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.click
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
@@ -23,6 +27,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.height
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import app.phueber.trigly.actions.actionFactories
@@ -131,6 +136,92 @@ class RuleEditorScreenTest {
             toolsFor = toolsFor,
             onPinShortcut = { pinned += it },
         )
+    }
+
+    /**
+     * A block's controls must not be squeezed into unreadability.
+     *
+     * The case from a real phone: a shortcut trigger contributes "Add to home
+     * screen" beside "Add trigger" and "Remove", the row runs out of width, and
+     * the last control renders as a vertical column of single letters. Still
+     * tappable, so nothing failed and nothing said anything.
+     *
+     * Height is what this asserts, because height is what the bug produces.
+     * `assertIsDisplayed` passes on a crushed button, and so does anything that
+     * only looks for the text. A six-letter label stacked one letter per line is
+     * six line heights tall; a control on one line is about one.
+     */
+    @Test
+    fun a_blocks_controls_are_not_crushed_when_they_do_not_fit_one_line() {
+        composeRule.setContent {
+            // Narrow on purpose. 320dp is a small phone in portrait, and the
+            // width the footer has to survive rather than one it happens to fit.
+            Box(modifier = Modifier.width(320.dp)) {
+                Editor(
+                    EditorState(
+                        RuleDraft(
+                            id = "abc",
+                            name = "Alarm",
+                            trigger = TriggerDraft.One(
+                                ComponentDraft(
+                                    "shortcut",
+                                    mapOf("shortcutId" to "id-1", "label" to "Alarmierung"),
+                                )
+                            ),
+                        )
+                    )
+                )
+            }
+        }
+
+        // All three are present: none was dropped to make room.
+        composeRule.onNodeWithText("ADD TO HOME SCREEN").performScrollTo().assertExists()
+        composeRule.onNodeWithText("ADD TRIGGER").assertExists()
+        composeRule.onNodeWithText("REMOVE").assertExists()
+
+        val oneLine = 64.dp
+        listOf("ADD TO HOME SCREEN", "ADD TRIGGER", "REMOVE").forEach { label ->
+            val height = composeRule.onNodeWithText(label)
+                .getUnclippedBoundsInRoot()
+                .height
+            assertTrue(
+                "$label is $height tall, so its text wrapped instead of staying on one line",
+                height < oneLine,
+            )
+        }
+    }
+
+    /**
+     * The same guarantee for an action block, which can hold more controls than a
+     * trigger: its own tools, both reorder arrows, and Remove.
+     */
+    @Test
+    fun an_action_blocks_controls_are_not_crushed_either() {
+        composeRule.setContent {
+            Box(modifier = Modifier.width(320.dp)) {
+                Editor(
+                    EditorState(
+                        RuleDraft(
+                            id = "abc",
+                            name = "Noisy",
+                            trigger = TriggerDraft.One(ComponentDraft("screen_state")),
+                            actions = listOf(
+                                ComponentDraft("toast", mapOf("text" to "one")),
+                                ComponentDraft("post_notification", emptyMap()),
+                                ComponentDraft("toast", mapOf("text" to "three")),
+                            ),
+                        )
+                    )
+                )
+            }
+        }
+
+        composeRule.onAllNodesWithText("REMOVE").fetchSemanticsNodes().indices.forEach { index ->
+            val height = composeRule.onAllNodesWithText("REMOVE")[index]
+                .getUnclippedBoundsInRoot()
+                .height
+            assertTrue("a REMOVE control is $height tall", height < 64.dp)
+        }
     }
 
     @Test

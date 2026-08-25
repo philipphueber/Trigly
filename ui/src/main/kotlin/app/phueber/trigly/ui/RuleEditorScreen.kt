@@ -1,8 +1,11 @@
 package app.phueber.trigly.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -911,13 +914,34 @@ internal fun ComponentBlock(
     }
 }
 
+/**
+ * A block's controls, wrapping to a second line rather than squeezing.
+ *
+ * A `FlowRow`, and that is a fix rather than a preference. How many controls
+ * land here is not fixed: a component declares its own tools (see
+ * [ComponentTool]), and a shortcut trigger contributes "Add to home screen"
+ * next to "Add trigger" and "Remove". On a real phone that row ran out of width
+ * and the last control rendered as a vertical stack of single letters. It was
+ * still tappable, so nothing failed and nothing said anything.
+ *
+ * Two halves to that fix and this is the container half. A label can no longer
+ * wrap at all (see `Blocks.kt`), so a squeezed button would clip instead of
+ * restacking. Clipping a control is still wrong, so the row is given somewhere
+ * to put what does not fit.
+ *
+ * The number of controls cannot be capped instead: every one of them is the only
+ * route to something. "Add to home screen" is the one way a shortcut trigger
+ * ever fires, so a footer that quietly dropped its fourth control would save a
+ * rule that can never run.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Footer(footer: (@Composable () -> Unit)?) {
     if (footer == null) return
     BlockDivider()
-    Row(
+    FlowRow(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.Center,
     ) {
         footer()
     }
