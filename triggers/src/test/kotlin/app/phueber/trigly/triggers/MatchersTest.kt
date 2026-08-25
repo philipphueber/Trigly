@@ -9,7 +9,9 @@ import app.phueber.trigly.triggers.accessibility.matchesUiEvent
 import app.phueber.trigly.triggers.notification.PostedNotification
 import app.phueber.trigly.triggers.notification.isDndOn
 import app.phueber.trigly.triggers.notification.matchesNotification
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -293,3 +295,88 @@ private fun contains(pattern: String) = TextFilter.of(pattern, TextMatchMode.CON
 
 /** A regex filter. */
 private fun regex(pattern: String) = TextFilter.of(pattern, TextMatchMode.REGEX)
+
+/**
+ * Which of the two device filters a configuration actually matches on.
+ *
+ * The bug these cover: a rule that identified its device by address, and also
+ * carried a name filter from an earlier edit, ANDed the two at runtime while the
+ * editor showed only the address. The name filter was invisible and decided the
+ * answer, so the rule matched nothing and nothing on screen could say why.
+ */
+class BluetoothIdentifyByTest {
+
+    private val address = "AA:BB:CC:DD:EE:FF"
+
+    @Test
+    fun `identifying by address ignores a leftover name filter`() {
+        val c = mapOf(
+            BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY to
+                BluetoothConnectionTrigger.IDENTIFY_BY_ADDRESS,
+            BluetoothConnectionTrigger.CONFIG_ADDRESS to address,
+            BluetoothConnectionTrigger.CONFIG_NAME to "something else entirely",
+        )
+
+        assertEquals(address, bluetoothWantedAddress(c))
+        assertEquals(TextFilter.Any, bluetoothNameFilter(c))
+    }
+
+    @Test
+    fun `identifying by name ignores a leftover address`() {
+        val c = mapOf(
+            BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY to
+                BluetoothConnectionTrigger.IDENTIFY_BY_NAME,
+            BluetoothConnectionTrigger.CONFIG_ADDRESS to address,
+            BluetoothConnectionTrigger.CONFIG_NAME to "headset",
+        )
+
+        assertNull(bluetoothWantedAddress(c))
+        assertTrue(bluetoothNameFilter(c).matches("My Headset"))
+    }
+
+    /**
+     * The legacy promise. A rule saved before the choice existed has no value for
+     * it, and both fields keep applying, ANDed, exactly as they did.
+     */
+    @Test
+    fun `with no choice stored both filters still apply`() {
+        val c = mapOf(
+            BluetoothConnectionTrigger.CONFIG_ADDRESS to address,
+            BluetoothConnectionTrigger.CONFIG_NAME to "headset",
+        )
+
+        assertEquals(address, bluetoothWantedAddress(c))
+        assertTrue(bluetoothNameFilter(c).matches("My Headset"))
+        assertFalse(bluetoothNameFilter(c).matches("Speaker"))
+    }
+
+    @Test
+    fun `an empty configuration matches any device either way`() {
+        assertNull(bluetoothWantedAddress(emptyMap()))
+        assertEquals(TextFilter.Any, bluetoothNameFilter(emptyMap()))
+    }
+
+    /**
+     * End to end through the matcher the engine uses, which is the shape of the
+     * rule that failed: the address is right, the leftover name is wrong, and the
+     * device must still match.
+     */
+    @Test
+    fun `a device matches on address alone when the choice says address`() {
+        val c = mapOf(
+            BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY to
+                BluetoothConnectionTrigger.IDENTIFY_BY_ADDRESS,
+            BluetoothConnectionTrigger.CONFIG_ADDRESS to address,
+            BluetoothConnectionTrigger.CONFIG_NAME to "a name this device does not have",
+        )
+
+        assertTrue(
+            bluetoothDeviceMatches(
+                wantedAddress = bluetoothWantedAddress(c),
+                nameFilter = bluetoothNameFilter(c),
+                address = address,
+                name = "Whatever The Device Calls Itself",
+            )
+        )
+    }
+}

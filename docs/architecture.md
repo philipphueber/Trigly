@@ -272,6 +272,67 @@ card at 106dp from the edge before this, and at 39dp after.
 a row that wraps its own height has no bounded constraint to fill, so the rail
 would measure zero and draw nothing.
 
+### Saying that a run failed
+
+Two things can make a rule do nothing, and until now they looked identical from
+the device: the trigger never fired, or the trigger fired and an action failed.
+The engine wrote the second one to logcat and stopped there, so answering "why
+did my rule do nothing" needed a cable. For an app whose argument is that a
+silent rule must explain itself, that was the hole in the middle of it.
+
+`ActionFailureLog` closes it. The engine's `onOutcome` hook already existed for
+this ("for logging and for the UI's run history") and now carries the action's
+type as well, because a rule with three actions produces three outcomes and a
+reader that cannot tell them apart cannot say which one failed.
+
+Three decisions in it.
+
+**The log lives in `AppContainer`, not in the engine.** `EngineService` owns the
+engine's lifetime and deliberately hands out no reference to it, so the list
+screen cannot ask the engine anything. A plain sink both sides can see is how
+they meet: the service writes, the list reads, neither knows the other.
+
+**It is not persisted, and that is the honest lifetime.** A failure describes a
+run under conditions that existed at the time. If the process died and came
+back, those conditions are gone and showing the record would be a claim the log
+cannot support. A rule that still fails will fail again and say so again.
+Persisting it would also mean a schema migration for something no rule depends
+on.
+
+**A success clears the record only for the same action.** Two actions, the first
+failing and the second working, is a rule doing half its job. An unguarded clear
+would erase the failure a moment after recording it and report the rule as
+healthy.
+
+The cell is amber, not the error colour. `RequirementCell` is red because it
+states a fault standing in the way right now, with the grant that fixes it. This
+is a report about a run that already happened and a condition that may be gone.
+A disabled rule shows nothing, guarded in both the ViewModel and the cell,
+because accusing a rule nobody asked to run is worse than saying nothing.
+
+### A hidden field must not decide the answer
+
+The Bluetooth trigger identifies a device by address or by name, and the choice
+is stored as `identifyBy`. That key used to be editor-only: it decided which of
+the two fields was *drawn*, while the engine read both and ANDed them.
+
+The reasoning was real. A rule saved before the key existed might match on a
+name, and the editor would show it as "Any device", so keeping the hidden value
+live meant such a rule kept working. What it also meant: a rule showing a device
+picked from the paired list, with a name filter left over from an earlier
+attempt, matched nothing at all, because the name had to match too and the
+device's advertised name did not contain the leftover text. The editor showed one
+filter and the engine applied two.
+
+`identifyBy` is read at runtime now, by `bluetoothWantedAddress` and
+`bluetoothNameFilter`: `address` ignores any stored name, `name` ignores any
+stored address, and **absent** keeps ANDing both exactly as before. The absent
+case is what keeps the legacy promise, and a rule that has a value has it
+because a person saw the control and chose.
+
+The general rule this is an instance of: a field the editor hides must not
+change what a rule does. Either it is shown, or it is inert.
+
 ### Requirements
 
 Triggers and actions declare what they need (a runtime permission, a settings

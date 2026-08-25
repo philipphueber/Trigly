@@ -416,12 +416,31 @@ class BluetoothConnectionTrigger(
         const val CONFIG_DISCONNECT_DEBOUNCE_MILLIS = "disconnectDebounceMillis"
 
         /**
-         * The editor's "identify the device by" choice. A third key, never read by
-         * [BluetoothConnectionTrigger] itself — [CONFIG_ADDRESS] and [CONFIG_NAME]
-         * keep being read independently and ANDed exactly as they always were, see
-         * [bluetoothDeviceMatches] — this only decides which of the two fields the
-         * editor draws. See [BluetoothConnectionTriggerFactory.configFields] for why
-         * that split is safe for a rule saved before this key existed.
+         * Which of [CONFIG_ADDRESS] and [CONFIG_NAME] a rule is matching on.
+         *
+         * This used to be an editor-only key: it decided which of the two fields
+         * was drawn, and both were read and ANDed at runtime whatever it said.
+         * The reasoning was that a hidden field's value is never cleared, so a
+         * legacy rule that matched on a name kept working even when the editor
+         * showed it as "Any device". That much was true, and it also produced a
+         * rule that showed a device chosen from the paired list, hid a name
+         * filter left over from an earlier attempt, and silently never matched
+         * anything, because the two were ANDed and the device's advertised name
+         * did not contain the leftover text. Nothing on screen could say why. A
+         * hidden field that still decides the answer is the exact failure this
+         * project exists to avoid.
+         *
+         * So it is read now, by [bluetoothWantedAddress] and
+         * [bluetoothNameFilter]:
+         *
+         * - `address`: match on the address, ignore any stored name.
+         * - `name`: match on the name, ignore any stored address.
+         * - absent: match on both, ANDed, exactly as before this key existed.
+         *
+         * The absent case is what keeps the legacy promise. A rule saved before
+         * this key existed has no value here and behaves as it always did. A rule
+         * that *has* a value has it because a person saw this control and chose,
+         * so the choice is honoured rather than second-guessed.
          */
         const val CONFIG_IDENTIFY_BY = "identifyBy"
         const val IDENTIFY_BY_ADDRESS = "address"
@@ -444,6 +463,44 @@ private const val PROFILE_PROXY_TIMEOUT_MILLIS = 1_500L
 private fun Context.hasBluetoothConnectPermission(): Boolean =
     ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) ==
         PackageManager.PERMISSION_GRANTED
+
+/**
+ * The address this configuration matches on, or null for "any address".
+ *
+ * Null when the rule identifies its device by name, whatever an address key left
+ * over from an earlier edit says. See [BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY].
+ *
+ * Pure, and separate from the factory, for the reason every other helper in this
+ * file is: the factory needs a `Context` and cannot be built in a JVM test, while
+ * getting this wrong is a rule that never fires and says nothing.
+ */
+fun bluetoothWantedAddress(config: Map<String, String>): String? =
+    if (config[BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY] ==
+        BluetoothConnectionTrigger.IDENTIFY_BY_NAME
+    ) {
+        null
+    } else {
+        config[BluetoothConnectionTrigger.CONFIG_ADDRESS]
+    }
+
+/**
+ * The name filter this configuration matches on, or [TextFilter.Any] for
+ * "any name".
+ *
+ * [TextFilter.Any] when the rule identifies its device by address, whatever a
+ * name key left over from an earlier edit says.
+ */
+fun bluetoothNameFilter(config: Map<String, String>): TextFilter =
+    if (config[BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY] ==
+        BluetoothConnectionTrigger.IDENTIFY_BY_ADDRESS
+    ) {
+        TextFilter.Any
+    } else {
+        TextFilter.fromConfig(
+            config[BluetoothConnectionTrigger.CONFIG_NAME],
+            config[BluetoothConnectionTrigger.CONFIG_NAME_MODE],
+        )
+    }
 
 class BluetoothConnectionTriggerFactory(
     private val context: Context,
@@ -475,27 +532,30 @@ class BluetoothConnectionTriggerFactory(
 
     override val configFields = listOf(
         // One decision, not two overlapping filters: which of CONFIG_ADDRESS and
-        // CONFIG_NAME is visible follows from this choice, so the editor never
-        // shows both at once and never has to explain, in prose, that one is a
-        // workaround for the other. bluetoothDeviceMatches still ANDs both if
-        // both happen to be set — a rule from before this field existed may
-        // carry either, both, or neither, and none of that changes.
+        // CONFIG_NAME is visible follows from this choice, and so does which one
+        // the engine reads. The editor shows exactly the field that decides the
+        // match, which is the whole point of the key. See
+        // CONFIG_IDENTIFY_BY for what this used to do instead, and what that
+        // cost.
         //
         // Defaulted to "address" rather than "name". CONFIG_IDENTIFY_BY is a key
         // no rule saved before this existed has, so for every one of them
         // ConfigField.shownWith falls back to this default to decide what to
-        // draw — there is no way to compute a default from what a rule already
+        // draw. There is no way to compute a default from what a rule already
         // has stored, only one fixed value that has to serve every legacy shape
         // at once. "address" is the one that does that best: it is correct for
-        // the two commonest legacy shapes — no filter at all (shows "Any
-        // device", which is exactly what was configured) and an address picked
-        // from the paired-device list (shows it) — because the address field,
-        // not the name filter, is what every rule had before the name filter
-        // was added as an escape hatch for unpaired LE gear. A rule that used
-        // that escape hatch instead opens showing "Any device" with its name
-        // filter hidden — not lost: a hidden field's stored value is never
-        // cleared on save, only left undrawn, so the filter keeps applying —
-        // and one tap on this choice reveals it again.
+        // the two commonest legacy shapes, no filter at all (shows "Any device",
+        // which is exactly what was configured) and an address picked from the
+        // paired-device list (shows it), because the address field, not the name
+        // filter, is what every rule had before the name filter was added as an
+        // escape hatch for unpaired LE gear.
+        //
+        // A legacy rule that used that escape hatch opens showing "Any device"
+        // with its name filter hidden, and it still matches by name, because a
+        // rule with no stored value for this key reads both fields exactly as it
+        // always did. One tap on this choice reveals the filter again. What has
+        // changed is that saving the rule writes a value here, and from then on
+        // the visible field is the only one that matches.
         ConfigField.Choice(
             key = BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY,
             label = "Identify the device by",
@@ -612,12 +672,11 @@ class BluetoothConnectionTriggerFactory(
     override fun create(config: Map<String, String>): Trigger =
         BluetoothConnectionTrigger(
             context = context,
-            // Absent means "any device", which is a valid configuration.
-            deviceAddress = config[BluetoothConnectionTrigger.CONFIG_ADDRESS],
-            nameFilter = TextFilter.fromConfig(
-                config[BluetoothConnectionTrigger.CONFIG_NAME],
-                config[BluetoothConnectionTrigger.CONFIG_NAME_MODE],
-            ),
+            // Both read through the helpers above, which honour
+            // CONFIG_IDENTIFY_BY. Absent values mean "any device", which is a
+            // valid configuration.
+            deviceAddress = bluetoothWantedAddress(config),
+            nameFilter = bluetoothNameFilter(config),
             // Absent means connect, because that is the only thing this trigger
             // could do before it learned about disconnection, and every rule
             // saved then has no state key to read.

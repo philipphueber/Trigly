@@ -252,7 +252,7 @@ private fun harness(
     val engine = TriggerEngine(
         registry = registry,
         scope = scope,
-        onOutcome = { _, _, result -> outcomes += result },
+        onOutcome = { _, _, _, result -> outcomes += result },
     )
     val rule = Rule(
         id = "rule-1",

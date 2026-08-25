@@ -94,6 +94,16 @@ class AppContainer(context: Context) {
     val ui: UiController = ServiceUiController()
 
     /**
+     * What an action said when it last failed, per rule.
+     *
+     * Lives here because it has two ends in different places: `EngineService`
+     * writes it as rules run, and the rule list reads it to explain a rule that
+     * fired and then did nothing. The service will not hand out the engine, so a
+     * sink both sides can see is the way they meet. See [ActionFailureLog].
+     */
+    val actionFailures: ActionFailureLog = ActionFailureLog()
+
+    /**
      * Durable storage. Rules are hand-built by the user, so losing them to a
      * process death — which the in-memory stand-in did — was never shippable.
      *

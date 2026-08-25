@@ -4,10 +4,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -98,6 +100,57 @@ class RulesScreenTest {
                 .height
             assertTrue("$label is $height tall", height < 64.dp)
         }
+    }
+
+    /**
+     * A rule that fired and whose action failed says so on the list.
+     *
+     * Before this, that rule was indistinguishable from one whose trigger never
+     * fired: both did nothing and neither said anything, and the only record was
+     * a logcat line that needs a cable to read.
+     */
+    @Test
+    fun a_rule_whose_action_failed_says_what_the_action_said() {
+        val failed = RuleStatus(
+            rule = sampleRule.copy(enabled = true),
+            unmet = emptyList(),
+            lastFailure = ActionFailure("post_notification", "Notifications are disabled for this app."),
+        )
+
+        composeRule.setContent { Screen(listOf(failed)) }
+
+        // Names the action, so a rule with several is not a guessing game.
+        composeRule.onNodeWithText("LAST RUN FAILED: SHOW A NOTIFICATION")
+            .performScrollTo()
+            .assertExists()
+        composeRule.onNodeWithText("Notifications are disabled for this app.").assertExists()
+    }
+
+    @Test
+    fun a_rule_with_no_failure_says_nothing_about_one() {
+        composeRule.setContent { Screen(statusesOf(sampleRule)) }
+
+        composeRule.onAllNodesWithText("LAST RUN FAILED: SHOW A NOTIFICATION")
+            .assertCountEquals(0)
+    }
+
+    /**
+     * A failure against a rule someone has since switched off is not reported.
+     * They stopped asking for that run, so a red or amber cell would be an
+     * accusation about something nobody is waiting on.
+     */
+    @Test
+    fun a_disabled_rule_does_not_report_an_old_failure() {
+        val failed = RuleStatus(
+            rule = sampleRule.copy(enabled = false),
+            unmet = emptyList(),
+            lastFailure = ActionFailure("post_notification", "Notifications are disabled for this app."),
+        )
+
+        composeRule.setContent { Screen(listOf(failed)) }
+
+        composeRule.onAllNodesWithText("Notifications are disabled for this app.")
+            .assertCountEquals(0)
     }
 
     @Test
