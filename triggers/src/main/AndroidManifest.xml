@@ -24,12 +24,32 @@
     <!-- Location trigger. From API 31 the user can grant approximate location
          instead of precise, so the platform requires both to be declared; the
          GPS provider the trigger uses still needs the fine grant, which is what
-         the trigger declares as its requirement.
-
-         Background location is a separate grant and a separate Play review; not
-         requested until a trigger needs it. -->
+         the trigger declares as its requirement. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!--
+      Background location, which this app must have and put off asking for
+      until now.
+
+      The fine grant alone is "while in use". It gives a position only while
+      an activity is on screen, or while a foreground service of type
+      `location` runs. The engine is neither of those things most of the time.
+      So the `location_check` component answered "I cannot look" for every
+      rule that ran with the app in the background, the AND above it did not
+      hold, and the rule was dropped with no record. That reads exactly like
+      "you are not in the area", which is the silent failure this project
+      designs against.
+
+      The grant arrived in Android 10 (API 29). Below that the fine grant is
+      already background access, and this line is ignored. The user must set
+      location to "Allow all the time", and from Android 11 only the settings
+      screen can do that. See `LocationCheckTriggerFactory` for the
+      requirement, and `MainActivity.resolve` for where the user is sent.
+
+      This is a Play review item, as is the `location` service type in :ui.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 
     <!-- Usage-stats access is a special access granted in settings, but the
          permission must still be declared for the app-op to be checkable. -->

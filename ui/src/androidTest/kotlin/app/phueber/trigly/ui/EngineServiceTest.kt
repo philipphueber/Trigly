@@ -82,6 +82,36 @@ class EngineServiceTest {
         assertTrue("the engine stopped with the activity", isServiceRunning())
     }
 
+    /**
+     * The engine still starts when it claims the `location` type, which is the
+     * one path the rest of this class cannot reach.
+     *
+     * Every other test here runs with location ungranted, so the service claims
+     * `specialUse` alone and the interesting branch never executes. The moment a
+     * user grants location the claim becomes `specialUse|location`, and from API
+     * 34 a bad claim does not degrade: `startForeground` throws, the service
+     * dies, and *every* rule stops. Granting location would take the whole app
+     * down, which is a far worse bug than the one this change fixes and would
+     * reach only the users who did what the app asked them to do.
+     *
+     * Granted through `uiAutomation` rather than a dialog, and the permission is
+     * left granted afterwards: revoking a runtime permission kills the process,
+     * which would take the rest of the suite with it.
+     */
+    @Test
+    fun the_engine_starts_while_claiming_the_location_type() {
+        InstrumentationRegistry.getInstrumentation().uiAutomation
+            .grantRuntimePermission(app.packageName, Manifest.permission.ACCESS_FINE_LOCATION)
+
+        runBlocking { repository.upsert(testRule()) }
+
+        ActivityScenario.launch(MainActivity::class.java).use {
+            awaitService(running = true)
+        }
+
+        assertTrue("the engine did not survive claiming the location type", isServiceRunning())
+    }
+
     @Test
     fun the_engine_stops_itself_when_no_rule_is_enabled() {
         runBlocking { repository.upsert(testRule()) }
@@ -135,6 +165,37 @@ class EngineServiceTest {
         assertEquals(
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
             info.foregroundServiceType and ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+        )
+    }
+
+    /**
+     * The declaration the area check depends on, and the one nothing else would
+     * catch.
+     *
+     * A position read answers only while the app counts as in use, and off
+     * screen the `location` service type is what makes it count. Without the
+     * type the engine keeps running and every rule that ANDs a trigger with an
+     * area check simply stops firing, which is the failure this test exists to
+     * make loud: it looks exactly like being outside the area.
+     *
+     * Asserts the manifest, not the claimed types. What the running service
+     * claims depends on whether this device granted location, so asserting that
+     * would make the test's meaning depend on the device's permission state.
+     * The manifest is what the app promises, and it is the half that can be
+     * broken by an edit.
+     */
+    @Test
+    fun the_service_declares_the_location_type() {
+        assumeTrue("foreground service types arrived in API 34", Build.VERSION.SDK_INT >= 34)
+
+        val info = app.packageManager.getServiceInfo(
+            ComponentName(app, EngineService::class.java),
+            0,
+        )
+
+        assertEquals(
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION,
+            info.foregroundServiceType and ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION,
         )
     }
 

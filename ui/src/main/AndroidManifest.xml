@@ -29,6 +29,27 @@
     -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!--
+      The second type the engine can run as. It is what gives a location read
+      an answer while no activity is on screen, which is the normal state for
+      an automation app. The type is added at runtime and only when a location
+      permission is held, because from API 34 `startForeground` throws for a
+      declared type the app has no permission for. See
+      `EngineService.foregroundTypes`.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!--
+      Declared here as well as in :triggers, which is not duplication. The
+      module convention is that a module declares what its own code needs, and
+      this module's code now needs these: `EngineService.hasLocationGrant`
+      reads them to decide whether it may claim the `location` service type.
+      The platform ties the two together as one rule, that the type requires
+      FOREGROUND_SERVICE_LOCATION and one of these, and a rule split across two
+      manifests is one nobody can check. Lint checks it here and fails the
+      build if this pair is separated. The merger folds the repeat away.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
@@ -72,6 +93,15 @@
             android:theme="@android:style/Theme.NoDisplay" />
 
         <!--
+          Two types, and each is there for its own reason.
+
+          `location` is not a description of the service, it is the switch
+          that lets the engine read a position while the app is in the
+          background. Without it the fine-location grant is "while in use"
+          only, and every `location_check` in an AND answered "I cannot look".
+          The type is only claimed at runtime when a location permission is
+          held; see `EngineService.foregroundTypes`.
+
           specialUse, and there is no honest alternative. The catalogue of
           foreground service types describes what the service is *doing* —
           playing media, syncing data, tracking a location — and general-purpose
@@ -84,7 +114,7 @@
         <service
             android:name=".EngineService"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
+            android:foregroundServiceType="specialUse|location">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Runs the user's own automation rules. Trigly's triggers are system broadcasts and framework callbacks that are only delivered to a live process, so the rules the user enabled cannot fire unless the app keeps running." />

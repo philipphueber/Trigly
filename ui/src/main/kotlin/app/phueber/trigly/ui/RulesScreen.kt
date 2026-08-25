@@ -431,11 +431,19 @@ private fun LastFailureCell(
         ) {
             // Names the action, because a rule with three of them otherwise
             // leaves the reader to guess which one this is about.
+            //
+            // No action type means no action was reached: the rule fired and was
+            // then dropped because part of its trigger could not answer. That is
+            // a different sentence, not a missing word in this one. Calling it a
+            // failed run would blame an action that never ran.
             Text(
-                text = stringResource(
-                    R.string.rules_last_run_failed,
-                    describeComponent(failure.actionType),
-                ).uppercase(),
+                text = (
+                    failure.actionType
+                        ?.let {
+                            stringResource(R.string.rules_last_run_failed, describeComponent(it))
+                        }
+                        ?: stringResource(R.string.rules_last_run_undecided)
+                    ).uppercase(),
                 style = MaterialTheme.typography.labelMedium,
             )
             Text(

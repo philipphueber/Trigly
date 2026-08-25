@@ -33,6 +33,28 @@ import kotlin.math.sqrt
 
 private const val EARTH_RADIUS_METERS = 6_371_000.0
 
+/**
+ * What both location components need, watching and checking alike.
+ *
+ * **Why the background grant is here and not left out.** The fine grant on its
+ * own is "while in use". It answers a position read while an activity is on
+ * screen and returns nothing when none is. The engine runs off screen almost
+ * all of the time, so the checking half answered "I cannot look" for every rule
+ * that ran with the app in the background, and an AND above it dropped the rule
+ * with no record. Declaring the grant is what turns that from a silent failure
+ * into a row the editor shows with a button on it.
+ *
+ * The grant arrived in Android 10 (API 29). Below that the fine grant already
+ * covers the background, so asking for it there would show a row the user could
+ * never satisfy. `minSdk` is 26, so the test is real and not decoration.
+ */
+private val LOCATION_REQUIREMENTS: List<ComponentRequirement> = buildList {
+    add(ComponentRequirement.RuntimePermission(Manifest.permission.ACCESS_FINE_LOCATION))
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        add(ComponentRequirement.RuntimePermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION))
+    }
+}
+
 /** Tried in order; the fix is used from whichever of these is switched on. */
 private val CANDIDATE_PROVIDERS = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
 
@@ -279,52 +301,47 @@ class LocationTriggerFactory(private val context: Context) : TriggerFactory {
         ),
     )
 
-    // The reboot sentence is not a nicety. Since Android 12 a foreground service
-    // started while the app was in the background — which BOOT_COMPLETED is, even
-    // though it is an *allowed* start — permanently loses while-in-use location
-    // access for that service instance. The platform says so in logcat and
-    // nowhere the user can see:
+    // The last sentence is not a nicety, and it used to describe a limit this
+    // app simply had.
     //
-    //   Foreground service started from background can not have location/camera/
-    //   microphone access: service app.phueber.trigly/.ui.EngineService
+    // The fine grant on its own is "while in use". Android answers a position
+    // read while an activity is on screen and gives nothing when none is. The
+    // engine is off screen almost always, so this component could not fire or
+    // hold in the background at all, and it looked healthy the whole time: the
+    // engine was running, every broadcast trigger fired, and the requirement
+    // check passed because ACCESS_FINE_LOCATION genuinely was granted. The rule
+    // simply never ran, which reads as "you have not reached the area" rather
+    // than as the failure it was.
     //
-    // Everything then looks healthy: the engine is running, every broadcast
-    // trigger fires, and the requirement check passes because ACCESS_FINE_LOCATION
-    // genuinely *is* granted — it is the service instance that is restricted, which
-    // nothing in the app models. The rule simply never fires (as a trigger) or
-    // never holds (as a condition), and either reads as "you have not reached
-    // the area" / "you are not there" rather than as the failure it is.
+    // Two things now carry it. The engine claims the `location` foreground
+    // service type, which makes it count as in use for a position read; and the
+    // app holds ACCESS_BACKGROUND_LOCATION, which is what survives a reboot,
+    // because since Android 12 a service started from the background loses
+    // while-in-use access for its whole life whatever type it claims.
     //
-    // Saying it is the honest stopgap, not the fix. The fix is for the engine to
-    // notice it was boot-started and re-`startForeground` from a foreground
-    // context, or to run location work in a UI-started service.
-    //
-    // Deliberately no remedy in the sentence. Opening the app is *not* one:
-    // `MainActivity` does call `EngineService.start`, but on an already-running
-    // service that only re-delivers `onStartCommand` — the instance, and its
-    // restriction, are the same one. Naming a remedy that does not work would be
-    // worse than naming none, so the warning states the condition only.
+    // So the sentence names the one thing left that the user controls and that
+    // still stops this component dead. "Allow all the time" is a setting only
+    // they can choose, the requirement row now says so with a button on it, and
+    // the warning says it before a rule is built around the component.
     //
     // Two different costs for the two roles this component plays, both stated
     // rather than left implicit: as a trigger it holds GPS open, which is a
     // battery cost; as a condition it takes one fix and lets go, which trades
-    // that battery cost for staleness instead — a cached fix can be minutes
+    // that battery cost for staleness instead. A cached fix can be minutes
     // old, fine for "am I at home" and wrong for "am I in the driveway". The
-    // reboot limitation is the one thing both roles share unchanged.
+    // location setting is the one thing both roles share unchanged.
     override val warning: String =
         "As a trigger, this component holds an active GPS request while the rule is " +
             "on. This costs more battery. Choose a large radius and a long check " +
             "interval to lower the cost. As a condition, this component takes a " +
             "single location fix. This costs less battery, but the fix can be " +
             "minutes old. An old fix works for \"am I at home\" and fails for " +
-            "\"am I in the driveway\". Both roles share one limit. After a reboot, " +
-            "Android blocks Trigly's access to location in the background. This " +
-            "component cannot fire or hold until you restart Trigly. No other part " +
-            "of the app reports this limit."
+            "\"am I in the driveway\". Both roles need one setting. Set location " +
+            "to \"Allow all the time\". With any other setting, Android gives " +
+            "Trigly no position while the app is in the background, and this " +
+            "component cannot fire or hold."
 
-    override val requirements = listOf(
-        ComponentRequirement.RuntimePermission(Manifest.permission.ACCESS_FINE_LOCATION),
-    )
+    override val requirements = LOCATION_REQUIREMENTS
 
     override fun create(config: Map<String, String>): Trigger {
         fun requiredDouble(key: String): Double {
@@ -422,18 +439,21 @@ class LocationCheckTriggerFactory(private val context: Context) : TriggerFactory
      * Says what this costs instead of what it saves. One position read is cheap
      * next to holding GPS open, and that is why this exists, but the thing a
      * person needs to know is that the answer can be stale.
+     *
+     * The location-setting sentence replaced a reboot sentence that described a
+     * limit the app no longer has. See [LocationTriggerFactory] for what carries
+     * it now.
      */
     override val warning: String =
         "This takes a single location fix when another trigger starts the rule. " +
             "It watches nothing, so it costs little battery. The fix can be " +
             "minutes old. An old fix works for \"am I at home\" and fails for " +
-            "\"am I in the driveway\". After a reboot, Android blocks Trigly's " +
-            "access to location in the background. This component cannot answer " +
-            "until you restart Trigly. No other part of the app reports this limit."
+            "\"am I in the driveway\". Set location to \"Allow all the time\". " +
+            "With any other setting, Android gives Trigly no position while the " +
+            "app is in the background. This component then cannot answer, and a " +
+            "rule that asks it does not run."
 
-    override val requirements = listOf(
-        ComponentRequirement.RuntimePermission(Manifest.permission.ACCESS_FINE_LOCATION),
-    )
+    override val requirements = LOCATION_REQUIREMENTS
 
     override fun create(config: Map<String, String>): Trigger {
         fun requiredDouble(key: String): Double {

@@ -7,6 +7,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -160,6 +161,93 @@ class TriggerEngineTest {
         }
 
     /**
+     * The case this whole callback exists for: a rule fires, an `ALL` group asks
+     * its other leaf whether it holds, and that leaf cannot answer.
+     *
+     * Real and not hypothetical. "A notification arrives AND I am in this area"
+     * is exactly this shape, and until the app held background location the area
+     * check answered null every time the engine ran off screen. The rule was
+     * dropped in silence, which on screen is identical to being outside the area.
+     */
+    @Test
+    fun `a rule dropped by a component that could not answer is reported`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val suppressed = mutableListOf<List<String>>()
+            val engine = TriggerEngine(
+                registry = Registry(
+                    triggerFactories = listOf(
+                        FakeTriggerFactory(TRIGGER_TYPE, listOf(event(1L))),
+                        UnreadableTriggerFactory(),
+                    ),
+                    actionFactories = listOf(SingleActionFactory(ACTION_TYPE, RecordingAction())),
+                ),
+                scope = this,
+                onSuppressed = { _, _, unreadable -> suppressed += unreadable.map { it.type } },
+            )
+
+            engine.startRule(
+                Rule(
+                    id = "rule-1",
+                    name = "notification and area",
+                    trigger = TriggerNode.Group(
+                        TriggerNode.Op.ALL,
+                        listOf(
+                            TriggerNode.One(ComponentSpec(TRIGGER_TYPE)),
+                            TriggerNode.One(ComponentSpec(UNREADABLE_TYPE)),
+                        ),
+                    ),
+                    actions = listOf(ComponentSpec(ACTION_TYPE)),
+                )
+            )
+
+            assertEquals(listOf(listOf(UNREADABLE_TYPE)), suppressed)
+
+            engine.stop()
+        }
+
+    /**
+     * The other half, and the one that keeps the report from crying wolf. A
+     * condition that answers a clean "no" is the rule working as written, so
+     * nothing is reported. Without this guard every rule with a condition would
+     * accuse itself each time the condition was simply false.
+     */
+    @Test
+    fun `a rule held back by a condition that answered no is not reported`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val suppressed = mutableListOf<List<String>>()
+            val engine = TriggerEngine(
+                registry = Registry(
+                    triggerFactories = listOf(
+                        FakeTriggerFactory(TRIGGER_TYPE, listOf(event(1L))),
+                        UnreadableTriggerFactory(answer = false),
+                    ),
+                    actionFactories = listOf(SingleActionFactory(ACTION_TYPE, RecordingAction())),
+                ),
+                scope = this,
+                onSuppressed = { _, _, unreadable -> suppressed += unreadable.map { it.type } },
+            )
+
+            engine.startRule(
+                Rule(
+                    id = "rule-1",
+                    name = "notification and area",
+                    trigger = TriggerNode.Group(
+                        TriggerNode.Op.ALL,
+                        listOf(
+                            TriggerNode.One(ComponentSpec(TRIGGER_TYPE)),
+                            TriggerNode.One(ComponentSpec(UNREADABLE_TYPE)),
+                        ),
+                    ),
+                    actions = listOf(ComponentSpec(ACTION_TYPE)),
+                )
+            )
+
+            assertEquals(emptyList<List<String>>(), suppressed)
+
+            engine.stop()
+        }
+
+    /**
      * `sync` and `runningRuleIds` are reached from two different threads in the
      * real app and must not corrupt each other.
      *
@@ -279,6 +367,26 @@ private fun idleRule(
     actions = listOf(ComponentSpec(ACTION_TYPE)),
     enabled = enabled,
 )
+
+private const val UNREADABLE_TYPE = "cannot-answer"
+
+/**
+ * A leaf that never starts a rule and whose state read answers [answer].
+ *
+ * `null` is the shape of the real failure: a location check with no position, a
+ * notification condition with no bound listener. `false` is the same component
+ * simply saying no, which is the control the second test needs.
+ */
+private class UnreadableTriggerFactory(private val answer: Boolean? = null) : TriggerFactory {
+    override val type: String = UNREADABLE_TYPE
+    override val supportsCondition = true
+    override val producesEvents = false
+
+    override fun create(config: Map<String, String>): Trigger = object : Trigger {
+        override fun events(): Flow<TriggerEvent> = emptyFlow()
+        override suspend fun currentlyHolds(): Boolean? = answer
+    }
+}
 
 private class FakeTriggerFactory(
     override val type: String,
