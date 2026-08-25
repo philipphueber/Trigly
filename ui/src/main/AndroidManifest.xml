@@ -107,6 +107,28 @@
             </intent-filter>
         </receiver>
 
+        <!--
+          Hands one rule's JSON to whichever app the person picks from the share
+          sheet. Needed because a content URI is the only way to pass a file to
+          another app without either of them holding a storage permission: the
+          grant is per URI, read only, and lasts as long as the receiving
+          activity.
+
+          `exported="false"` with `grantUriPermissions="true"` is the pair that
+          makes that true. Not exported means no app may query this provider on
+          its own; the grant means the one app we handed a URI to may read that
+          one file. An exported provider would be readable by anything installed.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/shared_files" />
+        </provider>
+
     </application>
 
 </manifest>
