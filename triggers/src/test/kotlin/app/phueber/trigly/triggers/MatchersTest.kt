@@ -380,3 +380,89 @@ class BluetoothIdentifyByTest {
         )
     }
 }
+
+/**
+ * When a Bluetooth rule needs the connect permission.
+ *
+ * The rule the list depends on. Demand it when the rule cannot work without it,
+ * stay quiet when it can, and never demand it for a filter the engine has
+ * stopped reading.
+ */
+class BluetoothNarrowsByDeviceTest {
+
+    private val address = "AA:BB:CC:DD:EE:FF"
+    private val byAddress = BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY to
+        BluetoothConnectionTrigger.IDENTIFY_BY_ADDRESS
+    private val byName = BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY to
+        BluetoothConnectionTrigger.IDENTIFY_BY_NAME
+
+    @Test
+    fun `an any-device rule narrows nothing`() {
+        assertFalse(bluetoothNarrowsByDevice(emptyMap()))
+    }
+
+    @Test
+    fun `an address narrows`() {
+        assertTrue(
+            bluetoothNarrowsByDevice(
+                mapOf(byAddress, BluetoothConnectionTrigger.CONFIG_ADDRESS to address)
+            )
+        )
+    }
+
+    @Test
+    fun `a name narrows`() {
+        assertTrue(
+            bluetoothNarrowsByDevice(
+                mapOf(byName, BluetoothConnectionTrigger.CONFIG_NAME to "headset")
+            )
+        )
+    }
+
+    /**
+     * The case the raw-key version got wrong. The rule matches by name, the name
+     * is empty, and an address left over from an earlier edit is not read by
+     * anything. Nothing is narrowed, so nothing is required.
+     */
+    @Test
+    fun `an ignored leftover address does not narrow`() {
+        assertFalse(
+            bluetoothNarrowsByDevice(
+                mapOf(byName, BluetoothConnectionTrigger.CONFIG_ADDRESS to address)
+            )
+        )
+    }
+
+    /** And the same from the other direction. */
+    @Test
+    fun `an ignored leftover name does not narrow`() {
+        assertFalse(
+            bluetoothNarrowsByDevice(
+                mapOf(byAddress, BluetoothConnectionTrigger.CONFIG_NAME to "headset")
+            )
+        )
+    }
+
+    /**
+     * A rule saved before the choice existed reads both keys, so either one
+     * narrows it.
+     */
+    @Test
+    fun `with no choice stored either key narrows`() {
+        assertTrue(
+            bluetoothNarrowsByDevice(mapOf(BluetoothConnectionTrigger.CONFIG_ADDRESS to address))
+        )
+        assertTrue(
+            bluetoothNarrowsByDevice(mapOf(BluetoothConnectionTrigger.CONFIG_NAME to "headset"))
+        )
+    }
+
+    @Test
+    fun `an empty value does not narrow`() {
+        assertFalse(
+            bluetoothNarrowsByDevice(
+                mapOf(byAddress, BluetoothConnectionTrigger.CONFIG_ADDRESS to "")
+            )
+        )
+    }
+}
