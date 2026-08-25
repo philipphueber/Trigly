@@ -339,7 +339,7 @@ class RuleEditorScreenTest {
         composeRule.onNodeWithText("SCREEN CONTAINS *").assertIsDisplayed()
         assertTrue(
             "the caveat prose must not be shown before the badge is tapped",
-            composeRule.onAllNodesWithText("The noisiest trigger available", substring = true)
+            composeRule.onAllNodesWithText("This is the noisiest trigger in the app", substring = true)
                 .fetchSemanticsNodes().isEmpty()
         )
 
@@ -347,7 +347,7 @@ class RuleEditorScreenTest {
         composeRule.onNodeWithContentDescription(CAVEAT_DESCRIPTION).performClick()
         assertTrue(
             "tapping the badge reveals the caveat prose",
-            composeRule.onAllNodesWithText("The noisiest trigger available", substring = true)
+            composeRule.onAllNodesWithText("This is the noisiest trigger in the app", substring = true)
                 .fetchSemanticsNodes().isNotEmpty()
         )
 
@@ -355,7 +355,7 @@ class RuleEditorScreenTest {
         composeRule.onNodeWithContentDescription(CAVEAT_DESCRIPTION).performClick()
         assertTrue(
             "tapping the badge again hides it",
-            composeRule.onAllNodesWithText("The noisiest trigger available", substring = true)
+            composeRule.onAllNodesWithText("This is the noisiest trigger in the app", substring = true)
                 .fetchSemanticsNodes().isEmpty()
         )
     }
@@ -1058,7 +1058,7 @@ class RuleEditorScreenTest {
         composeRule.onNodeWithContentDescription(GROUP_CAVEAT_DESCRIPTION).assertExists()
         assertTrue(
             "the group must not appear to carry the caveat's own prose",
-            composeRule.onAllNodesWithText("The noisiest trigger available", substring = true)
+            composeRule.onAllNodesWithText("This is the noisiest trigger in the app", substring = true)
                 .fetchSemanticsNodes().isEmpty()
         )
 

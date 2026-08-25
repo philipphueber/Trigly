@@ -56,9 +56,9 @@ interface NotificationController {
         override fun activeNotifications(): List<ActiveNotification> = emptyList()
 
         override fun dismiss(key: String): ActionResult =
-            ActionResult.Failure("notification access is not available")
+            ActionResult.Failure("Notification access is not available.")
 
         override fun triggerActionButton(key: String, actionIndex: Int): ActionResult =
-            ActionResult.Failure("notification access is not available")
+            ActionResult.Failure("Notification access is not available.")
     }
 }

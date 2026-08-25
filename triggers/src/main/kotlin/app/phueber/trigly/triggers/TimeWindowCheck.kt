@@ -134,8 +134,9 @@ class TimeWindowCheckFactory : TriggerFactory {
             label = "Until",
             required = true,
             minuteKey = TimeWindowCheck.CONFIG_END_MINUTE,
-            help = "An end before the start wraps past midnight, e.g. 22:00 until " +
-                "07:00 covers the night. The same time twice means no restriction.",
+            help = "An end time before the start time wraps past midnight. For " +
+                "example, 22:00 until 07:00 covers the night. The same time in " +
+                "both fields means no restriction.",
         ),
     )
 

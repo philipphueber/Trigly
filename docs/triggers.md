@@ -11,7 +11,7 @@ rule afterwards. Keep the code and this document in step.
 
 **Verification note.** Everything marked *implemented* compiles and its pure
 logic is unit-tested. None of it has been exercised against real system
-broadcasts yet — the emulator can fake some (`adb shell cmd`), but battery
+broadcasts yet. The emulator can fake some (`adb shell cmd`), but battery
 temperature, NFC, and headset plug realistically need a device. Treat
 "implemented" as "written and reviewed", not "proven on hardware".
 
@@ -34,7 +34,7 @@ manager still ends the process. See `docs/architecture.md`.
 Doze and dies with the process. Wall-clock triggers need `AlarmManager`
 (`setExactAndAllowWhileIdle` for exact, `setWindow` for everything else).
 Exact alarms need `SCHEDULE_EXACT_ALARM` from API 31, and Google restricts
-`USE_EXACT_ALARM` to alarm-clock-like apps — so prefer inexact and design for
+`USE_EXACT_ALARM` to alarm-clock-like apps, so prefer inexact and design for
 a few minutes of drift. *Blocks:* time of day, day of week, sunrise/sunset,
 calendar, stopwatch.
 
@@ -46,33 +46,33 @@ system settings reports nothing back to the app.
 
 ---
 
-## Tier 1 — implemented
+## Tier 1: implemented
 
 | Trigger | Type string | Source | Requirement |
 |---|---|---|---|
-| Battery level threshold | `battery_level` | `ACTION_BATTERY_CHANGED` | — |
-| Battery temperature | `battery_temperature` | `ACTION_BATTERY_CHANGED` | — |
-| Power connected/disconnected | `power_connection` | `ACTION_POWER_CONNECTED`/`_DISCONNECTED` | — |
-| Airplane mode | `airplane_mode` | `ACTION_AIRPLANE_MODE_CHANGED` | — |
-| Wi-Fi radio on/off | `wifi_state` | `WIFI_STATE_CHANGED_ACTION` | — |
+| Battery level threshold | `battery_level` | `ACTION_BATTERY_CHANGED` | None |
+| Battery temperature | `battery_temperature` | `ACTION_BATTERY_CHANGED` | None |
+| Power connected/disconnected | `power_connection` | `ACTION_POWER_CONNECTED`/`_DISCONNECTED` | None |
+| Airplane mode | `airplane_mode` | `ACTION_AIRPLANE_MODE_CHANGED` | None |
+| Wi-Fi radio on/off | `wifi_state` | `WIFI_STATE_CHANGED_ACTION` | None |
 | Bluetooth radio on/off | `bluetooth_adapter_state` | `BluetoothAdapter.ACTION_STATE_CHANGED` | `BLUETOOTH_CONNECT` (API 31+) |
 | Bluetooth device connects/disconnects | `bluetooth_connected` | `ACTION_ACL_CONNECTED`/`_DISCONNECTED` | `BLUETOOTH_CONNECT` for the address and name |
 | NFC on/off | `nfc_state` | `android.nfc.action.ADAPTER_STATE_CHANGED` | feature `android.hardware.nfc` |
-| GPS on/off | `gps_state` | `PROVIDERS_CHANGED_ACTION` | — (only *reading* a location needs permission) |
-| Screen on/off | `screen_state` | `ACTION_SCREEN_ON`/`_OFF` | — |
-| Headset plugged | `headset_plug` | `ACTION_HEADSET_PLUG` (sticky) | — |
+| GPS on/off | `gps_state` | `PROVIDERS_CHANGED_ACTION` | None (only *reading* a location needs permission) |
+| Screen on/off | `screen_state` | `ACTION_SCREEN_ON`/`_OFF` | None |
+| Headset plugged | `headset_plug` | `ACTION_HEADSET_PLUG` (sticky) | None |
 | Dark theme | `dark_theme` | `ACTION_CONFIGURATION_CHANGED` | API 29+ |
-| Orientation | `screen_orientation` | `ACTION_CONFIGURATION_CHANGED` | — |
-| Interval | `interval` | coroutine delay | — (see blocker 2) |
-| Charger type (USB/mains/wireless) | `charging_type` | `ACTION_BATTERY_CHANGED` → `EXTRA_PLUGGED` | — |
+| Orientation | `screen_orientation` | `ACTION_CONFIGURATION_CHANGED` | None |
+| Interval | `interval` | coroutine delay | None (see blocker 2) |
+| Charger type (USB/mains/wireless) | `charging_type` | `ACTION_BATTERY_CHANGED` → `EXTRA_PLUGGED` | None |
 | Device restarted / app updated | `device_restart` | `BOOT_COMPLETED`/`MY_PACKAGE_REPLACED`, via `BootEvents` | `RECEIVE_BOOT_COMPLETED` |
-| Sunrise / sunset | `solar` | calculated (NOAA), typed location | — |
-| Time of day *(condition only)* | `time_window` | the clock | — |
-| Home-screen shortcut tapped | `shortcut` | tap on a pinned launcher shortcut | — |
+| Sunrise / sunset | `solar` | calculated (NOAA), typed location | None |
+| Time of day *(condition only)* | `time_window` | the clock | None |
+| Home-screen shortcut tapped | `shortcut` | tap on a pinned launcher shortcut | None |
 
 ### Conditions: the same triggers, asked instead of watched
 
-Most of these triggers can now also answer *"do you hold right now?"* — which is
+Most of these triggers can now also answer *"do you hold right now?"*, which is
 what lets a condition be a trigger rather than a second component family. The
 model, the capability matrix and the phasing are in `docs/conditions.md`; what
 belongs here is what each one had to do to answer, because the answers were not
@@ -95,13 +95,13 @@ Three ways a trigger reads its own level:
   `requestLocationUpdates` its edge role holds open.
 
 **Where the honest answer is null.** A trigger that cannot answer must say so
-rather than return false — see `docs/conditions.md`. Four cases found while
+rather than return false. See `docs/conditions.md`. Four cases found while
 implementing, each a place where false would have been a lie:
 
 - **`bluetooth_connected` for classic audio.** `BluetoothManager.getConnectedDevices`
   covers GATT/LE only; a car head unit on A2DP/HFP never appears there even while
   connected, and bonded is not connected. Absence is therefore unknown, not
-  disconnected — verified against `android.jar` rather than assumed.
+  disconnected. This was verified against `android.jar` rather than assumed.
 - **`call_state` for anything but ringing.** `ANSWERED` and `OUTGOING` both read
   back as `CALL_STATE_OFFHOOK`, indistinguishable from any other mid-call moment;
   `ENDED` and `MISSED` describe something already over. Only `INCOMING` has a
@@ -111,14 +111,14 @@ implementing, each a place where false would have been a lie:
   API 30 not-found is trustworthy and answers false; from 30 it answers null.
 - **`app_foreground` beyond its lookback.** The usage-stats query walks a trailing
   window, so an app that has held the foreground longer than that, with nothing
-  else in between, reads as "nothing foregrounded" — the same staleness trade a
+  else in between, reads as "nothing foregrounded": the same staleness trade a
   cached location fix makes.
 
 ### The one condition that is not a trigger at all
 
 `time_window` has **no event stream**: its `events()` is empty and it can never
 start a rule. It exists because asking is cheap where watching is not, and
-because there is, today, no time *trigger* for it to be a passive form *of* — the
+because there is, today, no time *trigger* for it to be a passive form *of*: the
 `AlarmManager` scheduler that trigger would need is blocker 2, still unbuilt.
 Every other condition in this document rides on a component that also fires;
 `time_window` is the one component that is a condition and nothing else.
@@ -129,21 +129,21 @@ doorbell rings, if it is between 22:00 and 07:00" works now. Boundaries are
 inclusive start, exclusive end, so adjacent windows abut exactly; a window whose
 start equals its end reads as "no restriction" rather than "never", which is a
 judgement call recorded on the function itself. The wraparound case is a pure
-function with eighteen tests, because 22:00–07:00 is where this kind of code
+function with eighteen tests, because 22:00-07:00 is where this kind of code
 goes wrong.
 
-A condition for "in an area" used to sit here too, as `location_check` — a
+A condition for "in an area" used to sit here too, as `location_check`, a
 separate component that had an answer but no event stream, exactly like
 `time_window`. That was wrong for a reason `time_window` does not share: unlike
 time, an area already has a trigger (`location`), so the check did not need to
-be a standalone component at all — it needed to be that trigger's passive form.
+be a standalone component at all. It needed to be that trigger's passive form.
 It has been folded in on that basis. What it costs to ask, rather than watch, is
 recorded once, in `docs/conditions.md`'s "Passive-only checks" section, rather
 than duplicated here next to a component it no longer is.
 
 ### Bluetooth disconnects can be debounced
 
-A car head unit can flicker — disconnect, reconnect within seconds — and firing on
+A car head unit can flicker (disconnect, reconnect within seconds) and firing on
 every raw edge makes rules thrash. `bluetooth_connected` gained an optional settle
 time on the **disconnect** direction only (default 0, so existing rules are
 untouched); connect stays immediate, because a connection that appears is real.
@@ -159,7 +159,7 @@ would make the rule silently never fire.
 ### The type string outlives the description
 
 `bluetooth_connected` fires on connection *or* disconnection, chosen by a state
-field, in the same shape as `power_connection` — two already-edge-shaped
+field, in the same shape as `power_connection`: two already-edge-shaped
 broadcasts, only the chosen one registered, no state to deduplicate.
 
 The type string still says `connected`, and stays that way. It is persisted in
@@ -169,26 +169,26 @@ names.
 
 The migration is the part worth knowing about. `parseTarget` **errors on an
 absent key**, so simply adding a `stateChoice` to a trigger that never had one
-would make every rule saved beforehand throw at `create()` — the engine would
+would make every rule saved beforehand throw at `create()`: the engine would
 report a start failure and those rules would silently stop firing on update, which
 is the loudest failure this app has no way to announce. `parseTargetOrDefault`
 exists for that: absent means what the rule meant when it was written (here,
 connect), while an unknown word is still an error, because a typo is a wrong
 answer rather than an old one. Note that it defaults *stored data* and not the
-form — the schema declares no default, so a new rule still prompts.
+form: the schema declares no default, so a new rule still prompts.
 
 ### A MAC address is not always an identity
 
 `bluetooth_connected` can be narrowed by address *or* by device name, and the
 name is not a convenience. A Bluetooth LE accessory rotates a resolvable private
 address roughly every fifteen minutes, so a rule pinned to an address it once
-advertised will quietly stop matching — the worst shape of failure this app has,
+advertised will quietly stop matching: the worst shape of failure this app has,
 because the rule still looks correct.
 
 Bonding is the platform's answer: the two ends exchange an identity-resolving key,
 and the stack resolves a rotating address back to the device it paired with. Which
 is why the editor's picker lists **paired** devices, and why pairing is the advice
-for anything address-based. Classic Bluetooth — headsets, car audio, speakers —
+for anything address-based. Classic Bluetooth (headsets, car audio, speakers)
 uses a fixed public address and was never affected.
 
 Two things stated plainly because they set the limits of the above. Whether
@@ -196,8 +196,8 @@ Two things stated plainly because they set the limits of the above. Whether
 LE device is stack- and OEM-dependent and **has not been measured here**: the
 emulators have no Bluetooth radio, so this needs a real phone and a real
 accessory, connected twice more than fifteen minutes apart. And
-`BluetoothDevice.getAddressType()` — which would let the app *detect* a random
-address and say so — is API 35 only. The `ADDRESS_TYPE_*` constants are API 31,
+`BluetoothDevice.getAddressType()` (which would let the app *detect* a random
+address and say so) is API 35 only. The `ADDRESS_TYPE_*` constants are API 31,
 which makes it look older than it is; the method on `BluetoothDevice` is not.
 
 The two filters are separate optional fields rather than a "match on…" choice.
@@ -216,7 +216,7 @@ returning a `stateKey`.
 
 `shortcut` is a home-screen launcher button: a custom label, an emoji icon chosen
 from a picker, and a tap fires the rule. The icon is deliberately an emoji rather
-than a URI or an image file — the same instinct behind the Test button and the
+than a URI or an image file: the same instinct behind the Test button and the
 paired-device picker elsewhere in the editor, that a setting a user cannot type
 correctly should be chosen, not typed. An emoji needs no storage permission,
 renders identically regardless of density or theme, and cannot go stale the way a
@@ -226,15 +226,15 @@ Two things about it are not obvious from "a button that fires a rule."
 
 **A trigger does not know which rule it belongs to.** Nothing in the `Trigger`
 interface exposes a rule id, so the shortcut cannot address itself by one. It
-carries a generated id in its own config instead — created once, when the trigger
-is added to a rule, and baked into the launcher shortcut — so a tap can be routed
+carries a generated id in its own config instead (created once, when the trigger
+is added to a rule, and baked into the launcher shortcut), so a tap can be routed
 back to the trigger that owns it. The rule's *name* was the obvious alternative
 and was rejected on sight: a name is editable text, and a shortcut addressed by
 name would silently misfire, or stop firing, the moment someone renamed the rule
 it belongs to.
 
 **Tapping the shortcut can start the process the engine runs in**, which means the
-tap can arrive before any trigger exists to hear it — the same problem
+tap can arrive before any trigger exists to hear it: the same problem
 `device_restart` has with `BOOT_COMPLETED`, above. The fix is the same shape: the
 activity the tap lands on records that it happened, rather than trying to listen
 for it, and the trigger reads that record when it starts collecting a few
@@ -244,12 +244,12 @@ trigger for an event that can precede the engine's own existence belongs on a
 record read at collection time, not on a listener that assumes the engine is
 already running to hear it.
 
-It has **no passive form, and cannot grow one** — for the same reason `ui_click`
+It has **no passive form, and cannot grow one**: for the same reason `ui_click`
 cannot. A tap, like a click, is inherently an instant: there is nothing to ask
 "is it currently tapped" between taps. `docs/conditions.md`'s capability matrix
 lists `shortcut` alongside `ui_click`, `sms_received`, `interval` and
 `device_restart` as having none. There are no longer edge slots and condition
-slots to place it in — a rule has one trigger, which may be a group — so the
+slots to place it in (a rule has one trigger, which may be a group), so the
 constraint is now expressed by what the editor offers: `shortcut` can be the
 thing that *starts* a rule, and an `all of` group may hold at most one such
 component, since two instants never coincide. `TriggerNode.canStart` is what
@@ -257,14 +257,14 @@ computes that, and the picker follows it.
 
 ---
 
-## Tier 1 — remaining
+## Tier 1: remaining
 
-### ~~USB vs AC charging~~ — done
+### ~~USB vs AC charging~~: done
 
 Built as `charging_type`, in `BatteryTriggers.kt` beside the two triggers that
 read the same sticky broadcast. `EXTRA_PLUGGED` is matched as a **bitmask**, not
 by equality: it is documented as flags, and equality would fall through to
-"unplugged" on any device that ever set two at once — a rule that silently never
+"unplugged" on any device that ever set two at once: a rule that silently never
 fires. The tracked state is the plug kind itself, so swapping USB for mains
 without an unplug in between is still a change the trigger sees, and unplugging
 re-arms it.
@@ -274,21 +274,21 @@ Not the same as the radio toggle. From API 31 read `WifiInfo` off
 `NetworkCapabilities.getTransportInfo()` via a `ConnectivityManager` network
 callback; below that, `WifiManager.getConnectionInfo()`. Either way the SSID is
 location-derived data: **`ACCESS_FINE_LOCATION` is required from API 27**, and
-without it the framework returns `<unknown ssid>` rather than failing — a silent
+without it the framework returns `<unknown ssid>` rather than failing: a silent
 wrong answer, so check the permission and surface it.
 
 ### Mobile data changed
 `CONNECTIVITY_ACTION` is deprecated (API 28) and not delivered to background
 apps at all from API 26. Use `ConnectivityManager.registerNetworkCallback` with a
 `NetworkRequest` for `TRANSPORT_CELLULAR`. No permission. Callback-based, so it
-fits `callbackFlow` the same way `BroadcastTrigger` does — likely wants a sibling
+fits `callbackFlow` the same way `BroadcastTrigger` does: likely wants a sibling
 base class, `NetworkCallbackTrigger`.
 
-### ~~Device restart~~ — done
+### ~~Device restart~~: done
 
 Built as `device_restart`, and it is the one trigger that cannot wait for its own
 broadcast. `BOOT_COMPLETED` is what *starts* the engine, so by the time any
-trigger is collecting it has been delivered and gone — registering a receiver for
+trigger is collecting it has been delivered and gone. Registering a receiver for
 it would be waiting for something that already happened.
 
 So `BootReceiver` records the reason in `BootEvents` **before** it starts the
@@ -300,7 +300,7 @@ two rules on the same trigger both fire. And it is bounded by a one-minute
 freshness window, because the record outlives the moment: without the bound, a
 rule toggled off and on at lunchtime would announce the morning's reboot.
 
-The trigger's flow is single-shot — it emits at most once and completes, rather
+The trigger's flow is single-shot: it emits at most once and completes, rather
 than idling forever pretending it might fire again this process.
 
 App update is the same shape of event (the process dies, nothing the user did),
@@ -319,7 +319,7 @@ for roaming. Both need `READ_PHONE_STATE`; reading `ServiceState` also needs
 location permission on recent versions. Verify the exact combination on a device
 before promising the trigger.
 
-### Sensors — shake, flip, light, proximity
+### Sensors: shake, flip, light, proximity
 `SensorManager` with `TYPE_ACCELEROMETER` (shake and flip), `TYPE_LIGHT`,
 `TYPE_PROXIMITY`. No permission. Shake is a magnitude threshold with debounce;
 flip is better served by `TYPE_GRAVITY` than raw acceleration.
@@ -336,17 +336,17 @@ in the UI.
 avoid: computing the next occurrence from *now* rather than from the scheduled
 time, which makes the rule drift later on every fire.
 
-### ~~Sunrise / sunset~~ — done, with the scheduler caveat
+### ~~Sunrise / sunset~~: done, with the scheduler caveat
 
 Built as `solar`, and the manual path is the one offered: the location is
-**typed**, so the trigger needs no permission at all — no location access, no
+**typed**, so the trigger needs no permission at all: no location access, no
 network. Auto-detection (which would need `ACCESS_COARSE_LOCATION`) is still not
 offered, deliberately.
 
 `solarTime()` in `SolarTime.kt` is the NOAA calculation, pure and tested against
 published times for Berlin, Sydney and Svalbard to within two minutes. Two things
-it does rather than approximate: it returns a *reason* — polar day or polar night
-— instead of a time on days when the sun genuinely does not rise or set, and it
+it does rather than approximate: it returns a *reason* (polar day or polar night)
+instead of a time on days when the sun genuinely does not rise or set, and it
 takes the zone explicitly so a rule about a place you are not standing in is
 still right.
 
@@ -363,12 +363,12 @@ edits, and schedule an alarm for each upcoming event's start. Re-query after
 every observer callback, since events move.
 
 ### Stopwatch
-No Android API — engine state plus a notification. Depends on the scheduler for
+No Android API: engine state plus a notification. Depends on the scheduler for
 the elapsed-time callback.
 
 ---
 
-## Tier 2 — implemented
+## Tier 2: implemented
 
 | Trigger | Type string | Requirement |
 |---|---|---|
@@ -378,19 +378,19 @@ the elapsed-time callback.
 | UI element clicked | `ui_click` | Accessibility access |
 | Screen content changed | `screen_content` | Accessibility access |
 | Keyboard opened/closed | `keyboard_visibility` | Accessibility access (best effort) |
-| App installed/uninstalled | `app_install_state` | — |
+| App installed/uninstalled | `app_install_state` | None |
 | App came to foreground | `app_foreground` | Usage access |
 | Call incoming/outgoing/answered/ended/missed | `call_state` | `READ_PHONE_STATE`, API 31+ |
 | SMS received | `sms_received` | `RECEIVE_SMS`, Play-restricted |
 | Entered/left an area *(and, as a condition, currently in it)* | `location` | `ACCESS_FINE_LOCATION` |
-| Work profile available/unavailable | `work_profile` | — |
-| Auto-sync changed | `auto_sync` | — |
+| Work profile available/unavailable | `work_profile` | None |
+| Auto-sync changed | `auto_sync` | None |
 | Clipboard changed | `clipboard_changed` | Platform-restricted |
 
 ### Watching another app stay alive
 
 `notification_watchdog` exists for a specific and common need: making sure an
-always-on app — an alarm, a pager, a monitor — has not been silently killed by
+always-on app (an alarm, a pager, a monitor) has not been silently killed by
 the system. It fires when that app's persistent notification has been missing
 for longer than a configured window.
 
@@ -402,7 +402,7 @@ obvious approaches do not work:
   `getRunningAppProcesses` since Android 5, and `/proc` scraping has been
   blocked since Android 7. `getHistoricalProcessExitReasons` needs the `DUMP`
   permission for any package but your own. None of this is coming back.
-- **An app running a foreground service must post an ongoing notification** —
+- **An app running a foreground service must post an ongoing notification**:
   Android requires it. So the presence of that notification is the closest
   observable proxy for "the service is alive".
 - **Presence must be polled, not listened for.** An ongoing notification is
@@ -416,13 +416,13 @@ Three limits to state plainly:
    channel to importance "none", Android drops it before any listener sees it,
    and the watchdog cannot tell that from a dead service. It reports
    `never_seen` rather than a false alarm, and the fix is to set the channel to
-   *silent* instead of blocked — still invisible to the user, still visible to
+   *silent* instead of blocked: still invisible to the user, still visible to
    the listener.
 2. **Android 13+ lets users dismiss foreground-service notifications** while the
    service keeps running. That produces a false alarm, not a false all-clear,
    which is the right direction for a watchdog to fail.
 3. **The watchdog is only as alive as Trigly.** A dead watchdog produces
-   silence, which reads as "all fine" — the one failure mode a watchdog must not
+   silence, which reads as "all fine": the one failure mode a watchdog must not
    have. The foreground service (blocker 1, now done) is what makes that
    unlikely rather than routine, and it was a prerequisite for trusting this at
    all. It is still not a guarantee: a force-stop, or an OEM battery manager
@@ -449,12 +449,12 @@ Three shipped with caveats that are load-bearing rather than cosmetic:
 
 ---
 
-## Tier 2 — remaining
+## Tier 2: remaining
 
 ### Geofencing and activity recognition
 Both need `play-services-location`, which would make an open-source automation
 app depend on Google Play Services and stop it working on de-Googled devices.
-**Deliberately not added** — that is a product decision, not a technical one.
+**Deliberately not added**: that is a product decision, not a technical one.
 
 The `location` trigger above uses the platform `LocationManager` instead, so
 area-based rules work today without Google. The trade is real: the Play
@@ -474,24 +474,24 @@ There is no broadcast for outgoing SMS. It needs a `ContentObserver` on
 
 ---
 
-## Tier 2 — reference
+## Tier 2: reference
 
 ### Notification listener
 `NotificationListenerService`, bound via `BIND_NOTIFICATION_LISTENER_SERVICE`,
-enabled by the user at `Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS` — a
+enabled by the user at `Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS`, a
 settings screen, not a permission dialog, which is exactly the case
 `ComponentRequirement.SpecialAccess` exists for.
 
-- **Notification posted** — `onNotificationPosted`. Filter by package and by
+- **Notification posted**: `onNotificationPosted`. Filter by package and by
   text extras.
-- **Notification action button** — the posted `Notification.Action` carries a
+- **Notification action button**: the posted `Notification.Action` carries a
   `PendingIntent`; firing it is an *action*, not a trigger, and belongs in
   `:actions`.
-- **DND mode changed** — `onInterruptionFilterChanged`, available through the
+- **DND mode changed**: `onInterruptionFilterChanged`, available through the
   same service. Changing DND additionally needs `ACCESS_NOTIFICATION_POLICY`.
 
 The service is long-lived and rebound by the system, so it is a natural place to
-host the engine — worth considering as part of blocker 1.
+host the engine, worth considering as part of blocker 1.
 
 ### Accessibility service
 `AccessibilityService` with `BIND_ACCESSIBILITY_SERVICE`, enabled at
@@ -503,7 +503,7 @@ changes.
 accessibility, prominently disclosed, and justified in the Play listing;
 automation apps have been removed for this. It is also the most invasive
 permission on the platform. For an open-source app distributed outside Play this
-is a product decision, not a technical one — decide the distribution story first.
+is a product decision, not a technical one: decide the distribution story first.
 
 *Keyboard opened/closed* has no real API. It is inferred from window insets or
 `TYPE_WINDOW_STATE_CHANGED`, and is unreliable across keyboards and OEMs. Treat
@@ -517,7 +517,7 @@ broadcast itself still arrives.
 
 ### App started / stopped
 `UsageStatsManager.queryEvents`, gated by the `PACKAGE_USAGE_STATS` special
-access (`Settings.ACTION_USAGE_ACCESS_SETTINGS`). Poll-based — there is no push —
+access (`Settings.ACTION_USAGE_ACCESS_SETTINGS`). Poll-based (there is no push),
 so expect seconds of latency and a battery cost proportional to poll frequency.
 The accessibility service gives this in real time, at the cost above.
 
@@ -539,7 +539,7 @@ building this.**
 
 ### Location and geofence
 `FusedLocationProviderClient` and the Geofencing API from
-`play-services-location` — a Google Play services dependency, which matters if
+`play-services-location`, a Google Play services dependency, which matters if
 Trigly targets de-Googled devices. Needs `ACCESS_FINE_LOCATION` plus
 `ACCESS_BACKGROUND_LOCATION` (its own separate dialog, and a Play review form).
 Geofences cap at 100 per app and are dropped on reboot, so re-register on boot.
@@ -553,12 +553,12 @@ dropping it rather than shipping something that works only while the app is open
 
 ### Work profile
 `ACTION_MANAGED_PROFILE_ADDED` / `_REMOVED` / `_AVAILABLE` / `_UNAVAILABLE`,
-delivered to the primary user. No permission. Untested territory — verify on a
+delivered to the primary user. No permission. Untested territory: verify on a
 device with a work profile before claiming support.
 
 ### Auto-sync changed
 `ContentResolver.addStatusChangeListener(SYNC_OBSERVER_TYPE_SETTINGS)`. No
-permission, no service. **The cheapest Tier 2 entry** — arguably Tier 1.
+permission, no service. **The cheapest Tier 2 entry**: arguably Tier 1.
 
 ### Activity recognition
 `ActivityRecognitionClient` from `play-services-location`, with the
@@ -569,14 +569,14 @@ geofencing.
 
 ## Suggested order
 
-1. ~~Foreground service (blocker 1).~~ Done — `EngineService`.
-2. **Scheduler (blocker 2)** — now the top item, and it has grown a second
+1. ~~Foreground service (blocker 1).~~ Done: `EngineService`.
+2. **Scheduler (blocker 2)**: now the top item, and it has grown a second
    customer: `solar` is built but waits with a coroutine `delay`, so it inherits
    `interval`'s Doze weakness until this lands. It still unlocks the remaining
    time-based triggers at once.
-3. ~~Device restart.~~ Done — `device_restart`, via `BootEvents`.
-4. ~~USB vs AC.~~ Done — `charging_type`.
+3. ~~Device restart.~~ Done: `device_restart`, via `BootEvents`.
+4. ~~USB vs AC.~~ Done: `charging_type`.
 5. Network callbacks (mobile data, Wi-Fi SSID), sensors, calendar.
 6. Decide distribution, which gates whether the accessibility and SMS triggers
-   that now exist can ship in a Play build — and now also the `specialUse`
+   that now exist can ship in a Play build, and now also the `specialUse`
    foreground-service subtype, which Google reviews.

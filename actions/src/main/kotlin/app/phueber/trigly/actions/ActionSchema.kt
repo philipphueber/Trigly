@@ -43,9 +43,10 @@ internal fun messageText(
  * start silently, so the action reports success and nothing happens.
  */
 internal const val BACKGROUND_START_WARNING: String =
-    "Android blocks apps from opening things while in the background, with no " +
-        "error. Granting “Display over other apps” below lifts that; without it " +
-        "this works while you are using the phone and is unreliable when the " +
+    "Android blocks an app from opening things while in the background. It " +
+        "reports no error when it does this. Turn on \"Display over other " +
+        "apps\" below to remove this block. Without that permission, this " +
+        "action works only while you use the phone. It is unreliable when the " +
         "screen is off."
 
 /**

@@ -136,7 +136,7 @@ class NotificationPostedTriggerFactory : TriggerFactory {
     override val supportsCondition = true
 
     override val configFields = listOf(
-        packageFilter(help = "Which app's notifications should fire this rule."),
+        packageFilter(help = "Select the app whose notifications fire this rule."),
         textFilter(
             key = NotificationPostedTrigger.CONFIG_TEXT_CONTAINS,
             label = "Title or text contains",
@@ -145,8 +145,9 @@ class NotificationPostedTriggerFactory : TriggerFactory {
         ConfigField.Flag(
             key = NotificationPostedTrigger.CONFIG_INCLUDE_ONGOING,
             label = "Include ongoing notifications",
-            help = "Progress bars and media controls. Off by default, since these " +
-                "update constantly.",
+            help = "Ongoing notifications include progress bars and media " +
+                "controls. This setting is off by default because they update " +
+                "constantly.",
         ),
     )
     override val requirements = NOTIFICATION_ACCESS

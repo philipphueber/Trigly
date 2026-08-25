@@ -427,7 +427,7 @@ class RuleEditorViewModel(
                 onSuccess = { result ->
                     when (result) {
                         is ActionResult.Success -> "$name ran."
-                        is ActionResult.Failure -> "$name failed: ${result.reason}"
+                        is ActionResult.Failure -> "$name failed. ${result.reason}"
                     }
                 },
                 // An action that throws rather than reporting is a bug in the

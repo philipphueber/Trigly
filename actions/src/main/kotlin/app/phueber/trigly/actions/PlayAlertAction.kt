@@ -188,13 +188,15 @@ fun alertStop(
     val key = event.payload[SharedPayloadKeys.NOTIFICATION_KEY]
     return when {
         key.isNullOrBlank() -> AlertStop.Unwatchable(
-            "\"stop when the notification goes away\" needs a notification to watch, " +
-                "and this rule was fired by ${event.triggerType}, which carries no " +
-                "notification — the alert played for its full length"
+            "The \"stop when the notification goes away\" option needs a " +
+                "notification to watch. This rule was fired by " +
+                "${event.triggerType}, which carries no notification. The alert " +
+                "played for its full length."
         )
         !notificationAccess -> AlertStop.Unwatchable(
-            "\"stop when the notification goes away\" needs notification access, which " +
-                "is not granted or not bound yet — the alert played for its full length"
+            "The \"stop when the notification goes away\" option needs " +
+                "notification access. Notification access is not granted, or is " +
+                "not bound yet. The alert played for its full length."
         )
         else -> AlertStop.WhenGone(key)
     }
@@ -265,12 +267,12 @@ class PlayAlertAction(
         val custom = customUri?.trim().orEmpty()
         if (custom.isNotEmpty() && !isPlayableSoundUri(custom)) {
             return ActionResult.Failure(
-                "a custom sound must be a content: or file: URI, got '$custom'"
+                "A custom sound must use a content: or file: URI. This value is '$custom'."
             )
         }
 
         val uri = resolveUri() ?: return ActionResult.Failure(
-            "no ${sound.configValue} sound is set on this device"
+            "This device has no ${sound.configValue} sound set."
         )
 
         // Decided before a note is played, so that an option that cannot work
@@ -316,7 +318,7 @@ class PlayAlertAction(
             // A bad custom URI, an unreadable file, a codec the device lacks.
             // Reported rather than thrown: one broken action must not take down
             // the rest of the rule.
-            ActionResult.Failure("could not play the alert: ${failure.message}", failure)
+            ActionResult.Failure("Trigly could not play the alert. ${failure.message}", failure)
         } finally {
             // Reached on cancellation too, which is what makes disabling the rule
             // an actual stop button. stop() throws if the player never started.
@@ -383,8 +385,8 @@ class PlayAlertActionFactory(
                 ConfigField.Option(it.configValue, it.displayName)
             },
             default = AlertSound.ALARM.configValue,
-            help = "The device's own tone of that kind. Alarm is the loudest and " +
-                "the one a silenced ringer does not affect.",
+            help = "This is the phone's own tone of that kind. The alarm tone is " +
+                "the loudest. A silenced ringer does not affect it.",
         ),
         // A picker, not a text box: the stored value is a media URI, which is not
         // something anyone can produce from memory or would want to read back.
@@ -392,9 +394,9 @@ class PlayAlertActionFactory(
             key = PlayAlertAction.CONFIG_SOUND_URI,
             label = "Custom sound",
             blankMeaning = "Use the tone above",
-            help = "Any alarm, notification or ringtone this phone knows about. " +
-                "Network sounds are refused — an imported rule could otherwise " +
-                "call home every time it fires.",
+            help = "This can be any alarm, notification or ringtone on this " +
+                "phone. Trigly refuses a network sound. Otherwise an imported " +
+                "rule could call home every time it fires.",
         ),
         ConfigField.Choice(
             key = AlertPlayback.CONFIG_KEY,
@@ -416,7 +418,8 @@ class PlayAlertActionFactory(
             max = 100,
             default = PlayAlertAction.DEFAULT_VOLUME_PERCENT.toLong(),
             unit = "%",
-            help = "Of the alarm volume, which this cannot exceed.",
+            help = "This is a percentage of the alarm volume. It cannot exceed " +
+                "the alarm volume.",
         ),
         ConfigField.Duration(
             key = PlayAlertAction.CONFIG_DURATION_MILLIS,
@@ -432,26 +435,28 @@ class PlayAlertActionFactory(
                 key = AlertPlayback.CONFIG_KEY,
                 value = AlertPlayback.REPEAT.configValue,
             ),
-            help = "Capped at ${describeAlertCap()}.",
+            help = "This value is capped at ${describeAlertCap()}.",
         ),
         // Last, because it reads as a qualifier on the duration above rather
         // than a setting of its own: whichever comes first.
         ConfigField.Flag(
             key = PlayAlertAction.CONFIG_STOP_WHEN_GONE,
             label = "Stop when the notification goes away",
-            help = "For a rule a notification fires: the sound stops the moment " +
-                "that notification is swiped away or cleared by its app, instead " +
-                "of running the full time. Needs notification access. The time " +
-                "above still applies as the upper limit.",
+            help = "This setting applies when a notification fires the rule. " +
+                "The sound stops the moment you swipe away that notification, " +
+                "or its app clears it. Without this setting, the sound runs " +
+                "for the full time. This setting needs notification access. " +
+                "The time above still applies as the upper limit.",
         ),
     )
 
     override val warning: String =
-        "Plays on the alarm stream, so it is heard through a silent ringer. It " +
-            "cannot be louder than the alarm volume, and Do Not Disturb can still " +
-            "silence it unless alarms are allowed through. A long alert can be cut " +
-            "short by dismissing the notification that caused it, if the option " +
-            "below is on, and otherwise only by disabling the rule."
+        "This action plays on the alarm stream. You can hear it through a " +
+            "silent ringer. The sound cannot be louder than the alarm volume. " +
+            "Do Not Disturb can still silence it, unless the phone allows " +
+            "alarms through. If the option below is on, you can cut a long " +
+            "alert short. Dismiss the notification that caused it. Otherwise, " +
+            "you must turn off the rule to stop it."
 
     override fun create(config: Map<String, String>): Action {
         val custom = config[PlayAlertAction.CONFIG_SOUND_URI]?.trim().orEmpty()

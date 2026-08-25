@@ -63,8 +63,8 @@ class DeviceRestartTriggerFactory : TriggerFactory {
             ),
             required = false,
             default = BootReason.RESTART.configValue,
-            help = "Both end the app's process without you doing anything, which is " +
-                "why they are one trigger with two settings.",
+            help = "Both events end the app's process without any action from you. " +
+                "That is why they share one trigger with two settings.",
         ),
     )
 
@@ -74,10 +74,10 @@ class DeviceRestartTriggerFactory : TriggerFactory {
     // while-in-use location access, so a restart rule cannot be *combined* with
     // anything that reads a location.
     override val warning: String =
-        "Fires soon after the engine restarts, not at the instant the device comes " +
-            "up — Android decides when that is. Actions that need a location will " +
-            "not work in a rule that runs this early, and the phone may still be " +
-            "finishing its own start-up."
+        "This trigger fires soon after Trigly restarts. It does not fire at the " +
+            "exact instant the phone starts. Android decides the exact time. An " +
+            "action that needs a location will not work in a rule that runs this " +
+            "early. The phone may still need time to start."
 
     override fun create(config: Map<String, String>): Trigger = DeviceRestartTrigger(
         reason = when (config[DeviceRestartTrigger.CONFIG_REASON]) {

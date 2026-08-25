@@ -57,7 +57,7 @@ class SetVolumeAction(
 
     override suspend fun execute(event: TriggerEvent): ActionResult {
         val audio = context.getSystemService(AudioManager::class.java)
-            ?: return ActionResult.Failure("no audio service")
+            ?: return ActionResult.Failure("This device has no audio service.")
 
         val maxIndex = audio.getStreamMaxVolume(stream.streamType)
         val index = volumeIndexFor(percent, maxIndex)
@@ -69,7 +69,7 @@ class SetVolumeAction(
             // Dropping a stream to zero counts as entering Do Not Disturb, which
             // needs notification-policy access.
             ActionResult.Failure(
-                "changing this volume needs Do Not Disturb access: ${denied.message}",
+                "Changing this volume needs Do Not Disturb access. ${denied.message}",
                 denied,
             )
         }
@@ -105,8 +105,8 @@ class SetVolumeActionFactory(private val context: Context) : ActionFactory {
             max = 100,
             default = 50,
             unit = "%",
-            help = "A percentage, because the number of volume steps differs by " +
-                "phone and by stream.",
+            help = "This value is a percentage. The number of volume steps " +
+                "differs by phone and by stream.",
         ),
     )
 
@@ -162,14 +162,14 @@ class SetRingerModeAction(
 
     override suspend fun execute(event: TriggerEvent): ActionResult {
         val audio = context.getSystemService(AudioManager::class.java)
-            ?: return ActionResult.Failure("no audio service")
+            ?: return ActionResult.Failure("This device has no audio service.")
 
         return try {
             audio.ringerMode = mode.mode
             ActionResult.Success
         } catch (denied: SecurityException) {
             ActionResult.Failure(
-                "switching to ${mode.configValue} needs Do Not Disturb access",
+                "Switching to ${mode.configValue} needs Do Not Disturb access.",
                 denied,
             )
         }

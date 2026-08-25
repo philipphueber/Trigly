@@ -465,12 +465,13 @@ class BluetoothConnectionTriggerFactory(
     // in the editor will ever open — this is the one place the caveat reaches
     // the person it is actually for.
     override val warning: String =
-        "As a condition, this can confirm a device is connected, including a " +
-            "classic-audio device like a car stereo — at the cost of a brief " +
-            "extra check beyond the instant one for a Bluetooth LE device. It can " +
-            "only confirm a device is *disconnected* if it uses GATT, A2DP or " +
-            "HEADSET; on any other profile (HID, a hearing aid, LE Audio) this " +
-            "quietly never answers, rather than answering wrong."
+        "As a condition, this trigger can confirm that a device is connected. " +
+            "This includes a classic audio device like a car stereo. Confirming " +
+            "a connected device costs a brief extra check beyond the instant " +
+            "check for a Bluetooth LE device. This trigger can confirm that a " +
+            "device is disconnected only if the device uses GATT, A2DP or " +
+            "HEADSET. On any other profile, such as HID, a hearing aid or LE " +
+            "Audio, this check never answers. It does not answer wrong."
 
     override val configFields = listOf(
         // One decision, not two overlapping filters: which of CONFIG_ADDRESS and
@@ -503,11 +504,11 @@ class BluetoothConnectionTriggerFactory(
                 ConfigField.Option(BluetoothConnectionTrigger.IDENTIFY_BY_NAME, "Name"),
             ),
             default = BluetoothConnectionTrigger.IDENTIFY_BY_ADDRESS,
-            help = "A paired device keeps the same address, so picking one from " +
-                "the list is the durable match. An unpaired Bluetooth LE " +
-                "accessory rotates its address every few minutes, so match it by " +
-                "the name it advertises instead — pairing the device removes the " +
-                "need.",
+            help = "A paired device keeps the same address. Picking one from the " +
+                "list gives a durable match. An unpaired Bluetooth LE accessory " +
+                "rotates its address every few minutes. For that accessory, match " +
+                "by the name it advertises instead. Pairing the device removes " +
+                "the need for the name match.",
         ),
         // A picker over the phone's paired devices rather than a box asking for
         // 00:11:22:33:44:55. It still stores an address — a paired device is a
@@ -521,9 +522,9 @@ class BluetoothConnectionTriggerFactory(
                 key = BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY,
                 value = BluetoothConnectionTrigger.IDENTIFY_BY_ADDRESS,
             ),
-            help = "Lists the devices this phone is paired with. Reading that " +
-                "list, and the address of a device that connects, both need " +
-                "this trigger's Bluetooth permission.",
+            help = "This field lists the devices paired with this phone. Reading " +
+                "that list needs this trigger's Bluetooth permission. Reading " +
+                "the address of a connecting device needs it too.",
         ),
         stateChoice(
             label = "Fires when the device",
@@ -543,11 +544,12 @@ class BluetoothConnectionTriggerFactory(
                 key = BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY,
                 value = BluetoothConnectionTrigger.IDENTIFY_BY_NAME,
             ),
-            help = "The name a Bluetooth LE accessory advertises — the " +
-                "identifier that survives when it is not paired. An unpaired " +
-                "accessory rotates its address every few minutes, which is what " +
-                "makes a name the more durable choice for one; pairing it fixes " +
-                "the rotation and makes \"Paired device\" the better choice " +
+            help = "This is the name a Bluetooth LE accessory advertises. It is " +
+                "the identifier that survives when the accessory is not paired. " +
+                "An unpaired accessory rotates its address every few minutes. " +
+                "That rotation is what makes the name the more durable choice " +
+                "for an unpaired accessory. Pairing the accessory fixes the " +
+                "rotation. After pairing, \"Paired device\" is the better choice " +
                 "again.",
         ),
         // Only shown for the disconnect direction: a connection that appears is
@@ -563,10 +565,10 @@ class BluetoothConnectionTriggerFactory(
             defaultMillis = 0L,
             preferred = DurationUnit.SECONDS,
             help = "A car head unit, in particular, can drop and reconnect within " +
-                "seconds. Waiting this long after a disconnect and re-checking " +
-                "before firing absorbs that flicker, at the cost of the same " +
-                "delay on every genuine disconnect. Zero fires immediately, as " +
-                "before.",
+                "seconds. This field sets a wait after a disconnect. Trigly " +
+                "rechecks the connection before it fires. This absorbs that " +
+                "flicker. It also delays every genuine disconnect by the same " +
+                "amount. A value of zero fires immediately, as before.",
         ),
     )
 

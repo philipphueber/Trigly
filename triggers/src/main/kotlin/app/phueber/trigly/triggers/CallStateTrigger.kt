@@ -139,8 +139,8 @@ class CallStateTriggerFactory(private val context: Context) : TriggerFactory {
     )
 
     override val warning: String =
-        "Needs Android 12 or newer, and cannot tell you the caller's number — " +
-            "that needs a permission Google restricts to dialler apps."
+        "This trigger needs Android 12 or later. It cannot show the caller's " +
+            "number. That needs a permission Google reserves for dialler apps."
 
     override val requirements = listOf(
         ComponentRequirement.RuntimePermission(Manifest.permission.READ_PHONE_STATE),

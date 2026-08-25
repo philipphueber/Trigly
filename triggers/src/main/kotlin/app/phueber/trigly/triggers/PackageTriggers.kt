@@ -113,12 +113,12 @@ class PackageChangeTriggerFactory(private val context: Context) : TriggerFactory
             label = "Fires when an app is",
             onValue = "installed", onLabel = "installed",
             offValue = "removed", offLabel = "uninstalled",
-            help = "App updates are ignored — only genuine installs and removals fire.",
+            help = "This trigger ignores app updates. It fires only on an install or a removal.",
         ),
         packageFilter(
-            help = "Leave blank to watch every app. Used as a trigger, blank means " +
-                "\"any app\"; used as a condition (\"is this app installed\"), a " +
-                "specific app is required — there is no state to ask about otherwise.",
+            help = "Leave this field blank to watch every app. As a trigger, a blank field " +
+                "means any app. As a condition, you must name an app. A condition needs " +
+                "an app to check.",
         ),
     )
 

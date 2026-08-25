@@ -21,10 +21,10 @@ class VibrateAction(
 
     override suspend fun execute(event: TriggerEvent): ActionResult {
         val vibrator = context.vibrator()
-            ?: return ActionResult.Failure("this device has no vibrator")
+            ?: return ActionResult.Failure("This device has no vibrator.")
 
         if (!vibrator.hasVibrator()) {
-            return ActionResult.Failure("this device has no vibrator")
+            return ActionResult.Failure("This device has no vibrator.")
         }
 
         vibrator.vibrate(
@@ -82,7 +82,7 @@ class VibrateActionFactory(private val context: Context) : ActionFactory {
             defaultMillis = VibrateAction.DEFAULT_DURATION_MILLIS,
             maxMillis = VibrateAction.MAX_DURATION_MILLIS,
             preferred = DurationUnit.MILLISECONDS,
-            help = "Capped at ${VibrateAction.MAX_DURATION_MILLIS} ms.",
+            help = "This value is capped at ${VibrateAction.MAX_DURATION_MILLIS} ms.",
         ),
     )
 

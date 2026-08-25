@@ -27,7 +27,7 @@ class PostNotificationAction(
         // Covers both the API 33+ runtime permission and the user switching
         // notifications off in settings, on every supported API level.
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
-            return ActionResult.Failure("notifications are disabled for this app")
+            return ActionResult.Failure("Notifications are disabled for this app.")
         }
 
         ensureChannel()
@@ -45,7 +45,9 @@ class PostNotificationAction(
         return runCatching { NotificationManagerCompat.from(context).notify(id, notification) }
             .fold(
                 onSuccess = { ActionResult.Success },
-                onFailure = { ActionResult.Failure("notify failed: ${it.message}", it) },
+                onFailure = {
+                    ActionResult.Failure("Trigly could not post the notification. ${it.message}", it)
+                },
             )
     }
 

@@ -85,16 +85,17 @@ class ClipboardTriggerFactory(private val context: Context) : TriggerFactory {
     )
 
     override val warning: String =
-        "Android 10 and later only let an app read the clipboard while it is open, " +
-            "is the default keyboard, or is an accessibility service. Without " +
-            "Trigly's accessibility service enabled this will not fire."
+        "On Android 10 and later, an app can read the clipboard in only three " +
+            "cases. The app is in the foreground. The app is the default " +
+            "keyboard. The app is an accessibility service. Turn on Trigly's " +
+            "accessibility service, or this trigger will not fire."
 
     override val requirements = listOf(
         ComponentRequirement.PolicyRestricted(
-            "Android 10 and later only allow clipboard reads while the app is in " +
-                "the foreground, is the default keyboard, or is an accessibility " +
-                "service. Without Trigly's accessibility service enabled, this " +
-                "trigger will not fire."
+            "On Android 10 and later, an app can read the clipboard in only " +
+                "three cases. The app is in the foreground. The app is the " +
+                "default keyboard. The app is an accessibility service. Turn on " +
+                "Trigly's accessibility service, or this trigger will not fire."
         ),
     )
 

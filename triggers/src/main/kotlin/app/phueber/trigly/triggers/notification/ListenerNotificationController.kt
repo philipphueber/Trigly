@@ -74,7 +74,7 @@ class ListenerNotificationController : NotificationController {
             service.cancelNotification(key)
             ActionResult.Success
         } catch (denied: SecurityException) {
-            ActionResult.Failure("notification access was revoked", denied)
+            ActionResult.Failure("Notification access was revoked.", denied)
         }
     }
 
@@ -84,22 +84,22 @@ class ListenerNotificationController : NotificationController {
         val notification = try {
             service.activeNotifications?.firstOrNull { it.key == key }
         } catch (denied: SecurityException) {
-            return ActionResult.Failure("notification access was revoked", denied)
+            return ActionResult.Failure("Notification access was revoked.", denied)
         } ?: return ActionResult.Failure(
-            "no active notification with key '$key' — it may already be dismissed"
+            "There is no active notification with key '$key'. It may already be dismissed."
         )
 
         // A notification with no buttons has a null actions array, not an empty one.
         val actions = notification.notification?.actions
         if (actions == null || actionIndex !in actions.indices) {
             return ActionResult.Failure(
-                "that notification has ${actions?.size ?: 0} buttons, " +
-                    "so index $actionIndex does not exist"
+                "That notification has ${actions?.size ?: 0} buttons. " +
+                    "Index $actionIndex does not exist."
             )
         }
 
         val pending: PendingIntent = actions[actionIndex].actionIntent
-            ?: return ActionResult.Failure("button $actionIndex has nothing to fire")
+            ?: return ActionResult.Failure("Button $actionIndex has nothing to fire.")
 
         return try {
             pending.send()
@@ -107,11 +107,11 @@ class ListenerNotificationController : NotificationController {
         } catch (cancelled: PendingIntent.CanceledException) {
             // The owning app withdrew the intent — common once a notification is
             // stale, and not something the user did wrong.
-            ActionResult.Failure("the app withdrew that button", cancelled)
+            ActionResult.Failure("The app withdrew that button.", cancelled)
         }
     }
 
     private fun notConnected(): ActionResult = ActionResult.Failure(
-        "notification access is not granted, or the listener is not bound yet"
+        "Notification access is not granted, or the listener is not bound yet."
     )
 }

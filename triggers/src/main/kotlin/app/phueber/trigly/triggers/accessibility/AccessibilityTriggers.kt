@@ -149,7 +149,7 @@ class UiClickTriggerFactory : TriggerFactory {
     override val category = Category.SCREEN
 
     override val configFields = listOf(
-        packageFilter(help = "Which app's taps to watch."),
+        packageFilter(help = "Select the app to watch for taps."),
         textFilter(
             key = UiClickTrigger.CONFIG_TEXT_CONTAINS,
             label = "Tapped item's text contains",
@@ -190,19 +190,19 @@ class ScreenContentTriggerFactory : TriggerFactory {
     override val category = Category.SCREEN
 
     override val configFields = listOf(
-        packageFilter(help = "Which app's screen to watch."),
+        packageFilter(help = "Select the app. This trigger watches only that app's screen."),
         textFilter(
             key = ScreenContentTrigger.CONFIG_TEXT_CONTAINS,
             label = "Screen contains",
             required = true,
-            help = "Strongly recommended. Without it this fires on every visual " +
-                "change, including animations.",
+            help = "Fill in this field. If you leave it blank, this trigger fires " +
+                "on every visual change, including an animation.",
         ),
     )
 
     override val warning: String =
-        "The noisiest trigger available. An animating progress bar produces a " +
-            "continuous stream of events, so always set a text filter."
+        "This is the noisiest trigger in the app. A progress bar that changes " +
+            "can produce a continuous stream of events. Always set a text filter."
     override val requirements = ACCESSIBILITY_ACCESS
 
     override fun create(config: Map<String, String>): Trigger = UiEventTrigger(
@@ -260,8 +260,8 @@ class KeyboardVisibilityTriggerFactory : TriggerFactory {
     )
 
     override val warning: String =
-        "Android has no keyboard-visibility API, so this is inferred and is not " +
-            "reliable across every keyboard and phone."
+        "Android has no API for keyboard visibility. Trigly infers this state " +
+            "instead. This method is not reliable on every keyboard and phone."
     override val requirements = ACCESSIBILITY_ACCESS
 
     override fun create(config: Map<String, String>): Trigger = KeyboardVisibilityTrigger(

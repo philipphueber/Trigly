@@ -40,7 +40,7 @@ class HttpRequestAction(
         withContext(Dispatchers.IO) {
             if (!url.startsWith("https://", ignoreCase = true)) {
                 return@withContext ActionResult.Failure(
-                    "only https URLs are allowed, got '$url'"
+                    "This action allows only https URLs. This URL is '$url'."
                 )
             }
 
@@ -63,10 +63,10 @@ class HttpRequestAction(
                 if (isSuccessfulStatus(code)) {
                     ActionResult.Success
                 } else {
-                    ActionResult.Failure("HTTP $code from $url")
+                    ActionResult.Failure("The server at $url answered with HTTP $code.")
                 }
             } catch (io: IOException) {
-                ActionResult.Failure("request to $url failed: ${io.message}", io)
+                ActionResult.Failure("A request to $url failed. ${io.message}", io)
             } finally {
                 // The response body is never read: a rule cares that the call
                 // was made, and draining an arbitrary response into memory is a
@@ -103,7 +103,7 @@ class HttpRequestActionFactory : ActionFactory {
             label = "URL",
             required = true,
             placeholder = "https://example.com/hook",
-            help = "https only — a webhook URL usually carries a token.",
+            help = "This action allows https only. A webhook URL usually carries a token.",
         ),
         ConfigField.Choice(
             key = HttpRequestAction.CONFIG_METHOD,

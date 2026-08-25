@@ -153,7 +153,7 @@ class NotificationControlActionsTest {
                 .execute(fromOtherRule)
 
             assertTrue(result is ActionResult.Failure)
-            assertTrue((result as ActionResult.Failure).reason.contains("choose an app"))
+            assertTrue((result as ActionResult.Failure).reason.contains("Choose an app"))
             assertTrue("must not call the controller", controller.calls.isEmpty())
         }
 

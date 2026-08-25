@@ -73,7 +73,8 @@ class HeadsetPlugTriggerFactory(private val context: Context) : TriggerFactory {
             label = "Fires when a headset is",
             onValue = "plugged", onLabel = "plugged in",
             offValue = "unplugged", offLabel = "unplugged",
-            help = "Wired only. Bluetooth headphones use the Bluetooth device trigger.",
+            help = "This trigger detects a wired headset only. For Bluetooth " +
+                "headphones, use the Bluetooth device trigger.",
         ),
     )
 

@@ -173,7 +173,7 @@ class TriggerEngine(
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (t: Throwable) {
-            ActionResult.Failure("threw ${t::class.simpleName}: ${t.message}", t)
+            ActionResult.Failure("This action threw ${t::class.simpleName}. ${t.message}", t)
         }
         onOutcome(rule, event, result)
     }

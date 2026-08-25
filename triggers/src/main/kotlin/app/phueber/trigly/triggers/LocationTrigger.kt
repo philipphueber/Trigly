@@ -256,7 +256,7 @@ class LocationTriggerFactory(private val context: Context) : TriggerFactory {
             label = "Minimum time between checks",
             defaultMillis = LocationTrigger.DEFAULT_MIN_INTERVAL_MILLIS,
             preferred = DurationUnit.SECONDS,
-            help = "Shorter intervals detect the boundary sooner and cost more battery.",
+            help = "Shorter intervals find the boundary sooner. They also use more battery.",
         ),
     )
 
@@ -293,14 +293,15 @@ class LocationTriggerFactory(private val context: Context) : TriggerFactory {
     // old, fine for "am I at home" and wrong for "am I in the driveway". The
     // reboot limitation is the one thing both roles share unchanged.
     override val warning: String =
-        "As a trigger, holds an active GPS request while the rule is enabled, " +
-            "which is expensive — prefer a generous radius and a long check " +
-            "interval. As a condition, takes a single fix instead: cheaper, but " +
-            "a cached fix can be minutes old, which is fine for \"am I at home\" " +
-            "and wrong for \"am I in the driveway\". Known limitation either way: " +
-            "after a reboot Android denies the background engine location access, " +
-            "so this cannot fire or hold until the engine is started fresh — and " +
-            "nothing else in the app reports that."
+        "As a trigger, this component holds an active GPS request while the rule is " +
+            "on. This costs more battery. Choose a large radius and a long check " +
+            "interval to lower the cost. As a condition, this component takes a " +
+            "single location fix. This costs less battery, but the fix can be " +
+            "minutes old. An old fix works for \"am I at home\" and fails for " +
+            "\"am I in the driveway\". Both roles share one limit. After a reboot, " +
+            "Android blocks Trigly's access to location in the background. This " +
+            "component cannot fire or hold until you restart Trigly. No other part " +
+            "of the app reports this limit."
 
     override val requirements = listOf(
         ComponentRequirement.RuntimePermission(Manifest.permission.ACCESS_FINE_LOCATION),
