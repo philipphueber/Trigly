@@ -76,7 +76,7 @@ class RuleJsonTest {
 
         val decoded = RuleJson.decode(RuleJson.encode(bare)).single()
 
-        assertEquals(emptyMap<String, String>(), decoded.trigger.config)
+        assertEquals(emptyMap<String, String>(), (decoded.trigger as TriggerNode.One).spec.config)
         assertEquals(emptyMap<String, String>(), decoded.actions.single().config)
     }
 
@@ -101,7 +101,7 @@ class RuleJsonTest {
 
         val decoded = RuleJson.decode(handWritten).single()
 
-        assertEquals("20", decoded.trigger.config["threshold"])
+        assertEquals("20", (decoded.trigger as TriggerNode.One).spec.config["threshold"])
         assertEquals("500", decoded.actions.single().config["durationMillis"])
     }
 

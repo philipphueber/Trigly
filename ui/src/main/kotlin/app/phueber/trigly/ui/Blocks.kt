@@ -18,10 +18,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -514,6 +518,79 @@ fun CaveatBadge(
 internal const val CAVEAT_DESCRIPTION = "Has a caveat"
 
 /**
+ * The fold control for a [ComponentBlock] or a trigger group: a chevron in
+ * place of the "Show" / "Hide" text button this replaces. Up when the block is
+ * open — tapping it closes; down when it is closed — tapping it opens. That is
+ * the opposite of describing the current state: the glyph shows what pressing
+ * it does to the block, the same reasoning [BlockToggle] and [BlockToggleChip]
+ * apply to their own shape, just spent on direction instead of fill.
+ *
+ * [contentDescription] is one fixed string rather than one that swaps between
+ * "Expand" and "Collapse" with [expanded]. A swapping label is what the text
+ * button it replaces effectively forced on the instrumented tests — grab
+ * `"HIDE"` to close, then `"SHOW"` to reopen, two different lookups for one
+ * control. `toggleable` already reports the open/closed state on the
+ * semantics node under this same description (`assertIsOn`/`assertIsOff` in a
+ * test, "checked" vs "not checked" to a screen reader), so a fixed label is not
+ * a loss of information — it is the same information carried a different way,
+ * and it is what lets one lookup find this control regardless of fold state.
+ */
+@Composable
+fun BlockExpandButton(
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // This one **reserves** its 48dp instead of overhanging, unlike [CaveatBadge]
+    // right beside it, and the difference is not a style choice — it is a bug fix.
+    //
+    // Two overhanging targets cannot sit next to each other. An overhang works by
+    // reporting a small size upward while hit-testing a larger box, so two of them
+    // a few dp apart claim the *same* pixels, and the one drawn later wins them.
+    // With both this control and the caveat badge overhanging, a tap on the badge
+    // landed here and folded the block shut instead of showing the caveat — the
+    // one route to that prose, swallowed by its neighbour. An instrumented test
+    // now covers exactly that tap.
+    //
+    // Reserving space is affordable *here* specifically: this sits at the end of a
+    // block header whose label is already tall, so 48dp does not change the
+    // header's height, and it costs width at the one edge with room to spare. The
+    // rejection recorded in [OverflowingTouchTarget]'s KDoc was about a 28-item
+    // picker *row*, where reserving would have grown every row — that reasoning
+    // still stands where it was made, and does not extend to here.
+    //
+    // `IconButton` is still not used: it draws a circular ripple clipped to its
+    // own round bounds, which is the Material affordance "Blocks, not cards" (see
+    // the architecture doc) spent four decisions rejecting elsewhere in this file.
+    // A bare `Box` with `toggleable` — the same primitive [CaveatBadge] is built
+    // on — carries the toggle semantics without drawing anything of its own.
+    Box(
+        modifier = modifier.size(48.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .toggleable(value = expanded, role = Role.Button, onValueChange = { onToggleExpanded() })
+                .semantics { contentDescription = EXPAND_DESCRIPTION },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                // The Box above already carries the description as a merged
+                // toggle; a second one here would have the accessibility tree
+                // announce it twice.
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+    }
+}
+
+/** Read by the accessibility layer and by the instrumented test. */
+internal const val EXPAND_DESCRIPTION = "Expand"
+
+/**
  * Wraps a single child so it reports [visualSize] to whatever it sits inside,
  * while the child is actually measured and placed at [touchSize] — centred on,
  * and overhanging, that smaller reported footprint.
@@ -533,7 +610,7 @@ internal const val CAVEAT_DESCRIPTION = "Has a caveat"
  * reports upward, rather than claim it.
  */
 @Composable
-private fun OverflowingTouchTarget(
+internal fun OverflowingTouchTarget(
     visualSize: Dp,
     touchSize: Dp,
     modifier: Modifier = Modifier,

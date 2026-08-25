@@ -1,12 +1,20 @@
 package app.phueber.trigly.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -22,8 +30,10 @@ import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ComponentSpec
 import app.phueber.trigly.core.ComponentTool
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.NodePath
 import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.Registry
+import app.phueber.trigly.core.TriggerNode
 import app.phueber.trigly.triggers.triggerFactories
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -54,6 +64,12 @@ class RuleEditorScreenTest {
     private val pinned = mutableListOf<Map<String, String>>()
     private var saves = 0
     private var backs = 0
+    private var chosenTrigger: String? = null
+    private val changedTriggerTypes = mutableListOf<Pair<NodePath, String>>()
+    private val addedTriggers = mutableListOf<Pair<NodePath, String>>()
+    private val removedTriggers = mutableListOf<NodePath>()
+    private val setOps = mutableListOf<Pair<NodePath, TriggerNode.Op>>()
+    private val triggerConfigChanges = mutableListOf<Triple<NodePath, String, String?>>()
 
     @Composable
     private fun Editor(
@@ -64,10 +80,22 @@ class RuleEditorScreenTest {
         toolsFor: (String, Map<String, String>) -> List<ComponentTool> = { type, config ->
             registry.toolsFor(ComponentSpec(type, config))
         },
+        // Defaults to recording nothing, like the other intents below — a test
+        // that cares whether an action actually moves passes its own, backed by
+        // state it holds, rather than this stub reordering anything itself.
+        onMoveAction: (Int, Int) -> Unit = { _, _ -> },
     ) {
         RuleEditorScreen(
             state = state,
-            triggerOptions = registry.triggerDescriptors,
+            // Ignores the path: nothing here exercises `canStart`-style
+            // filtering, which belongs to the ViewModel this stateless screen
+            // does not have — every test that opens a picker just wants the
+            // full, real list back.
+            // The group rows come first, exactly as `RuleEditorViewModel`
+            // assembles them: a group is one of the picker's options, and a
+            // harness that left them out would let the screen's group handling
+            // rot untested while every test still passed.
+            triggerOptionsFor = { GROUP_OPTIONS + registry.triggerDescriptors },
             actionOptions = registry.actionDescriptors,
             descriptorFor = { slot, type ->
                 when (slot) {
@@ -77,11 +105,16 @@ class RuleEditorScreenTest {
             },
             onNameChange = {},
             onEnabledChange = {},
-            onChooseTrigger = {},
+            onChooseTrigger = { chosenTrigger = it },
+            onChangeTriggerType = { path, type -> changedTriggerTypes += path to type },
+            onAddTrigger = { path, type -> addedTriggers += path to type },
+            onSetTriggerOp = { path, op -> setOps += path to op },
+            onRemoveTrigger = { path -> removedTriggers += path },
+            onSetTriggerConfigValue = { path, key, value -> triggerConfigChanges += Triple(path, key, value) },
             onAddAction = {},
             onChangeActionType = { _, _ -> },
             onRemoveAction = {},
-            onMoveAction = { _, _ -> },
+            onMoveAction = onMoveAction,
             onConfigChange = { slot, _, key, value -> configChanges += Triple(slot, key, value) },
             onTestAction = { tested += it },
             onSave = { saves++ },
@@ -121,7 +154,7 @@ class RuleEditorScreenTest {
                     RuleDraft(
                         id = null,
                         name = "Visual",
-                        trigger = ComponentDraft("screen_content"),
+                        trigger = TriggerDraft.One(ComponentDraft("screen_content")),
                     )
                 )
             )
@@ -141,7 +174,7 @@ class RuleEditorScreenTest {
                     RuleDraft(
                         id = null,
                         name = "Chime",
-                        trigger = ComponentDraft("power_connection", mapOf("state" to "connected")),
+                        trigger = TriggerDraft.One(ComponentDraft("power_connection", mapOf("state" to "connected"))),
                         actions = listOf(
                             ComponentDraft("play_alert", mapOf("playback" to "once"))
                         ),
@@ -168,7 +201,7 @@ class RuleEditorScreenTest {
                     RuleDraft(
                         id = null,
                         name = "Alarm",
-                        trigger = ComponentDraft("power_connection", mapOf("state" to "connected")),
+                        trigger = TriggerDraft.One(ComponentDraft("power_connection", mapOf("state" to "connected"))),
                         actions = listOf(
                             ComponentDraft("play_alert", mapOf("playback" to "repeat"))
                         ),
@@ -191,7 +224,7 @@ class RuleEditorScreenTest {
                     RuleDraft(
                         id = null,
                         name = "Fresh",
-                        trigger = ComponentDraft("power_connection", mapOf("state" to "connected")),
+                        trigger = TriggerDraft.One(ComponentDraft("power_connection", mapOf("state" to "connected"))),
                         actions = listOf(ComponentDraft("play_alert")),
                     )
                 )
@@ -215,7 +248,7 @@ class RuleEditorScreenTest {
                     RuleDraft(
                         id = null,
                         name = "Granted",
-                        trigger = ComponentDraft(requirement.type),
+                        trigger = TriggerDraft.One(ComponentDraft(requirement.type)),
                     )
                 ),
                 isRequirementSatisfied = { true },
@@ -239,7 +272,7 @@ class RuleEditorScreenTest {
                     RuleDraft(
                         id = null,
                         name = "Ungranted",
-                        trigger = ComponentDraft(requirement.type),
+                        trigger = TriggerDraft.One(ComponentDraft(requirement.type)),
                     )
                 ),
                 isRequirementSatisfied = { false },
@@ -251,6 +284,36 @@ class RuleEditorScreenTest {
     }
 
     @Test
+    fun tapping_the_caveat_badge_does_not_fold_the_block() {
+        // The badge and the fold chevron sit next to each other in the header,
+        // and both want a 48dp touch target around a 22dp glyph. While both got
+        // it by overhanging, they claimed the same pixels and the chevron — drawn
+        // later — won: tapping "!" folded the block instead of showing the
+        // caveat, silently closing the only route to that prose.
+        //
+        // Asserting the block is still open is the half that catches it. A test
+        // that only asserted the prose appeared would fail without saying why.
+        composeRule.setContent {
+            Editor(
+                EditorState(
+                    RuleDraft(
+                        id = null,
+                        name = "Visual",
+                        trigger = TriggerDraft.One(ComponentDraft("screen_content")),
+                    )
+                )
+            )
+        }
+
+        composeRule.onNodeWithText("SCREEN CONTAINS *").assertExists()
+        composeRule.onNodeWithContentDescription(CAVEAT_DESCRIPTION).performClick()
+
+        // Still open: the fields are there, and the fold control still reads open.
+        composeRule.onNodeWithText("SCREEN CONTAINS *").assertExists()
+        composeRule.onNodeWithContentDescription(EXPAND_DESCRIPTION).assertIsOn()
+    }
+
+    @Test
     fun a_caveat_is_hidden_until_its_badge_is_tapped() {
         composeRule.setContent {
             Editor(
@@ -259,7 +322,7 @@ class RuleEditorScreenTest {
                         id = null,
                         name = "Visual",
                         // A trigger that carries a warning.
-                        trigger = ComponentDraft("screen_content"),
+                        trigger = TriggerDraft.One(ComponentDraft("screen_content")),
                     )
                 )
             )
@@ -299,7 +362,7 @@ class RuleEditorScreenTest {
                     RuleDraft(
                         id = null,
                         name = "Battery",
-                        trigger = ComponentDraft("battery_level", mapOf("direction" to "below")),
+                        trigger = TriggerDraft.One(ComponentDraft("battery_level", mapOf("direction" to "below"))),
                     )
                 )
             )
@@ -317,7 +380,7 @@ class RuleEditorScreenTest {
                     RuleDraft(
                         id = null,
                         name = "Any text",
-                        trigger = ComponentDraft("clipboard_changed"),
+                        trigger = TriggerDraft.One(ComponentDraft("clipboard_changed")),
                     )
                 )
             )
@@ -342,7 +405,7 @@ class RuleEditorScreenTest {
                     RuleDraft(
                         id = null,
                         name = "Any device",
-                        trigger = ComponentDraft("bluetooth_connected"),
+                        trigger = TriggerDraft.One(ComponentDraft("bluetooth_connected")),
                     )
                 )
             )
@@ -359,7 +422,7 @@ class RuleEditorScreenTest {
                     RuleDraft(
                         id = null,
                         name = "Notifications",
-                        trigger = ComponentDraft("notification_posted"),
+                        trigger = TriggerDraft.One(ComponentDraft("notification_posted")),
                     )
                 )
             )
@@ -379,7 +442,7 @@ class RuleEditorScreenTest {
                     RuleDraft(
                         id = "x",
                         name = "From the future",
-                        trigger = ComponentDraft("quantum_entanglement"),
+                        trigger = TriggerDraft.One(ComponentDraft("quantum_entanglement")),
                     )
                 )
             )
@@ -634,7 +697,7 @@ class RuleEditorScreenTest {
                     RuleDraft(
                         id = null,
                         name = "Battery",
-                        trigger = ComponentDraft("battery_level", mapOf("direction" to "below")),
+                        trigger = TriggerDraft.One(ComponentDraft("battery_level", mapOf("direction" to "below"))),
                     )
                 )
             )
@@ -642,14 +705,22 @@ class RuleEditorScreenTest {
 
         composeRule.onNodeWithText("THRESHOLD (%) *").assertIsDisplayed()
 
-        composeRule.onNodeWithText("HIDE").performClick()
+        // One fixed control, not two different lookups for open versus closed —
+        // `toggleable` carries the open/closed state on this same node, so
+        // `assertIsOn`/`assertIsOff` is what used to be "find HIDE" / "find SHOW".
+        val fold = composeRule.onNodeWithContentDescription(EXPAND_DESCRIPTION)
+        fold.assertIsOn()
+
+        fold.performClick()
         composeRule.onNodeWithText("THRESHOLD (%) *").assertDoesNotExist()
         // The heading has to survive, or a folded block cannot be identified or
         // reopened.
         composeRule.onNodeWithText("BATTERY LEVEL").assertIsDisplayed()
+        fold.assertIsOff()
 
-        composeRule.onNodeWithText("SHOW").performClick()
+        fold.performClick()
         composeRule.onNodeWithText("THRESHOLD (%) *").assertIsDisplayed()
+        fold.assertIsOn()
     }
 
     /**
@@ -665,7 +736,7 @@ class RuleEditorScreenTest {
                     RuleDraft(
                         id = null,
                         name = "Alert",
-                        trigger = ComponentDraft("battery_level", mapOf("direction" to "below")),
+                        trigger = TriggerDraft.One(ComponentDraft("battery_level", mapOf("direction" to "below"))),
                         actions = listOf(ComponentDraft("speak", mapOf("text" to "low"))),
                     )
                 )
@@ -673,14 +744,18 @@ class RuleEditorScreenTest {
         }
 
         // Two folding blocks on screen; the action's is the second.
-        composeRule.onAllNodesWithText("HIDE")[1].performClick()
+        composeRule.onAllNodesWithContentDescription(EXPAND_DESCRIPTION)[1].performClick()
 
         // `assertExists`, for the reason given in the fourteen-field test below:
         // the trigger block above is still open, so whether the action's footer
         // has scrolled off is a question about the emulator's screen height. What
         // this test is about is that folding did not *remove* the controls.
         composeRule.onNodeWithText("TEST").assertExists()
-        composeRule.onNodeWithText("REMOVE").assertExists()
+        // Two Removes now, not one: a lone trigger carries its own, since
+        // clearing the trigger slot is a thing you can do. So this counts them
+        // instead of expecting a single match — the action's is the second, in
+        // the same order as the fold controls above.
+        composeRule.onAllNodesWithText("REMOVE").assertCountEquals(2)
         composeRule.onNodeWithText("SPEAK OUT LOUD").assertExists()
     }
 
@@ -694,8 +769,7 @@ class RuleEditorScreenTest {
         composeRule.setContent { Editor(EditorState(RuleDraft(id = null))) }
 
         composeRule.onNodeWithText("CHOOSE A TRIGGER").assertIsDisplayed()
-        composeRule.onNodeWithText("HIDE").assertDoesNotExist()
-        composeRule.onNodeWithText("SHOW").assertDoesNotExist()
+        composeRule.onNodeWithContentDescription(EXPAND_DESCRIPTION).assertDoesNotExist()
     }
 
     @Test
@@ -710,7 +784,7 @@ class RuleEditorScreenTest {
                     RuleDraft(
                         id = null,
                         name = "Tools",
-                        trigger = ComponentDraft("power_connection", mapOf("state" to "connected")),
+                        trigger = TriggerDraft.One(ComponentDraft("power_connection", mapOf("state" to "connected"))),
                         actions = listOf(ComponentDraft("play_alert")),
                     )
                 )
@@ -731,7 +805,7 @@ class RuleEditorScreenTest {
                     RuleDraft(
                         id = null,
                         name = "Inspect",
-                        trigger = ComponentDraft("power_connection", mapOf("state" to "connected")),
+                        trigger = TriggerDraft.One(ComponentDraft("power_connection", mapOf("state" to "connected"))),
                         actions = listOf(ComponentDraft("dismiss_notification")),
                     )
                 )
@@ -752,7 +826,7 @@ class RuleEditorScreenTest {
                     RuleDraft(
                         id = "abc",
                         name = "Kept",
-                        trigger = ComponentDraft("power_connection", mapOf("state" to "connected")),
+                        trigger = TriggerDraft.One(ComponentDraft("power_connection", mapOf("state" to "connected"))),
                         actions = listOf(ComponentDraft("dismiss_notification")),
                     )
                 )
@@ -789,7 +863,7 @@ class RuleEditorScreenTest {
                     RuleDraft(
                         id = null,
                         name = "Pin",
-                        trigger = ComponentDraft("power_connection", config),
+                        trigger = TriggerDraft.One(ComponentDraft("power_connection", config)),
                     )
                 ),
                 toolsFor = { _, _ -> listOf(ComponentTool.PinShortcut) },
@@ -798,5 +872,322 @@ class RuleEditorScreenTest {
 
         composeRule.onNodeWithText("ADD TO HOME SCREEN").performScrollTo().performClick()
         assertEquals(listOf(config), pinned)
+    }
+
+    /*
+     * The "When" section is a single slot now: nothing chosen, one component,
+     * or a group of them. There used to be a second region here, captioned
+     * "Must also be true.", with its own "Add trigger"/"Add a group" pair — a
+     * gate is a trigger now, and it lives in this one slot. The tests below
+     * cover that directly, rather than trusting the region's absence to fall
+     * out of the ones above.
+     */
+
+    @Test
+    fun a_single_trigger_shows_no_group_chrome_and_offers_add_trigger() {
+        composeRule.setContent {
+            Editor(
+                EditorState(
+                    RuleDraft(
+                        id = null,
+                        name = "Solo",
+                        trigger = TriggerDraft.One(
+                            ComponentDraft("power_connection", mapOf("state" to "connected"))
+                        ),
+                    )
+                )
+            )
+        }
+
+        composeRule.onNodeWithText("CHARGER").assertIsDisplayed()
+        // No AND/OR, no fold summary — a lone trigger looks exactly like one.
+        composeRule.onNodeWithText("ALL OF", substring = true).assertDoesNotExist()
+        composeRule.onNodeWithText("ANY OF", substring = true).assertDoesNotExist()
+        // The one way a group comes into existence: adding a sibling here.
+        composeRule.onNodeWithText("ADD TRIGGER").assertExists()
+        composeRule.onNodeWithText("ADD GATE").assertDoesNotExist()
+    }
+
+    @Test
+    fun a_group_folds_to_a_summary_and_opens_to_its_operator_and_children() {
+        composeRule.setContent {
+            Editor(
+                EditorState(
+                    RuleDraft(
+                        id = null,
+                        name = "Both",
+                        trigger = TriggerDraft.Group(
+                            TriggerNode.Op.ALL,
+                            listOf(
+                                TriggerDraft.One(
+                                    ComponentDraft("power_connection", mapOf("state" to "connected"))
+                                ),
+                                TriggerDraft.One(
+                                    ComponentDraft("battery_level", mapOf("direction" to "below"))
+                                ),
+                            ),
+                        ),
+                    )
+                )
+            )
+        }
+
+        // A group starts folded when its rule is opened — one line, not the
+        // tree, until asked.
+        composeRule.onNodeWithText("ALL OF · 2 TRIGGERS").assertIsDisplayed()
+        composeRule.onNodeWithText("CHARGER").assertDoesNotExist()
+        composeRule.onNodeWithText("BATTERY LEVEL").assertDoesNotExist()
+
+        composeRule.onNodeWithContentDescription(EXPAND_DESCRIPTION).performClick()
+
+        // Open: the operator on its own, both children, and the AND/OR choice.
+        // `assertExists` from here down — expanding pushed content further
+        // down the scrolling form, and whether it has scrolled off is a
+        // question about the emulator's screen height, not about this change.
+        composeRule.onNodeWithText("ALL OF").assertExists()
+        composeRule.onNodeWithText("AND").assertExists()
+        composeRule.onNodeWithText("OR").assertExists()
+        composeRule.onNodeWithText("CHARGER").assertExists()
+        composeRule.onNodeWithText("BATTERY LEVEL").assertExists()
+    }
+
+    @Test
+    fun a_folded_group_marks_a_hidden_caveat_and_the_mark_opens_it() {
+        composeRule.setContent {
+            Editor(
+                EditorState(
+                    RuleDraft(
+                        id = null,
+                        name = "Noisy",
+                        trigger = TriggerDraft.Group(
+                            TriggerNode.Op.ALL,
+                            listOf(
+                                // Carries a caveat — see the caveat-badge tests above.
+                                TriggerDraft.One(ComponentDraft("screen_content")),
+                                TriggerDraft.One(
+                                    ComponentDraft("power_connection", mapOf("state" to "connected"))
+                                ),
+                            ),
+                        ),
+                    )
+                )
+            )
+        }
+
+        // The mark says a hidden child has something to say — not that the
+        // group itself does; there is no prose to print here.
+        composeRule.onNodeWithContentDescription(GROUP_CAVEAT_DESCRIPTION).assertExists()
+        assertTrue(
+            "the group must not appear to carry the caveat's own prose",
+            composeRule.onAllNodesWithText("The noisiest trigger available", substring = true)
+                .fetchSemanticsNodes().isEmpty()
+        )
+
+        // Tapping it opens the group rather than revealing any prose in place.
+        composeRule.onNodeWithContentDescription(GROUP_CAVEAT_DESCRIPTION).performClick()
+        composeRule.onNodeWithText("CHARGER").assertExists()
+        composeRule.onNodeWithContentDescription(GROUP_CAVEAT_DESCRIPTION).assertDoesNotExist()
+    }
+
+    @Test
+    fun add_trigger_on_a_lone_trigger_reports_its_path_and_the_picked_type() {
+        composeRule.setContent {
+            Editor(
+                EditorState(
+                    RuleDraft(
+                        id = null,
+                        name = "Solo",
+                        trigger = TriggerDraft.One(
+                            ComponentDraft("power_connection", mapOf("state" to "connected"))
+                        ),
+                    )
+                )
+            )
+        }
+
+        composeRule.onNodeWithText("ADD TRIGGER").performScrollTo().performClick()
+        composeRule.onNodeWithText("SEARCH").performTextReplacement("battery_level")
+        composeRule.onNodeWithText("BATTERY LEVEL").performClick()
+
+        assertEquals(listOf(emptyList<Int>() to "battery_level"), addedTriggers)
+    }
+
+    @Test
+    fun a_group_is_picked_from_the_trigger_picker_like_any_other_trigger() {
+        composeRule.setContent {
+            Editor(
+                EditorState(
+                    RuleDraft(
+                        id = null,
+                        name = "Nest",
+                        trigger = TriggerDraft.Group(
+                            TriggerNode.Op.ALL,
+                            listOf(
+                                TriggerDraft.One(
+                                    ComponentDraft("power_connection", mapOf("state" to "connected"))
+                                ),
+                                TriggerDraft.One(
+                                    ComponentDraft("battery_level", mapOf("direction" to "below"))
+                                ),
+                            ),
+                        ),
+                    )
+                )
+            )
+        }
+
+        // There is no "Add gate" button, and that absence is the point: a group
+        // is a row in the same picker every trigger comes from, so nesting one is
+        // the same gesture as adding a trigger. It reaches the screen as an
+        // ordinary picked type — see [GROUP_ALL_TYPE].
+        composeRule.onNodeWithText("ADD GATE").assertDoesNotExist()
+
+        // A group opens folded, so its footer is not composed yet.
+        composeRule.onNodeWithContentDescription(EXPAND_DESCRIPTION).performClick()
+        composeRule.onNodeWithText("ADD TRIGGER").performScrollTo().performClick()
+        composeRule.onNodeWithText("ALL OF THESE").performClick()
+
+        assertEquals(listOf(emptyList<Int>() to GROUP_ALL_TYPE), addedTriggers)
+    }
+
+    @Test
+    fun the_screen_no_longer_shows_the_old_two_region_prose() {
+        // The whole point of this change: no separately-captioned tail
+        // beneath the trigger blocks, whatever the tree looks like.
+        composeRule.setContent {
+            Editor(
+                EditorState(
+                    RuleDraft(
+                        id = null,
+                        name = "No second region",
+                        trigger = TriggerDraft.Group(
+                            TriggerNode.Op.ALL,
+                            listOf(
+                                TriggerDraft.One(
+                                    ComponentDraft("power_connection", mapOf("state" to "connected"))
+                                ),
+                                TriggerDraft.One(
+                                    ComponentDraft("battery_level", mapOf("direction" to "below"))
+                                ),
+                            ),
+                        ),
+                    )
+                )
+            )
+        }
+
+        assertTrue(
+            "the old gate caption must be gone",
+            composeRule.onAllNodesWithText("must also be true", substring = true, ignoreCase = true)
+                .fetchSemanticsNodes().isEmpty()
+        )
+        assertTrue(
+            "the old multi-edge caption must be gone",
+            composeRule.onAllNodesWithText("fire the rule", substring = true, ignoreCase = true)
+                .fetchSemanticsNodes().isEmpty()
+        )
+    }
+
+    @Test
+    fun a_nested_notification_trigger_still_offers_inspect() {
+        composeRule.setContent {
+            Editor(
+                EditorState(
+                    RuleDraft(
+                        id = null,
+                        name = "Nested",
+                        trigger = TriggerDraft.Group(
+                            TriggerNode.Op.ALL,
+                            listOf(
+                                TriggerDraft.One(
+                                    ComponentDraft("power_connection", mapOf("state" to "connected"))
+                                ),
+                                TriggerDraft.One(ComponentDraft("notification_posted")),
+                            ),
+                        ),
+                    )
+                )
+            )
+        }
+
+        composeRule.onNodeWithContentDescription(EXPAND_DESCRIPTION).performClick()
+        composeRule.onNodeWithText("INSPECT").performScrollTo().assertExists()
+    }
+
+    /**
+     * Up/Down replace the "Up"/"Down" text buttons with a chevron pair, but the
+     * behaviour they drive — actions run in the order they are listed, and
+     * these are the only controls that change it — must survive unchanged. The
+     * icon is not the thing worth asserting; the reorder is.
+     */
+    @Test
+    fun moving_an_action_down_swaps_its_running_order() {
+        composeRule.setContent {
+            var actions by remember {
+                mutableStateOf(
+                    listOf(
+                        ComponentDraft("toast", mapOf("text" to "first")),
+                        ComponentDraft("speak", mapOf("text" to "second")),
+                    )
+                )
+            }
+            Editor(
+                state = EditorState(RuleDraft(id = null, name = "Reorder", actions = actions)),
+                // A real move, not a recorded intent: this is the one test in the
+                // file that needs to see the *result* of reordering, not merely
+                // that `onMoveAction` was called with the right indices.
+                onMoveAction = { from, to ->
+                    actions = actions.toMutableList().also { it.add(to, it.removeAt(from)) }
+                },
+            )
+        }
+
+        fun topOf(text: String) =
+            composeRule.onNodeWithText(text).fetchSemanticsNode().boundsInRoot.top
+
+        // Toast is first in the draft, so it must render above speak before
+        // anything is pressed — the baseline the rest of this test moves from.
+        assertTrue(
+            "toast starts above speak",
+            topOf("SHOW A BRIEF MESSAGE") < topOf("SPEAK OUT LOUD"),
+        )
+
+        // The first action's one reordering control is Move down.
+        composeRule.onNodeWithContentDescription("Move down").performScrollTo().performClick()
+
+        assertTrue(
+            "moving the first action down puts speak first",
+            topOf("SPEAK OUT LOUD") < topOf("SHOW A BRIEF MESSAGE"),
+        )
+    }
+
+    /**
+     * Order matters to what a rule does, so the ends of the list are where a
+     * mistake would be worst: an Up that moved the first action, or a Down that
+     * moved the last, would silently run something before or after the whole
+     * rule's action list. Neither control exists at the end it would act past.
+     */
+    @Test
+    fun the_first_action_has_no_up_and_the_last_has_no_down() {
+        composeRule.setContent {
+            Editor(
+                EditorState(
+                    RuleDraft(
+                        id = null,
+                        name = "Three",
+                        actions = listOf(
+                            ComponentDraft("toast", mapOf("text" to "a")),
+                            ComponentDraft("speak", mapOf("text" to "b")),
+                            ComponentDraft("toast", mapOf("text" to "c")),
+                        ),
+                    )
+                )
+            )
+        }
+
+        // Three actions: the middle one offers both, the first offers only
+        // Down, the last only Up — two of each, never three.
+        composeRule.onAllNodesWithContentDescription("Move up").assertCountEquals(2)
+        composeRule.onAllNodesWithContentDescription("Move down").assertCountEquals(2)
     }
 }

@@ -71,4 +71,26 @@ interface TriggerFactory : ComponentFactory {
      */
     val supportsCondition: Boolean
         get() = false
+
+    /**
+     * Whether this component can ever *start* a rule.
+     *
+     * The honest counterpart to [supportsCondition], and declared for the same
+     * reason: the editor has to know before it builds anything. Almost every
+     * component says true. A component that answers only a state question —
+     * `time_window`, whose `events()` is `emptyFlow()` — says false, and the
+     * editor then knows not to offer it as the thing that starts a rule.
+     *
+     * Without this the emptiness is discoverable only by instantiating a trigger
+     * and watching a flow that never emits, which is exactly the shape of a rule
+     * that silently never runs.
+     *
+     * The pair to keep honest, in the other direction from [supportsCondition]: a
+     * factory saying false must produce a [Trigger] with no events, and a factory
+     * saying true must produce one that can emit. A false with events is a
+     * trigger the picker hides for no reason; a true without them is a rule that
+     * waits forever.
+     */
+    val producesEvents: Boolean
+        get() = true
 }

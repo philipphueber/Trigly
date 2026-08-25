@@ -248,8 +248,12 @@ It has **no passive form, and cannot grow one** — for the same reason `ui_clic
 cannot. A tap, like a click, is inherently an instant: there is nothing to ask
 "is it currently tapped" between taps. `docs/conditions.md`'s capability matrix
 lists `shortcut` alongside `ui_click`, `sms_received`, `interval` and
-`device_restart` as having none, and it can therefore occupy only the first,
-edge slot of a gate, never a condition slot.
+`device_restart` as having none. There are no longer edge slots and condition
+slots to place it in — a rule has one trigger, which may be a group — so the
+constraint is now expressed by what the editor offers: `shortcut` can be the
+thing that *starts* a rule, and an `all of` group may hold at most one such
+component, since two instants never coincide. `TriggerNode.canStart` is what
+computes that, and the picker follows it.
 
 ---
 

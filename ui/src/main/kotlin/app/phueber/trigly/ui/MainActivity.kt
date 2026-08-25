@@ -330,7 +330,7 @@ class MainActivity : ComponentActivity() {
 
         RuleEditorScreen(
             state = state,
-            triggerOptions = editor.triggerOptions,
+            triggerOptionsFor = editor::triggerOptionsFor,
             actionOptions = editor.actionOptions,
             descriptorFor = editor::descriptorFor,
             onNameChange = editor::setName,
@@ -353,22 +353,16 @@ class MainActivity : ComponentActivity() {
             isRequirementSatisfied = remember(grantEpoch) {
                 { requirement -> container.requirementChecker.isSatisfied(requirement) }
             },
-            // The gate: several trigger edges, and the condition tree. Every one
-            // of these defaults to a no-op on the screen, so leaving any of them
-            // unwired would show the affordance and do nothing when tapped —
-            // which is why they are all listed here explicitly rather than
-            // relying on the defaults.
-            conditionOptions = editor.conditionOptions,
-            onAddTrigger = editor::addTrigger,
+            // The trigger tree: one slot that may be a group, addressed by
+            // path. Every one of these defaults to a no-op on the screen, so
+            // leaving any of them unwired would show the affordance and do
+            // nothing when tapped — which is why they are all listed here
+            // explicitly rather than relying on the defaults.
             onChangeTriggerType = editor::changeTriggerType,
+            onAddTrigger = editor::addTrigger,
+            onSetTriggerOp = editor::setTriggerOp,
             onRemoveTrigger = editor::removeTrigger,
-            onMoveTrigger = editor::moveTrigger,
-            onAddConditionCheck = editor::addConditionCheck,
-            onAddConditionGroup = editor::addConditionGroup,
-            onRemoveCondition = editor::removeCondition,
-            onSetConditionOp = editor::setConditionOp,
-            onChangeConditionType = editor::changeConditionType,
-            onConditionConfigChange = editor::setConditionConfigValue,
+            onSetTriggerConfigValue = editor::setTriggerConfigValue,
             onPinShortcut = ::pinShortcut,
             // What each block offers on itself, asked of the registry so this
             // screen never learns a component's name. `grantEpoch` is not in

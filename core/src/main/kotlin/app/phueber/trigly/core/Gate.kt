@@ -1,121 +1,268 @@
 package app.phueber.trigly.core
 
 /**
- * The trigger side of a rule: the edges that start it, and what must be true when
- * one arrives.
+ * The trigger side of a rule. **One** trigger, which may be a group of triggers.
  *
- * Full reasoning in `docs/conditions.md`. The two things to know before touching
- * this:
+ * Full reasoning in `docs/conditions.md`. The shape to hold in your head:
  *
- * **The first level holds edges; everything below holds levels.** [triggers] is
- * an OR of edges — any one of them fires the rule — and [conditions] is a tree of
- * states that must hold when one does. A single trigger needs no wrapper, which
- * is the common case and why this is a list rather than a mandatory `Any` node.
+ * ```
+ * One(bluetooth)                                    // when the car connects
+ * Group(ALL, [One(bluetooth), One(time_window)])    // …and it is night
+ * Group(ANY, [One(charger), One(headset)])          // when either happens
+ * Group(ALL, [Group(ANY, [a, b]), One(time)])       // a sub-group, nested
+ * ```
  *
- * **That split is what keeps edges and levels apart.** A trigger is an edge —
- * "the screen turned on" — and a condition is a level — "the screen is on". Two
- * edges are essentially never true at the same instant, so `screen_on AND
- * bluetooth_connected` only means anything if the second is read as a state. This
- * type has no position where an edge could be asked to hold, or a state asked to
- * fire, which is why the editor needs no rules about it.
+ * ### Why this replaced `Gate(triggers, conditions)`
+ *
+ * The previous version modelled the two halves separately: a list of edges, and a
+ * tree of conditions beside it. That made a *structural* distinction the user
+ * never asked for — the editor grew a second region with its own vocabulary, and
+ * "a condition is just a trigger, asked instead of watched" stopped being true of
+ * the code even while the documentation claimed it. One tree says it properly: a
+ * group is a trigger, it is chosen from the same picker as any other trigger, and
+ * it can contain groups.
+ *
+ * ### Edges and levels still exist — as a property of a component, not a slot
+ *
+ * A trigger is an edge ("the screen turned on"); the same component asked for its
+ * state is a level ("the screen is on"). Two edges are essentially never true at
+ * the same instant, which is the one hard constraint on this tree: an [Op.ALL]
+ * group whose children include two components that can *only* be edges can never
+ * be satisfied. That is what [canStart] exists to detect, and what the editor uses
+ * to decide which components a slot may offer.
+ *
+ * Nothing at runtime needs the distinction, which is the payoff. [holds] takes the
+ * path of the leaf that fired and reads every other leaf as a level, so a
+ * component that cannot produce events simply never starts a rule, and a
+ * component that cannot answer a state simply never satisfies one. Neither needs a
+ * special case.
  */
-data class Gate(
-    val triggers: List<ComponentSpec>,
-    val conditions: ConditionNode? = null,
-) {
-    init {
-        // A gate with no edge can never fire. Unreachable from the editor and
-        // reachable from an imported file, so it is refused where it is built
-        // rather than diagnosed later as a rule that mysteriously does nothing.
-        require(triggers.isNotEmpty()) { "a gate needs at least one trigger" }
-    }
+sealed interface TriggerNode {
 
-    /** The single-trigger case, which is most of them. */
-    constructor(trigger: ComponentSpec, conditions: ConditionNode? = null) :
-        this(listOf(trigger), conditions)
-
-    /** True when the first level is an OR of several edges rather than one. */
-    val hasSeveralTriggers: Boolean get() = triggers.size > 1
-}
-
-/**
- * What must hold when one of the gate's triggers fires.
- *
- * A tree rather than a list, because "A and (B or C)" is the shape people
- * actually want and flattening it would silently change the meaning. A nested
- * [All] or [Any] *is* the sub-gate — there is no separate node kind for grouping.
- *
- * No `Not`. Most state-capable triggers already carry their own two-word state
- * choice — `connected`/`disconnected`, `enabled`/`disabled` — so "if not
- * charging" is a setting on the check rather than a wrapper around it, and a
- * negation node would need an editor affordance to express something already
- * expressible.
- */
-sealed interface ConditionNode {
+    /** One component: a type string plus its settings, as stored. */
+    data class One(val spec: ComponentSpec) : TriggerNode
 
     /**
-     * One trigger, asked for its current state rather than watched.
+     * A group of triggers, combined with [op].
      *
-     * [spec] is an ordinary component spec: the same type string and config a
-     * trigger slot would hold. That is deliberate — a component appears once in
-     * the picker and the slot decides which question is asked of it, so `solar`
-     * in the trigger slot means "at sunset" and the same `solar` here means "it
-     * is after sunset".
+     * This is what the user picks as "All of" or "Any of" in the trigger picker.
+     * A group holding a group is how "a and (b or c)" is expressed; there is no
+     * separate node kind for nesting.
      */
-    data class Check(val spec: ComponentSpec) : ConditionNode
+    data class Group(val op: Op, val children: List<TriggerNode>) : TriggerNode
 
-    /** Every child must hold. */
-    data class All(val children: List<ConditionNode>) : ConditionNode
-
-    /** At least one child must hold. */
-    data class Any(val children: List<ConditionNode>) : ConditionNode
+    /** How a [Group] combines its children. */
+    enum class Op { ALL, ANY }
 }
 
 /**
- * Whether this tree holds, given a way to read one check's state.
+ * Where a node sits in the tree, as child indices from the root.
  *
- * The state lookup is a parameter rather than a dependency so the whole of this
- * is testable without a device. Every mistake in here produces a rule that either
- * never fires or fires when it should not, and both are silent — which is exactly
- * the kind of logic that must not be exercised only by hand on a phone.
+ * The empty path is the root; `[1]` is its second child; `[1, 0]` that child's
+ * first. Used for two jobs that both need to name a node that has no identity of
+ * its own: the editor addressing the node a control belongs to, and [holds]
+ * naming the leaf that fired.
  *
- * **Null does not hold.** A check that cannot answer the question, or that fails
- * while trying, is unknown — and an unknown state is not a satisfied one. The
- * alternative is a rule that fires on a guess, which for an app whose whole
- * purpose is unattended action is the worse failure by a distance.
- *
- * The empty cases follow from what the words mean rather than from convenience:
- * [All] of nothing holds, because nothing failed; [Any] of nothing does not,
- * because nothing satisfied it. Neither is reachable from the editor, and both
- * are reachable from an imported file.
+ * Identity by position, not by value, because two leaves can hold the same
+ * component with the same settings. Comparing specs would mark both of them as
+ * fired, and in an [TriggerNode.Op.ALL] group that is the difference between a
+ * rule that runs and one that cannot.
  */
-suspend fun ConditionNode.holds(stateOf: suspend (ComponentSpec) -> Boolean?): Boolean =
-    when (this) {
-        is ConditionNode.Check -> stateOf(spec) == true
-        // Short-circuits, and that is a promise rather than an optimisation: a
-        // location check costs a GPS read, so an `All` whose earlier child has
-        // already failed must not pay for the rest.
-        is ConditionNode.All -> children.all { it.holds(stateOf) }
-        is ConditionNode.Any -> children.any { it.holds(stateOf) }
+typealias NodePath = List<Int>
+
+/** The node at [path], or null if the path leads nowhere. */
+fun TriggerNode.at(path: NodePath): TriggerNode? =
+    path.fold(this as TriggerNode?) { node, index ->
+        (node as? TriggerNode.Group)?.children?.getOrNull(index)
     }
 
-/** Every check in this tree, depth-first. */
-fun ConditionNode.checks(): List<ComponentSpec> = when (this) {
-    is ConditionNode.Check -> listOf(spec)
-    is ConditionNode.All -> children.flatMap { it.checks() }
-    is ConditionNode.Any -> children.flatMap { it.checks() }
+/** Every component in this tree, depth first. */
+fun TriggerNode.leaves(): List<ComponentSpec> = when (this) {
+    is TriggerNode.One -> listOf(spec)
+    is TriggerNode.Group -> children.flatMap { it.leaves() }
+}
+
+/** Every component in this tree with the path it sits at, depth first. */
+fun TriggerNode.leafPaths(prefix: NodePath = emptyList()): List<Pair<NodePath, ComponentSpec>> =
+    when (this) {
+        is TriggerNode.One -> listOf(prefix to spec)
+        is TriggerNode.Group -> children.flatMapIndexed { index, child ->
+            child.leafPaths(prefix + index)
+        }
+    }
+
+/**
+ * Whether this tree is satisfied, given the leaf that just fired.
+ *
+ * [firedPath] is the leaf whose event started this evaluation. It counts as true
+ * without being asked, because it just happened — asking a component whether it
+ * *is* connected right after it reported connecting would fail for anything
+ * momentary, and "a tap happened" has no state to read at all.
+ *
+ * Every other leaf is asked for its current state through [stateOf]. The state
+ * lookup is a parameter rather than a dependency so this is testable without a
+ * device: every mistake in here is a rule that never runs or runs when it should
+ * not, and both are silent.
+ *
+ * **Null does not satisfy.** A component that cannot answer, or that fails while
+ * trying, is unknown — and unknown is not yes. The alternative is unattended
+ * actions running on a guess, which for this app is the worse failure by a
+ * distance.
+ *
+ * The empty cases follow from the words: [TriggerNode.Op.ALL] of nothing holds,
+ * because nothing failed; [TriggerNode.Op.ANY] of nothing does not, because
+ * nothing satisfied it. The editor cannot build either, and an imported file can.
+ */
+suspend fun TriggerNode.holds(
+    firedPath: NodePath,
+    stateOf: suspend (ComponentSpec) -> Boolean?,
+): Boolean = holdsAt(emptyList(), firedPath, stateOf)
+
+private suspend fun TriggerNode.holdsAt(
+    here: NodePath,
+    firedPath: NodePath,
+    stateOf: suspend (ComponentSpec) -> Boolean?,
+): Boolean = when (this) {
+    is TriggerNode.One -> here == firedPath || stateOf(spec) == true
+
+    // Short-circuits, and that is a promise rather than an optimisation: a
+    // location check costs a position read, so a group whose earlier child has
+    // already decided the answer must not pay for the rest.
+    is TriggerNode.Group -> when (op) {
+        TriggerNode.Op.ALL ->
+            children.withIndex().all { (i, child) -> child.holdsAt(here + i, firedPath, stateOf) }
+
+        TriggerNode.Op.ANY ->
+            children.withIndex().any { (i, child) -> child.holdsAt(here + i, firedPath, stateOf) }
+    }
 }
 
 /**
- * The checks in this tree whose component cannot answer a state question.
+ * Whether this tree can ever start a rule.
  *
- * A rule containing one can never fire, silently and permanently —
- * indistinguishable from "it has not happened yet", which is the failure mode this
- * project keeps designing against. The editor prevents it by only offering
- * state-capable components in condition slots; this exists for the other way in,
- * an imported or downgraded rule naming a component that cannot be asked.
+ * The one thing a person can build here that silently cannot work. Two components
+ * that only ever produce events, in the same [TriggerNode.Op.ALL] group, describe
+ * two instants that never coincide: whichever one fires, the other is asked for a
+ * state it does not have, answers unknown, and the group fails. Forever, with no
+ * message — the failure this project keeps designing against.
  *
- * Returns the offenders rather than a boolean so the caller can name them.
+ * So it is computed rather than assumed:
+ *
+ * - `One` can start if its component produces events.
+ * - `ANY` can start if any child can.
+ * - `ALL` can start if one child can start *and* every other child can be asked
+ *   for a state. One edge and any number of levels is the useful rule; a second
+ *   edge is the mistake.
+ *
+ * [hasEvents] and [hasState] come from the component's factory — see
+ * `Registry`. Both are passed in rather than read here, because `:core`'s model
+ * must not need the registry to describe itself.
  */
-fun ConditionNode.unaskable(supportsCondition: (String) -> Boolean): List<ComponentSpec> =
-    checks().filterNot { supportsCondition(it.type) }
+fun TriggerNode.canStart(
+    hasEvents: (String) -> Boolean,
+    hasState: (String) -> Boolean,
+): Boolean = when (this) {
+    is TriggerNode.One -> hasEvents(spec.type)
+
+    is TriggerNode.Group -> when (op) {
+        TriggerNode.Op.ANY -> children.any { it.canStart(hasEvents, hasState) }
+
+        TriggerNode.Op.ALL -> children.indices.any { i ->
+            children[i].canStart(hasEvents, hasState) &&
+                children.filterIndexed { j, _ -> j != i }.all { it.canHold(hasState) }
+        }
+    }
+}
+
+/**
+ * Whether this tree can be asked for a state — the other half of [canStart].
+ *
+ * A group can be asked if all of its children can, whatever the operator: asking
+ * "is (a or b) true now" is answerable exactly when both a and b are.
+ */
+fun TriggerNode.canHold(hasState: (String) -> Boolean): Boolean = when (this) {
+    is TriggerNode.One -> hasState(spec.type)
+    is TriggerNode.Group -> children.all { it.canHold(hasState) }
+}
+
+/**
+ * The components in this tree that no installed factory knows.
+ *
+ * Reachable only through an imported file or a downgrade, and worth naming rather
+ * than counting: "this rule needs a trigger this version does not have" is
+ * actionable, "this rule is invalid" is not.
+ */
+fun TriggerNode.unknown(isKnown: (String) -> Boolean): List<ComponentSpec> =
+    leaves().filterNot { isKnown(it.type) }
+
+/**
+ * The same tree with the node at [path] replaced by [replacement].
+ *
+ * Returns the tree unchanged if the path leads nowhere. Editing by path rather
+ * than by mutation keeps the draft a value, which is what lets the editor's undo
+ * be "keep the previous one" rather than a reverse operation per control.
+ */
+fun TriggerNode.replaceAt(path: NodePath, replacement: TriggerNode): TriggerNode {
+    if (path.isEmpty()) return replacement
+    val group = this as? TriggerNode.Group ?: return this
+    val index = path.first()
+    val child = group.children.getOrNull(index) ?: return this
+    return group.copy(
+        children = group.children.toMutableList().also {
+            it[index] = child.replaceAt(path.drop(1), replacement)
+        },
+    )
+}
+
+/**
+ * The same tree with the node at [path] removed.
+ *
+ * A group that loses its second-to-last child collapses into its remaining child,
+ * because "all of: one thing" is a box drawn around nothing. A group that loses
+ * its last child is removed in turn, up to the root — and removing the root
+ * returns null, which the caller renders as the empty "choose a trigger" slot.
+ */
+fun TriggerNode.removeAt(path: NodePath): TriggerNode? {
+    if (path.isEmpty()) return null
+    val group = this as? TriggerNode.Group ?: return this
+    val index = path.first()
+    val child = group.children.getOrNull(index) ?: return this
+
+    val remaining = if (path.size == 1) {
+        group.children.filterIndexed { i, _ -> i != index }
+    } else {
+        val edited = child.removeAt(path.drop(1))
+        if (edited == null) {
+            group.children.filterIndexed { i, _ -> i != index }
+        } else {
+            group.children.toMutableList().also { it[index] = edited }
+        }
+    }
+
+    return when (remaining.size) {
+        0 -> null
+        1 -> remaining.single()
+        else -> group.copy(children = remaining)
+    }
+}
+
+/**
+ * The same tree with [addition] appended to the group at [path].
+ *
+ * If [path] names a leaf rather than a group, that leaf becomes a group of two:
+ * adding a second trigger to a single one is how a group comes into existence
+ * without the user having to choose a container first. [op] is used only in that
+ * case, since an existing group already has one.
+ */
+fun TriggerNode.addAt(
+    path: NodePath,
+    addition: TriggerNode,
+    op: TriggerNode.Op = TriggerNode.Op.ALL,
+): TriggerNode {
+    val target = at(path) ?: return this
+    val grown = when (target) {
+        is TriggerNode.Group -> target.copy(children = target.children + addition)
+        is TriggerNode.One -> TriggerNode.Group(op, listOf(target, addition))
+    }
+    return replaceAt(path, grown)
+}

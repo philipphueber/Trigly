@@ -3,12 +3,13 @@ package app.phueber.trigly.core
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The gate's condition logic.
+ * The trigger tree's pure logic: [TriggerNode.holds], [TriggerNode.canStart],
+ * [TriggerNode.canHold], [TriggerNode.leaves], [TriggerNode.leafPaths] and
+ * [TriggerNode.unknown].
  *
  * Worth testing exhaustively for one reason: every mistake in here is silent. A
  * tree that wrongly holds fires a rule nobody asked for; a tree that wrongly
@@ -18,11 +19,15 @@ import org.junit.Test
  *
  * The state lookup being a parameter is what makes all of this JVM-testable — no
  * device, no Wi-Fi to toggle, and the awkward cases (unknown state, empty
- * branches) reachable at all.
+ * branches, the leaf that just fired) reachable at all.
  */
 class GateTest {
 
-    private fun check(type: String) = ConditionNode.Check(ComponentSpec(type, emptyMap()))
+    private fun one(type: String) = TriggerNode.One(ComponentSpec(type, emptyMap()))
+
+    private fun all(vararg children: TriggerNode) = TriggerNode.Group(TriggerNode.Op.ALL, children.toList())
+
+    private fun any(vararg children: TriggerNode) = TriggerNode.Group(TriggerNode.Op.ANY, children.toList())
 
     /** A lookup from a plain map: absent means "cannot be asked". */
     private fun states(vararg pairs: Pair<String, Boolean?>): suspend (ComponentSpec) -> Boolean? {
@@ -30,16 +35,26 @@ class GateTest {
         return { spec -> byType[spec.type] }
     }
 
-    // --- one check -------------------------------------------------------------
+    /**
+     * No child of an ALL/ANY group ever sits at the empty path — only a lone
+     * `One` used as a whole tree's root does, since it has no group above it.
+     * The group tests below use this as "nothing fired". The lone-leaf tests
+     * just below need a path that cannot be *that* leaf's own instead, since
+     * for a bare `One` the empty path names the leaf itself.
+     */
+    private val notFired: NodePath = emptyList()
+    private val someOtherLeaf: NodePath = listOf(0)
+
+    // --- one leaf ----------------------------------------------------------------
 
     @Test
-    fun `a check holds when its state is true`() = runTest {
-        assertTrue(check("wifi_state").holds(states("wifi_state" to true)))
+    fun `a leaf that did not fire holds when its state is true`() = runTest {
+        assertTrue(one("wifi_state").holds(someOtherLeaf, states("wifi_state" to true)))
     }
 
     @Test
-    fun `a check does not hold when its state is false`() = runTest {
-        assertFalse(check("wifi_state").holds(states("wifi_state" to false)))
+    fun `a leaf that did not fire does not hold when its state is false`() = runTest {
+        assertFalse(one("wifi_state").holds(someOtherLeaf, states("wifi_state" to false)))
     }
 
     @Test
@@ -47,102 +62,120 @@ class GateTest {
         // Null means "cannot be asked", not "no". Treating it as holding would
         // fire a rule on a guess — for an app acting unattended, the worse of the
         // two failures by a distance.
-        assertFalse(check("sms_received").holds(states("sms_received" to null)))
-        assertFalse("a state nobody supplied is also unknown", check("wifi_state").holds(states()))
-    }
-
-    // --- all and any -----------------------------------------------------------
-
-    @Test
-    fun `all holds only when every child does`() = runTest {
-        val tree = ConditionNode.All(listOf(check("a"), check("b")))
-
-        assertTrue(tree.holds(states("a" to true, "b" to true)))
-        assertFalse(tree.holds(states("a" to true, "b" to false)))
-        assertFalse(tree.holds(states("a" to false, "b" to true)))
+        assertFalse(one("sms_received").holds(someOtherLeaf, states("sms_received" to null)))
+        assertFalse("a state nobody supplied is also unknown", one("wifi_state").holds(someOtherLeaf, states()))
     }
 
     @Test
-    fun `any holds when one child does`() = runTest {
-        val tree = ConditionNode.Any(listOf(check("a"), check("b")))
+    fun `the leaf that fired holds without being asked`() = runTest {
+        // The single most important property in this file: a component whose
+        // state cannot be read — null, or nothing supplied at all — still
+        // counts as true when it is the leaf that just fired. Without this, a
+        // momentary trigger (a tap, a notification) could never satisfy a
+        // group on its own, because it has no state to be asked for.
+        val leaf = one("tap")
+        assertTrue(leaf.holds(emptyList(), states()))
+        assertTrue(leaf.holds(emptyList(), states("tap" to null)))
+        // Even a state that would say "false" is overridden by having fired.
+        assertTrue(leaf.holds(emptyList(), states("tap" to false)))
+    }
 
-        assertTrue(tree.holds(states("a" to false, "b" to true)))
-        assertTrue(tree.holds(states("a" to true, "b" to false)))
-        assertFalse(tree.holds(states("a" to false, "b" to false)))
+    // --- ALL and ANY ---------------------------------------------------------------
+
+    @Test
+    fun `ALL holds only when every child does`() = runTest {
+        val tree = all(one("a"), one("b"))
+
+        assertTrue(tree.holds(notFired, states("a" to true, "b" to true)))
+        assertFalse(tree.holds(notFired, states("a" to true, "b" to false)))
+        assertFalse(tree.holds(notFired, states("a" to false, "b" to true)))
     }
 
     @Test
-    fun `one unknown child sinks an all`() = runTest {
-        val tree = ConditionNode.All(listOf(check("wifi_state"), check("sms_received")))
+    fun `ANY holds when one child does`() = runTest {
+        val tree = any(one("a"), one("b"))
 
-        assertFalse(tree.holds(states("wifi_state" to true, "sms_received" to null)))
+        assertTrue(tree.holds(notFired, states("a" to false, "b" to true)))
+        assertTrue(tree.holds(notFired, states("a" to true, "b" to false)))
+        assertFalse(tree.holds(notFired, states("a" to false, "b" to false)))
     }
 
     @Test
-    fun `an unknown child does not sink an any that is otherwise satisfied`() = runTest {
-        val tree = ConditionNode.Any(listOf(check("sms_received"), check("wifi_state")))
+    fun `one unknown child sinks an ALL`() = runTest {
+        val tree = all(one("wifi_state"), one("sms_received"))
 
-        assertTrue(tree.holds(states("sms_received" to null, "wifi_state" to true)))
+        assertFalse(tree.holds(notFired, states("wifi_state" to true, "sms_received" to null)))
     }
 
-    // --- grouping --------------------------------------------------------------
+    @Test
+    fun `an unknown child does not sink an ANY that is otherwise satisfied`() = runTest {
+        val tree = any(one("sms_received"), one("wifi_state"))
+
+        assertTrue(tree.holds(notFired, states("sms_received" to null, "wifi_state" to true)))
+    }
 
     @Test
-    fun `a nested group is the sub-gate, and grouping changes the meaning`() = runTest {
+    fun `in an ALL group, the fired leaf counts true even though its own state is unknown`() = runTest {
+        // "the notification arrived AND it is night": the notification leaf
+        // has no state at all, so if firing did not override the state read,
+        // this group could never be satisfied by its own first leaf.
+        val tree = all(one("notification"), one("time_window"))
+
+        assertTrue(tree.holds(listOf(0), states("time_window" to true)))
+        // Same states, but nothing fired — the contrast that shows the true
+        // above came from the path match, not a lucky default.
+        assertFalse(tree.holds(notFired, states("time_window" to true)))
+    }
+
+    // --- grouping and nesting --------------------------------------------------------
+
+    @Test
+    fun `a nested group changes the meaning of the tree, same leaves`() = runTest {
         // A and (B or C) — true with only C.
-        val grouped = ConditionNode.All(
-            listOf(check("a"), ConditionNode.Any(listOf(check("b"), check("c")))),
-        )
-        assertTrue(grouped.holds(states("a" to true, "b" to false, "c" to true)))
-        assertFalse(grouped.holds(states("a" to false, "b" to true, "c" to true)))
+        val grouped = all(one("a"), any(one("b"), one("c")))
+        assertTrue(grouped.holds(notFired, states("a" to true, "b" to false, "c" to true)))
+        assertFalse(grouped.holds(notFired, states("a" to false, "b" to true, "c" to true)))
 
-        // (A and B) or C — also true with only C, but for a different reason, and
-        // false where the first was true. Flattening would silently pick one.
-        val other = ConditionNode.Any(
-            listOf(ConditionNode.All(listOf(check("a"), check("b"))), check("c")),
-        )
-        assertTrue(other.holds(states("a" to false, "b" to false, "c" to true)))
-        assertFalse(other.holds(states("a" to true, "b" to false, "c" to false)))
+        // (A and B) or C — also true with only C, but for a different reason,
+        // and false where the first was true. Flattening would silently pick
+        // one reading.
+        val other = any(all(one("a"), one("b")), one("c"))
+        assertTrue(other.holds(notFired, states("a" to false, "b" to false, "c" to true)))
+        assertFalse(other.holds(notFired, states("a" to true, "b" to false, "c" to false)))
     }
 
     @Test
-    fun `nesting goes as deep as it is written`() = runTest {
-        val deep = ConditionNode.All(
-            listOf(
-                check("a"),
-                ConditionNode.Any(
-                    listOf(
-                        check("b"),
-                        ConditionNode.All(listOf(check("c"), check("d"))),
-                    ),
-                ),
-            ),
-        )
+    fun `nesting three deep, mixing ALL and ANY, evaluates by structure not depth`() = runTest {
+        // a AND (b OR (c AND d)) — ALL wrapping an ANY wrapping an ALL.
+        val tree = all(one("a"), any(one("b"), all(one("c"), one("d"))))
 
-        assertTrue(deep.holds(states("a" to true, "b" to false, "c" to true, "d" to true)))
-        assertFalse(deep.holds(states("a" to true, "b" to false, "c" to true, "d" to false)))
+        assertTrue(tree.holds(notFired, states("a" to true, "b" to false, "c" to true, "d" to true)))
+        assertFalse(tree.holds(notFired, states("a" to true, "b" to false, "c" to true, "d" to false)))
+        assertTrue(tree.holds(notFired, states("a" to true, "b" to true, "c" to false, "d" to false)))
+        assertFalse(tree.holds(notFired, states("a" to false, "b" to true, "c" to true, "d" to true)))
     }
 
-    // --- the empty cases, which only an imported file can produce --------------
+    // --- the empty cases, which only an imported file can produce ------------------
 
     @Test
-    fun `all of nothing holds and any of nothing does not`() = runTest {
-        // From what the words mean, not from convenience: nothing failed, versus
-        // nothing satisfied it. Unreachable from the editor, reachable from a file.
-        assertTrue(ConditionNode.All(emptyList()).holds(states()))
-        assertFalse(ConditionNode.Any(emptyList()).holds(states()))
+    fun `ALL of nothing holds and ANY of nothing does not`() = runTest {
+        // From what the words mean, not from convenience: nothing failed,
+        // versus nothing satisfied it. Unreachable from the editor, reachable
+        // from a file.
+        assertTrue(all().holds(notFired, states()))
+        assertFalse(any().holds(notFired, states()))
     }
 
-    // --- short-circuiting is a promise, not an optimisation ---------------------
+    // --- short-circuiting is a promise, not an optimisation -------------------------
 
     @Test
-    fun `all stops asking after the first failure`() = runTest {
-        // A location check costs a GPS read. An `All` whose earlier child has
+    fun `ALL stops asking after the first failure`() = runTest {
+        // A location check costs a GPS read. An ALL whose earlier child has
         // already failed must not pay for the rest.
         val asked = mutableListOf<String>()
-        val tree = ConditionNode.All(listOf(check("cheap"), check("expensive")))
+        val tree = all(one("cheap"), one("expensive"))
 
-        tree.holds { spec ->
+        tree.holds(notFired) { spec ->
             asked += spec.type
             spec.type == "expensive"
         }
@@ -151,11 +184,11 @@ class GateTest {
     }
 
     @Test
-    fun `any stops asking after the first success`() = runTest {
+    fun `ANY stops asking after the first success`() = runTest {
         val asked = mutableListOf<String>()
-        val tree = ConditionNode.Any(listOf(check("cheap"), check("expensive")))
+        val tree = any(one("cheap"), one("expensive"))
 
-        tree.holds { spec ->
+        tree.holds(notFired) { spec ->
             asked += spec.type
             true
         }
@@ -163,86 +196,112 @@ class GateTest {
         assertEquals(listOf("cheap"), asked)
     }
 
-    // --- what the gate carries -------------------------------------------------
+    // --- what the tree carries -------------------------------------------------------
 
     @Test
-    fun `a gate with no conditions is just a trigger`() {
-        val gate = Gate(trigger = ComponentSpec("power_connection", mapOf("state" to "connected")))
+    fun `leaves lists every component in the tree, depth first`() {
+        val tree = all(one("a"), any(one("b"), one("c")))
 
-        assertEquals(null, gate.conditions)
-        assertEquals(1, gate.triggers.size)
-        assertFalse(gate.hasSeveralTriggers)
+        assertEquals(listOf("a", "b", "c"), tree.leaves().map { it.type })
     }
 
     @Test
-    fun `the first level can be an OR of several edges`() {
-        // "when the charger is plugged in *or* the headset goes in" — several
-        // edges, any of which fires. The single-trigger case needs no wrapper,
-        // which is why this is a list rather than a mandatory Any node.
-        val gate = Gate(
-            triggers = listOf(
-                ComponentSpec("power_connection", mapOf("state" to "connected")),
-                ComponentSpec("headset_plug", mapOf("state" to "plugged")),
-            ),
+    fun `leafPaths pairs each leaf with its position`() {
+        val tree = all(one("a"), any(one("b"), one("c")))
+
+        assertEquals(
+            listOf(listOf(0) to "a", listOf(1, 0) to "b", listOf(1, 1) to "c"),
+            tree.leafPaths().map { (path, spec) -> path to spec.type },
         )
-
-        assertEquals(2, gate.triggers.size)
-        assertTrue(gate.hasSeveralTriggers)
     }
 
     @Test
-    fun `several edges compose with conditions`() {
-        // The shape the whole design is for: any of these edges, gated on states.
-        val gate = Gate(
-            triggers = listOf(
-                ComponentSpec("power_connection", mapOf("state" to "connected")),
-                ComponentSpec("bluetooth_connected", emptyMap()),
-            ),
-            conditions = ConditionNode.All(listOf(check("time_window"), check("location_here"))),
-        )
+    fun `unknown names the leaves no installed factory knows`() {
+        // The editor stops these being built; this catches the other way in —
+        // an imported rule, or one saved by a newer version, naming a
+        // component this build does not have.
+        val tree = all(one("wifi_state"), any(one("ui_click")))
 
-        assertTrue(gate.hasSeveralTriggers)
-        assertEquals(listOf("time_window", "location_here"), gate.conditions!!.checks().map { it.type })
-    }
-
-    @Test
-    fun `a gate with no trigger is refused where it is built`() {
-        // Unreachable from the editor, reachable from an imported file. Refused
-        // here rather than diagnosed later as a rule that mysteriously does
-        // nothing.
-        val thrown = assertThrows(IllegalArgumentException::class.java) {
-            Gate(triggers = emptyList())
-        }
-        assertTrue(thrown.message.orEmpty().contains("at least one trigger"))
-    }
-
-    @Test
-    fun `checks lists every spec in the tree, depth first`() {
-        val tree = ConditionNode.All(
-            listOf(check("a"), ConditionNode.Any(listOf(check("b"), check("c")))),
-        )
-
-        assertEquals(listOf("a", "b", "c"), tree.checks().map { it.type })
-    }
-
-    @Test
-    fun `unaskable names the checks that cannot answer`() {
-        // The editor stops these being built; this catches the other way in — an
-        // imported rule, or one saved by a newer version, naming a component that
-        // cannot be asked. A boolean would leave the caller unable to say which.
-        val tree = ConditionNode.All(
-            listOf(check("wifi_state"), ConditionNode.Any(listOf(check("ui_click")))),
-        )
-
-        val offenders = tree.unaskable { type -> type == "wifi_state" }
+        val offenders = tree.unknown { type -> type == "wifi_state" }
 
         assertEquals(listOf("ui_click"), offenders.map { it.type })
     }
 
     @Test
-    fun `a tree of askable checks has no offenders`() {
-        val tree = ConditionNode.All(listOf(check("wifi_state"), check("screen_state")))
+    fun `a tree of known leaves has no unknown offenders`() {
+        val tree = all(one("wifi_state"), one("screen_state"))
 
-        assertTrue(tree.unaskable { true }.isEmpty())
+        assertTrue(tree.unknown { true }.isEmpty())
+    }
+
+    // --- canStart and canHold --------------------------------------------------------
+
+    /** "edge-*" and "tap"/"notification" only ever fire; "time_window" only answers a state. */
+    private val eventOnlyTypes = setOf("tap", "notification", "edge-a", "edge-b")
+    private val stateOnlyTypes = setOf("time_window")
+    private val bothTypes = setOf("bluetooth")
+
+    private fun hasEvents(type: String) = type in eventOnlyTypes || type in bothTypes
+    private fun hasState(type: String) = type in stateOnlyTypes || type in bothTypes
+
+    @Test
+    fun `a lone leaf can start when its component produces events`() {
+        assertTrue(one("tap").canStart(::hasEvents, ::hasState))
+    }
+
+    @Test
+    fun `a lone leaf cannot start when its component only ever answers a state`() {
+        assertFalse(one("time_window").canStart(::hasEvents, ::hasState))
+    }
+
+    @Test
+    fun `ANY can start if any child can`() {
+        assertTrue(any(one("time_window"), one("tap")).canStart(::hasEvents, ::hasState))
+    }
+
+    @Test
+    fun `ANY cannot start if no child can`() {
+        assertFalse(any(one("time_window")).canStart(::hasEvents, ::hasState))
+    }
+
+    @Test
+    fun `ALL can start with one edge and any number of levels`() {
+        assertTrue(all(one("tap"), one("time_window")).canStart(::hasEvents, ::hasState))
+    }
+
+    @Test
+    fun `ALL of two event-only components can never start`() {
+        // Two edges describe two instants that never coincide: whichever one
+        // fires, the other is asked for a state it does not have, answers
+        // unknown, and the group fails — forever, with no message on screen
+        // to say why. This is the one mistake canStart exists to catch.
+        assertFalse(all(one("edge-a"), one("edge-b")).canStart(::hasEvents, ::hasState))
+    }
+
+    @Test
+    fun `ALL cannot start if the would-be other child cannot be asked either`() {
+        // "tap" can start the group on its own, but "edge-a" has no state to
+        // fall back on once "tap" is the one that fired — the same failure as
+        // two bare edges, just with only one of them able to start at all.
+        assertFalse(all(one("tap"), one("edge-a")).canStart(::hasEvents, ::hasState))
+    }
+
+    @Test
+    fun `the starting child of an ALL group may itself be a group`() {
+        // ALL(ANY(tap, time_window), bluetooth) — the ANY sub-group can start
+        // (through "tap"), and "bluetooth" can be asked for its state. Same
+        // shape as one edge and any number of levels, just with the edge
+        // nested one level down.
+        val tree = all(any(one("tap"), one("time_window")), one("bluetooth"))
+
+        assertTrue(tree.canStart(::hasEvents, ::hasState))
+    }
+
+    @Test
+    fun `canHold requires every child answerable, whatever the operator`() {
+        assertTrue(any(one("time_window"), one("bluetooth")).canHold(::hasState))
+        // "tap" cannot be asked for a state at all, so the ALL cannot either —
+        // asking "is (a and b) true now" needs both a and b to be answerable.
+        assertFalse(all(one("time_window"), one("tap")).canHold(::hasState))
     }
 }

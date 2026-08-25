@@ -20,7 +20,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.Rule
-import app.phueber.trigly.core.checks
+import app.phueber.trigly.core.TriggerNode
+import app.phueber.trigly.core.leaves
 
 /**
  * Stateless by design: it takes the rules and reports actions back out. That is
@@ -219,32 +220,65 @@ private fun RequirementCell(
  * The one line that says what a rule does, in display names rather than type
  * strings.
  *
- * **It must describe the whole gate.** It used to read `rule.trigger` — the first
- * edge — and say nothing about conditions, which was accurate only while a rule
- * could have exactly one trigger and no conditions. Once gates arrived, the list
- * could state something the rule does not do: a rule fired by two triggers looked
- * like it had one, and a rule gated on "only at night" looked unconditional. This
- * list is where someone checks what a rule does without opening it, so a summary
- * that misdescribes is worse than one that is merely terse.
+ * **It must describe the whole tree.** It used to read `rule.gate.triggers` — the
+ * first-level edges, joined with "or" — and append a bare count of conditions.
+ * That was accurate only while "condition" was a separate, flatter thing beside
+ * the triggers; once a gate became one [TriggerNode] that can nest to any depth,
+ * the old join could state something the rule does not do — a two-deep "all of"
+ * read the same as a two-deep "any of", and a rule three levels deep read no
+ * differently from one two levels deep, just fewer or more words in an unordered
+ * list. This line is where someone checks what a rule does without opening the
+ * editor, so a summary that misdescribes is worse than one that is merely terse.
  *
- * Conditions are counted, not named. Naming them would run to a paragraph for a
- * nested tree, and the count is what answers the question this line is asked —
- * "is there more to this than the trigger?" The editor shows the rest.
+ * A [TriggerNode.Group] is parenthesised and its children joined by "and" or
+ * "or" depending on [TriggerNode.Op] — the same mark of grouping the tree itself
+ * uses, so "a and (b or c)" reads exactly as nested as it is.
+ *
+ * **Never fewer triggers than the rule has.** A long tree can run this line past
+ * the point of being scannable, but cutting it short must not make the rule read
+ * as simpler than it is — that is the bug this replaced. So a cut string is never
+ * handed back on its own: it is always suffixed with the true leaf count, however
+ * the text before it was truncated, which is what keeps a truncated summary
+ * honest about having been truncated rather than looking complete.
  */
 private fun summarise(rule: Rule, describeComponent: (String) -> String): String {
-    val triggers = rule.gate.triggers.joinToString(" or ") { describeComponent(it.type) }
-
-    val conditions = rule.gate.conditions?.checks()?.size ?: 0
-    val gate = when (conditions) {
-        0 -> triggers
-        1 -> "$triggers + 1 condition"
-        else -> "$triggers + $conditions conditions"
-    }
+    val trigger = describeTrigger(rule.trigger, describeComponent)
 
     val actions = if (rule.actions.isEmpty()) {
         "nothing"
     } else {
         rule.actions.joinToString { describeComponent(it.type) }
     }
-    return "$gate → $actions"
+    return "$trigger → $actions"
+}
+
+/** Past this many characters the tree is truncated rather than spelled out in full. */
+private const val MAX_TRIGGER_SUMMARY_LENGTH = 60
+
+private fun describeTrigger(node: TriggerNode, describeComponent: (String) -> String): String {
+    val full = renderTrigger(node, describeComponent)
+    if (full.length <= MAX_TRIGGER_SUMMARY_LENGTH) return full
+
+    // A cut mid-tree can drop a whole child, or a whole side of an "or" — which
+    // is exactly the shape of the bug this line exists to prevent. Naming the
+    // true count after the cut is what makes the truncation honest regardless
+    // of where the text happened to break.
+    val total = node.leaves().size
+    val cut = full.take(MAX_TRIGGER_SUMMARY_LENGTH).trimEnd()
+    val noun = if (total == 1) "trigger" else "triggers"
+    return "$cut… ($total $noun)"
+}
+
+private fun renderTrigger(node: TriggerNode, describeComponent: (String) -> String): String = when (node) {
+    is TriggerNode.One -> describeComponent(node.spec.type)
+
+    is TriggerNode.Group -> {
+        val joiner = when (node.op) {
+            TriggerNode.Op.ALL -> " and "
+            TriggerNode.Op.ANY -> " or "
+        }
+        node.children.joinToString(separator = joiner, prefix = "(", postfix = ")") {
+            renderTrigger(it, describeComponent)
+        }
+    }
 }

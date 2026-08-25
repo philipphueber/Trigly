@@ -1,15 +1,21 @@
 package app.phueber.trigly.ui
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -30,6 +36,14 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -38,6 +52,8 @@ import app.phueber.trigly.core.ComponentDescriptor
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ComponentTool
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.NodePath
+import app.phueber.trigly.core.TriggerNode
 import app.phueber.trigly.core.shownWith
 import app.phueber.trigly.core.companionKeys
 
@@ -60,53 +76,48 @@ import app.phueber.trigly.core.companionKeys
 @Composable
 fun RuleEditorScreen(
     state: EditorState,
-    triggerOptions: List<ComponentDescriptor>,
-    actionOptions: List<ComponentDescriptor>,
     /**
-     * What a condition's picker offers — trigger-shaped components already
-     * narrowed to `supportsCondition`. See `RuleEditorViewModel.conditionOptions`
-     * and `docs/conditions.md`; filtered before it reaches here for the same
-     * reason [triggerOptions] is: a slot must never show, then reject.
-     *
-     * Defaulted, along with every other new parameter below the trigger and
-     * condition sections needed — see `docs/conditions.md`'s phasing and the
-     * report accompanying this change: an existing caller (an instrumented
-     * test this module does not own) still calls this composable with only the
-     * pre-gate parameter set, and it is not this change's place to make that
-     * stop compiling. A caller that omits them gets a "When" section that
-     * cannot grow past one trigger and no way to add a further slot beneath
-     * it — inert, not broken.
+     * What a trigger picker offers at a given point in the tree — the empty
+     * path for the root, a group's own path for a sibling inside it. A
+     * function rather than a flat list because availability is path-dependent:
+     * `TriggerNode.canStart`'s "one edge, any number of levels" rule means a
+     * slot beside an existing edge must not offer a second one, so a slot must
+     * never show a component only to refuse it once picked. See
+     * `RuleEditorViewModel.triggerOptionsFor`.
      */
-    conditionOptions: List<ComponentDescriptor> = emptyList(),
+    triggerOptionsFor: (NodePath) -> List<ComponentDescriptor>,
+    actionOptions: List<ComponentDescriptor>,
     descriptorFor: (Slot, String) -> ComponentDescriptor?,
     onNameChange: (String) -> Unit,
     onEnabledChange: (Boolean) -> Unit,
+    /** Sets the first trigger, from the empty "Choose a trigger" slot. */
     onChooseTrigger: (String) -> Unit,
-    /** Adds a second (or third, …) trigger edge — the gate's first level is an
-     * OR of these, per `docs/conditions.md`.
+    /**
+     * Replaces the type of the node at this path, migrating compatible config
+     * across the swap the same way it always has.
      */
-    onAddTrigger: (String) -> Unit = {},
-    onChangeTriggerType: (Int, String) -> Unit = { _, _ -> },
-    onRemoveTrigger: (Int) -> Unit = {},
-    onMoveTrigger: (Int, Int) -> Unit = { _, _ -> },
+    onChangeTriggerType: (NodePath, String) -> Unit = { _, _ -> },
+    /**
+     * Adds a sibling beside the node at this path. A leaf there becomes a
+     * group of two — see `TriggerNode.addAt` — which is how a group comes
+     * into existence without the user first having to choose a container.
+     */
+    onAddTrigger: (NodePath, String) -> Unit = { _, _ -> },
+    /** Adds a nested group at this path, holding one freshly-picked leaf. */
+    /** Flips a group between "all of" and "any of". */
+    onSetTriggerOp: (NodePath, TriggerNode.Op) -> Unit = { _, _ -> },
+    /**
+     * Removes the node at this path. An empty path clears the whole "When"
+     * section back to its unchosen state — see `TriggerNode.removeAt`.
+     */
+    onRemoveTrigger: (NodePath) -> Unit = {},
+    /** Edits one config value on the leaf at this path. */
+    onSetTriggerConfigValue: (NodePath, String, String?) -> Unit = { _, _, _ -> },
     onAddAction: (String) -> Unit,
     onChangeActionType: (Int, String) -> Unit,
     onRemoveAction: (Int) -> Unit,
     onMoveAction: (Int, Int) -> Unit,
     onConfigChange: (Slot, Int, String, String?) -> Unit,
-    /**
-     * The condition tree's edits, each addressed by a path of child indices
-     * walked from the root through nested groups — the empty path means the
-     * root itself. See [ConditionDraft] and [replaceCondition] for why a path
-     * rather than a flat index: a tree of arbitrary depth has no flat index to
-     * give it.
-     */
-    onAddConditionCheck: (List<Int>, String) -> Unit = { _, _ -> },
-    onAddConditionGroup: (List<Int>) -> Unit = {},
-    onRemoveCondition: (List<Int>) -> Unit = {},
-    onSetConditionOp: (List<Int>, ConditionDraft.Op) -> Unit = { _, _ -> },
-    onChangeConditionType: (List<Int>, String) -> Unit = { _, _ -> },
-    onConditionConfigChange: (List<Int>, String, String?) -> Unit = { _, _, _ -> },
     onTestAction: (Int) -> Unit,
     onSave: () -> Unit,
     onDelete: () -> Unit,
@@ -157,13 +168,22 @@ fun RuleEditorScreen(
     // user does rather than something they undo.
     //
     // Keyed by *position* — "trigger", "action-0" — because a `ComponentDraft`
-    // has no identity of its own. So Up and Down move an action out from under
-    // its own fold: the slot stays shut, not the action. That is the right way
-    // round for the job it does, which is getting a long rule down to a list of
-    // headings you can reorder.
+    // has no identity of its own. That is the right way round for the job
+    // folding does, which is getting a long rule down to a list of headings.
+    //
+    // A trigger group is the one exception, seeded shut here rather than left
+    // to the same "everything starts open" default: it is what makes a rule
+    // with several nested gates one line until asked, rather than the whole
+    // tree dumped on screen the moment its rule is opened. The seeding only
+    // ever runs once — inside `rememberSaveable`'s initial-value lambda — so it
+    // captures the tree exactly as this editor was entered with. A group added
+    // afterwards, in this same session, is not in that snapshot and so stays
+    // open: the person just built it and is still working in it.
     //
     // Saveable, so a rotation does not unfold the whole rule again.
-    val collapsed = rememberSaveable(saver = stringListSaver) { mutableStateListOf<String>() }
+    val collapsed = rememberSaveable(saver = stringListSaver) {
+        mutableStateListOf<String>().apply { addAll(initiallyCollapsedTriggerGroups(draft.trigger)) }
+    }
     fun toggle(key: String) {
         if (!collapsed.remove(key)) collapsed += key
     }
@@ -276,12 +296,12 @@ fun RuleEditorScreen(
                 }
 
                 SectionLabel("When")
-                if (draft.triggers.isEmpty()) {
-                    // Unchosen: exactly the one block this section has always shown,
-                    // with no footer and no "Add trigger" beneath it. A second edge
-                    // is something you add to a trigger you already have, not
-                    // something offered before you have picked the first one.
-                    ComponentBlock(
+                // The whole trigger side is one slot: nothing chosen, one
+                // component, or a group of them — see [TriggerDraft]. There is
+                // deliberately no second "must also be true" region beneath
+                // this any more; a gate is a trigger, and it lives here.
+                when (val trigger = draft.trigger) {
+                    null -> ComponentBlock(
                         chosenType = null,
                         descriptor = null,
                         config = emptyMap(),
@@ -295,110 +315,36 @@ fun RuleEditorScreen(
                         onToggleCaveat = { toggleCaveat(TRIGGER_KEY) },
                         isRequirementSatisfied = isRequirementSatisfied,
                     )
-                } else {
-                    // The OR only exists to read at all once there is a second edge
-                    // to be one of — a single trigger carries no hint that this text
-                    // could ever appear, which is the whole point of it being absent
-                    // until then.
-                    if (draft.triggers.size > 1) {
-                        Text(
-                            text = "Any of these fire the rule.",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(bottom = 8.dp),
-                        )
-                    }
-                    draft.triggers.forEachIndexed { index, trigger ->
-                        // No footer at all for the common one-trigger case — see the
-                        // KDoc on this call site's caller and `docs/conditions.md`:
-                        // a single edge must look exactly as it did before several
-                        // were possible, and that includes not gaining a Remove
-                        // button it never had.
-                        // Whatever this component says it offers, plus the
-                        // reordering controls, which belong to the *slot* rather
-                        // than to the component. The screen no longer knows that a
-                        // shortcut trigger can be pinned — the factory declares it;
-                        // see `ComponentFactory.toolsFor`.
-                        val tools = toolsFor(trigger.type, trigger.config)
-                        val movable = draft.triggers.size > 1
 
-                        val footer: (@Composable () -> Unit)? =
-                            if (movable || tools.isNotEmpty()) {
-                            {
-                                ComponentTools(
-                                    tools = tools,
-                                    config = trigger.config,
-                                    onPinShortcut = onPinShortcut,
-                                    onInspect = { inspecting = true },
-                                )
-                                if (movable && index > 0) {
-                                    BlockTextButton("Up") { onMoveTrigger(index, index - 1) }
-                                }
-                                if (movable && index < draft.triggers.lastIndex) {
-                                    BlockTextButton("Down") { onMoveTrigger(index, index + 1) }
-                                }
-                                if (movable) {
-                                    BlockTextButton("Remove") { onRemoveTrigger(index) }
-                                }
-                            }
-                        } else {
-                            null
-                        }
-                        ComponentBlock(
-                            chosenType = trigger.type,
-                            descriptor = descriptorFor(Slot.TRIGGER, trigger.type),
-                            config = trigger.config,
-                            emptyLabel = "Choose a trigger",
-                            onChoose = { picking = Picking.TriggerType(index) },
-                            onConfigChange = { key, value -> onConfigChange(Slot.TRIGGER, index, key, value) },
-                            onResolveRequirement = onResolveRequirement,
-                            modifier = Modifier.padding(bottom = 12.dp),
-                            footer = footer,
-                            expanded = triggerKey(index) !in collapsed,
-                            onToggleExpanded = { toggle(triggerKey(index)) },
-                            caveatShown = triggerKey(index) in shownCaveats,
-                            onToggleCaveat = { toggleCaveat(triggerKey(index)) },
-                            isRequirementSatisfied = isRequirementSatisfied,
-                        )
-                    }
-                    BlockOutlineButton(
-                        text = "Add trigger",
-                        onClick = { picking = Picking.NewTrigger },
-                        fillWidth = true,
-                        modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
+                    else -> TriggerNodeBlock(
+                        node = trigger,
+                        path = emptyList(),
+                        descriptorFor = { type -> descriptorFor(Slot.TRIGGER, type) },
+                        // Whatever this component says it offers — a notification
+                        // trigger's Inspect, a shortcut trigger's pin — the same
+                        // as any other trigger block, wherever in the tree it sits.
+                        tools = { type, config ->
+                            ComponentTools(
+                                tools = toolsFor(type, config),
+                                config = config,
+                                onPinShortcut = onPinShortcut,
+                                onInspect = { inspecting = true },
+                            )
+                        },
+                        onChangeTypeRequested = { path -> picking = Picking.ChangeTriggerType(path) },
+                        onAddTriggerRequested = { path -> picking = Picking.AddTrigger(path) },
+                        onSetOp = onSetTriggerOp,
+                        onRemove = onRemoveTrigger,
+                        onConfigChange = onSetTriggerConfigValue,
+                        onResolveRequirement = onResolveRequirement,
+                        isRequirementSatisfied = isRequirementSatisfied,
+                        isExpanded = { key -> key !in collapsed },
+                        onToggleExpanded = ::toggle,
+                        isCaveatShown = { key -> key in shownCaveats },
+                        onToggleCaveat = ::toggleCaveat,
+                        modifier = Modifier.padding(bottom = 12.dp),
                     )
                 }
-
-                GateEditor(
-                    conditions = draft.conditions,
-                    // A condition check resolves through the same lookup a trigger
-                    // does — see the KDoc on [Slot] for why there is no third value
-                    // to ask for here.
-                    descriptorFor = { type -> descriptorFor(Slot.TRIGGER, type) },
-                    onAddCheckRequested = { path -> picking = Picking.NewCondition(path) },
-                    onChangeTypeRequested = { path -> picking = Picking.ConditionType(path) },
-                    onAddGroup = onAddConditionGroup,
-                    onRemove = onRemoveCondition,
-                    onSetOp = onSetConditionOp,
-                    onConfigChange = onConditionConfigChange,
-                    // Conditions get the same tools their trigger form does: a
-                    // notification condition is configured against the same
-                    // invisible fields, so it needs the same way of seeing them.
-                    tools = { type, config ->
-                        ComponentTools(
-                            tools = toolsFor(type, config),
-                            config = config,
-                            onPinShortcut = onPinShortcut,
-                            onInspect = { inspecting = true },
-                        )
-                    },
-                    onResolveRequirement = onResolveRequirement,
-                    isRequirementSatisfied = isRequirementSatisfied,
-                    isExpanded = { key -> key !in collapsed },
-                    onToggleExpanded = ::toggle,
-                    isCaveatShown = { key -> key in shownCaveats },
-                    onToggleCaveat = ::toggleCaveat,
-                )
 
                 SectionLabel("Then")
                 draft.actions.forEachIndexed { index, action ->
@@ -428,12 +374,24 @@ fun RuleEditorScreen(
                                 testLabel = if (state.testing == index) "Stop" else "Test",
                                 onTest = { onTestAction(index) },
                             )
-                            // Order matters — actions run in sequence.
+                            // Order matters — actions run in sequence, so the
+                            // mapping from icon to effect is fixed: Up is always
+                            // `index - 1`, never the reverse, because an icon that
+                            // is ambiguous about direction is worse than the text
+                            // it replaces.
                             if (index > 0) {
-                                BlockTextButton("Up") { onMoveAction(index, index - 1) }
+                                ActionOrderButton(
+                                    icon = Icons.Filled.KeyboardArrowUp,
+                                    label = "Move up",
+                                    onClick = { onMoveAction(index, index - 1) },
+                                )
                             }
                             if (index < draft.actions.lastIndex) {
-                                BlockTextButton("Down") { onMoveAction(index, index + 1) }
+                                ActionOrderButton(
+                                    icon = Icons.Filled.KeyboardArrowDown,
+                                    label = "Move down",
+                                    onClick = { onMoveAction(index, index + 1) },
+                                )
                             }
                             BlockTextButton("Remove") { onRemoveAction(index) }
                         },
@@ -473,36 +431,26 @@ fun RuleEditorScreen(
     when (val target = picking) {
         null -> Unit
 
-        // The very first trigger, unchosen, still goes through [onChooseTrigger]
-        // rather than [onAddTrigger] — see the ViewModel's [chooseTrigger] KDoc.
+        // The very first trigger, unchosen — the only picking moment that has
+        // no path of its own, since there is nothing yet to be a sibling of.
         Picking.NewTrigger -> ComponentPickerDialog(
-            title = if (draft.triggers.isEmpty()) "Choose a trigger" else "Add trigger",
-            options = triggerOptions,
-            onPick = {
-                picking = null
-                if (draft.triggers.isEmpty()) onChooseTrigger(it) else onAddTrigger(it)
-            },
+            title = "Choose a trigger",
+            options = triggerOptionsFor(emptyList()),
+            onPick = { picking = null; onChooseTrigger(it) },
             onDismiss = { picking = null },
         )
 
-        is Picking.TriggerType -> ComponentPickerDialog(
+        is Picking.ChangeTriggerType -> ComponentPickerDialog(
             title = "Change trigger",
-            options = triggerOptions,
-            onPick = { picking = null; onChangeTriggerType(target.index, it) },
+            options = triggerOptionsFor(target.path),
+            onPick = { picking = null; onChangeTriggerType(target.path, it) },
             onDismiss = { picking = null },
         )
 
-        is Picking.NewCondition -> ComponentPickerDialog(
+        is Picking.AddTrigger -> ComponentPickerDialog(
             title = "Add trigger",
-            options = conditionOptions,
-            onPick = { picking = null; onAddConditionCheck(target.path, it) },
-            onDismiss = { picking = null },
-        )
-
-        is Picking.ConditionType -> ComponentPickerDialog(
-            title = "Change trigger",
-            options = conditionOptions,
-            onPick = { picking = null; onChangeConditionType(target.path, it) },
+            options = triggerOptionsFor(target.path),
+            onPick = { picking = null; onAddTrigger(target.path, it) },
             onDismiss = { picking = null },
         )
 
@@ -530,8 +478,29 @@ fun RuleEditorScreen(
             onDismissRequest = { inspecting = false },
             properties = DialogProperties(usePlatformDefaultWidth = false),
         ) {
+            // `heightIn(max = …)`, not `fillMaxSize()`, and this is the whole fix
+            // for a bottom bar that ran off the screen.
+            //
+            // `usePlatformDefaultWidth = false` makes the dialog window
+            // full-width, but its height stays wrap-content. So the content is
+            // measured with an *unbounded* maximum height, and two things follow
+            // that both look like the layout working: `fillMaxSize` has no
+            // bounded height to fill, so it behaves as wrap; and the inspector's
+            // `LazyColumn`, which takes `weight(1f)` of the remaining space,
+            // instead measures to the full height of every notification it holds.
+            // The window then grows taller than the display and the bottom bar —
+            // the only way back out — is pushed past the bottom edge. One
+            // notification hides it; six show it.
+            //
+            // Bounding the height gives the weight something to divide. The
+            // maximum is the window's own height, and the direction of any error
+            // matters: a dialog measured slightly *shorter* than the screen just
+            // leaves a strip of the editor visible behind it, while one measured
+            // taller loses the Back button. So this uses the configuration's
+            // screen height, which never exceeds the window.
+            val screenHeight = LocalConfiguration.current.screenHeightDp.dp
             Surface(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxWidth().heightIn(max = screenHeight),
                 color = MaterialTheme.colorScheme.background,
             ) {
                 // Read on open and on Refresh, never held: what is posted changes
@@ -598,15 +567,52 @@ private fun ComponentTools(
     }
 }
 
+/**
+ * One end of the action footer's reordering pair — a directional arrow in place
+ * of the "Up" / "Down" text button it replaces.
+ *
+ * [icon] carries the direction this performs, [label] what it says to a screen
+ * reader; the two call sites in [RuleEditorScreen] fix `KeyboardArrowUp` to
+ * `index - 1` and `KeyboardArrowDown` to `index + 1` and must never be allowed
+ * to drift apart — actions run in sequence, so a reordering control that is
+ * ambiguous about which way is "earlier" is worse than the text it replaces.
+ */
+@Composable
+private fun ActionOrderButton(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // Same split `CaveatBadge` and `BlockExpandButton` use in Blocks.kt, and for
+    // the same reason: reserving a real 48dp `IconButton` per arrow would grow
+    // this footer row the way that function's KDoc documents being rejected
+    // twice already — once for a 28-item picker row, once for a block's own fold
+    // control. So the glyph stays small and reports that small size upward; the
+    // real, tappable 48dp box overhangs it instead of claiming the space.
+    //
+    // `IconButton` is skipped for a second reason, the one `BlockExpandButton`
+    // gives: its ripple is clipped to a circle, which is exactly the Material
+    // affordance "Blocks, not cards" (see the architecture doc) rejects
+    // elsewhere. A bare `Box` with `clickable` keeps the default ripple bounded
+    // to the box's own hard edges instead of drawing one of its own.
+    OverflowingTouchTarget(visualSize = 22.dp, touchSize = 48.dp, modifier = modifier) {
+        Box(
+            modifier = Modifier
+                .clickable(onClick = onClick, role = Role.Button)
+                .semantics { contentDescription = label },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(22.dp))
+        }
+    }
+}
+
 private sealed interface Picking {
-    /** The first trigger, unchosen, or a new edge beneath an existing one — the
-     * picker dialog itself decides which by asking whether the draft has any
-     * triggers yet, since both open the same dialog.
-     */
+    /** The very first trigger, from the empty "When" slot. */
     data object NewTrigger : Picking
-    data class TriggerType(val index: Int) : Picking
-    data class NewCondition(val path: List<Int>) : Picking
-    data class ConditionType(val path: List<Int>) : Picking
+    data class ChangeTriggerType(val path: NodePath) : Picking
+    data class AddTrigger(val path: NodePath) : Picking
     data object NewAction : Picking
     data class ActionType(val index: Int) : Picking
 }
@@ -652,10 +658,10 @@ internal fun SectionLabel(text: String) {
  * and a button that visibly does nothing is worse than no button. A lone caveat does not bring the
  * fold back, because the caveat has its own control.
  *
- * `internal` rather than `private`: [GateEditor] renders a condition check with
- * the same block, since a check is a component chosen from a filtered list the
- * same way a trigger or action is, and the two must never drift into looking
- * like different kinds of thing.
+ * `internal` rather than `private`: [TriggerNodeBlock] renders a leaf of the
+ * trigger tree with this same block, whether that leaf sits at the root or
+ * nested several gates deep — a trigger is a trigger, and the two must never
+ * drift into looking like different kinds of thing.
  */
 @Composable
 internal fun ComponentBlock(
@@ -703,13 +709,13 @@ internal fun ComponentBlock(
                     CaveatBadge(shown = caveatShown, onToggle = onToggleCaveat)
                 }
                 if (hasMiddle) {
-                    // Says what pressing it does, not what the state is: "Hide"
-                    // while the settings are showing. The alternative reading of
-                    // a chevron or a state label is a coin toss, and this design
-                    // has no icon vocabulary to lean on.
-                    BlockTextButton(
-                        text = if (expanded) "Hide" else "Show",
-                        onClick = onToggleExpanded,
+                    // A chevron in place of the "Show" / "Hide" text this used to
+                    // read: [BlockExpandButton] is the shared control, built once
+                    // in `Blocks.kt` so a trigger node's own fold (see
+                    // `TriggerNodeBlock`) cannot drift from this one.
+                    BlockExpandButton(
+                        expanded = expanded,
+                        onToggleExpanded = onToggleExpanded,
                     )
                 }
             }
@@ -825,12 +831,35 @@ private fun Footer(footer: (@Composable () -> Unit)?) {
     }
 }
 
-/** The unchosen trigger placeholder's fold key — there is only ever one of it. */
+/**
+ * The unchosen trigger placeholder's fold key, and the root node's once
+ * something is chosen — there is only ever one node at the empty path.
+ */
 private const val TRIGGER_KEY = "trigger"
 
-private fun triggerKey(index: Int) = "trigger-$index"
+/** A node's fold/caveat key, from its path in the trigger tree. */
+internal fun triggerKey(path: NodePath): String =
+    if (path.isEmpty()) TRIGGER_KEY else "trigger-" + path.joinToString("-")
 
 private fun actionKey(index: Int) = "action-$index"
+
+/**
+ * Every group already in [node] when the editor is entered, as fold keys —
+ * what seeds [RuleEditorScreen]'s `collapsed` set so a saved rule opens with
+ * its gates shut. Walked once, from the tree the screen was handed on this
+ * composition's first pass; see the KDoc on `collapsed` for why running this
+ * again later would be wrong.
+ */
+private fun initiallyCollapsedTriggerGroups(
+    node: TriggerDraft?,
+    path: NodePath = emptyList(),
+): List<String> = when (node) {
+    null, is TriggerDraft.One -> emptyList()
+    is TriggerDraft.Group -> listOf(triggerKey(path)) +
+        node.children.flatMapIndexed { index, child ->
+            initiallyCollapsedTriggerGroups(child, path + index)
+        }
+}
 
 /**
  * Saves a set of position keys across a configuration change — the folded blocks

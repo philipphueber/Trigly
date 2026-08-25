@@ -7,12 +7,15 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.ComponentDescriptor
 import app.phueber.trigly.core.ComponentSpec
+import app.phueber.trigly.core.NodePath
 import app.phueber.trigly.core.Registry
 import app.phueber.trigly.core.RequirementChecker
 import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.RuleRepository
 import app.phueber.trigly.core.TriggerEvent
-import app.phueber.trigly.core.checks
+import app.phueber.trigly.core.TriggerNode
+import app.phueber.trigly.core.canStart
+import app.phueber.trigly.core.leaves
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -77,19 +80,6 @@ class RuleEditorViewModel(
     val actionOptions: List<ComponentDescriptor>
         get() = registry.actionDescriptors.filter(checker::isAvailable)
 
-    /**
-     * What the condition picker offers: the same device-availability filter as
-     * [triggerOptions], narrowed to components whose descriptor says
-     * `supportsCondition`. Filtered here rather than left to the picker or the
-     * factory, because a component that cannot answer a state question would
-     * build a rule that never fires — silently and permanently, the one failure
-     * mode this project keeps designing against. See `docs/conditions.md`.
-     */
-    val conditionOptions: List<ComponentDescriptor>
-        get() = registry.triggerDescriptors
-            .filter { it.supportsCondition }
-            .filter(checker::isAvailable)
-
     init {
         load()
     }
@@ -129,8 +119,9 @@ class RuleEditorViewModel(
         load()
     }
 
-    // A condition check resolves through this same lookup, under Slot.TRIGGER —
-    // see the KDoc on [Slot] for why there is no third value for it.
+    // Every node in the trigger tree resolves through this same lookup, under
+    // Slot.TRIGGER, whatever depth it sits at — see the KDoc on [Slot] for why
+    // there is no third value for it.
     fun descriptorFor(slot: Slot, type: String): ComponentDescriptor? = when (slot) {
         Slot.TRIGGER -> registry.triggerDescriptor(type)
         Slot.ACTION -> registry.actionDescriptor(type)
@@ -141,129 +132,147 @@ class RuleEditorViewModel(
     fun setEnabled(enabled: Boolean) = edit { copy(enabled = enabled) }
 
     /**
-     * Replaces the type of the trigger at [index], migrating compatible config
-     * across the swap the same way [chooseTrigger] always has.
+     * Replaces whatever is at [path] with a fresh trigger of [type], migrating
+     * compatible config across the swap the same way [changeActionType] does
+     * for an action. Whatever was there before — a lone trigger, or (rarer,
+     * but not refused) a whole group — is discarded; there is no sensible
+     * config to carry over from a group, and none is lost that the person did
+     * not just ask to replace.
      *
-     * Also how a not-yet-chosen first trigger gets its first type: [index] 0
-     * against an empty list has nothing to replace, so it appends instead —
-     * which is what lets [chooseTrigger] stay a thin wrapper over this rather
-     * than a second copy of the same logic.
+     * [chooseTrigger] is this at the empty root path, kept as its own entry
+     * point only because it is what the rest of the app already calls by that
+     * name for the common one-trigger case.
      */
-    fun changeTriggerType(index: Int, type: String) = edit {
+    fun changeTriggerType(path: NodePath, type: String) = edit {
+        // A group arrives here as an ordinary picked type — see [GROUP_OPTIONS] —
+        // because the screen must not know that two of the picker's rows mean
+        // something structural. This is the one place that reads them.
+        groupOpFor(type)?.let { op ->
+            return@edit copy(
+                trigger = transformTrigger(trigger, path) { existing ->
+                    when (existing) {
+                        // Already a group: the pick changed the operator, which is
+                        // the same edit the block's AND/OR control makes.
+                        is TriggerDraft.Group -> existing.copy(op = op)
+                        // A trigger becomes a group *holding that trigger*, rather
+                        // than being replaced by an empty one. Changing the type of
+                        // a leaf has never destroyed what was configured there, and
+                        // "put this inside a group" is what someone picking a group
+                        // on top of a trigger means.
+                        is TriggerDraft.One -> TriggerDraft.Group(op, listOf(existing))
+                        // Nothing chosen yet: an empty group, which the block
+                        // renders with its own "Add trigger". Saving is refused
+                        // until something is in it.
+                        null -> TriggerDraft.Group(op, emptyList())
+                    }
+                }
+            )
+        }
+
         val fields = registry.triggerDescriptor(type)?.configFields.orEmpty()
-        val replacement = ComponentDraft(
-            type = type,
-            config = migrateConfig(triggers.getOrNull(index)?.config.orEmpty(), fields),
-        )
         copy(
-            triggers = if (index in triggers.indices) {
-                triggers.mapIndexed { i, t -> if (i == index) replacement else t }
-            } else {
-                triggers + replacement
+            trigger = transformTrigger(trigger, path) { existing ->
+                val oldConfig = (existing as? TriggerDraft.One)?.component?.config.orEmpty()
+                TriggerDraft.One(ComponentDraft(type, migrateConfig(oldConfig, fields)))
             }
         )
     }
 
+    /** Sets or replaces the trigger at the root — the whole tree, when the
+     * rule has only ever had one. See [changeTriggerType], which this is a
+     * thin wrapper over.
+     */
+    fun chooseTrigger(type: String) = changeTriggerType(emptyList(), type)
+
     /**
-     * Sets or replaces the *first* trigger edge.
+     * Appends a new trigger of [type] to whatever is at [path].
      *
-     * Kept as its own entry point, rather than folded into [changeTriggerType]
-     * at every call site, because it is the one a one-trigger rule — still the
-     * common case — is built and re-picked through, and because it is what the
-     * rest of the app already calls by this name.
+     * A [TriggerDraft.Group] there just gains a sibling. A [TriggerDraft.One]
+     * there — including the common case of a rule with a single root trigger,
+     * addressed by the empty path — has no group of its own yet, so adding a
+     * second promotes it into one, combined with [TriggerNode.Op.ALL]: see
+     * [addTriggerChild].
      */
-    fun chooseTrigger(type: String) = changeTriggerType(0, type)
-
-    fun addTrigger(type: String) = edit {
-        val fields = registry.triggerDescriptor(type)?.configFields.orEmpty()
-        copy(triggers = triggers + ComponentDraft(type, defaultConfigFor(fields)))
+    fun addTrigger(path: NodePath, type: String) = edit {
+        // Picking a group here adds an empty one to fill in, for the same reason
+        // as in [changeTriggerType]: a group is a trigger you pick.
+        val addition = groupOpFor(type)?.let { op -> TriggerDraft.Group(op, emptyList()) }
+            ?: TriggerDraft.One(
+                ComponentDraft(
+                    type,
+                    defaultConfigFor(registry.triggerDescriptor(type)?.configFields.orEmpty()),
+                )
+            )
+        copy(trigger = addTriggerChild(trigger, path, addition, TriggerNode.Op.ALL))
     }
 
-    fun removeTrigger(index: Int) = edit {
-        copy(triggers = triggers.filterIndexed { i, _ -> i != index })
-    }
-
-    /** Order has no engine meaning — the first level is an OR of edges — but a
-     * rule with several edges still reads better with them in the order the
-     * person arranged them, the same courtesy [moveAction] extends to actions.
-     */
-    fun moveTrigger(from: Int, to: Int) = edit {
-        if (from !in triggers.indices || to !in triggers.indices) return@edit this
-        val reordered = triggers.toMutableList()
-        reordered.add(to, reordered.removeAt(from))
-        copy(triggers = reordered)
-    }
-
-    /**
-     * Adds a check to whatever is at [path] — the root itself for an empty
-     * path — picking its component from [conditionOptions] first.
-     *
-     * The one function behind three different-looking moments: filling the
-     * empty tail beneath the trigger blocks with its first passive slot,
-     * adding a second top-level slot (which promotes the first into a group),
-     * and adding a slot inside an existing group. All three are "add this
-     * child at this address," which is exactly what [addCondition] does.
-     */
-    fun addConditionCheck(path: List<Int>, type: String) = edit {
-        val fields = registry.triggerDescriptor(type)?.configFields.orEmpty()
-        val check = ConditionDraft.Check(ComponentDraft(type, defaultConfigFor(fields)))
-        copy(conditions = addCondition(conditions, path, check))
-    }
-
-    /**
-     * Adds an empty AND-group at [path]. Unlike a check, a group needs no
-     * picker — there is nothing to choose yet, only somewhere to put what gets
-     * added to it next.
-     */
-    fun addConditionGroup(path: List<Int>) = edit {
-        val group = ConditionDraft.Group(ConditionDraft.Op.ALL, emptyList())
-        copy(conditions = addCondition(conditions, path, group))
+    fun setTriggerOp(path: NodePath, op: TriggerNode.Op) = edit {
+        copy(
+            trigger = transformTrigger(trigger, path) { existing ->
+                (existing as? TriggerDraft.Group)?.copy(op = op) ?: existing
+            }
+        )
     }
 
     /**
      * Removes the node at [path], root included — an empty [path] clears the
-     * whole section back to its empty state rather than leaving a node with
-     * nothing in it.
+     * whole trigger back to its empty "choose a trigger" state rather than
+     * leaving a node with nothing in it. A group that drops to one child
+     * un-promotes into that child; see [transformTrigger].
      */
-    fun removeCondition(path: List<Int>) = edit {
-        copy(conditions = replaceCondition(conditions, path) { null })
+    fun removeTrigger(path: NodePath) = edit {
+        copy(trigger = transformTrigger(trigger, path) { null })
     }
 
-    fun setConditionOp(path: List<Int>, op: ConditionDraft.Op) = edit {
-        copy(
-            conditions = replaceCondition(conditions, path) { existing ->
-                (existing as? ConditionDraft.Group)?.copy(op = op) ?: existing
-            }
-        )
-    }
-
-    /** Replaces the component a condition check asks about, migrating config
-     * across the swap the same way [changeTriggerType] does for a trigger.
-     */
-    fun changeConditionType(path: List<Int>, type: String) = edit {
-        val fields = registry.triggerDescriptor(type)?.configFields.orEmpty()
-        copy(
-            conditions = replaceCondition(conditions, path) { existing ->
-                val oldConfig = (existing as? ConditionDraft.Check)?.component?.config.orEmpty()
-                ConditionDraft.Check(ComponentDraft(type, migrateConfig(oldConfig, fields)))
-            }
-        )
-    }
-
-    fun setConditionConfigValue(path: List<Int>, key: String, value: String?) = edit {
+    fun setTriggerConfigValue(path: NodePath, key: String, value: String?) = edit {
         fun update(config: Map<String, String>) =
             if (value.isNullOrEmpty()) config - key else config + (key to value)
         copy(
-            conditions = replaceCondition(conditions, path) { existing ->
-                val check = existing as? ConditionDraft.Check
-                if (check == null) {
-                    existing
+            trigger = transformTrigger(trigger, path) { existing ->
+                if (existing is TriggerDraft.One) {
+                    existing.copy(component = existing.component.copy(config = update(existing.component.config)))
                 } else {
-                    check.copy(component = check.component.copy(config = update(check.component.config)))
+                    existing
                 }
             }
         )
     }
+
+    /**
+     * What a picker opened at [path] offers: only components that would leave
+     * the tree still able to start — see [TriggerNode.canStart] for why an
+     * `ALL of` group can fail even though every part in it looks fine alone.
+     *
+     * Derived rather than listed, on purpose: each candidate is inserted at
+     * [path] for real, the same way [addTrigger] would (a lone trigger
+     * promotes into a group, a group gains a child, an empty root becomes the
+     * trigger outright), and kept only if the resulting tree still
+     * [TriggerNode.canStart]. That single check is what a hand-written pair of
+     * rules — "`time_window` cannot be a rule's only trigger", "a second
+     * event-only component cannot join an `ALL` group" — would otherwise have
+     * to state twice and would eventually let drift apart from each other;
+     * both are exactly this same tree, after exactly this same insertion,
+     * failing to start.
+     */
+    fun triggerOptionsFor(path: NodePath): List<ComponentDescriptor> {
+        val root = _state.value.draft.trigger
+        // The group rows are offered everywhere and are not put through the
+        // can-this-still-start test below, because a group arrives empty: there is
+        // nothing in it yet to start anything. An empty group is an unfinished
+        // draft, not an invalid rule, and `save()` is what refuses it — the same
+        // way it refuses a rule with no trigger at all.
+        return GROUP_OPTIONS + triggerOptions.filter { descriptor ->
+            val addition = TriggerDraft.One(ComponentDraft(descriptor.type))
+            val candidate = addTriggerChild(root, path, addition, TriggerNode.Op.ALL)?.toNodeOrNull()
+            candidate != null && candidate.canStart(::hasEvents, ::hasState)
+        }
+    }
+
+    private fun hasEvents(type: String): Boolean =
+        registry.triggerDescriptor(type)?.producesEvents ?: false
+
+    private fun hasState(type: String): Boolean =
+        registry.triggerDescriptor(type)?.supportsCondition ?: false
 
     fun addAction(type: String) = edit {
         val fields = registry.actionDescriptor(type)?.configFields.orEmpty()
@@ -296,10 +305,16 @@ class RuleEditorViewModel(
     }
 
     /**
-     * Edits one config value on a trigger edge or an action. A condition
-     * check's config goes through [setConditionConfigValue] instead — it needs
-     * a tree path rather than a flat index, so it could not share this
-     * signature and still address anything below the top level.
+     * Edits one config value on an action, addressed by its flat index.
+     *
+     * A trigger node's config goes through [setTriggerConfigValue] instead —
+     * it needs a tree path, not a flat index, now that a trigger is a tree
+     * rather than a list; there is no longer an index for [Slot.TRIGGER] to
+     * mean. [Slot] is kept as a parameter anyway, an exhaustive `when` with a
+     * no-op [Slot.TRIGGER] branch rather than dropped from the signature,
+     * because this is the one *index*-addressed action method other code
+     * outside this file already calls by this exact name and shape — see
+     * [Slot]'s own KDoc for why it keeps both values regardless.
      */
     fun setConfigValue(slot: Slot, index: Int, key: String, value: String?) = edit {
         // Null and blank both mean "not set", so the factory sees an absent key
@@ -309,11 +324,7 @@ class RuleEditorViewModel(
             if (value.isNullOrEmpty()) config - key else config + (key to value)
 
         when (slot) {
-            Slot.TRIGGER -> copy(
-                triggers = triggers.mapIndexed { i, t ->
-                    if (i == index) t.copy(config = update(t.config)) else t
-                }
-            )
+            Slot.TRIGGER -> this
             Slot.ACTION -> copy(
                 actions = actions.mapIndexed { i, action ->
                     if (i == index) action.copy(config = update(action.config)) else action
@@ -335,7 +346,15 @@ class RuleEditorViewModel(
 
         val rule = draft.toRuleOrNull() ?: run {
             fail(
-                if (draft.name.isBlank()) "Give the rule a name." else "Choose a trigger."
+                when {
+                    draft.name.isBlank() -> "Give the rule a name."
+                    draft.trigger == null -> "Choose a trigger."
+                    // A group with nothing in it. Reachable in one tap — a group
+                    // is picked from the trigger picker and arrives empty — so it
+                    // needs its own sentence rather than being told to choose a
+                    // trigger it can see it already has.
+                    else -> "A group has no triggers in it. Add one, or remove the group."
+                }
             )
             return
         }
@@ -443,35 +462,20 @@ class RuleEditorViewModel(
 
     /** @return a human-readable problem, or null if every component builds. */
     private fun validate(rule: Rule): String? {
-        // Unsuffixed for the common one-trigger rule, so its message reads
-        // exactly as it always has; only a gate with several edges needs to say
-        // which one is at fault.
-        rule.gate.triggers.forEachIndexed { index, spec ->
+        // Every leaf resolves through the same factory lookup whether it is
+        // the edge that starts the rule or a passive node nested under it —
+        // see `docs/conditions.md`'s "grouped under one component,
+        // transparently" — so they get one loop and one label, unsuffixed for
+        // the common one-leaf rule so its message reads exactly as it always
+        // has; only a tree with several leaves needs to say which one is at
+        // fault.
+        val leaves = rule.trigger.leaves()
+        leaves.forEachIndexed { index, spec ->
             runCatching { registry.createTrigger(spec) }
                 .exceptionOrNull()
                 ?.let {
                     val name = registry.displayNameOf(spec.type)
-                    val label = if (rule.gate.hasSeveralTriggers) "$name (trigger ${index + 1})" else name
-                    return describe(it, label)
-                }
-        }
-
-        // A passive slot is built the same way an edge is — it names the same
-        // factory, only asked a different question — so the same construction
-        // failure is possible and gets the same treatment. Labelled by what it
-        // does ("must also be true") rather than by a name for the object, the
-        // same choice the screen itself makes — see `docs/conditions.md`.
-        val checks = rule.gate.conditions?.checks().orEmpty()
-        checks.forEachIndexed { index, spec ->
-            runCatching { registry.createTrigger(spec) }
-                .exceptionOrNull()
-                ?.let {
-                    val name = registry.displayNameOf(spec.type)
-                    val label = if (checks.size > 1) {
-                        "$name (must also be true, ${index + 1})"
-                    } else {
-                        "$name (must also be true)"
-                    }
+                    val label = if (leaves.size > 1) "$name (trigger ${index + 1})" else name
                     return describe(it, label)
                 }
         }

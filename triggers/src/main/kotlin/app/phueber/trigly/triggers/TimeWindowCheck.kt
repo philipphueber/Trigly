@@ -116,6 +116,12 @@ class TimeWindowCheckFactory : TriggerFactory {
 
     override val supportsCondition = true
 
+    // The one component in the catalogue that cannot start a rule: there is no
+    // scheduler, so `events()` is empty and this exists to be asked. Declared
+    // rather than left for the editor to discover, because an empty flow and a
+    // flow that has not emitted yet look identical from outside.
+    override val producesEvents = false
+
     override val configFields = listOf(
         ConfigField.TimeOfDay(
             key = TimeWindowCheck.CONFIG_START_HOUR,

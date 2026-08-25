@@ -14,6 +14,7 @@ import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.core.TriggerNode
 import app.phueber.trigly.triggers.triggerFactories
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -35,7 +36,7 @@ import org.junit.runner.RunWith
 
 /**
  * The editor's logic, driven directly against the real registry so the schemas
- * the 46 factories declare are what gets exercised.
+ * the factories declare are what gets exercised.
  *
  * `viewModelScope` dispatches on `Dispatchers.Main`, and saving is deliberately
  * fire-and-forget, so the main dispatcher is replaced with an unconfined test one
@@ -71,6 +72,10 @@ class RuleEditorViewModelTest {
         ruleId: String? = null,
     ) = RuleEditorViewModel(repository, registry, RequirementChecker(context), ruleId)
 
+    /** Unwraps a leaf, or null if [this] is a group or unchosen. */
+    private val TriggerDraft?.leaf: ComponentDraft?
+        get() = (this as? TriggerDraft.One)?.component
+
     @Test
     fun a_complete_rule_saves() = runTest {
         val repository = InMemoryRuleRepository()
@@ -78,7 +83,7 @@ class RuleEditorViewModelTest {
 
         editor.setName("Charger on")
         editor.chooseTrigger("power_connection")
-        editor.setConfigValue(Slot.TRIGGER, 0, "state", "connected")
+        editor.setTriggerConfigValue(emptyList(), "state", "connected")
         editor.addAction("speak")
         editor.setConfigValue(Slot.ACTION, 0, "text", "Charging")
         editor.save()
@@ -86,8 +91,9 @@ class RuleEditorViewModelTest {
         assertTrue("save should report completion", editor.state.value.finished)
         val saved = repository.rules().first().single()
         assertEquals("Charger on", saved.name)
-        assertEquals("power_connection", saved.trigger.type)
-        assertEquals("connected", saved.trigger.config["state"])
+        val leaf = saved.trigger as TriggerNode.One
+        assertEquals("power_connection", leaf.spec.type)
+        assertEquals("connected", leaf.spec.config["state"])
         assertEquals(listOf("speak"), saved.actions.map { it.type })
     }
 
@@ -106,7 +112,7 @@ class RuleEditorViewModelTest {
 
         editor.setName("Charger on")
         editor.chooseTrigger("power_connection")
-        editor.setConfigValue(Slot.TRIGGER, 0, "state", "connected")
+        editor.setTriggerConfigValue(emptyList(), "state", "connected")
         editor.addAction("speak")
         editor.setConfigValue(Slot.ACTION, 0, "text", "Charging")
         editor.save()
@@ -202,7 +208,7 @@ class RuleEditorViewModelTest {
         val editor = viewModel(repository)
         editor.setName("Ordered")
         editor.chooseTrigger("screen_state")
-        editor.setConfigValue(Slot.TRIGGER, 0, "state", "on")
+        editor.setTriggerConfigValue(emptyList(), "state", "on")
         editor.addAction("toast")
         editor.setConfigValue(Slot.ACTION, 0, "text", "first")
         editor.addAction("vibrate")
@@ -245,7 +251,7 @@ class RuleEditorViewModelTest {
         val editor = viewModel(repository, ruleId = "existing")
 
         assertEquals("Loaded", editor.state.value.draft.name)
-        assertEquals("off", editor.state.value.draft.trigger!!.config["state"])
+        assertEquals("off", editor.state.value.draft.trigger.leaf!!.config["state"])
         assertEquals("hello", editor.state.value.draft.actions.single().config["text"])
     }
 
@@ -290,9 +296,9 @@ class RuleEditorViewModelTest {
         val editor = viewModel(repository)
         editor.setName("Watchdog")
         editor.chooseTrigger("notification_watchdog")
-        editor.setConfigValue(Slot.TRIGGER, 0, "package", "com.example.alerts")
-        editor.setConfigValue(Slot.TRIGGER, 0, "absenceMillis", "60000")
-        editor.setConfigValue(Slot.TRIGGER, 0, "pollMillis", "120000")
+        editor.setTriggerConfigValue(emptyList(), "package", "com.example.alerts")
+        editor.setTriggerConfigValue(emptyList(), "absenceMillis", "60000")
+        editor.setTriggerConfigValue(emptyList(), "pollMillis", "120000")
         editor.addAction("toast")
         editor.setConfigValue(Slot.ACTION, 0, "text", "gone")
 
@@ -324,7 +330,7 @@ class RuleEditorViewModelTest {
         val editor = viewModel()
         editor.setName("Second action broken")
         editor.chooseTrigger("screen_state")
-        editor.setConfigValue(Slot.TRIGGER, 0, "state", "on")
+        editor.setTriggerConfigValue(emptyList(), "state", "on")
         editor.addAction("toast")
         editor.setConfigValue(Slot.ACTION, 0, "text", "fine")
         editor.addAction("set_alarm") // needs an hour
@@ -352,31 +358,31 @@ class RuleEditorViewModelTest {
         editor.chooseTrigger("battery_level")
 
         // `direction` declares a default; `threshold` does not.
-        assertEquals("below", editor.state.value.draft.trigger!!.config["direction"])
-        assertEquals(null, editor.state.value.draft.trigger!!.config["threshold"])
+        assertEquals("below", editor.state.value.draft.trigger.leaf!!.config["direction"])
+        assertEquals(null, editor.state.value.draft.trigger.leaf!!.config["threshold"])
     }
 
     @Test
     fun changing_type_keeps_settings_the_new_type_understands() = runTest {
         val editor = viewModel()
         editor.chooseTrigger("wifi_state")
-        editor.setConfigValue(Slot.TRIGGER, 0, "state", "enabled")
+        editor.setTriggerConfigValue(emptyList(), "state", "enabled")
 
         // Both use a state of enabled/disabled, so the choice should survive.
         editor.chooseTrigger("bluetooth_adapter_state")
 
-        assertEquals("enabled", editor.state.value.draft.trigger!!.config["state"])
+        assertEquals("enabled", editor.state.value.draft.trigger.leaf!!.config["state"])
     }
 
     @Test
     fun changing_type_drops_settings_that_no_longer_apply() = runTest {
         val editor = viewModel()
         editor.chooseTrigger("battery_level")
-        editor.setConfigValue(Slot.TRIGGER, 0, "threshold", "20")
+        editor.setTriggerConfigValue(emptyList(), "threshold", "20")
 
         editor.chooseTrigger("screen_state")
 
-        assertEquals(null, editor.state.value.draft.trigger!!.config["threshold"])
+        assertEquals(null, editor.state.value.draft.trigger.leaf!!.config["threshold"])
     }
 
     @Test
@@ -385,10 +391,10 @@ class RuleEditorViewModelTest {
         // empty string would not.
         val editor = viewModel()
         editor.chooseTrigger("notification_posted")
-        editor.setConfigValue(Slot.TRIGGER, 0, "package", "com.example")
-        editor.setConfigValue(Slot.TRIGGER, 0, "package", "")
+        editor.setTriggerConfigValue(emptyList(), "package", "com.example")
+        editor.setTriggerConfigValue(emptyList(), "package", "")
 
-        assertTrue(!editor.state.value.draft.trigger!!.config.containsKey("package"))
+        assertTrue(!editor.state.value.draft.trigger.leaf!!.config.containsKey("package"))
     }
 
     @Test
@@ -416,6 +422,153 @@ class RuleEditorViewModelTest {
         editor.moveAction(0, 5)
 
         assertEquals(listOf("toast"), editor.state.value.draft.actions.map { it.type })
+    }
+
+    // --- The trigger tree: a group is a trigger, chosen from the same picker. ---
+
+    @Test
+    fun adding_a_second_trigger_promotes_a_lone_one_into_an_all_group() = runTest {
+        val editor = viewModel()
+        editor.chooseTrigger("screen_state")
+
+        editor.addTrigger(emptyList(), "power_connection")
+
+        val group = editor.state.value.draft.trigger as TriggerDraft.Group
+        assertEquals(TriggerNode.Op.ALL, group.op)
+        assertEquals(
+            listOf("screen_state", "power_connection"),
+            group.children.map { it.leaf!!.type },
+        )
+    }
+
+    @Test
+    fun removing_a_child_back_down_to_one_collapses_the_group() = runTest {
+        val editor = viewModel()
+        editor.chooseTrigger("screen_state")
+        editor.addTrigger(emptyList(), "power_connection")
+
+        editor.removeTrigger(listOf(1))
+
+        val trigger = editor.state.value.draft.trigger
+        assertTrue("a group left with one child must un-promote back to a lone trigger", trigger is TriggerDraft.One)
+        assertEquals("screen_state", trigger.leaf!!.type)
+    }
+
+    @Test
+    fun removing_the_only_trigger_clears_the_slot() = runTest {
+        val editor = viewModel()
+        editor.chooseTrigger("screen_state")
+
+        editor.removeTrigger(emptyList())
+
+        assertNull(editor.state.value.draft.trigger)
+    }
+
+    /**
+     * Builds `ALL(screen_state, ALL(power_connection, battery_level))` — the
+     * three-deep shape several of the tests below share — by growing a lone
+     * trigger through the same [RuleEditorViewModel.addTrigger] a person would
+     * use: choose one, add a sibling (promotes to a group), then add a sibling
+     * to that sibling (promotes it again, one level deeper).
+     */
+    private fun RuleEditorViewModel.buildThreeDeepTree() {
+        chooseTrigger("screen_state")
+        addTrigger(emptyList(), "power_connection")
+        addTrigger(listOf(1), "battery_level")
+    }
+
+    @Test
+    fun changing_a_type_at_a_nested_path_leaves_the_other_branches_untouched() = runTest {
+        val editor = viewModel()
+        editor.buildThreeDeepTree()
+
+        editor.changeTriggerType(listOf(1, 0), "wifi_state")
+
+        val root = editor.state.value.draft.trigger as TriggerDraft.Group
+        assertEquals("screen_state", root.children[0].leaf!!.type)
+        val inner = root.children[1] as TriggerDraft.Group
+        assertEquals("wifi_state", inner.children[0].leaf!!.type)
+        assertEquals("battery_level", inner.children[1].leaf!!.type)
+    }
+
+    @Test
+    fun set_trigger_op_at_a_nested_path_leaves_the_root_op_alone() = runTest {
+        val editor = viewModel()
+        editor.buildThreeDeepTree()
+
+        editor.setTriggerOp(listOf(1), TriggerNode.Op.ANY)
+
+        val root = editor.state.value.draft.trigger as TriggerDraft.Group
+        assertEquals(TriggerNode.Op.ALL, root.op)
+        val inner = root.children[1] as TriggerDraft.Group
+        assertEquals(TriggerNode.Op.ANY, inner.op)
+    }
+
+    @Test
+    fun to_rule_or_null_builds_the_expected_tree_for_a_three_deep_draft() = runTest {
+        val editor = viewModel()
+        editor.setName("Nested")
+        editor.buildThreeDeepTree()
+        editor.addAction("toast")
+        editor.setConfigValue(Slot.ACTION, 0, "text", "go")
+
+        val rule = editor.state.value.draft.toRuleOrNull()
+
+        assertNotNull(rule)
+        val root = rule!!.trigger as TriggerNode.Group
+        assertEquals(TriggerNode.Op.ALL, root.op)
+        assertEquals("screen_state", (root.children[0] as TriggerNode.One).spec.type)
+        val inner = root.children[1] as TriggerNode.Group
+        assertEquals(TriggerNode.Op.ALL, inner.op)
+        assertEquals(
+            listOf("power_connection", "battery_level"),
+            inner.children.map { (it as TriggerNode.One).spec.type },
+        )
+    }
+
+    /**
+     * `time_window`'s `events()` is empty by design — see `TriggerFactory
+     * .producesEvents` — so a rule built around it alone would wait forever
+     * with nothing on screen to say why. The picker has to refuse it before
+     * the rule is ever saved, since [RuleEditorViewModel.save] only catches
+     * config a factory *refuses*, not a tree that is merely pointless.
+     */
+    @Test
+    fun trigger_options_for_the_empty_root_exclude_a_component_that_cannot_start_alone() = runTest {
+        val editor = viewModel()
+
+        val options = editor.triggerOptionsFor(emptyList())
+
+        assertTrue(
+            "time_window cannot be a rule's only trigger",
+            options.none { it.type == "time_window" },
+        )
+        assertTrue(options.any { it.type == "screen_state" })
+    }
+
+    /**
+     * `sms_received` and `clipboard_changed` are both pure edges — neither can
+     * answer "is this true right now" — so an `ALL` group holding both could
+     * never be satisfied: whichever fires, the other is asked for a state it
+     * does not have. `power_connection` can answer that question, so it is
+     * still offered alongside the same edge.
+     */
+    @Test
+    fun trigger_options_exclude_a_second_edge_only_component_from_an_all_group_that_already_has_one() = runTest {
+        val editor = viewModel()
+        editor.chooseTrigger("sms_received")
+        editor.addTrigger(emptyList(), "screen_state")
+
+        val options = editor.triggerOptionsFor(emptyList())
+
+        assertTrue(
+            "a second edge-only component can never join this ALL group",
+            options.none { it.type == "clipboard_changed" },
+        )
+        assertTrue(
+            "a component that can also answer a state question is still welcome",
+            options.any { it.type == "power_connection" },
+        )
     }
 
     @Test
@@ -560,7 +713,7 @@ class RuleEditorViewModelTest {
 
         val draft = editor.state.value.draft
         assertEquals("Half-built", draft.name)
-        assertEquals("power_connection", draft.trigger?.type)
+        assertEquals("power_connection", draft.trigger.leaf?.type)
         assertEquals(listOf("speak"), draft.actions.map { it.type })
         assertNull("stopping a test must not leave a run marked active", editor.state.value.testing)
     }

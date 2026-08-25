@@ -13,7 +13,7 @@ import kotlinx.coroutines.flow.map
 
 @Database(
     entities = [RuleEntity::class, ComponentEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class TriglyDatabase : RoomDatabase() {
@@ -44,6 +44,25 @@ internal val MIGRATION_1_2 = object : Migration(1, 2) {
 }
 
 /**
+ * Adds the trigger tree to the rules table. Nothing else changes: no row is
+ * rewritten, no `TRIGGER` component row is touched, and `conditionsJson` is left
+ * exactly as it was.
+ *
+ * One nullable column, same reasoning as `MIGRATION_1_2`: null is the honest
+ * value for every row that predates this column, and the tree is JSON because
+ * it nests arbitrarily, which the flat, ordinal-ordered `components` table
+ * cannot express without becoming a parent-pointer scheme. Composing that JSON
+ * from the old rows in SQL is not attempted here — [toRuleOrNull]'s legacy path
+ * does it, in Kotlin, at read time, which is the only place that already knows
+ * what the old shape meant.
+ */
+internal val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE rules ADD COLUMN triggerJson TEXT")
+    }
+}
+
+/**
  * The app's rule storage, as a [RuleRepository].
  *
  * Returns the interface rather than the database so Room stays an implementation
@@ -60,7 +79,7 @@ internal fun triglyDatabase(context: Context): TriglyDatabase =
         // built by hand, and silently deleting them on a schema change is not an
         // acceptable failure mode. A missing migration should fail loudly in
         // development instead.
-        .addMigrations(MIGRATION_1_2)
+        .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
         .build()
 
 /**
