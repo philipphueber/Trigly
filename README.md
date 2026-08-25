@@ -2,11 +2,13 @@
 
 # Trigly
 
-Open source automation app for Android. Native Kotlin + Jetpack Compose.
+Trigly is an open source automation app for Android. It is written in native
+Kotlin, and it uses Jetpack Compose for its UI.
 
-Rules are "when this trigger fires, run these actions". Triggers and actions are
-plugin-style: each type is its own class behind a common interface, so adding one
-does not touch the existing ones.
+A rule has this form: when a trigger starts, the rule runs a set of actions.
+Triggers and actions use a plugin design. Each type is its own class, behind
+a common interface. You can add a new type without a change to an existing
+type.
 
 ## Modules
 
@@ -17,155 +19,219 @@ does not touch the existing ones.
 | `:actions`  | Action implementations, one per type.                                   |
 | `:ui`       | Compose screens, ViewModels, and the app assembly point. Applies the Android application plugin. |
 
-Dependencies point one way: `:ui` → `:triggers`/`:actions` → `:core`. Nothing
-depends on `:ui`, and `:core` depends on nothing in the project.
+Dependencies go in one direction only: `:ui` → `:triggers`/`:actions` →
+`:core`. No module depends on `:ui`. `:core` depends on nothing else in the
+project.
 
-See `docs/architecture.md` for why it is built this way.
+`docs/architecture.md` explains the reasons for this design.
 
-**Theming.** Every colour in the app is in `ui/src/main/kotlin/app/phueber/trigly/ui/Palette.kt`
-— tonal ramps, then the light and dark scheme assembled from them. Change the hue
-there and the whole app follows. (The two window-background hexes in
-`res/values*/colors.xml` must be kept in step; that file explains why they cannot
-be read from Kotlin.)
+**Theming.** All app colours are in one file:
+`ui/src/main/kotlin/app/phueber/trigly/ui/Palette.kt`. This file defines
+tonal ramps. It then builds the light and dark colour schemes from them. If
+you change the hue value in this file, the whole app takes the new colour.
+
+The file `res/values*/colors.xml` holds two window-background colours, as
+hexadecimal values. You must keep these two colours the same as the colours
+in `Palette.kt`. That file explains why the app cannot read these colours
+from Kotlin code.
 
 ## Building
 
-Requires JDK 17 and an Android SDK with API 35 and build-tools 35.0.0. Point
-`JAVA_HOME` at the JDK and put the SDK path in `local.properties`
-(`sdk.dir=/path/to/Android/Sdk`) — that file is machine-specific and gitignored.
+Trigly needs these tools to build:
 
-The Gradle wrapper is checked in, so no Gradle install is needed:
+- JDK 17.
+- An Android SDK with API 35 and build-tools 35.0.0.
 
-    ./gradlew test                        # JVM unit tests, all modules
-    ./gradlew assembleDebug               # build the debug APK
-    ./gradlew lint                        # Android lint
-    ./gradlew connectedDebugAndroidTest   # instrumented tests, needs a device or emulator
+To set up the build:
 
-A release build needs a signing key, which is not in the repository. Without
-one `./gradlew :ui:assembleRelease` still runs and produces an unsigned APK,
-so the release variant stays buildable from a plain clone. A maintainer makes
-one with `./scripts/setup-signing.sh`, run in a real terminal — it asks for a
-password once, keeps it in the system keyring rather than in a file, and leaves
-nothing else to do. `docs/releasing.md` covers the key, the version numbers,
-and how to verify the artifact.
+1. Set `JAVA_HOME` to the JDK path.
+2. Add the SDK path to `local.properties` as `sdk.dir=/path/to/Android/Sdk`.
+
+`local.properties` is specific to your machine. Git does not track this
+file.
+
+The repository includes the Gradle wrapper, so you do not need to install
+Gradle separately:
+
+    ./gradlew test                        # runs the JVM unit tests, in all modules
+    ./gradlew assembleDebug               # builds the debug APK
+    ./gradlew lint                        # runs Android lint
+    ./gradlew connectedDebugAndroidTest   # runs instrumented tests; needs a device or an emulator
+
+A release build needs a signing key. The repository does not hold this key.
+
+If there is no signing key, `./gradlew :ui:assembleRelease` still runs and
+builds an unsigned APK. So a plain clone can still build the release
+variant.
+
+A maintainer creates the signing key with `./scripts/setup-signing.sh`. You
+must run this script in a real terminal window. The script asks for a
+password one time. It stores the password in the system keyring, not in a
+file. It leaves nothing else to do. `docs/releasing.md` describes the key,
+the version numbers, and how to check the built file.
 
 ## Adding a trigger
 
-1. Implement `Trigger` and its `TriggerFactory` in a new file under `:triggers`.
-2. Add one line to `triggerFactories()` in that module.
-3. Declare any permission it needs in `triggers/src/main/AndroidManifest.xml`,
-   next to the code that needs it.
-4. On the factory, declare `displayName`, `category` and `configFields` — a
-   `ConfigField` per setting your `create()` reads. That is what the rule editor
-   renders a form from; without it your trigger exists but cannot be configured.
-   `ConfigSchemaContractTest` fails if you skip it.
+1. Implement `Trigger` and its `TriggerFactory` in a new file, under
+   `:triggers`.
+2. Add one line to `triggerFactories()`, in that module.
+3. Declare any permission the trigger needs, in
+   `triggers/src/main/AndroidManifest.xml`, next to the code that needs it.
+4. On the factory, declare `displayName`, `category`, and `configFields`.
+   Add one `ConfigField` for each setting that your `create()` function
+   reads.
 
-Nothing in `:core` or in a sibling trigger should change. If it must, the
-interface is wrong — fix the interface. Actions follow the same four steps in
-`:actions`.
+The rule editor builds a form from these config fields. Without this
+declaration, the trigger exists, but you cannot configure it. If you skip
+this step, `ConfigSchemaContractTest` fails.
+
+You must not change code in `:core` or in another trigger to add a new one.
+If a change there seems necessary, the interface is wrong. Fix the
+interface instead. Actions follow the same four steps, in `:actions`.
 
 ## Status
 
-Early. Implemented: the engine and the **foreground service** that keeps it
-alive, the plugin seams, the requirement model and the
-permission flow around it, **33 triggers**, **20 actions**, a rules list screen
-that explains why a rule cannot fire, and a **rule editor** — pick a trigger and
-actions from grouped pickers, fill in a form generated from each component's
-declared config schema, and save. Rules persist in a local database and survive
-process death.
+Trigly is at an early stage of development. The app has these parts:
 
-A rule is no longer just one trigger and a flat list of actions. Its trigger
-side is a **gate**: one or more edges that start it, and an optional tree of
-**conditions** — AND/OR groups of the same triggers, asked instead of watched —
-that must also hold for the actions to run. Most triggers can answer both ways;
-a single component appears once in the picker and the slot decides which
-question is being asked of it, so "when the doorbell rings, if it is dark and I
-am at home" is one gate rather than a separate feature bolted beside triggers.
-`docs/conditions.md` is the design note for this. Time-of-day is the one
-genuinely passive-only check, because there is no time trigger yet for it to be
-a form of; "in an area" briefly existed as a second, standalone component before
-being folded into the `location` trigger as its passive form, which is what the
-"appears once" rule above actually means.
+- The trigger engine.
+- A **foreground service** that keeps the engine running.
+- The plugin design for triggers and actions.
+- The requirement model, and the permission flow that goes with it.
+- **33 triggers** and **20 actions**.
+- A rules list screen. This screen explains why a rule cannot start.
+- A **rule editor**. In the editor, you pick a trigger and actions from
+  grouped lists, fill in a form, and save the rule. Trigly builds the form
+  from each component's declared config schema.
 
-A **notification inspector** screen shows what a notification actually looks
-like from inside the app — package, title versus text, flags, and each button's
-real label — because a notification rule is otherwise written against values
-nobody can see, and a typo there fails silently. The same principle produced the
-button-capture picker: a notification action button is chosen by tapping it on
-a live notification rather than counted by position, since a position shifts
-under a rule that keeps working right up until it doesn't.
+Rules are stored in a local database. The database keeps a rule even if the
+app's process stops.
 
-The pickers list only what the phone can actually run: a trigger needing an API
-this Android version does not have, or hardware the device lacks, is not offered
-at all. Each component's caveats are stated in full once it is chosen.
+A rule no longer has just one trigger and a flat list of actions. The
+trigger side of a rule is now called a **gate**. A gate has one or more
+triggers that can start the rule. A gate can also have an optional tree of
+**conditions**: groups of triggers joined with AND or OR. Trigly asks a
+condition instead of watching for it. All the conditions in the gate must
+also be true before Trigly runs the actions.
 
-Settings you could not type are chosen from a list — an app, a sound, a paired
-Bluetooth device — and each action has a **Test** button that runs it there and
-then, so a sound is picked by ear rather than by URI. Pressing Test again stops a
-running one.
+Most triggers can work as a trigger or as a condition. Each component
+appears once in the picker; the slot you put it in decides which question
+Trigly asks. For this reason, "when the doorbell rings, if it is dark and I
+am at home" is one gate, not a separate feature next to triggers.
+`docs/conditions.md` has the design note for this.
 
-Rules run **in the background**, in a foreground service that starts at boot and
-after an app update, and stops itself when no rule is enabled. Android shows an
-ongoing notification while it runs, which is the deal: the app cannot watch the
-device without the device saying so. Almost every trigger depends on this —
-since Android 8 the system delivers most broadcasts only to a live process, so
-without the service a rule would fire only while the app was open.
+**Time of day** is the only check that works only as a condition, because
+there is no time trigger for it to be a passive form of. An earlier,
+separate component called "in an area" existed for a short time. Trigly
+then merged it into the `location` trigger, as that trigger's condition
+form. This merge is why each component now appears only once in the
+picker.
 
-Actions that **open** something — a website, an app, a pre-filled email — work
-from the background too, which on modern Android takes more than calling
-`startActivity`: the system silently drops such a start unless the app holds
-"Display over other apps". Trigly asks for that permission and draws nothing
-with it; it is there purely so a rule can put something on screen when you are
-not already looking at the phone. Grant it from the rule that needs it. Without
-it those actions still work while you are using the device, and the editor says
-so rather than pretending.
+A **notification inspector** screen shows what a notification looks like
+from inside the app: the package name, the title, the text, the flags, and
+the real label of each button. Without this screen, you would write a
+notification rule against values that you cannot see, and a typo in one of
+these values would stop the rule without any message.
 
-Rules can be **exported and imported** as versioned JSON, one rule or all of
-them. That is the phone-switch story: Android's Auto Backup needs a Google
-account and does not run on de-Googled devices, so an explicit file you own is
-the only mechanism that always works — and it doubles as a way to share a rule
-with someone else.
+The same idea produced the button-capture picker. You choose a notification
+action button by tapping it on a live notification. Trigly does not count
+buttons by position, because a button's position can change; a rule that
+counts by position can keep working, then stop without warning, once the
+position changes.
 
-Triggers cover device state (battery, power, radios, screen, headset, theme,
-orientation, location), apps and settings (install, foreground, work profile,
-auto-sync), a home-screen shortcut you tap yourself, and the permission-gated
-ones (notifications, Do Not Disturb, accessibility, calls, SMS, clipboard).
+The pickers list only the components that the phone can run. If a trigger
+needs an Android API that the phone's version does not have, Trigly does
+not offer that trigger. If a trigger needs hardware that the phone does not
+have, Trigly does not offer it either. Once you choose a component, Trigly
+states all of its caveats in full.
 
-Actions cover notifying (notification, toast, speech, vibration), opening
-(website, app), handing off to another app for the user to confirm (email, SMS,
-alarm, calendar), device state (volume, ringer, clipboard, Do Not Disturb),
-other apps' notifications (dismiss, press a button), turning one of your own
-rules on or off, and HTTP requests for webhooks and home automation.
+You choose some settings from a list instead of typing them: an app, a
+sound, or a paired Bluetooth device. Each action has a **Test** button. This
+button runs the action right away, so you can choose a sound by listening
+to it, not by its URI. If you press Test again while the action is running,
+Trigly stops it.
 
-`docs/triggers.md` and `docs/actions.md` catalogue every trigger and action with
-its Android API, required permission and known pitfalls — including the ones
-deliberately not built, and the ones Android no longer permits at all.
+Rules run **in the background**, in a foreground service. This service
+starts when the phone boots, and after an app update. It stops itself when
+no rule is enabled. Android shows an ongoing notification while the service
+runs; this is a trade-off, because the app cannot watch the device unless
+Android tells the user that it is doing so. Almost every trigger depends on
+this service: since Android 8, the system sends most broadcasts only to a
+process that is already running, so without the service a rule would start
+only while the app was open.
 
-**Privacy.** Trigly's accessibility service can observe screen content, and its
-notification listener sees every notification. Nothing is stored, logged or sent
-anywhere: events are matched on the device and discarded. Both services are inert
-until you enable them in system settings, and nothing needs them unless you build
-a rule that does.
+Actions that **open** something also work from the background: for example,
+a website, an app, or a pre-filled email. On modern Android, opening
+something from the background needs more than a call to `startActivity`.
+Without the "Display over other apps" permission, Android silently blocks
+the attempt and draws nothing.
 
-Not yet implemented, and known limits stated plainly rather than left for a user
-to discover — each of the former has a `TODO` at the relevant place in the code:
+Trigly asks for this permission, but draws nothing with it. The permission
+exists only so a rule can put something on the screen while you are not
+already looking at the phone. Grant the permission from the rule that needs
+it. Without it, these actions still work while you are using the phone, and
+the editor states this limit rather than hiding it.
 
-- **Real scheduling.** There is no scheduler. The interval trigger uses a
-  coroutine delay, which does not survive Doze, and the sunrise/sunset trigger
-  inherits the same weakness while it waits on this. Time-of-day and calendar
-  triggers cannot exist at all without it. Now the largest gap, and the next
-  thing worth building.
-- **Geofencing and activity recognition.** Would require Google Play Services;
-  left out on purpose so the app works on de-Googled devices. The `location`
-  trigger uses the platform API instead.
-- **Variables and loops.** Conditions shipped — see above — but a rule still
-  cannot carry state between firings or repeat an action a computed number of
-  times. That remains an open execution-model question; see the design note in
-  `docs/actions.md`.
-- **Location goes silent after a reboot.** A service started at boot is denied
-  location access for the rest of its life on current Android, which is a
-  platform restriction Trigly cannot route around. The `location` trigger, and
-  the same component's passive form when it is used as a condition, both read
-  nothing in a rule that has not run since the device last restarted — and there
-  is no warning for it, because the app has no way to notice a denial it never
-  gets a chance to check.
+You can **export and import** rules as versioned JSON, one rule or all of
+them. This solves the problem of moving to a new phone: Android's Auto
+Backup needs a Google account, and it does not run on a de-Googled device,
+so an explicit file that you own is the only method that always works. You
+can also use this file to share a rule with another person.
+
+Trigly's triggers cover:
+
+- Device state: battery, power, radios, screen, headset, theme,
+  orientation, location.
+- Apps and settings: install, foreground app, work profile, auto-sync.
+- A home-screen shortcut that you tap yourself.
+- Functions gated behind a permission: notifications, Do Not Disturb,
+  accessibility, calls, SMS, clipboard.
+
+Trigly's actions cover:
+
+- Sending a notice: a notification, a toast, speech, or vibration.
+- Opening something: a website or an app.
+- Handing off to another app, for you to confirm: email, SMS, an alarm, or
+  a calendar entry.
+- Device state: volume, ringer mode, clipboard, Do Not Disturb.
+- Other apps' notifications: dismiss one, or press one of its buttons.
+- Turning one of your own rules on or off.
+- HTTP requests, for webhooks and home automation.
+
+`docs/triggers.md` and `docs/actions.md` list every trigger and action,
+with its Android API, required permission, and known pitfalls. These
+documents also list the ones Trigly does not build on purpose, and the ones
+current Android versions do not permit at all.
+
+**Privacy.** Trigly's accessibility service can read screen content, and
+its notification listener sees every notification. Trigly does not store,
+log, or send this data anywhere: the app checks each event on the device,
+then discards it. Both services do nothing until you turn them on in system
+settings, and no function needs them unless you build a rule that does.
+
+The list below states what Trigly does not yet do, and known limits of what
+it does do. Trigly states each limit here so you do not have to discover it
+yourself. Each missing function has a `TODO` comment at the relevant place
+in the code:
+
+- **Real scheduling.** Trigly has no scheduler. The interval trigger uses a
+  coroutine delay, and this delay does not survive Doze mode. The
+  sunrise/sunset trigger uses the same method, so it has the same weakness,
+  until Trigly builds a real scheduler. Without a real scheduler, Trigly
+  cannot build a time-of-day trigger or a calendar trigger at all. This is
+  currently the largest gap, and the next feature worth building.
+- **Geofencing and activity recognition.** These functions need Google Play
+  Services. Trigly leaves them out on purpose, so the app works on a
+  de-Googled device. The `location` trigger uses the plain Android platform
+  API instead.
+- **Variables and loops.** Trigly now has conditions; see above. But a
+  rule still cannot carry state between the times it starts, and a rule
+  still cannot repeat an action a computed number of times. How to add this
+  remains an open question about the execution model; see the design note
+  in `docs/actions.md`.
+- **Location goes silent after a reboot.** On current Android, a service
+  that starts at boot loses location access for the rest of its run. This
+  is a platform restriction that Trigly cannot work around. This affects
+  the `location` trigger, and the same component's condition form: if a
+  rule has not run since the device last restarted, both forms read no
+  location data, and Trigly gives no warning for this, because the app has
+  no way to check for a denial that it never gets the chance to test.
