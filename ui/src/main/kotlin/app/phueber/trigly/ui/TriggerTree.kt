@@ -198,10 +198,23 @@ private fun TriggerGroupBlock(
     // and this one has nothing left to add.
     val hasHiddenCaveat = !expanded && group.hasDescendantCaveat(descriptorFor)
 
-    BlockCard(modifier = modifier) {
-        Column(modifier = Modifier.padding(14.dp)) {
+    // A card for the outermost group only. A nested group used to draw its own
+    // card too, and the border and padding of that card cost more width per level
+    // than the rail that marks it: 14dp a side, against 3dp of rail. Three deep,
+    // the cards alone took more room than the triggers inside them. The rail and
+    // the AND/OR heading say everything the nested card was saying.
+    val nested = path.isNotEmpty()
+
+    GroupContainer(nested = nested, modifier = modifier) {
+        // Vertical padding only. The horizontal padding a card wants around its
+        // heading is not padding the triggers inside it should pay, and paying it
+        // once per level is what made a deep rule narrow: the rail is meant to be
+        // the whole cost of a level.
+        Column(modifier = Modifier.padding(vertical = if (nested) 4.dp else 14.dp)) {
+            val headingInset = if (nested) 0.dp else 14.dp
+
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = headingInset),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (hasHiddenCaveat) {
@@ -237,7 +250,9 @@ private fun TriggerGroupBlock(
 
             if (expanded) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, start = headingInset, end = headingInset),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
@@ -270,7 +285,10 @@ private fun TriggerGroupBlock(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 12.dp)
+                        .padding(
+                            top = 12.dp,
+                            start = if (nested) 0.dp else GroupRailCardInset,
+                        )
                         .height(IntrinsicSize.Min),
                 ) {
                     Box(
@@ -319,6 +337,27 @@ private fun TriggerGroupBlock(
 }
 
 /**
+ * A group's frame: a card at the top level, nothing at all below it.
+ *
+ * The outermost group is a block among the rule's other blocks and reads as one.
+ * A nested group is already inside its parent's rail, so a second border around
+ * it adds an outline the eye does not need and 14dp a side that the triggers
+ * inside it do need.
+ */
+@Composable
+private fun GroupContainer(
+    nested: Boolean,
+    modifier: Modifier,
+    content: @Composable () -> Unit,
+) {
+    if (nested) {
+        Column(modifier = modifier.fillMaxWidth()) { content() }
+    } else {
+        BlockCard(modifier = modifier) { content() }
+    }
+}
+
+/**
  * The rail that marks one group's contents, and the gap between it and them.
  *
  * Small on purpose. This is the only width a level of nesting costs now, so it
@@ -326,8 +365,17 @@ private fun TriggerGroupBlock(
  * cramped. Wide enough to read as a deliberate line rather than a border
  * artefact, and no wider.
  */
-private val GroupRailWidth = 3.dp
-private val GroupRailGap = 8.dp
+private val GroupRailWidth = 2.dp
+private val GroupRailGap = 4.dp
+
+/**
+ * How far the outermost group holds its rail off its own card border.
+ *
+ * Only the top-level group has a border to clear. Without this the rail lands on
+ * top of it and reads as a coloured inner edge to the card rather than as a mark
+ * belonging to the triggers beside it.
+ */
+private val GroupRailCardInset = 4.dp
 
 /** Every trigger leaf under this node, however deep — what a folded group's
  * summary line counts. Counts leaves rather than direct children so a group

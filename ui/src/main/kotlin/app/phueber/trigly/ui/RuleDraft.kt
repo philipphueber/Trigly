@@ -276,15 +276,33 @@ private fun TriggerDraft.at(path: NodePath): TriggerDraft? =
     }
 
 /**
- * Replaces the node at [path] by applying [transform] to whatever is there now
- * — null only when [path] is empty and [root] itself is null — and un-promotes
- * any group left with fewer than two children as the change bubbles back up.
+ * Replaces the node at [path] by applying [transform] to whatever is there now.
+ * Null only when [path] is empty and [root] itself is null.
  *
  * Mirrors the pair [TriggerNode.replaceAt]/[TriggerNode.removeAt], written
  * against [TriggerDraft] because a draft's [ComponentDraft] is not yet a
- * [ComponentSpec]. [transform] returning null is what a removal is; returning
- * a value is what every other edit is — one function rather than two, since
- * there is only ever one shape of node here to address.
+ * [ComponentSpec]. [transform] returning null is what a removal is. Returning a
+ * value is what every other edit is. One function rather than two, since there
+ * is only ever one shape of node here to address.
+ *
+ * **A removal can collapse a group. Any other edit never changes the shape.**
+ * That distinction is the whole of this function's care, and it used to be
+ * missing: the un-promotion was applied to the result of every recursion, so a
+ * group holding one child lost the group the moment anything inside it was
+ * touched. Typing a value into the one trigger in a new OR group deleted the OR
+ * group, in the editor, while the person was still filling it in. The tree they
+ * were building changed under them and nothing said so.
+ *
+ * Removal still collapses, and that is deliberate rather than tolerated:
+ * removing one of two OR branches leaves the other, and an OR of one thing is
+ * that thing. The difference is what the person just did. Removing a child is a
+ * finished edit and the group has served its purpose. Editing a child is not
+ * about the group at all.
+ *
+ * A group left with no children at all disappears, because the last removal from
+ * a group is the removal of the group. An *empty* group that a person made on
+ * purpose is a different thing, is kept, and is what `toNodeOrNull` refuses to
+ * save until something is in it.
  */
 fun transformTrigger(
     root: TriggerDraft?,
@@ -298,16 +316,22 @@ fun transformTrigger(
     if (index !in group.children.indices) return root
 
     val updatedChild = transformTrigger(group.children[index], path.drop(1), transform)
-    val newChildren = if (updatedChild == null) {
-        group.children.filterIndexed { i, _ -> i != index }
-    } else {
-        group.children.toMutableList().also { it[index] = updatedChild }
+
+    // An edit: same shape, one child replaced. No collapse, whatever the child
+    // count is. A deeper removal has already collapsed whatever it needed to and
+    // hands back a node, so it arrives here as an ordinary replacement.
+    if (updatedChild != null) {
+        return group.copy(
+            children = group.children.toMutableList().also { it[index] = updatedChild }
+        )
     }
 
-    return when (newChildren.size) {
+    // A removal: the child is gone, and the group may have nothing left to be.
+    val remaining = group.children.filterIndexed { i, _ -> i != index }
+    return when (remaining.size) {
         0 -> null
-        1 -> newChildren.single()
-        else -> group.copy(children = newChildren)
+        1 -> remaining.single()
+        else -> group.copy(children = remaining)
     }
 }
 
