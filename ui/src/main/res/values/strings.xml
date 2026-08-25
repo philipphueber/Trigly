@@ -20,6 +20,7 @@
     <string name="rules_import">Import</string>
     <string name="rules_export_all">Export all</string>
     <string name="rules_share">Share</string>
+    <string name="rules_duplicate">Duplicate</string>
     <string name="requirement_grant">Grant</string>
     <string name="rules_search_label">Search</string>
     <!--

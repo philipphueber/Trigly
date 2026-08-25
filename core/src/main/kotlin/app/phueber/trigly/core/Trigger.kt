@@ -93,4 +93,28 @@ interface TriggerFactory : ComponentFactory {
      */
     val producesEvents: Boolean
         get() = true
+
+    /**
+     * The same question as [producesEvents], asked of one configuration.
+     *
+     * Some components can be told to stop watching. The location component is
+     * the case this exists for: watching an area means holding an open request
+     * for position updates for as long as the rule is on, which is the most
+     * expensive thing this app can do to a battery, while answering "am I in
+     * the area now" costs one fix when something else asks. A rule that only
+     * needs the second should not pay for the first, so the component offers a
+     * switch, and with that switch on it produces no events at all.
+     *
+     * The default ignores the config and answers with the flat [producesEvents],
+     * so a component with no such switch says nothing about config and needs no
+     * change here. That default is the reason this is an added function rather
+     * than a replacement: adding a component must not mean editing the others.
+     *
+     * The same honesty requirement as [producesEvents] applies, per
+     * configuration: a config this answers false for must produce a [Trigger]
+     * whose [Trigger.events] is empty. Otherwise the editor hides the component
+     * from a slot it would in fact have filled, and the engine collects a flow
+     * the tree was told to ignore.
+     */
+    fun producesEvents(config: Map<String, String>): Boolean = producesEvents
 }

@@ -101,6 +101,19 @@ class Registry(
     fun producesEvents(type: String): Boolean = triggers[type]?.producesEvents ?: false
 
     /**
+     * Whether this exact component, configured this way, can start a rule.
+     *
+     * The form [TriggerNode.canStart] is fed with, and the one to prefer when a
+     * [ComponentSpec] is in hand. A component can be configured not to watch
+     * anything: see [TriggerFactory.producesEvents] with a config. Asking by
+     * type alone would answer for the component in general and miss the switch,
+     * so a rule whose only location leaf was set to check rather than watch
+     * would look able to start when nothing in it can.
+     */
+    fun producesEvents(spec: ComponentSpec): Boolean =
+        triggers[spec.type]?.producesEvents(spec.config) ?: false
+
+    /**
      * Whether [type] can be asked for its current state — the by-type-string
      * form of [TriggerFactory.supportsCondition], for [TriggerNode.canStart]
      * and [TriggerNode.canHold]'s `hasState` parameter.

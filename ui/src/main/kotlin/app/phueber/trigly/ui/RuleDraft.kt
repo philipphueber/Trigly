@@ -182,24 +182,49 @@ fun RuleDraft.toRuleOrNull(): Rule? {
 }
 
 /**
- * The [TriggerNode] this draft node builds, or null for a group that — after
- * its own empty or vacuous children are pruned the same way — has nothing left
- * in it.
+ * The [TriggerNode] this draft node builds, or null when a group in it has
+ * nothing to build from.
  *
- * A group of exactly one child unwraps to that child rather than saving as an
- * `ALL`/`ANY` of one: the editor never *builds* a singleton group (see
- * [TriggerDraft]'s KDoc), but pruning an empty grandchild out of a two-child
- * group can leave one behind here, and the alternative — saving a pointless
- * wrapper — is a shape nothing in the editor would have chosen on purpose.
+ * This function used to do two things that both lost a group without saying so,
+ * and both are fixed here.
+ *
+ * **A group of one child is kept, not unwrapped.** The old code unwrapped it,
+ * on the stated grounds that the editor never builds a singleton group. It
+ * does, on the way to every group a person makes: a group is picked from the
+ * trigger picker and arrives empty, so it holds exactly one child for as long
+ * as it takes to add the second. Saving in that state replaced the group with
+ * its one child, which is the same tree as a predicate and a different rule to
+ * look at. Someone who built `ALL(screen on, ANY(...))`, added the first branch
+ * of the OR, and saved, reopened the rule to find the OR gone. An `ANY` of one
+ * evaluates exactly like the child, so keeping it costs nothing at runtime and
+ * keeps what the person built.
+ *
+ * **An empty group refuses the save rather than disappearing from it.** The old
+ * code pruned it with `mapNotNull` and carried on, so a group with nothing in it
+ * was dropped and the parent saved without it. The refusal message existed
+ * already but could only fire when the *root* was the empty group, which is the
+ * one case where pruning happened to produce a null tree. Now any empty group
+ * anywhere makes the whole conversion null, and
+ * [RuleEditorViewModel.save] says which problem it is. A rule that looks saved
+ * and quietly lost a piece of itself is the failure this project is built to
+ * avoid.
+ *
+ * A group that loses children to *removal* still collapses, and that is a
+ * different question, answered in [transformTrigger]: removing one of two OR
+ * branches leaves the other, and an OR of one thing is that thing. The
+ * difference is intent. One child because a second was removed is a finished
+ * edit. One child because a second is not added yet is a rule in progress.
  */
 fun TriggerDraft.toNodeOrNull(): TriggerNode? = when (this) {
     is TriggerDraft.One -> TriggerNode.One(ComponentSpec(component.type, component.config))
     is TriggerDraft.Group -> {
-        val kids = children.mapNotNull { it.toNodeOrNull() }
-        when {
-            kids.isEmpty() -> null
-            kids.size == 1 -> kids.single()
-            else -> TriggerNode.Group(op, kids)
+        // An empty group, or any descendant of one, makes the whole tree null.
+        // `mapNotNull` here is what silently dropped it before.
+        if (children.isEmpty()) {
+            null
+        } else {
+            val kids = children.map { it.toNodeOrNull() }
+            if (kids.any { it == null }) null else TriggerNode.Group(op, kids.filterNotNull())
         }
     }
 }
@@ -311,4 +336,32 @@ fun addTriggerChild(
         is TriggerDraft.One -> TriggerDraft.Group(op, listOf(target, addition))
     }
     return transformTrigger(root, path) { grown }
+}
+
+/**
+ * The tree this draft describes with any empty group left out of it, or null if
+ * nothing is left.
+ *
+ * Not a second opinion on [toNodeOrNull], a different question. Saving asks
+ * "is this rule finished", and an empty group means no, which is why
+ * [toNodeOrNull] refuses it. The trigger picker asks "if I put this component
+ * here, could the rule start", and a group the person has not filled yet is
+ * simply not part of that question. Answering it strictly would empty the
+ * picker: with `ALL(screen on, ANY())` on screen, every candidate for the root
+ * would convert to null and be filtered out, so the one control that fills the
+ * empty group would offer nothing at all.
+ *
+ * So this prunes, exactly the way [toNodeOrNull] used to for everybody, and it
+ * is used only where pruning is the honest reading.
+ */
+fun TriggerDraft.toNodeIgnoringEmptyGroups(): TriggerNode? = when (this) {
+    is TriggerDraft.One -> TriggerNode.One(ComponentSpec(component.type, component.config))
+    is TriggerDraft.Group -> {
+        val kids = children.mapNotNull { it.toNodeIgnoringEmptyGroups() }
+        when {
+            kids.isEmpty() -> null
+            kids.size == 1 -> kids.single()
+            else -> TriggerNode.Group(op, kids)
+        }
+    }
 }

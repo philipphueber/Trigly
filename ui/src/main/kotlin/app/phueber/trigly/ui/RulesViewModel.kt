@@ -102,6 +102,20 @@ class RulesViewModel(
         viewModelScope.launch { repository.delete(ruleId) }
     }
 
+    /**
+     * Saves a copy of [rule], switched off and named as a copy. See
+     * [duplicated] for what a copy does not carry over.
+     *
+     * The copy lands at the end of the list, like every other new rule: the
+     * repository gives a rule it has not seen the next free position. Placing it
+     * next to the original would mean shifting the position of every rule below
+     * it, and a list that reorders itself around a copy is a bigger surprise
+     * than a copy at the bottom.
+     */
+    fun duplicate(rule: Rule) {
+        viewModelScope.launch { repository.upsert(rule.duplicated(registry)) }
+    }
+
     fun setEnabled(rule: Rule, enabled: Boolean) {
         viewModelScope.launch {
             repository.upsert(rule.copy(enabled = enabled))

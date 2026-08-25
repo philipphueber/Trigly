@@ -226,6 +226,7 @@ class MainActivity : ComponentActivity() {
                     onEditRule = { onNavigate(Screen.RuleEditor(it)) },
                     onExportAll = { export(listViewModel.exportAll(), "trigly-rules.json") },
                     onExportRule = ::exportSingle,
+                    onDuplicateRule = listViewModel::duplicate,
                     onImport = { openDocument.launch(arrayOf("application/json", "text/*")) },
                     describeComponent = container.registry::displayNameOf,
                 )

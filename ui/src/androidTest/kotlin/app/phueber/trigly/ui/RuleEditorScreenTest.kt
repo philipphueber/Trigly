@@ -529,8 +529,8 @@ class RuleEditorScreenTest {
         composeRule.setContent { Editor(EditorState(RuleDraft(id = null, name = "Untitled"))) }
 
         composeRule.onNodeWithText("NO FOLDER").performClick()
-        composeRule.onNodeWithText("SEARCH OR TYPE A FOLDER NAME").performTextReplacement("Weekend")
-        composeRule.onNodeWithText("USE \"WEEKEND\"").performClick()
+        composeRule.onNodeWithText("PICK A FOLDER, OR TYPE A NEW NAME").performTextReplacement("Weekend")
+        composeRule.onNodeWithText("+  NEW FOLDER \"WEEKEND\"").performClick()
 
         assertEquals(listOf("Weekend"), folderChanges)
     }
