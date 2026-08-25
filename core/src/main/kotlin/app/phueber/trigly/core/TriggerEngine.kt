@@ -15,7 +15,9 @@ import kotlinx.coroutines.launch
  * supplies the [scope]; cancelling that scope stops everything.
  *
  * @param onOutcome observation hook for logging and for the UI's run history.
- *   Called once per action per event, on the collecting coroutine.
+ *   Called once per action per event, on the collecting coroutine. Carries the
+ *   action's type, because a rule with three actions produces three outcomes and
+ *   a reader that cannot tell them apart cannot say which one failed.
  * @param onStartFailure reports a rule that could not be built at all — an
  *   unknown type, or config its factory refuses. Separate from [onOutcome]
  *   because nothing ran: there is no event and no [ActionResult] to report.
@@ -23,8 +25,12 @@ import kotlinx.coroutines.launch
 class TriggerEngine(
     private val registry: Registry,
     private val scope: CoroutineScope,
-    private val onOutcome: (rule: Rule, event: TriggerEvent, result: ActionResult) -> Unit =
-        { _, _, _ -> },
+    private val onOutcome: (
+        rule: Rule,
+        event: TriggerEvent,
+        actionType: String,
+        result: ActionResult,
+    ) -> Unit = { _, _, _, _ -> },
     private val onStartFailure: (rule: Rule, cause: Throwable) -> Unit = { _, _ -> },
 ) {
     /** The rule as it was when started, so [sync] can tell an edit from a redelivery. */
@@ -121,7 +127,9 @@ class TriggerEngine(
             .map { (_, spec) -> spec }
             .distinct()
             .associateWith(registry::createTrigger)
-        val actions = rule.actions.map(registry::createAction)
+        // Paired with the spec they were built from, so an outcome can say which
+        // action it belongs to. The instance alone does not know its own type.
+        val actions = rule.actions.map { spec -> spec.type to registry.createAction(spec) }
 
         val job = scope.launch {
             leafPaths
@@ -129,7 +137,7 @@ class TriggerEngine(
                 .merge()
                 .collect { (firedPath, event) ->
                     if (!triggerHolds(rule.trigger, firedPath, triggersBySpec)) return@collect
-                    actions.forEach { action -> run(rule, action, event) }
+                    actions.forEach { (type, action) -> run(rule, type, action, event) }
                 }
         }
         jobs[rule.id] = Running(rule, job)
@@ -167,7 +175,12 @@ class TriggerEngine(
      * failure mode this app has. Cancellation is not a failure and is rethrown
      * so the coroutine machinery still sees it.
      */
-    private suspend fun run(rule: Rule, action: Action, event: TriggerEvent) {
+    private suspend fun run(
+        rule: Rule,
+        actionType: String,
+        action: Action,
+        event: TriggerEvent,
+    ) {
         val result = try {
             action.execute(event)
         } catch (cancellation: CancellationException) {
@@ -175,7 +188,7 @@ class TriggerEngine(
         } catch (t: Throwable) {
             ActionResult.Failure("This action threw ${t::class.simpleName}. ${t.message}", t)
         }
-        onOutcome(rule, event, result)
+        onOutcome(rule, event, actionType, result)
     }
 
     fun stopRule(ruleId: String) = synchronized(lock) {

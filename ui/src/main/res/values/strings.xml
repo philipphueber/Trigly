@@ -21,6 +21,12 @@
     <string name="rules_export_all">Export all</string>
     <string name="rules_share">Share</string>
     <string name="rules_duplicate">Duplicate</string>
+    <!--
+      Names the action, because a rule with three actions otherwise leaves the
+      reader to guess which one this is about. The reason follows on its own
+      line, in the action's own words.
+    -->
+    <string name="rules_last_run_failed">Last run failed: %1$s</string>
     <string name="requirement_grant">Grant</string>
     <string name="rules_search_label">Search</string>
     <!--

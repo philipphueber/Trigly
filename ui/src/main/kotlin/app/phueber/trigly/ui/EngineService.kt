@@ -146,9 +146,34 @@ class EngineService : Service() {
         }
     }
 
-    private fun report(rule: Rule, event: TriggerEvent, result: ActionResult) {
-        if (result is ActionResult.Failure) {
-            Log.w(TAG, "rule '${rule.name}' on ${event.triggerType}: ${result.reason}")
+    /**
+     * Every action outcome, recorded where the rule list can read it.
+     *
+     * The log line stays: logcat is still where a developer looks, and it is the
+     * only record that survives the process. What is new is that a failure also
+     * reaches the screen, through [AppContainer.actionFailures]. Until now a
+     * rule whose trigger fired and whose action failed was indistinguishable, to
+     * the person using it, from a rule whose trigger never fired.
+     *
+     * A success clears the rule's record, which is what stops a fixed rule
+     * carrying an accusation from an hour ago. [ActionFailureLog.succeeded]
+     * clears only a record belonging to the same action, so one failing action
+     * among several is not erased by the ones that work.
+     */
+    private fun report(
+        rule: Rule,
+        event: TriggerEvent,
+        actionType: String,
+        result: ActionResult,
+    ) {
+        val failures = (application as TriglyApp).container.actionFailures
+        when (result) {
+            is ActionResult.Failure -> {
+                Log.w(TAG, "rule '${rule.name}' on ${event.triggerType}: ${result.reason}")
+                failures.failed(rule.id, actionType, result.reason)
+            }
+
+            is ActionResult.Success -> failures.succeeded(rule.id, actionType)
         }
     }
 

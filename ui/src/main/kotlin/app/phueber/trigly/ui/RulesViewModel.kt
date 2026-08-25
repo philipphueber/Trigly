@@ -24,6 +24,14 @@ import kotlinx.coroutines.launch
 data class RuleStatus(
     val rule: Rule,
     val unmet: List<ComponentRequirement>,
+    /**
+     * What this rule's last failing action said, if one failed since the engine
+     * started. See [ActionFailureLog] for why it does not outlive the engine.
+     *
+     * Distinct from [unmet]: that is a reason the rule *cannot* run, known before
+     * it ever tries. This is a report from a run that happened.
+     */
+    val lastFailure: ActionFailure? = null,
 ) {
     val canFire: Boolean get() = unmet.isEmpty()
 }
@@ -32,6 +40,11 @@ class RulesViewModel(
     private val repository: RuleRepository,
     private val registry: Registry,
     private val checker: RequirementChecker,
+    /**
+     * Read only, and defaulted so a test that does not care about failures needs
+     * to say nothing. The engine writes it; see [ActionFailureLog].
+     */
+    private val actionFailures: ActionFailureLog = ActionFailureLog(),
 ) : ViewModel() {
 
     /**
@@ -43,8 +56,21 @@ class RulesViewModel(
     private val refreshTick = MutableStateFlow(0)
 
     val statuses: StateFlow<List<RuleStatus>> =
-        combine(repository.rules(), refreshTick) { rules, _ ->
-            rules.map { rule -> RuleStatus(rule, checker.unmet(rule, registry)) }
+        combine(
+            repository.rules(),
+            refreshTick,
+            actionFailures.failures,
+        ) { rules, _, failures ->
+            rules.map { rule ->
+                RuleStatus(
+                    rule = rule,
+                    unmet = checker.unmet(rule, registry),
+                    // Only for an enabled rule. A failure recorded before someone
+                    // switched a rule off describes a run they have since stopped
+                    // asking for, and reporting it would read as a live fault.
+                    lastFailure = if (rule.enabled) failures[rule.id] else null,
+                )
+            }
         }.stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
@@ -99,6 +125,9 @@ class RulesViewModel(
     }
 
     fun delete(ruleId: String) {
+        // Forgotten as well as deleted: the log is keyed by rule id, and an id is
+        // free to be reused by an import.
+        actionFailures.forget(ruleId)
         viewModelScope.launch { repository.delete(ruleId) }
     }
 
@@ -127,8 +156,9 @@ class RulesViewModel(
             repository: RuleRepository,
             registry: Registry,
             checker: RequirementChecker,
+            actionFailures: ActionFailureLog = ActionFailureLog(),
         ) = viewModelFactory {
-            initializer { RulesViewModel(repository, registry, checker) }
+            initializer { RulesViewModel(repository, registry, checker, actionFailures) }
         }
     }
 }

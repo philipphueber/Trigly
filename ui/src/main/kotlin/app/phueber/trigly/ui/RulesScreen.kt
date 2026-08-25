@@ -385,6 +385,64 @@ private fun RuleBlock(
             }
 
             RequirementCell(status = status, onResolve = onResolve)
+            LastFailureCell(status = status, describeComponent = describeComponent)
+        }
+    }
+}
+
+/**
+ * What the rule's last failing action said.
+ *
+ * The gap this closes: a rule whose trigger fired and whose action then failed
+ * looked exactly like a rule whose trigger never fired. Both did nothing and
+ * both said nothing. The engine wrote a line to logcat, which needs a cable to
+ * read, so the one question people actually ask, "why did my rule do nothing",
+ * had no answer on the device.
+ *
+ * Deliberately a different colour from [RequirementCell]. That cell is the error
+ * colour because it states a fault standing in the way right now: the rule
+ * cannot run, and here is the permission to grant. This is a report about a run
+ * that already happened, and the condition may well be gone. Amber is the
+ * convention this design already uses for "worth knowing, not a fault in front
+ * of you" on component caveats.
+ *
+ * Only for an enabled rule, and [RulesViewModel] enforces that as well by not
+ * filling the field for a disabled one. Two guards for one rule, because the
+ * cost of getting it wrong is accusing a rule nobody asked to run.
+ */
+@Composable
+private fun LastFailureCell(
+    status: RuleStatus,
+    describeComponent: (String) -> String,
+) {
+    val failure = status.lastFailure ?: return
+    if (!status.rule.enabled) return
+
+    BlockDivider()
+    Surface(
+        color = MaterialTheme.extra.cautionContainer,
+        contentColor = MaterialTheme.extra.onCautionContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+        ) {
+            // Names the action, because a rule with three of them otherwise
+            // leaves the reader to guess which one this is about.
+            Text(
+                text = stringResource(
+                    R.string.rules_last_run_failed,
+                    describeComponent(failure.actionType),
+                ).uppercase(),
+                style = MaterialTheme.typography.labelMedium,
+            )
+            Text(
+                text = failure.reason,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 2.dp),
+            )
         }
     }
 }
