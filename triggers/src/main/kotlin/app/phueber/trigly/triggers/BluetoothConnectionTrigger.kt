@@ -502,6 +502,29 @@ fun bluetoothNameFilter(config: Map<String, String>): TextFilter =
         )
     }
 
+/**
+ * Whether this configuration picks out particular devices, rather than matching
+ * any connection.
+ *
+ * What the permission requirement turns on. An "any device" rule matches on the
+ * raw ACL broadcast alone and needs nothing, because a match with no address and
+ * no name filter is true whether or not the device could be identified. Once a
+ * rule narrows, a device it cannot read is a device it cannot match, and the
+ * permission starts to matter.
+ *
+ * Asked of the filters the config *matches on*, through
+ * [bluetoothWantedAddress] and [bluetoothNameFilter], not of the keys it happens
+ * to store. Those stopped being the same thing when
+ * [BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY] became a runtime choice: a rule
+ * identifying its device by address can carry a name from an earlier edit that
+ * nothing reads any more, and reading the raw keys would demand a permission for
+ * a filter that no longer applies. A requirement that does not matter teaches
+ * people to ignore the ones that do.
+ */
+fun bluetoothNarrowsByDevice(config: Map<String, String>): Boolean =
+    !bluetoothWantedAddress(config).isNullOrEmpty() ||
+        bluetoothNameFilter(config).pattern != null
+
 class BluetoothConnectionTriggerFactory(
     private val context: Context,
 ) : TriggerFactory {
@@ -663,11 +686,8 @@ class BluetoothConnectionTriggerFactory(
     // will silently never hold rather than being flagged unfirable; that gap is
     // real and is not fixed here, only left visible in this comment rather than
     // hidden in a decision only this function's author was in a position to make.
-    override fun requirementsFor(config: Map<String, String>): List<ComponentRequirement> {
-        val narrowed = !config[BluetoothConnectionTrigger.CONFIG_ADDRESS].isNullOrEmpty() ||
-            !config[BluetoothConnectionTrigger.CONFIG_NAME].isNullOrEmpty()
-        return if (narrowed) requirements else emptyList()
-    }
+    override fun requirementsFor(config: Map<String, String>): List<ComponentRequirement> =
+        if (bluetoothNarrowsByDevice(config)) requirements else emptyList()
 
     override fun create(config: Map<String, String>): Trigger =
         BluetoothConnectionTrigger(
