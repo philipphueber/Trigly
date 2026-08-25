@@ -19,7 +19,7 @@
   <rect width="108" height="108" fill="#EC6206"/>
   <g fill="#17100C">
     <rect x="32" y="29" width="44" height="12"/>
-    <rect x="49" y="40" width="10" height="24"/>
+    <rect x="49" y="41" width="10" height="22"/>
     <path d="M42,63 H66 L54,79 Z"/>
   </g>
 </svg>
