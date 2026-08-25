@@ -351,6 +351,85 @@ class RuleEditorViewModelTest {
         assertEquals(null, editor.state.value.error)
     }
 
+    // --- Folder: the rule's own property, not a component's config. ---
+
+    @Test
+    fun setting_the_folder_reaches_the_draft() = runTest {
+        val editor = viewModel()
+
+        editor.setFolder("Car")
+
+        assertEquals("Car", editor.state.value.draft.folder)
+    }
+
+    @Test
+    fun an_existing_rules_folder_is_loaded_into_the_draft() = runTest {
+        val existing = Rule(
+            id = "rule-1",
+            name = "Charger on",
+            trigger = TriggerNode.One(ComponentSpec("power_connection", mapOf("state" to "connected"))),
+            actions = listOf(ComponentSpec("speak", mapOf("text" to "Charging"))),
+            folder = "Car",
+        )
+        val repository = InMemoryRuleRepository()
+        repository.upsert(existing)
+
+        val editor = viewModel(repository, ruleId = "rule-1")
+
+        assertEquals("Car", editor.state.value.draft.folder)
+    }
+
+    /**
+     * The whole reason [RuleDraft.folder] is a plain, non-nullable [String]
+     * rather than mirroring [Rule.folder]'s nullability: a text field cannot
+     * hold "unset", so the draft holds "" for it, and clearing the field has to
+     * actually take the rule out of its folder rather than leaving the old
+     * value in place because nothing collapsed it back to null.
+     */
+    @Test
+    fun clearing_an_existing_folder_saves_with_no_folder() = runTest {
+        val existing = Rule(
+            id = "rule-1",
+            name = "Charger on",
+            trigger = TriggerNode.One(ComponentSpec("power_connection", mapOf("state" to "connected"))),
+            actions = listOf(ComponentSpec("speak", mapOf("text" to "Charging"))),
+            folder = "Car",
+        )
+        val repository = InMemoryRuleRepository()
+        repository.upsert(existing)
+        val editor = viewModel(repository, ruleId = "rule-1")
+        assertEquals("Car", editor.state.value.draft.folder)
+
+        editor.setFolder("")
+        editor.save()
+
+        val saved = repository.rules().first().single()
+        assertNull("clearing the folder field must take the rule out of its folder", saved.folder)
+    }
+
+    /**
+     * Whitespace is not a folder name — [normalizeFolder] in `:core` is where
+     * that is decided, and [RuleDraft.toRuleOrNull] has to actually call it
+     * rather than storing whatever the field held, or a rule could be saved
+     * into a folder called "   " that looks identical to no folder at all and
+     * still gets its own heading in the list.
+     */
+    @Test
+    fun a_blank_or_whitespace_folder_saves_as_no_folder_rather_than_an_empty_string() = runTest {
+        val editor = viewModel()
+        editor.setName("Untitled")
+        editor.chooseTrigger("screen_state")
+        editor.setTriggerConfigValue(emptyList(), "state", "on")
+        editor.addAction("toast")
+        editor.setConfigValue(Slot.ACTION, 0, "text", "hi")
+        editor.setFolder("   ")
+
+        val rule = editor.state.value.draft.toRuleOrNull()
+
+        assertNotNull(rule)
+        assertNull(rule!!.folder)
+    }
+
     @Test
     fun choosing_a_trigger_seeds_its_declared_defaults() = runTest {
         val editor = viewModel()

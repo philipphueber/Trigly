@@ -48,6 +48,18 @@ class TriggerNodeJsonTest {
         assertEquals(plainRule, RuleJson.decode(RuleJson.encode(plainRule)).single())
     }
 
+    @Test
+    fun `a foldered rule with a plain trigger still writes the version 1 shape`() {
+        // The folder key is additive on top of whichever shape the trigger
+        // itself needs — it must not be what pushes a plain rule to version 3.
+        val json = JSONObject(RuleJson.encode(plainRule.copy(folder = "Car")))
+
+        assertEquals(1, json.getInt("version"))
+        val ruleJson = json.getJSONArray("rules").getJSONObject(0)
+        assertEquals("Car", ruleJson.getString("folder"))
+        assertFalse("a leaf must not carry an 'op' discriminator", ruleJson.getJSONObject("trigger").has("op"))
+    }
+
     // --- version 3: a group forces the new shape --------------------------------
 
     private val groupedRule = plainRule.copy(

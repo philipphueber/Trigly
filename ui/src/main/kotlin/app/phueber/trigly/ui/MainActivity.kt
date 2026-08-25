@@ -247,6 +247,9 @@ class MainActivity : ComponentActivity() {
     @androidx.compose.runtime.Composable
     private fun EditorHost(ruleId: String?, onDone: () -> Unit) {
         val installedApps = LocalInstalledApps.current
+        // Read for one purpose only: the folder names already in use, offered
+        // when filing this rule. See the `existingFolders` argument below.
+        val statuses by listViewModel.statuses.collectAsStateWithLifecycle()
         val editor: RuleEditorViewModel = viewModel(
             key = "editor-${ruleId ?: "new"}",
             factory = RuleEditorViewModel.factory(
@@ -315,6 +318,19 @@ class MainActivity : ComponentActivity() {
             descriptorFor = editor::descriptorFor,
             onNameChange = editor::setName,
             onEnabledChange = editor::setEnabled,
+            onFolderChange = editor::setFolder,
+            // The folders that already exist, so filing a rule is picking a name
+            // rather than retyping one. Sourced here rather than in the editor's
+            // own ViewModel deliberately: that one holds a snapshot of the single
+            // rule being edited and has no business reading the whole table, while
+            // the list's ViewModel is already observing exactly that.
+            //
+            // Folder names compare exactly and case-sensitively — see
+            // `normalizeFolder` — so "Car" and "car" really are two folders. This
+            // list is what stops someone creating the second one by accident.
+            existingFolders = remember(statuses) {
+                statuses.mapNotNull { it.rule.folder }.distinct().sorted()
+            },
             onChooseTrigger = editor::chooseTrigger,
             onAddAction = editor::addAction,
             onChangeActionType = editor::changeActionType,

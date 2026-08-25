@@ -70,6 +70,7 @@ class RuleEditorScreenTest {
     private val removedTriggers = mutableListOf<NodePath>()
     private val setOps = mutableListOf<Pair<NodePath, TriggerNode.Op>>()
     private val triggerConfigChanges = mutableListOf<Triple<NodePath, String, String?>>()
+    private val folderChanges = mutableListOf<String>()
 
     @Composable
     private fun Editor(
@@ -84,6 +85,9 @@ class RuleEditorScreenTest {
         // that cares whether an action actually moves passes its own, backed by
         // state it holds, rather than this stub reordering anything itself.
         onMoveAction: (Int, Int) -> Unit = { _, _ -> },
+        // What a real caller would draw from the saved rules — empty by default,
+        // so a test that says nothing about folders still gets a working field.
+        existingFolders: List<String> = emptyList(),
     ) {
         RuleEditorScreen(
             state = state,
@@ -105,6 +109,8 @@ class RuleEditorScreenTest {
             },
             onNameChange = {},
             onEnabledChange = {},
+            existingFolders = existingFolders,
+            onFolderChange = { folderChanges += it },
             onChooseTrigger = { chosenTrigger = it },
             onChangeTriggerType = { path, type -> changedTriggerTypes += path to type },
             onAddTrigger = { path, type -> addedTriggers += path to type },
@@ -428,9 +434,15 @@ class RuleEditorScreenTest {
             )
         }
 
+        // `assertExists`, not `assertIsDisplayed`: this row sits under the
+        // trigger's fields, and the editor gained a folder field above it, so
+        // whether it is on screen is now a question about the emulator's height
+        // rather than about the requirement being stated. It was displayed until
+        // one field was added — which is exactly the trap this file's other tests
+        // avoid by asserting existence.
         composeRule
             .onNodeWithText("Needs notification access, granted in system settings")
-            .assertIsDisplayed()
+            .assertExists()
     }
 
     @Test
@@ -492,6 +504,73 @@ class RuleEditorScreenTest {
         composeRule.onNodeWithText("SAVE").performClick()
 
         assertEquals(1, saves)
+    }
+
+    // --- Folder: the rule's own property, shown near its name. ---
+
+    @Test
+    fun an_unfoldered_rule_shows_no_folder() {
+        composeRule.setContent { Editor(EditorState(RuleDraft(id = null, name = "Untitled"))) }
+
+        composeRule.onNodeWithText("NO FOLDER").assertIsDisplayed()
+    }
+
+    @Test
+    fun a_rule_already_in_a_folder_shows_it() {
+        composeRule.setContent {
+            Editor(EditorState(RuleDraft(id = "abc", name = "Existing", folder = "Car")))
+        }
+
+        composeRule.onNodeWithText("CAR").assertIsDisplayed()
+    }
+
+    @Test
+    fun typing_a_new_folder_name_reports_it() {
+        composeRule.setContent { Editor(EditorState(RuleDraft(id = null, name = "Untitled"))) }
+
+        composeRule.onNodeWithText("NO FOLDER").performClick()
+        composeRule.onNodeWithText("SEARCH OR TYPE A FOLDER NAME").performTextReplacement("Weekend")
+        composeRule.onNodeWithText("USE \"WEEKEND\"").performClick()
+
+        assertEquals(listOf("Weekend"), folderChanges)
+    }
+
+    /**
+     * Picking one of the folders other rules already use, rather than typing
+     * it again — the whole point of offering the list, so a repeat name is a
+     * tap instead of a second, possibly mistyped, spelling of the same one.
+     */
+    @Test
+    fun picking_an_existing_folder_reports_it() {
+        composeRule.setContent {
+            Editor(
+                EditorState(RuleDraft(id = null, name = "Untitled")),
+                existingFolders = listOf("Car", "Home"),
+            )
+        }
+
+        composeRule.onNodeWithText("NO FOLDER").performClick()
+        composeRule.onNodeWithText("CAR").performClick()
+
+        assertEquals(listOf("Car"), folderChanges)
+    }
+
+    /**
+     * Clearing has to be reachable from a rule that already has a folder, and
+     * has to actually report it — [RuleDraft.toRuleOrNull] is where "" then
+     * becomes a real `null`, not here, but the screen has to get "" out in the
+     * first place or that conversion never gets a chance to run.
+     */
+    @Test
+    fun clearing_an_existing_folder_reports_it_as_blank() {
+        composeRule.setContent {
+            Editor(EditorState(RuleDraft(id = "abc", name = "Existing", folder = "Car")))
+        }
+
+        composeRule.onNodeWithText("CAR").performClick()
+        composeRule.onNodeWithText("NO FOLDER").performClick()
+
+        assertEquals(listOf(""), folderChanges)
     }
 
     @Test

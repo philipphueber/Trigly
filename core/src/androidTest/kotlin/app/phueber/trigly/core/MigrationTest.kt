@@ -6,7 +6,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import app.phueber.trigly.core.storage.MIGRATION_1_2
 import app.phueber.trigly.core.storage.MIGRATION_2_3
+import app.phueber.trigly.core.storage.MIGRATION_3_4
 import app.phueber.trigly.core.storage.RoomRuleRepository
+import app.phueber.trigly.core.storage.TRIGLY_MIGRATIONS
 import app.phueber.trigly.core.storage.TriglyDatabase
 import app.phueber.trigly.core.storage.toRuleOrNull
 import kotlinx.coroutines.flow.first
@@ -20,12 +22,12 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Two migrations have ever shipped. Each must get right what Room cannot check
- * for itself: that a database actually written by the *old* version — a real
- * user's rules, not a fixture built fresh at the new version — survives the
- * upgrade with its rows intact and its meaning preserved. A wrong migration is
- * indistinguishable from a fine one until an existing install updates, which is
- * exactly the moment nobody is watching for it.
+ * Three migrations have ever shipped. Each must get right what Room cannot
+ * check for itself: that a database actually written by the *old* version — a
+ * real user's rules, not a fixture built fresh at the new version — survives
+ * the upgrade with its rows intact and its meaning preserved. A wrong
+ * migration is indistinguishable from a fine one until an existing install
+ * updates, which is exactly the moment nobody is watching for it.
  *
  * Built from the committed schema JSON in `core/schemas/` via
  * [MigrationTestHelper], which needs those files as instrumented-test assets;
@@ -194,7 +196,7 @@ class MigrationTest {
             InstrumentationRegistry.getInstrumentation().targetContext,
             TriglyDatabase::class.java,
             dbName,
-        ).addMigrations(MIGRATION_2_3).build()
+        ).addMigrations(*TRIGLY_MIGRATIONS).build()
 
         try {
             val loaded = database.rules().findRule("r1")?.toRuleOrNull()
@@ -267,7 +269,7 @@ class MigrationTest {
             InstrumentationRegistry.getInstrumentation().targetContext,
             TriglyDatabase::class.java,
             dbName,
-        ).addMigrations(MIGRATION_2_3).build()
+        ).addMigrations(*TRIGLY_MIGRATIONS).build()
 
         try {
             fun triggerAndConditionsJson(): Pair<String?, String?> =
@@ -291,6 +293,85 @@ class MigrationTest {
             val (triggerAfter, conditionsAfter) = triggerAndConditionsJson()
             assertFalse("saving a migrated rule must fill triggerJson", triggerAfter.isNullOrBlank())
             assertEquals(null, conditionsAfter)
+        } finally {
+            database.close()
+        }
+    }
+
+    // --- 3 -> 4 -------------------------------------------------------------
+
+    @Test
+    fun migration_3_to_4_adds_a_null_folder_and_leaves_old_rows_alone() {
+        // A version-3 database built from the real schema, not from the
+        // current entities — this is what a phone that installed up to
+        // version 3 and never reinstalled actually has on disk. Every such row
+        // predates the concept of a folder, so null is the only honest value
+        // for it.
+        helper.createDatabase(TEST_DB, 3).apply {
+            execSQL(
+                "INSERT INTO rules (id, name, enabled, position, triggerJson) VALUES (?, ?, ?, ?, ?)",
+                arrayOf("r1", "Old rule", 1, 0, """{"type":"screen_state","config":{}}"""),
+            )
+            execSQL(
+                "INSERT INTO components (ruleId, role, ordinal, type, configJson) VALUES (?, ?, ?, ?, ?)",
+                arrayOf("r1", "ACTION", 0, "speak", "{}"),
+            )
+            close()
+        }
+
+        val migrated = helper.runMigrationsAndValidate(TEST_DB, 4, true, MIGRATION_3_4)
+
+        migrated.query("SELECT folder FROM rules WHERE id = 'r1'").use { cursor ->
+            assertTrue("the old row should still be there", cursor.moveToFirst())
+            assertTrue("an old row's folder should read as null", cursor.isNull(0))
+        }
+        migrated.query("SELECT COUNT(*) FROM components WHERE ruleId = 'r1'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            // A bare ALTER TABLE touches nothing in `components`.
+            assertEquals(1, cursor.getInt(0))
+        }
+    }
+
+    /**
+     * The real path, end to end: a version-3 row migrated to 4, read back
+     * through [app.phueber.trigly.core.storage.toRuleOrNull] as an ungrouped
+     * rule ([Rule.folder] `== null`), then saved back into a folder and read
+     * again — proving the new column round-trips through the actual
+     * repository, not just through raw SQL.
+     */
+    @Test
+    fun migration_3_to_4_lets_a_migrated_rule_be_filed_into_a_folder() = runTest {
+        val dbName = "$TEST_DB-folder"
+
+        helper.createDatabase(dbName, 3).apply {
+            execSQL(
+                "INSERT INTO rules (id, name, enabled, position, triggerJson) VALUES (?, ?, ?, ?, ?)",
+                arrayOf("r1", "Old rule", 1, 0, """{"type":"screen_state","config":{}}"""),
+            )
+            execSQL(
+                "INSERT INTO components (ruleId, role, ordinal, type, configJson) VALUES (?, ?, ?, ?, ?)",
+                arrayOf("r1", "ACTION", 0, "speak", "{}"),
+            )
+            close()
+        }
+        // Validates the migrated schema against Room's exported version-4 JSON.
+        helper.runMigrationsAndValidate(dbName, 4, true, MIGRATION_3_4).close()
+
+        val database = Room.databaseBuilder(
+            InstrumentationRegistry.getInstrumentation().targetContext,
+            TriglyDatabase::class.java,
+            dbName,
+        ).addMigrations(*TRIGLY_MIGRATIONS).build()
+
+        try {
+            val repository = RoomRuleRepository(database.rules())
+            val loaded = repository.rules().first().single()
+            assertEquals(null, loaded.folder)
+
+            repository.upsert(loaded.copy(folder = "Car"))
+
+            val reloaded = repository.rules().first().single()
+            assertEquals("Car", reloaded.folder)
         } finally {
             database.close()
         }

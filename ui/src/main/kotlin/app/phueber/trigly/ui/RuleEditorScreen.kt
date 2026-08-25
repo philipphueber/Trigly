@@ -90,6 +90,17 @@ fun RuleEditorScreen(
     descriptorFor: (Slot, String) -> ComponentDescriptor?,
     onNameChange: (String) -> Unit,
     onEnabledChange: (Boolean) -> Unit,
+    /**
+     * Folder names already used by other rules — not this one's own current
+     * value, which is [EditorState.draft]'s own [RuleDraft.folder] — offered so
+     * a repeat name is a pick rather than a retyped, and possibly mistyped, one.
+     * The caller draws this from the saved rules; an editor working from its own
+     * one-rule snapshot has no way to know what else exists. Defaults to empty,
+     * so a rule with nothing to offer still gets a working "type a new one" field.
+     */
+    existingFolders: List<String> = emptyList(),
+    /** Sets the rule's folder — see [existingFolders] and [FolderField]. */
+    onFolderChange: (String) -> Unit = {},
     /** Sets the first trigger, from the empty "Choose a trigger" slot. */
     onChooseTrigger: (String) -> Unit,
     /**
@@ -232,6 +243,16 @@ fun RuleEditorScreen(
                     label = { Text("NAME *", style = MaterialTheme.typography.labelMedium) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
+                )
+
+                // The rule's own property, next to the name it sits beside — not a
+                // component's config field, so it does not go through `ConfigField`
+                // or `ComponentBlock`.
+                FolderField(
+                    folder = draft.folder,
+                    existingFolders = existingFolders,
+                    onFolderChange = onFolderChange,
+                    modifier = Modifier.padding(top = 16.dp),
                 )
 
                 Row(
@@ -602,6 +623,66 @@ private fun ActionOrderButton(
         ) {
             Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(22.dp))
         }
+    }
+}
+
+/**
+ * The rule's folder: a name the person types, with the folders other rules
+ * already use offered so a repeat is a pick rather than a second, possibly
+ * mistyped, spelling of the same one.
+ *
+ * Built on [PickerValueBox] and [ValuePickerDialog] — the same "pick, don't
+ * type" shape [AppPackageField], [SoundUriField] and [BluetoothAddressField]
+ * already use for a package, a sound and a device — rather than a second
+ * convention for what is, underneath, the same shape: a searchable list, an
+ * escape hatch for a value the list does not contain, and a box showing what
+ * is chosen now. A plain text field was the other option and would have been
+ * *worse* here, not merely different: `Rule.folder`'s comparison is an exact,
+ * case-sensitive string match (see its KDoc in `:core`), so "Car" and "car"
+ * group under two different headings rather than one — exactly the failure a
+ * free-typed field invites on a second rule, once the first name is a few
+ * days old and half-remembered.
+ *
+ * Manual entry still works: the dialog's search field doubles as "type a new
+ * name" the same way [AppPickerDialog] treats an unlisted package, and any
+ * non-blank text is offered back as a typed option once it matches nothing
+ * already in the list.
+ */
+@Composable
+private fun FolderField(
+    folder: String,
+    existingFolders: List<String>,
+    onFolderChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var picking by remember { mutableStateOf(false) }
+
+    PickerValueBox(
+        label = "FOLDER",
+        primary = folder.ifBlank { "No folder" },
+        secondary = null,
+        onClick = { picking = true },
+        modifier = modifier,
+    )
+
+    if (picking) {
+        ValuePickerDialog(
+            title = "Folder",
+            searchLabel = "SEARCH OR TYPE A FOLDER NAME",
+            options = existingFolders.map { PickerOption(value = it, primary = it) },
+            // Always offered, unlike the optional-field pickers elsewhere: every
+            // rule can leave its folder, whether or not it started in one.
+            clearLabel = "No folder",
+            typedOption = { typed ->
+                typed.takeIf { it.isNotBlank() }
+                    ?.let { PickerOption(value = it, primary = "Use \"$it\"") }
+            },
+            onPick = { picked ->
+                picking = false
+                onFolderChange(picked ?: "")
+            },
+            onDismiss = { picking = false },
+        )
     }
 }
 
