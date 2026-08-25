@@ -233,7 +233,6 @@ class LocationTrigger(
         const val CONFIG_RADIUS_METERS = "radiusMeters"
         const val CONFIG_STATE = "state"
         const val CONFIG_MIN_INTERVAL_MILLIS = "minIntervalMillis"
-        const val CONFIG_CHECK_ONLY = "checkOnly"
         const val PAYLOAD_STATE = "state"
         const val ENTERED = "entered"
         const val EXITED = "exited"
@@ -245,18 +244,6 @@ class LocationTrigger(
     }
 }
 
-/**
- * Whether this configuration says "check, never watch".
- *
- * Pure, and separate from the factory, for the reason the other helpers in this
- * file are: the factory holds a `Context` and cannot be built in a JVM test,
- * while the answer this gives decides whether a rule can start at all. A missing
- * or unparseable value means false, which keeps watching the default and matches
- * every rule saved before this switch existed.
- */
-fun locationChecksOnly(config: Map<String, String>): Boolean =
-    config[LocationTrigger.CONFIG_CHECK_ONLY]?.toBoolean() ?: false
-
 class LocationTriggerFactory(private val context: Context) : TriggerFactory {
     override val type = LocationTrigger.TYPE
 
@@ -264,15 +251,6 @@ class LocationTriggerFactory(private val context: Context) : TriggerFactory {
     override val category = Category.LOCATION
 
     override val supportsCondition = true
-
-    /**
-     * False for a leaf whose switch is on, which is what keeps the editor and
-     * the engine telling the same story. `TriggerNode.canStart` reads this, so a
-     * rule whose only location leaf is set to check rather than watch is
-     * correctly refused a start it could never have.
-     */
-    override fun producesEvents(config: Map<String, String>): Boolean =
-        !locationChecksOnly(config)
 
     override val configFields = listOf(
         // One field over two keys: a latitude without a longitude is not half an
@@ -283,24 +261,6 @@ class LocationTriggerFactory(private val context: Context) : TriggerFactory {
             label = "Latitude",
             required = true,
             longitudeKey = LocationTrigger.CONFIG_LONGITUDE,
-        ),
-        // Deliberately a switch and not a hint. The component could try to guess
-        // from its position in the tree, and a guess is what this switch exists
-        // to replace: the engine collects every leaf's events, so a location leaf
-        // that a person only ever meant as a check still held an open position
-        // request for as long as the rule was on. The expensive behaviour was the
-        // default and nothing said so. Now it is stated, and the editor stops
-        // offering this component as the thing that starts a rule once it is on.
-        ConfigField.Flag(
-            key = LocationTrigger.CONFIG_CHECK_ONLY,
-            label = "Only check, never watch",
-            default = false,
-            help = "Watching an area keeps a position request open while the rule " +
-                "is on, which is the most expensive thing Trigly can do to the " +
-                "battery. Turn this on and this trigger watches nothing. It " +
-                "answers only when another trigger in the rule starts it, at the " +
-                "cost of one position read. Use this when the area is a condition " +
-                "in an AND or OR group, and something else starts the rule.",
         ),
         ConfigField.Decimal(
             key = LocationTrigger.CONFIG_RADIUS_METERS,
@@ -385,7 +345,122 @@ class LocationTriggerFactory(private val context: Context) : TriggerFactory {
             ),
             minIntervalMillis = config[LocationTrigger.CONFIG_MIN_INTERVAL_MILLIS]
                 ?.toLongOrNull() ?: LocationTrigger.DEFAULT_MIN_INTERVAL_MILLIS,
-            checkOnly = locationChecksOnly(config),
+            // Watching, which is what this factory is. The other one is
+            // `LocationCheckTriggerFactory`.
+            checkOnly = false,
         )
+    }
+}
+
+/**
+ * "Is in an area", the cheap half of the location component, as its own row in
+ * the trigger picker.
+ *
+ * Watching an area and checking one are two different costs, and until now they
+ * were one picker entry with a switch inside it. That was the wrong shape for
+ * the same reason a group is a picker row rather than a second region of the
+ * editor: the choice belongs where the choosing happens. Someone building an AND
+ * of "the screen came on" and "I am at home" is picking a thing, not adding a
+ * thing and then correcting it.
+ *
+ * Making it a type rather than a config value pays twice over.
+ *
+ * The editor's own filtering does the rest of the work for free.
+ * [TriggerNode.canStart] already refuses a tree that nothing can start, and
+ * `RuleEditorViewModel.triggerOptionsFor` already derives what a slot may offer
+ * from exactly that, so this row is simply absent from a slot where it would be
+ * the only trigger. As a switch it could be turned on *after* the leaf existed,
+ * which produced a rule that could never start and needed a save-time refusal to
+ * catch. A picker row cannot be got into that state.
+ *
+ * And the swap between the two is the ordinary "change the type of this block",
+ * which carries compatible config across: the keys here are the keys
+ * [LocationTriggerFactory] uses, so changing your mind keeps the coordinates and
+ * the radius you typed. The one field this drops is the interval between checks,
+ * because nothing here is watching.
+ */
+class LocationCheckTriggerFactory(private val context: Context) : TriggerFactory {
+    override val type = TYPE
+
+    override val displayName = "Is in an area"
+    override val category = Category.LOCATION
+
+    override val supportsCondition = true
+
+    /**
+     * The whole point of this factory, and the honest half of the pair with
+     * [supportsCondition]: it answers a question and never starts anything. The
+     * trigger it builds returns an empty flow before it looks up the location
+     * service, so nothing on that path can open a position request.
+     */
+    override val producesEvents = false
+
+    override val configFields = listOf(
+        ConfigField.Coordinates(
+            key = LocationTrigger.CONFIG_LATITUDE,
+            label = "Latitude",
+            required = true,
+            longitudeKey = LocationTrigger.CONFIG_LONGITUDE,
+        ),
+        ConfigField.Decimal(
+            key = LocationTrigger.CONFIG_RADIUS_METERS,
+            label = "Radius",
+            required = true,
+            unit = "m",
+            help = "How close counts as being there. A phone's position is not " +
+                "exact, so a radius under 100 m answers wrongly more often.",
+        ),
+        // Same key and same stored words as the watching factory, so switching a
+        // block between the two keeps the answer the person already gave.
+        stateChoice("Holds when you are", "entered", "inside the area", "exited", "outside the area"),
+    )
+
+    /**
+     * The condition half of [LocationTriggerFactory]'s warning, and the reboot
+     * limit, which both roles share.
+     *
+     * Says what this costs instead of what it saves. One position read is cheap
+     * next to holding GPS open, and that is why this exists, but the thing a
+     * person needs to know is that the answer can be stale.
+     */
+    override val warning: String =
+        "This takes a single location fix when another trigger starts the rule. " +
+            "It watches nothing, so it costs little battery. The fix can be " +
+            "minutes old. An old fix works for \"am I at home\" and fails for " +
+            "\"am I in the driveway\". After a reboot, Android blocks Trigly's " +
+            "access to location in the background. This component cannot answer " +
+            "until you restart Trigly. No other part of the app reports this limit."
+
+    override val requirements = listOf(
+        ComponentRequirement.RuntimePermission(Manifest.permission.ACCESS_FINE_LOCATION),
+    )
+
+    override fun create(config: Map<String, String>): Trigger {
+        fun requiredDouble(key: String): Double {
+            val raw = config[key] ?: error("$type needs '$key'")
+            return raw.toDoubleOrNull() ?: error("$key must be a number, was '$raw'")
+        }
+
+        return LocationTrigger(
+            context = context,
+            latitude = requiredDouble(LocationTrigger.CONFIG_LATITUDE),
+            longitude = requiredDouble(LocationTrigger.CONFIG_LONGITUDE),
+            radiusMeters = requiredDouble(LocationTrigger.CONFIG_RADIUS_METERS),
+            onEnter = parseTarget(
+                config = config,
+                key = LocationTrigger.CONFIG_STATE,
+                onWord = LocationTrigger.ENTERED,
+                offWord = LocationTrigger.EXITED,
+            ),
+            // Never read: with `checkOnly` set there is no update request to
+            // space out. Passed as the default rather than made nullable, so the
+            // trigger keeps one constructor for both factories.
+            minIntervalMillis = LocationTrigger.DEFAULT_MIN_INTERVAL_MILLIS,
+            checkOnly = true,
+        )
+    }
+
+    companion object {
+        const val TYPE = "location_check"
     }
 }

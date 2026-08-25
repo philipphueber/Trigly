@@ -88,6 +88,7 @@ fun triggerFactories(context: Context): List<TriggerFactory> = listOf(
     CallStateTriggerFactory(context),
     SmsReceivedTriggerFactory(context),
     LocationTriggerFactory(context),
+    LocationCheckTriggerFactory(context),
 
     // Restricted by the platform rather than by permission; see the class docs
     ClipboardTriggerFactory(context),
