@@ -225,7 +225,7 @@ class MainActivity : ComponentActivity() {
                     onNewRule = { onNavigate(Screen.RuleEditor(null)) },
                     onEditRule = { onNavigate(Screen.RuleEditor(it)) },
                     onExportAll = { export(listViewModel.exportAll(), "trigly-rules.json") },
-                    onExportRule = ::exportSingle,
+                    onExportRule = ::shareSingle,
                     onDuplicateRule = listViewModel::duplicate,
                     onImport = { openDocument.launch(arrayOf("application/json", "text/*")) },
                     describeComponent = container.registry::displayNameOf,
@@ -437,9 +437,30 @@ class MainActivity : ComponentActivity() {
         requestPermission.launch(permission)
     }
 
-    private fun exportSingle(rule: Rule) {
-        val name = rule.name.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
-        export(listViewModel.exportOne(rule), "trigly-${name.ifEmpty { "rule" }}.json")
+    /**
+     * Hands one rule to the share sheet.
+     *
+     * This used to open the document picker, the same save-a-file flow as
+     * "Export all", under a control labelled Share. Two differently named
+     * controls did one thing, and the name that promised the share sheet was the
+     * one that did not open it. They are different jobs now: Export all writes a
+     * file you keep, Share sends this rule somewhere.
+     *
+     * A failure is reported rather than swallowed. Nothing guarantees that any
+     * installed app accepts an `application/json` send, and a Share button that
+     * does nothing on a device with no such app is the silent failure this
+     * project keeps designing against.
+     */
+    private fun shareSingle(rule: Rule) {
+        runCatching {
+            startActivity(shareRuleIntent(this, rule.name, listViewModel.exportOne(rule)))
+        }.exceptionOrNull()?.let { cause ->
+            Toast.makeText(
+                this,
+                "Could not share that rule: ${cause.message}",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
     }
 
     /**

@@ -144,6 +144,47 @@ including the components that would fill the empty group. It uses
 `toNodeIgnoringEmptyGroups`, which prunes exactly the way `toNodeOrNull` used
 to, and is named so the difference is visible at the call site.
 
+### Getting a rule out of the app: share and export
+
+Two controls, two jobs, and they used to be one job under two names. "Share" on
+a rule and "Export all" in the header both opened the document picker, so the
+control that promised the share sheet was the one that did not open it.
+
+**Export all** still writes a file through `ACTION_CREATE_DOCUMENT`. No storage
+permission, and the file lands where the person put it and can find it again,
+which is what an export is for.
+
+**Share** sends one rule through `ACTION_SEND`, wrapped in a chooser.
+
+It sends a *file*, not text in `EXTRA_TEXT`. Text reads fine in a chat and is
+useless on arrival, because importing reads a file through the document picker:
+a rule pasted into a message has to be saved out by hand before the app on the
+other end can take it. Sending the file makes the round trip work.
+
+The file goes through a `FileProvider`, since a content URI is the only way to
+hand a file to another app without either side holding a storage permission. The
+declaration pairs `exported="false"` with `grantUriPermissions="true"`: no app
+may query the provider on its own, and the one app the person picked may read the
+one file it was granted. `FLAG_GRANT_READ_URI_PERMISSION` is set on the inner
+send *and* on the chooser, because the chooser is the intent the system actually
+starts.
+
+It writes into a `shared/` subdirectory of the cache, cleared on every share. The
+cache is the right lifetime for a copy made for one hand-off, and clearing it
+means a second share cannot hand the receiving app the previous rule as well, and
+a rule since deleted from the app does not survive in it. The provider's paths
+file grants that one subdirectory rather than the whole cache.
+
+The provider's authority is the part worth a test: it lives in the manifest, is
+matched against a string built at runtime from the package name, and a mismatch
+is neither a compile error nor something any other code path touches. It would
+surface as a crash the first time somebody pressed Share. `ShareRuleTest` asks
+the real provider for a URI and reads it back through the resolver.
+
+A failed `startActivity` is reported. Nothing guarantees an installed app accepts
+an `application/json` send, and a Share button that does nothing is the failure
+mode this project keeps designing against.
+
 ### Duplicating a rule
 
 The rules list offers `Duplicate` per rule. Most of a copy is the rule, and the

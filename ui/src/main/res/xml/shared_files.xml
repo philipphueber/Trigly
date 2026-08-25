@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The one directory the FileProvider will hand out, and nothing else.
+
+  `cache-path` rather than `files-path` or `external-path`: a rule shared to
+  another app is a copy made for that hand-off and has no reason to outlive it.
+  The cache is also the one place the system may reclaim on its own, which is the
+  correct lifetime for a file whose only purpose was to be passed to a chooser.
+
+  The `path` narrows it to one subdirectory. Granting the whole cache would let a
+  receiving app read anything else that happens to be cached, which for this app
+  includes nothing sensitive today and is not a promise worth making.
+-->
+<paths>
+    <cache-path name="shared-rules" path="shared/" />
+</paths>
