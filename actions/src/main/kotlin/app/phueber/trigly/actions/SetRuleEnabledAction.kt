@@ -103,8 +103,8 @@ class SetRuleEnabledActionFactory(
             key = SetRuleEnabledAction.CONFIG_RULE,
             label = "Rule",
             required = true,
-            help = "Which of your rules to switch. Including this one, which is how " +
-                "a rule runs once and then turns itself off.",
+            help = "Select the rule to switch. You can select this same rule. " +
+                "That is how a rule runs once and then turns itself off.",
         ),
         ConfigField.Choice(
             key = RuleSwitch.CONFIG_KEY,
@@ -125,9 +125,9 @@ class SetRuleEnabledActionFactory(
      * no amount of care inside this action can prevent.
      */
     override val warning: String =
-        "Turning off the rule that is currently running stops the rest of its " +
-            "actions, so put it last. Two rules that switch each other on will " +
-            "keep doing so."
+        "If a rule uses this action to turn off itself, the rest of that " +
+            "rule's actions stop right away. Put this action last in the rule. " +
+            "Two rules that switch each other on will keep doing that forever."
 
     override fun create(config: Map<String, String>): Action = SetRuleEnabledAction(
         repository = repository,

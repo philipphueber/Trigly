@@ -105,8 +105,8 @@ class SetVolumeActionFactory(private val context: Context) : ActionFactory {
             max = 100,
             default = 50,
             unit = "%",
-            help = "A percentage, because the number of volume steps differs by " +
-                "phone and by stream.",
+            help = "This value is a percentage. The number of volume steps " +
+                "differs by phone and by stream.",
         ),
     )
 

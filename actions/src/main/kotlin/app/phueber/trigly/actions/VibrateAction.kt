@@ -82,7 +82,7 @@ class VibrateActionFactory(private val context: Context) : ActionFactory {
             defaultMillis = VibrateAction.DEFAULT_DURATION_MILLIS,
             maxMillis = VibrateAction.MAX_DURATION_MILLIS,
             preferred = DurationUnit.MILLISECONDS,
-            help = "Capped at ${VibrateAction.MAX_DURATION_MILLIS} ms.",
+            help = "This value is capped at ${VibrateAction.MAX_DURATION_MILLIS} ms.",
         ),
     )
 

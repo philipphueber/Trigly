@@ -5,9 +5,9 @@
       where they decide whether to trust this. Say plainly what it observes and
       what it does not do with it.
     -->
-    <string name="accessibility_service_description">Lets Trigly react to what
-        happens on screen — taps, screen content and the keyboard — so rules can
-        use them as triggers. Nothing is recorded, stored or sent anywhere; it is
-        matched on the device and discarded. Only enable this if you have rules
-        that need it.</string>
+    <string name="accessibility_service_description">This service lets Trigly
+        react to what happens on screen. It sees taps, screen content and the
+        keyboard. Rules can use these as triggers. Trigly does not record, store
+        or send this data anywhere. It matches the data on the phone, then
+        discards it. Turn this on only if you have a rule that needs it.</string>
 </resources>

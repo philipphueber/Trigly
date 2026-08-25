@@ -88,8 +88,8 @@ class SmsReceivedTriggerFactory(private val context: Context) : TriggerFactory {
     )
 
     override val warning: String =
-        "Google Play restricts SMS access to the default messaging app, so this " +
-            "trigger cannot work in a Play Store build of Trigly."
+        "Google Play restricts SMS access to the default SMS app. This trigger " +
+            "cannot work in a Play Store build of Trigly."
 
     override val requirements = listOf(
         ComponentRequirement.RuntimePermission(Manifest.permission.RECEIVE_SMS),

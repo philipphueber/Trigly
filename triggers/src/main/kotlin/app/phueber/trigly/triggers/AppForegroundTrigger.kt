@@ -150,7 +150,7 @@ class AppForegroundTriggerFactory(private val context: Context) : TriggerFactory
     override val category = Category.APPS
 
     override val configFields = listOf(
-        packageFilter(help = "Which app opening should fire this rule."),
+        packageFilter(help = "Select the app. This trigger fires when the app comes to the foreground."),
         ConfigField.Duration(
             key = AppForegroundTrigger.CONFIG_POLL_MILLIS,
             label = "Check every",
@@ -160,8 +160,9 @@ class AppForegroundTriggerFactory(private val context: Context) : TriggerFactory
     )
 
     override val warning: String =
-        "Android gives no notification when an app opens, so this polls. Events " +
-            "arrive up to one interval late and the checking itself costs battery."
+        "Android sends no notification when an app opens. This trigger checks " +
+            "on a timer instead. An event can arrive up to one interval late. " +
+            "The checks use battery."
 
     override val requirements = listOf(
         ComponentRequirement.SpecialAccess(SpecialAccessKind.USAGE_STATS),

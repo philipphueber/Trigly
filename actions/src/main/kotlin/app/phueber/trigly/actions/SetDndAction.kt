@@ -80,7 +80,7 @@ class SetDndActionFactory(private val context: Context) : ActionFactory {
             key = DndMode.CONFIG_KEY,
             label = "Switch Do Not Disturb to",
             options = listOf(
-                ConfigField.Option("off", "off — allow everything"),
+                ConfigField.Option("off", "off (allow everything)"),
                 ConfigField.Option("priority", "priority only"),
                 ConfigField.Option("alarms", "alarms only"),
                 ConfigField.Option("silence", "total silence"),

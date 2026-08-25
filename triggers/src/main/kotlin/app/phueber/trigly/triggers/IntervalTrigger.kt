@@ -53,13 +53,14 @@ class IntervalTriggerFactory : TriggerFactory {
             label = "Repeat every",
             required = true,
             preferred = DurationUnit.MINUTES,
-            help = "Only ticks while Trigly is running, and pauses in Doze. " +
-                "Not suitable for anything that must happen at an exact time.",
+            help = "This trigger ticks only while Trigly runs. It pauses in Doze mode. " +
+                "Do not use it for a task that must happen at an exact time.",
         ),
     )
 
     override val warning: String =
-        "Stops when the system suspends the app. Use for convenience, not for alarms."
+        "The system can stop this trigger when it suspends the app. " +
+            "Use this trigger for convenience only, not for alarms."
 
     override fun create(config: Map<String, String>): Trigger {
         val raw = config[IntervalTrigger.CONFIG_PERIOD_MILLIS]

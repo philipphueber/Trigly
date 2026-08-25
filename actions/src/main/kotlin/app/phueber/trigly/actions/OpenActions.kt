@@ -55,7 +55,7 @@ class OpenUrlActionFactory(private val context: Context) : ActionFactory {
             label = "Address",
             required = true,
             placeholder = "https://example.com",
-            help = "Only http and https addresses can be opened.",
+            help = "This action opens only http and https addresses.",
         ),
     )
 

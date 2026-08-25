@@ -297,8 +297,8 @@ class ChargingTypeTriggerFactory(private val context: Context) : TriggerFactory 
             },
             required = false,
             default = ChargingSource.AC.configValue,
-            help = "The phone reports this, not the charger: a wireless pad that " +
-                "feeds a case over USB can report USB.",
+            help = "The phone reports this value, not the charger. A wireless pad " +
+                "that charges a case over USB can report USB.",
         ),
     )
 

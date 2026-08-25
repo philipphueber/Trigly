@@ -177,16 +177,16 @@ class SolarTriggerFactory : TriggerFactory {
             longitudeKey = SolarTrigger.CONFIG_LONGITUDE,
             label = "Where",
             required = true,
-            help = "Typed, not sensed — which is why this trigger needs no " +
-                "location permission. Roughly right is enough: a few kilometres " +
-                "moves sunrise by seconds.",
+            help = "You type the location. Trigly does not sense it. This trigger " +
+                "needs no location permission. An approximate location is enough. " +
+                "A few kilometres change sunrise by only seconds.",
         ),
     )
 
     override val warning: String =
-        "Waits in the app's own process, so it only fires while Trigly is running " +
-            "and can be delayed when the system suspends the app. Fine for lights " +
-            "and volume; not an alarm clock."
+        "This trigger waits inside Trigly's own process. It fires only while " +
+            "Trigly runs. The system can delay it when it suspends the app. Use " +
+            "this trigger for lights or volume. Do not use it as an alarm clock."
 
     override fun create(config: Map<String, String>): Trigger {
         fun coordinate(key: String): Double {

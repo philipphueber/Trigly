@@ -132,7 +132,7 @@ class NotificationWatchdogTriggerFactory : TriggerFactory {
             label = "Watch this app",
             blankMeaning = null,
             required = true,
-            help = "The app whose ongoing notification should always be present.",
+            help = "Select the app whose notification must always be present.",
         ),
         ConfigField.Duration(
             key = NotificationWatchdogTrigger.CONFIG_ABSENCE_MILLIS,
@@ -145,7 +145,8 @@ class NotificationWatchdogTriggerFactory : TriggerFactory {
             label = "Check every",
             defaultMillis = NotificationWatchdogTrigger.DEFAULT_POLL_MILLIS,
             preferred = DurationUnit.MINUTES,
-            help = "Must not be longer than the absence window, or alerts arrive late.",
+            help = "This interval must not exceed the absence window. A longer " +
+                "interval delays alerts.",
         ),
         ConfigField.Flag(
             key = NotificationWatchdogTrigger.CONFIG_REQUIRE_ONGOING,
@@ -157,10 +158,11 @@ class NotificationWatchdogTriggerFactory : TriggerFactory {
     )
 
     override val warning: String =
-        "If the app's notification channel is blocked rather than silenced, Android " +
-            "hides it from Trigly too and this reports 'never seen'. Set the channel " +
-            "to Silent instead. Also note Trigly itself can be killed, in which case " +
-            "the watchdog stops without telling you."
+        "A notification channel can be blocked or silenced. A blocked channel " +
+            "hides the notification from Trigly. When that happens, this trigger " +
+            "reports 'never seen'. Set the channel to Silent instead of Blocked. " +
+            "The system can also kill Trigly itself. If that happens, the " +
+            "watchdog stops without telling you."
 
     override val requirements = listOf(
         ComponentRequirement.SpecialAccess(SpecialAccessKind.NOTIFICATION_LISTENER),

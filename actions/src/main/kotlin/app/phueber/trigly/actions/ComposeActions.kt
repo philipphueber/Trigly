@@ -64,8 +64,8 @@ class ComposeEmailActionFactory(private val context: Context) : ActionFactory {
     override val requirements = ACTIVITY_START_REQUIREMENTS
 
     override val warning: String =
-        "Opens your mail app with the fields filled in. You still press send. " +
-            "$BACKGROUND_START_WARNING"
+        "This action opens your mail app with the fields filled in. You still " +
+            "press send. $BACKGROUND_START_WARNING"
 
     override fun create(config: Map<String, String>): Action = ComposeEmailAction(
         context = context,
@@ -111,9 +111,9 @@ class ComposeSmsActionFactory(private val context: Context) : ActionFactory {
     override val requirements = ACTIVITY_START_REQUIREMENTS
 
     override val warning: String =
-        "Opens your messaging app with the message ready. You still press send — " +
-            "sending silently needs a permission Google restricts. " +
-            "$BACKGROUND_START_WARNING"
+        "This action opens your messaging app with the message ready. You " +
+            "still press send. A silent send needs a permission that Google " +
+            "restricts. $BACKGROUND_START_WARNING"
 
     override fun create(config: Map<String, String>): Action = ComposeSmsAction(
         context = context,
@@ -235,9 +235,10 @@ class AddCalendarEventActionFactory(private val context: Context) : ActionFactor
             key = AddCalendarEventAction.CONFIG_BEGIN_MILLIS,
             label = "Starts at",
             blankMeaning = "The calendar app chooses",
-            help = "A fixed date and time. A rule that fires more than once will " +
-                "keep proposing this same moment, which is in the past after the " +
-                "first run — for a repeating rule, leave it blank.",
+            help = "This is a fixed date and time. A rule that fires more than " +
+                "once keeps proposing this same moment. After the first run, " +
+                "that moment is in the past. For a repeating rule, leave this " +
+                "field blank.",
         ),
         ConfigField.Timestamp(
             key = AddCalendarEventAction.CONFIG_END_MILLIS,
@@ -249,7 +250,8 @@ class AddCalendarEventActionFactory(private val context: Context) : ActionFactor
     override val requirements = ACTIVITY_START_REQUIREMENTS
 
     override val warning: String =
-        "Opens the calendar's new-event screen so you can confirm. $BACKGROUND_START_WARNING"
+        "This action opens the calendar's new-event screen so you can confirm. " +
+            "$BACKGROUND_START_WARNING"
 
     override fun create(config: Map<String, String>): Action = AddCalendarEventAction(
         context = context,

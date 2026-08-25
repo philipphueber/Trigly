@@ -128,9 +128,10 @@ class DismissNotificationActionFactory(
     )
 
     override val warning: String =
-        "With no app chosen this needs a notification trigger above it, since " +
-            "there is otherwise nothing to dismiss. With one chosen it dismisses " +
-            "that app's newest notification, whatever fired the rule."
+        "If you choose no app, this action needs a notification trigger before " +
+            "it in the rule. Without one, there is nothing to dismiss. If you " +
+            "choose an app, this action dismisses that app's newest " +
+            "notification. It does this no matter what fired the rule."
 
     override val requirements = NOTIFICATION_ACCESS
 
@@ -317,20 +318,22 @@ class TriggerNotificationButtonActionFactory(
         ConfigField.Flag(
             key = TriggerNotificationButtonAction.CONFIG_USE_SCREEN,
             label = "Use the screen if the button is not exposed",
-            help = "Some apps draw their own notification buttons, and Android then " +
-                "offers no way to press them directly. This opens the notification " +
-                "shade and taps the button by name instead. Needs accessibility " +
-                "access, briefly shows the shade, and depends on your phone's " +
-                "layout — so it is off unless you need it. It also needs the phone " +
-                "unlocked: a rule cannot get past your PIN.",
+            help = "Some apps draw their own notification buttons. Android then " +
+                "offers no way to press them directly. This setting opens the " +
+                "notification shade instead, and taps the button by name. It " +
+                "needs accessibility access. It briefly shows the shade on " +
+                "screen. It depends on your phone's layout. Turn it on only when " +
+                "you need it. It also needs the phone unlocked. A rule cannot " +
+                "get past your PIN.",
         ),
     )
 
     override val warning: String =
-        "Matched by what the button means, then by its name. A rule reports a " +
-            "failure rather than pressing a different button if the one it wants " +
-            "is gone. Buttons an app draws itself cannot be pressed this way at " +
-            "all — the setting below is the workaround, and it uses the screen."
+        "This action matches a button by its meaning first, then by its name. A " +
+            "rule reports a failure instead of pressing the wrong button if the " +
+            "one it wants is gone. An app that draws its own buttons blocks this " +
+            "method completely. The setting below is the workaround. It uses " +
+            "the screen instead."
 
     override val requirements = NOTIFICATION_ACCESS
 

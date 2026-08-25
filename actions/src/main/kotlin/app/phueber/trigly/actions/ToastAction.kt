@@ -54,8 +54,8 @@ class ToastActionFactory(private val context: Context) : ActionFactory {
     )
 
     override val warning: String =
-        "Android 12 and later suppress these while the app is in the background. " +
-            "Use a notification for anything that must be seen."
+        "Android 12 and later suppress a toast message while the app is in the " +
+            "background. Use a notification for anything that must be seen."
 
     override fun create(config: Map<String, String>): Action = ToastAction(
         context = context,

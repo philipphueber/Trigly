@@ -103,7 +103,7 @@ class HttpRequestActionFactory : ActionFactory {
             label = "URL",
             required = true,
             placeholder = "https://example.com/hook",
-            help = "https only — a webhook URL usually carries a token.",
+            help = "This action allows https only. A webhook URL usually carries a token.",
         ),
         ConfigField.Choice(
             key = HttpRequestAction.CONFIG_METHOD,

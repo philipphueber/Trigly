@@ -71,8 +71,8 @@ class WifiStateTriggerFactory(private val context: Context) : TriggerFactory {
             label = "Fires when Wi-Fi is",
             onValue = "enabled", onLabel = "turned on",
             offValue = "disabled", offLabel = "turned off",
-            help = "The radio itself, not connecting to a network. " +
-                "Matching a specific network name needs location permission.",
+            help = "This trigger watches the Wi-Fi radio, not the connection to a " +
+                "network. Matching a network name needs location permission.",
         ),
     )
 
