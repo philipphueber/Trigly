@@ -1056,8 +1056,7 @@ with six actions is taller than a screen.
 The app mark is a T whose stem runs into an arrowhead: something fires,
 something follows, which is the product in one shape. It is drawn out of
 rectangles and one triangle, the same brutalism as the blocks. Source of truth
-is `docs/branding/trigly-mark.svg`; the alternatives it was chosen from are
-still in `docs/branding/_explore/`.
+is `docs/branding/trigly-mark.svg`.
 
 The launcher icon is **vector at every layer and has no PNG mipmaps at all**.
 That is a consequence of `minSdk = 26`: adaptive icons arrived in exactly that
