@@ -19,6 +19,7 @@ import app.phueber.trigly.core.ComponentSpec
 import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.TriggerEngine
 import app.phueber.trigly.core.TriggerEvent
+import app.phueber.trigly.triggers.notification.keepNotificationListenerBound
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -100,6 +101,13 @@ class EngineService : Service() {
         scope.launch {
             container.ruleRepository.rules().collect(::applyRules)
         }
+
+        // The notification listener can come back unbound, most reliably after
+        // an app update, and nothing tells this process that it did. The engine
+        // would then run every rule and report itself as watching while every
+        // notification rule was dead. Tied to the engine's scope because the
+        // binding matters exactly as long as there are rules to run.
+        scope.launch { keepNotificationListenerBound(this@EngineService) }
     }
 
     /**

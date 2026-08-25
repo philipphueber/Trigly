@@ -865,6 +865,44 @@ Each bus also exposes whether its service is connected. A trigger whose service
 is not bound is not quiet, it is broken, and that difference has to be
 expressible.
 
+#### Getting the notification listener back
+
+That connected flag has a second job, and it is the one that made the difference
+matter. The system owns the listener's lifetime and does not always give it
+back: a process killed by an OEM battery manager, and an app update most
+reliably of all, can leave the listener unbound while everything else recovers.
+`START_STICKY` returns `EngineService`, the engine starts every rule, the
+ongoing notification says it is watching, and `RequirementChecker` still reports
+notification access as granted, because the secure setting it reads is still
+set. Nothing is bound, so `NotificationEvents.posted` never emits and every
+notification rule is dead with three separate things claiming otherwise.
+
+There is no callback for this. `onListenerDisconnected` reaches the process that
+was told, and the process that would have been told is the one that died.
+`NotificationListenerService.requestRebind` is static for exactly that reason: a
+process holding no binding at all can still ask for one.
+
+`keepListenerBound` is the fallback, running for as long as the engine does. It
+watches the connected flag through `collectLatest`, waits out a grace period
+before asking, and asks again on a long interval while nothing binds. Three
+decisions in it:
+
+- **The grace period is not politeness.** A fresh process starts with nothing
+  bound and the system binds it moments later, so asking on sight would mean
+  asking on every app start, and `requestRebind` unbinds before it rebinds. The
+  normal path would pay a gap it did not need.
+- **`collectLatest`, so a binding cancels the retry loop** rather than leaving it
+  to notice on its next tick. The healthy case costs one cancelled `delay`.
+- **It watches the flag rather than calling from `onListenerDisconnected`.** That
+  callback covers only the case that was already recoverable. One mechanism with
+  one grace period covers both, and cannot make a disconnect-request-disconnect
+  loop.
+
+What it cannot see: a service destroyed without `onListenerDisconnected` being
+delivered leaves the flag reading true. Nothing observable separates that from a
+healthy binding without a binder call on a timer, which would spend every user's
+battery on a case the platform is not documented to produce.
+
 Actions reach those services the other way round, through a port in `:core` that
 `:triggers` implements over the live service, `NotificationController` for the
 notification listener. That is what keeps `:actions` from depending on
