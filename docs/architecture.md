@@ -124,6 +124,18 @@ of one thing is that thing. The difference is intent: one child because a second
 was removed is a finished edit, one child because a second is not added yet is a
 rule in progress.
 
+`transformTrigger` is the other half of that rule, and it was the other half of
+the same bug. It walks to a node and replaces it, and it used to apply the
+un-promotion to the result of *every* edit rather than only to a removal. So a
+group holding one child lost the group the moment anything inside it was
+touched: typing a value into the one trigger in a new OR group deleted the OR
+group while the person was still filling it in. Fixing the save path alone was
+not enough, because the draft had already lost the group before a save was
+reached. Now a removal can collapse a group and no other edit changes the shape
+at all. A group left with no children still disappears, because the last removal
+from a group is the removal of the group, while an *empty* group someone made on
+purpose is kept and refused at save.
+
 The trigger picker asks a third question and needs a third answer.
 `triggerOptionsFor` converts a candidate tree to test whether it could start, so
 strictness there would empty the picker: with `ALL(screen on, ANY())` on screen,
@@ -162,11 +174,26 @@ reorders itself around a copy is a bigger surprise than a copy at the bottom.
 
 ### Nesting depth costs a rail, not a thumb
 
-A group used to indent its children by 16dp per level, on top of its own card
-padding, so a group three deep was about 90dp narrower than the screen and the
-fields inside a trigger had nowhere left to go. Depth now reads from a 3dp
-accent rail down each group's left edge and from each group's own AND/OR
-heading. `IntrinsicSize.Min` on the row is load-bearing: `fillMaxHeight` inside
+A level of nesting costs 6dp: a 2dp accent rail and a 4dp gap. It used to cost
+about 30dp, and three of those left a trigger's own fields with nowhere to go.
+Depth reads from the stacked rails and from each group's AND/OR heading.
+
+Three separate things were charging for a level, and only the last is left.
+
+- **The indent.** Each group padded its children by 16dp. Gone: the rail marks
+  them instead.
+- **The nested card.** Each group drew its own bordered card with 14dp a side.
+  Only the outermost group draws one now. A nested group is already inside its
+  parent's rail, so a second border adds an outline the eye does not need and
+  width the triggers do.
+- **The card's own padding, charged per level.** The horizontal padding a card
+  wants around its heading is not padding the triggers inside it should pay. The
+  heading and the AND/OR row keep it; the children region does not.
+
+Measured on a 411dp screen, a rule three groups deep put its innermost trigger
+card at 106dp from the edge before this, and at 39dp after.
+
+`IntrinsicSize.Min` on the children row is load-bearing: `fillMaxHeight` inside
 a row that wraps its own height has no bounded constraint to fill, so the rail
 would measure zero and draw nothing.
 
