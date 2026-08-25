@@ -28,3 +28,8 @@ keystore.properties
 
 # OS
 .DS_Store
+
+# Internal review notes. A sweep report is a snapshot of one moment in the
+# working tree, so it goes stale as soon as the code moves. Keep it on disk,
+# out of the repository.
+UX-Findings.md
