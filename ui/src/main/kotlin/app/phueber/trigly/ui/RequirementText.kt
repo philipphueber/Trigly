@@ -27,6 +27,13 @@ private val ANDROID_VERSION_NAMES = mapOf(
 )
 
 /**
+ * Written out rather than imported from `android.Manifest`, so this file keeps
+ * the promise the doc below makes: pure, unit-testable, no Android dependency.
+ * The value is a platform constant and does not change.
+ */
+private const val ACCESS_BACKGROUND_LOCATION = "android.permission.ACCESS_BACKGROUND_LOCATION"
+
+/**
  * Human wording for a requirement.
  *
  * Says what the user must *do*, not what the API is called: "Needs notification
@@ -34,8 +41,16 @@ private val ANDROID_VERSION_NAMES = mapOf(
  * it is unit-testable and holds no Android dependency.
  */
 fun ComponentRequirement.describe(): String = when (this) {
+    // Background location gets words of its own. The generated wording would be
+    // "Needs the access background location permission", which names an API the
+    // user never sees and does not say what to do about it. The screen that
+    // grants it has one name for the setting, and that is the name to use.
     is ComponentRequirement.RuntimePermission ->
-        "Needs the ${permission.substringAfterLast('.').lowercase().replace('_', ' ')} permission"
+        if (permission == ACCESS_BACKGROUND_LOCATION) {
+            "Needs location set to \"Allow all the time\""
+        } else {
+            "Needs the ${permission.substringAfterLast('.').lowercase().replace('_', ' ')} permission"
+        }
 
     is ComponentRequirement.SpecialAccess ->
         "Needs ${kind.label.lowercase()}, granted in system settings"

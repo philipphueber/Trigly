@@ -49,17 +49,45 @@ class ActionFailureLog {
     }
 
     /**
-     * Clears the record for [ruleId], but only if it belongs to [actionType].
+     * Records that [ruleId] fired and then ran nothing, because a component in
+     * its trigger tree could not say whether it held.
+     *
+     * The other half of the same question, and the half that was missing. A rule
+     * whose action fails leaves a record; a rule dropped before any action ran
+     * left none at all, so "my rule does nothing" still had a cause the app
+     * could not name. The area check reading no position in the background is
+     * exactly that case, and it is indistinguishable, on screen, from being
+     * outside the area.
+     *
+     * Carries no action type because no action was reached. That absence is the
+     * distinction the reader renders, and it is why [ActionFailure.actionType]
+     * is nullable rather than carrying a sentinel string.
+     */
+    fun couldNotDecide(ruleId: String, reason: String) {
+        _failures.update { it + (ruleId to ActionFailure(actionType = null, reason = reason)) }
+    }
+
+    /**
+     * Clears the record for [ruleId], but only if the success speaks for it.
      *
      * The guard is what makes a rule with several actions honest. If the second
      * of three actions fails and the third succeeds, an unguarded clear would
      * erase the failure a moment after recording it, and the rule would look
      * fine while doing two thirds of its job. A success only speaks for the
      * action that succeeded.
+     *
+     * A [couldNotDecide] record is the exception, and it is cleared by any
+     * action succeeding. It says the rule did not run at all, so a single action
+     * running is proof that it is stale, whichever action that was.
      */
     fun succeeded(ruleId: String, actionType: String) {
         _failures.update { current ->
-            if (current[ruleId]?.actionType == actionType) current - ruleId else current
+            val held = current[ruleId] ?: return@update current
+            if (held.actionType == null || held.actionType == actionType) {
+                current - ruleId
+            } else {
+                current
+            }
         }
     }
 
@@ -74,8 +102,13 @@ class ActionFailureLog {
     }
 }
 
-/** One failure: which action, and what it said. */
+/**
+ * One failure: which action, and what it said.
+ *
+ * A null [actionType] means no action was reached, because the rule was dropped
+ * before any could run. See [ActionFailureLog.couldNotDecide].
+ */
 data class ActionFailure(
-    val actionType: String,
+    val actionType: String?,
     val reason: String,
 )

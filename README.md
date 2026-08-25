@@ -266,10 +266,9 @@ in the code:
   still cannot repeat an action a computed number of times. How to add this
   remains an open question about the execution model; see the design note
   in `docs/actions.md`.
-- **Location goes silent after a reboot.** On current Android, a service
-  that starts at boot loses location access for the rest of its run. This
-  is a platform restriction that Trigly cannot work around. This affects
-  the `location` trigger, and the same component's state form: if a
-  rule has not run since the device last restarted, both forms read no
-  location data, and Trigly gives no warning for this, because the app has
-  no way to check for a denial that it never gets the chance to test.
+- **Location needs "Allow all the time".** Trigly reads your position while
+  it runs in the background. Android permits this only with that setting.
+  With any other setting, the `location` trigger and the same component's
+  state form read no location data, and cannot fire or hold. Trigly now
+  reports this: the rule shows the requirement, and the button opens the
+  settings page that grants it.

@@ -299,6 +299,31 @@ cannot support. A rule that still fails will fail again and say so again.
 Persisting it would also mean a schema migration for something no rule depends
 on.
 
+#### The third case: a rule that never reached an action
+
+`onOutcome` covers a rule whose action failed. It cannot cover a rule that was
+dropped *before* any action ran, and that is a real case with its own cause: an
+`ALL` group asks every leaf it did not fire on for a state, and a leaf that
+cannot answer does not satisfy the group. Deliberately so, since running
+unattended actions on a guess is the worse failure. But the rule was then
+dropped in silence, and on screen that is identical to the condition answering a
+plain no. "I am at home and it did not run" had no cause the app could name.
+
+`TriggerEngine.onSuppressed` is that third hook. `StateReader` reads the leaf
+states for one evaluation and remembers which of them answered null, so the
+engine can tell a rule held back by a "no" from one held back by a component
+that could not look. Only the second is reported; reporting the first would
+accuse every rule with a condition in it each time the condition was simply
+false. `EngineService` names the components through `Registry.displayNameOf` and
+writes the sentence to the same `ActionFailureLog`, where an entry with no
+action type renders as "Last run stopped" rather than "Last run failed": nothing
+ran, so there is no action to blame. Any action later succeeding clears it,
+whichever action that was, because a rule that ran proves the record stale.
+
+The case that produced it is the area check reading no position in the
+background, which is fixed above. The hook stays because the shape is general:
+any condition that cannot answer now says so.
+
 **A success clears the record only for the same action.** Two actions, the first
 failing and the second working, is a rule doing half its job. An unguarded clear
 would erase the failure a moment after recording it and report the rule as
@@ -759,6 +784,29 @@ none of them. `dataSync` is the tempting mislabel and is also the one Android 15
 caps at six hours a day, which would stop the engine every evening. `specialUse`
 carries no timeout; its price is a subtype string that Google reviews before a
 Play release, which is a fair price for saying what the service actually is.
+
+**`location` is the second type, and it is a capability rather than a
+description.** The manifest declares `specialUse|location`, but the service
+claims the types at runtime through `ServiceCompat.startForeground` and adds
+`location` only when a location permission is held. That is not tidiness: from
+API 34 `startForeground` throws for a declared type the app has no permission
+for, so an engine that always claimed `location` would die at startup on any
+device where the user never granted location, stopping every rule to serve a
+location rule that person does not have.
+
+What claiming it buys is a position read that answers while the app is off
+screen. The fine-location grant alone is "while in use", which means a read
+answers while an activity is visible and returns nothing otherwise, and the
+engine is off screen almost always. Without the type, `location_check` inside an
+`ALL` group answered "I cannot look" every time, the group did not hold, and the
+rule was dropped with nothing recorded anywhere. The types are re-claimed in
+`onStartCommand` as well, because a grant usually arrives long after `onCreate`
+and `MainActivity` pokes the service after every grant.
+
+It is half the fix. Since Android 12 a foreground service started while the app
+was in the background loses while-in-use access for the whole life of that
+instance whatever type it claims, and `BOOT_COMPLETED` is such a start.
+`ACCESS_BACKGROUND_LOCATION` is the other half and is what survives a reboot.
 
 **Starting is the app's job; stopping is the service's.** `TriglyApp` collects
 the rule store and starts the service whenever any rule is enabled;

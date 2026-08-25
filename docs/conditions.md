@@ -270,13 +270,32 @@ Neither touches the Geofencing API, and neither keeps GPS awake. State the
 staleness in the field's help: a cached fix can be minutes old, which is fine for
 "am I at home" and wrong for "am I in the driveway".
 
-**The reboot restriction still applies to the state role, same as the edge.**
-Per the boot-started-foreground-service note, a service started at boot is denied
-location access for its whole life, so reading the passive form in a rule that
-runs after a reboot reads nothing, and must therefore not hold. It is the same
-silent failure the edge already has, which is exactly the point of folding them
-into one component: one disclosure instead of two components each carrying half
-of it, with no guarantee the user ever reads both.
+**Reading a position in the background is what makes the state role work at
+all**, and for a long time it did not. The fine-location grant on its own is
+"while in use": Android answers a read while an activity is on screen and gives
+nothing when none is. The engine is off screen almost always, so the state form
+answered "I cannot look" for every rule that ran in the background, the `ALL`
+group above it did not hold, and the rule was dropped. On screen that is
+indistinguishable from being outside the area. "A notification arrives AND I am
+at home" was the shape that exposed it.
+
+Two things carry it now. `EngineService` claims the `location` foreground
+service type, which makes the engine count as in use for a position read; and
+the app holds `ACCESS_BACKGROUND_LOCATION`, which is what survives a reboot,
+because a service started from the background loses while-in-use access for its
+whole life whatever type it claims. Both are described in `architecture.md`.
+
+What is left is a setting only the user can choose. Location must be set to
+"Allow all the time"; with any other setting the state form still reads nothing.
+That is now a declared `ComponentRequirement` on both location components, so
+the rule shows a row with a button rather than failing quietly, and from Android
+11 the button opens the app's settings page, because the platform refuses to
+show a dialog for that grant.
+
+**And a state that cannot be read is no longer silent.** The engine reports a
+rule dropped by a component that could not answer, through `onSuppressed`, and
+the rule list says so. A component answering a clean "no" is not reported: that
+is the rule working. See "The third case" in `architecture.md`.
 
 ## Storage
 

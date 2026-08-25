@@ -21,6 +21,12 @@ import kotlinx.coroutines.launch
  * @param onStartFailure reports a rule that could not be built at all — an
  *   unknown type, or config its factory refuses. Separate from [onOutcome]
  *   because nothing ran: there is no event and no [ActionResult] to report.
+ * @param onSuppressed reports a rule whose trigger fired and whose actions were
+ *   then not run, because a component in the tree could not answer whether it
+ *   held. Carries the components that could not answer, never the ones that
+ *   answered no. A rule held back by a condition that plainly said "no" is the
+ *   rule working; a rule held back by one that could not look is a fault, and
+ *   until this existed the two were the same silence. See [triggerHolds].
  */
 class TriggerEngine(
     private val registry: Registry,
@@ -32,6 +38,11 @@ class TriggerEngine(
         result: ActionResult,
     ) -> Unit = { _, _, _, _ -> },
     private val onStartFailure: (rule: Rule, cause: Throwable) -> Unit = { _, _ -> },
+    private val onSuppressed: (
+        rule: Rule,
+        event: TriggerEvent,
+        unreadable: List<ComponentSpec>,
+    ) -> Unit = { _, _, _ -> },
 ) {
     /** The rule as it was when started, so [sync] can tell an edit from a redelivery. */
     private class Running(val rule: Rule, val job: Job)
@@ -136,7 +147,17 @@ class TriggerEngine(
                 .map { (path, spec) -> triggersBySpec.getValue(spec).events().map { path to it } }
                 .merge()
                 .collect { (firedPath, event) ->
-                    if (!triggerHolds(rule.trigger, firedPath, triggersBySpec)) return@collect
+                    val reader = StateReader(triggersBySpec)
+                    if (!triggerHolds(rule.trigger, firedPath, reader)) {
+                        // Only when something could not be read. A tree that
+                        // held back because a condition answered a clean "no" is
+                        // the rule doing its job, and reporting that would cry
+                        // wolf on every rule with a condition in it.
+                        if (reader.unreadable.isNotEmpty()) {
+                            onSuppressed(rule, event, reader.unreadable.toList())
+                        }
+                        return@collect
+                    }
                     actions.forEach { (type, action) -> run(rule, type, action, event) }
                 }
         }
@@ -148,24 +169,57 @@ class TriggerEngine(
      * Whether [trigger] holds, given the leaf at [firedPath] that just started
      * this evaluation — see [TriggerNode.holds].
      *
-     * A state read that throws is treated as unknown — `null`, matching
-     * [TriggerNode.holds]'s "null does not satisfy" — rather than as a
-     * definite no, because a state nobody could read is unknown, and firing
-     * unattended actions on an unknown state is the worse of the two
-     * failures. Cancellation is rethrown, because a cancelled rule is not a
-     * rule whose trigger failed to hold.
+     * [reader] both answers the state questions and records which of them could
+     * not be answered, so the caller can tell a rule held back by a "no" from
+     * one held back by a component that could not look. See [StateReader].
      */
     private suspend fun triggerHolds(
         trigger: TriggerNode,
         firedPath: NodePath,
-        triggersBySpec: Map<ComponentSpec, Trigger>,
-    ): Boolean = trigger.holds(firedPath) { spec ->
-        try {
-            triggersBySpec[spec]?.currentlyHolds()
-        } catch (cancellation: CancellationException) {
-            throw cancellation
-        } catch (t: Throwable) {
-            null
+        reader: StateReader,
+    ): Boolean = trigger.holds(firedPath, reader::read)
+
+    /**
+     * Reads leaf states for one evaluation, and remembers which ones could not
+     * answer.
+     *
+     * A class rather than a lambda because the "could not answer" set has to
+     * outlive the read and be asked about afterwards. One instance per event,
+     * never shared: two events evaluating at once would otherwise blame each
+     * other's components. That also means [unreadable] needs no synchronisation.
+     *
+     * Only the components actually consulted appear. [TriggerNode.holds]
+     * short-circuits, which is a promise it makes rather than an optimisation,
+     * so a component the evaluation never reached is not something that failed
+     * to answer.
+     */
+    private class StateReader(private val triggersBySpec: Map<ComponentSpec, Trigger>) {
+
+        val unreadable = mutableListOf<ComponentSpec>()
+
+        /**
+         * A state read that throws is treated as unknown rather than as a
+         * definite no. That is `null`, which matches [TriggerNode.holds]'s "null
+         * does not satisfy": a state nobody could read is unknown, and firing
+         * unattended actions on an unknown state is the worse of the two
+         * failures. Cancellation is rethrown, because a cancelled rule is not a
+         * rule whose trigger failed to hold.
+         *
+         * A spec with no trigger built for it also reads as unknown. That is
+         * unreachable through [startRule], which builds one per distinct leaf,
+         * and it is recorded rather than ignored so it could never become a
+         * silent third meaning of null.
+         */
+        suspend fun read(spec: ComponentSpec): Boolean? {
+            val answer = try {
+                triggersBySpec[spec]?.currentlyHolds()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (t: Throwable) {
+                null
+            }
+            if (answer == null) unreadable += spec
+            return answer
         }
     }
 
