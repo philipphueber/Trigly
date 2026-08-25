@@ -1,6 +1,8 @@
 package app.phueber.trigly.core
 
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -196,5 +198,56 @@ class RuleJsonTest {
     @Test
     fun `blank stored config decodes to empty`() {
         assertEquals(emptyMap<String, String>(), RuleJson.decodeConfig(""))
+    }
+
+    // --- folder -------------------------------------------------------------
+
+    @Test
+    fun `a rule with a folder round trips`() {
+        val foldered = rule.copy(folder = "Car")
+
+        val decoded = RuleJson.decode(RuleJson.encode(foldered)).single()
+
+        assertEquals("Car", decoded.folder)
+        assertEquals(foldered, decoded)
+    }
+
+    @Test
+    fun `a rule with no folder round trips as no folder`() {
+        val decoded = RuleJson.decode(RuleJson.encode(rule)).single()
+
+        assertEquals(null, decoded.folder)
+    }
+
+    @Test
+    fun `a blank folder normalizes to null across the round trip`() {
+        // "" and " " are not a spelling of a folder named nothing — they must
+        // collapse to null on the way in, same as `Rule`'s own invariant.
+        val blank = rule.copy(folder = "   ")
+
+        val decoded = RuleJson.decode(RuleJson.encode(blank)).single()
+
+        assertEquals(null, decoded.folder)
+    }
+
+    @Test
+    fun `a rule with no folder writes no folder key`() {
+        // The byte-identical-export promise: an ungrouped rule must look
+        // exactly like it did before folders existed.
+        val json = JSONObject(RuleJson.encode(rule))
+        val ruleJson = json.getJSONArray("rules").getJSONObject(0)
+
+        assertFalse("expected no 'folder' key", ruleJson.has("folder"))
+    }
+
+    @Test
+    fun `an older document with no folder key decodes with a null folder`() {
+        val v1Export = """
+            {"version":1,"rules":[{
+              "name":"Old export","trigger":{"type":"screen_state","config":{}},"actions":[]
+            }]}
+        """.trimIndent()
+
+        assertEquals(null, RuleJson.decode(v1Export).single().folder)
     }
 }

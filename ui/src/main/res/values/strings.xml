@@ -21,6 +21,19 @@
     <string name="rules_export_all">Export all</string>
     <string name="rules_share">Share</string>
     <string name="requirement_grant">Grant</string>
+    <string name="rules_search_label">Search</string>
+    <!--
+      Sentence case, like rules_empty above: this is prose explaining a state,
+      not chrome. Named with the query in it rather than a bare "No matches" so
+      it cannot be read as "you have no rules" — the whole reason this string
+      exists instead of reusing rules_empty for a filtered-to-nothing list.
+    -->
+    <string name="rules_no_matches">No rules match “%1$s”.</string>
+    <!--
+      The catch-all folder heading. Uppercased by FolderHeader like every other
+      folder name, so it is not given capitals of its own here.
+    -->
+    <string name="rules_folder_other">Other</string>
 
     <!--
       The engine's ongoing notification. Sentence case, not the uppercase the

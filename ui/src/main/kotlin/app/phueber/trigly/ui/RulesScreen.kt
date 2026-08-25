@@ -8,12 +8,24 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -47,6 +59,17 @@ fun RulesScreen(
     describeComponent: (String) -> String,
     modifier: Modifier = Modifier,
 ) {
+    // Both are view state, not rule data: what someone is typing into the
+    // search field and which folders they last folded shut describe how this
+    // screen is being looked at right now, not anything about a `Rule`.
+    // `rememberSaveable` is the right amount of persistence for that — it
+    // survives a rotation, which would otherwise reopen every folder, but
+    // neither belongs in the ViewModel or gets written back to a rule.
+    var query by rememberSaveable { mutableStateOf("") }
+    var collapsedFolders by rememberSaveable(stateSaver = CollapsedFoldersSaver) {
+        mutableStateOf(emptySet<String>())
+    }
+
     Column(modifier = modifier.fillMaxSize()) {
         BlockHeader(
             title = stringResource(R.string.rules_title),
@@ -62,34 +85,98 @@ fun RulesScreen(
             },
         )
 
-        if (statuses.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxWidth().weight(1f).padding(16.dp),
-                contentAlignment = Alignment.TopCenter,
-            ) {
-                BlockCard(fill = MaterialTheme.colorScheme.surfaceContainerLow) {
-                    Text(
-                        text = stringResource(R.string.rules_empty),
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(16.dp),
-                    )
-                }
-            }
-        } else {
-            LazyColumn(
+        // Same reasoning as Export All above: search is pointless with nothing
+        // to search, so it is hidden rather than offered disabled.
+        if (statuses.isNotEmpty()) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                // Uppercase, matching every other label in this chrome — the
+                // name field's "NAME *" in the editor, the search field other
+                // pickers already have (`ValuePickerDialog`'s `searchLabel`).
+                label = { Text(stringResource(R.string.rules_search_label).uppercase()) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
+
+        val filtered = statuses.filter { matchesQuery(it, query, describeComponent) }
+        // Decided from every rule, not the filtered set: a search that happens
+        // to match only unfoldered rules must not make the folder chrome
+        // disappear, and — the case that matters most — someone who has never
+        // typed a folder name sees exactly the flat list this screen showed
+        // before folders existed, with or without a search in progress.
+        val foldersInUse = statuses.any { it.rule.folder != null }
+        val otherLabel = stringResource(R.string.rules_folder_other)
+
+        when {
+            statuses.isEmpty() -> RulesEmptyState(
+                message = stringResource(R.string.rules_empty),
+                modifier = Modifier.weight(1f),
+            )
+
+            // A search with no hits must say so. An empty list with no
+            // explanation reads as "you have no rules", which is a lie the
+            // moment a query is active.
+            filtered.isEmpty() -> RulesEmptyState(
+                message = stringResource(R.string.rules_no_matches, query),
+                modifier = Modifier.weight(1f),
+            )
+
+            else -> LazyColumn(
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                items(items = statuses, key = { it.rule.id }) { status ->
-                    RuleBlock(
-                        status = status,
-                        onEnabledChange = onEnabledChange,
-                        onEditRule = onEditRule,
-                        onExportRule = onExportRule,
-                        onResolve = onResolve,
-                        describeComponent = describeComponent,
-                    )
+                if (foldersInUse) {
+                    // A folder heading survives a search rather than
+                    // disappearing with the rest of the chrome: it is how
+                    // someone tells apart two rules that would otherwise both
+                    // read "Driving mode" once the list is down to matches.
+                    // Only non-empty sections are shown — a folder heading
+                    // with nothing under it, in a filtered view, would claim
+                    // a match that is not there.
+                    groupByFolder(filtered, otherLabel).forEach { section ->
+                        item(key = "folder:${section.key}") {
+                            FolderHeader(
+                                name = section.displayName,
+                                count = section.statuses.size,
+                                expanded = section.key !in collapsedFolders,
+                                onToggleExpanded = {
+                                    collapsedFolders = if (section.key in collapsedFolders) {
+                                        collapsedFolders - section.key
+                                    } else {
+                                        collapsedFolders + section.key
+                                    }
+                                },
+                            )
+                        }
+                        if (section.key !in collapsedFolders) {
+                            items(items = section.statuses, key = { it.rule.id }) { status ->
+                                RuleBlock(
+                                    status = status,
+                                    onEnabledChange = onEnabledChange,
+                                    onEditRule = onEditRule,
+                                    onExportRule = onExportRule,
+                                    onResolve = onResolve,
+                                    describeComponent = describeComponent,
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    // Exactly what this screen rendered before folders existed:
+                    // no headings, no chrome, whatever the search state.
+                    items(items = filtered, key = { it.rule.id }) { status ->
+                        RuleBlock(
+                            status = status,
+                            onEnabledChange = onEnabledChange,
+                            onEditRule = onEditRule,
+                            onExportRule = onExportRule,
+                            onResolve = onResolve,
+                            describeComponent = describeComponent,
+                        )
+                    }
                 }
             }
         }
@@ -99,6 +186,137 @@ fun RulesScreen(
                 text = stringResource(R.string.rules_new),
                 onClick = onNewRule,
                 modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+/** The centred card used both for "no rules at all" and "no rules matched". */
+@Composable
+private fun RulesEmptyState(message: String, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.fillMaxWidth().padding(16.dp),
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        BlockCard(fill = MaterialTheme.colorScheme.surfaceContainerLow) {
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(16.dp),
+            )
+        }
+    }
+}
+
+/**
+ * A rule's name is not the only way someone recognises it: "Driving mode" says
+ * nothing about Bluetooth to whoever typed that word, but the rule may well be
+ * built on a Bluetooth trigger. Matching only the name would silently hide it,
+ * so this also checks every leaf of the trigger tree — the whole tree, not
+ * just its first node, now that a trigger can nest — and every action, by the
+ * same display name their own summary line already shows on screen. That is
+ * why `describeComponent` is threaded all the way down here instead of
+ * comparing against the raw type string nothing but this codebase ever sees.
+ */
+private fun matchesQuery(
+    status: RuleStatus,
+    query: String,
+    describeComponent: (String) -> String,
+): Boolean {
+    if (query.isBlank()) return true
+    val rule = status.rule
+    if (rule.name.contains(query, ignoreCase = true)) return true
+
+    val componentTypes = rule.trigger.leaves().map { it.type } + rule.actions.map { it.type }
+    return componentTypes.any { type -> describeComponent(type).contains(query, ignoreCase = true) }
+}
+
+/** One folder's worth of rules to show under one heading — "Other" included. */
+private data class FolderSection(
+    val key: String,
+    val displayName: String,
+    val statuses: List<RuleStatus>,
+)
+
+/**
+ * The reserved key for "no folder". Never a real folder name: `:core`'s
+ * `normalizeFolder` guarantees a stored folder name is never blank, so an
+ * empty string can only ever mean this bucket.
+ */
+private const val OTHER_KEY = ""
+
+/**
+ * Named folders alphabetically; "Other" always last, whatever alphabetical
+ * order would otherwise do with the letter O. It is the leftovers, not a peer
+ * folder, and a folder named e.g. "Zebra" must not push it earlier.
+ */
+private fun groupByFolder(statuses: List<RuleStatus>, otherLabel: String): List<FolderSection> {
+    val byFolder = statuses.groupBy { it.rule.folder }
+    val named = byFolder.keys.filterNotNull()
+        .sortedBy { it.lowercase() }
+        .map { name -> FolderSection(key = name, displayName = name, statuses = byFolder.getValue(name)) }
+    val other = byFolder[null]
+        ?.takeIf { it.isNotEmpty() }
+        ?.let { listOf(FolderSection(key = OTHER_KEY, displayName = otherLabel, statuses = it)) }
+        .orEmpty()
+    return named + other
+}
+
+/**
+ * `rememberSaveable`'s default handling is not guaranteed for an arbitrary
+ * `Set`; a `List` is. This just round-trips the collapsed-folder set through
+ * one rather than trusting the platform default to cope with the type.
+ */
+private val CollapsedFoldersSaver: Saver<Set<String>, Any> = listSaver(
+    save = { it.toList() },
+    restore = { it.toSet() },
+)
+
+/**
+ * A folder's own heading — never a rule, and must not read as one.
+ * [SectionLabel] (`RuleEditorScreen.kt`) is the closest thing already in the
+ * vocabulary: a solid tag in the chrome colour, no border, no shadow, unlike
+ * every [BlockCard]. It is not reused as-is because it is a static,
+ * wrap-content label with no count and no click; this is what it would need
+ * to grow both. Worth promoting into `Blocks.kt` as a shared "counted,
+ * collapsible heading" if another screen ever wants the same shape — this one
+ * is kept local because only the rule list needs it today.
+ *
+ * Full width and clickable across its whole row, the same as [BlockCard]'s
+ * clickable branch, rather than a small chevron button of its own: the fold
+ * target is then a whole thumb-height row instead of a few dp of glyph.
+ */
+@Composable
+private fun FolderHeader(
+    name: String,
+    count: Int,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        onClick = onToggleExpanded,
+        color = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary,
+        shape = BlockShape,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                // This row is one merged clickable node with the heading text
+                // right beside it; a description here would have the same
+                // thing announced twice.
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+            )
+            Text(
+                text = "${name.uppercase()} ($count)",
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(start = 8.dp),
             )
         }
     }

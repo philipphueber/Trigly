@@ -8,6 +8,7 @@ import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.RuleJson
 import app.phueber.trigly.core.TriggerNode
 import app.phueber.trigly.core.defaultValue
+import app.phueber.trigly.core.normalizeFolder
 
 /**
  * Which half of a rule a component belongs to.
@@ -134,6 +135,14 @@ data class RuleDraft(
     val trigger: TriggerDraft? = null,
     val actions: List<ComponentDraft> = emptyList(),
     val enabled: Boolean = true,
+    /**
+     * "" means "no folder" here, unlike [Rule.folder]'s `null` — a text field has
+     * no way to hold a value that isn't a string, so the draft stores exactly
+     * what it can put in one. [toRuleOrNull] is where that collapses to `null`,
+     * through the same [normalizeFolder] every other boundary around [Rule.folder]
+     * uses, so the editor is not a second place that decides what counts as blank.
+     */
+    val folder: String = "",
 ) {
     val isNew: Boolean get() = id == null
 }
@@ -144,6 +153,8 @@ fun Rule.toDraft() = RuleDraft(
     trigger = trigger.toDraft(),
     actions = actions.map { ComponentDraft(it.type, it.config) },
     enabled = enabled,
+    // The domain's null becomes the draft's "" — see [RuleDraft.folder].
+    folder = folder ?: "",
 )
 
 private fun TriggerNode.toDraft(): TriggerDraft = when (this) {
@@ -166,6 +177,7 @@ fun RuleDraft.toRuleOrNull(): Rule? {
         trigger = node,
         actions = actions.map { ComponentSpec(it.type, it.config) },
         enabled = enabled,
+        folder = normalizeFolder(folder),
     )
 }
 

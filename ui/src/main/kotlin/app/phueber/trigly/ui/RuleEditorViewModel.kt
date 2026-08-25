@@ -132,6 +132,13 @@ class RuleEditorViewModel(
     fun setEnabled(enabled: Boolean) = edit { copy(enabled = enabled) }
 
     /**
+     * The rule's own folder name, typed or picked from an existing one — see
+     * [RuleEditorScreen]'s `existingFolders`. Stored as-is; [RuleDraft.folder]'s
+     * own KDoc is where blank collapses to "no folder", at save time, not here.
+     */
+    fun setFolder(folder: String) = edit { copy(folder = folder) }
+
+    /**
      * Replaces whatever is at [path] with a fresh trigger of [type], migrating
      * compatible config across the swap the same way [changeActionType] does
      * for an action. Whatever was there before — a lone trigger, or (rarer,

@@ -46,6 +46,10 @@ import java.util.UUID
  * Every file a released version wrote must still import, forever. v2's
  * `triggers` + `conditions` split is read by folding it into the equivalent
  * [TriggerNode] tree — see [legacyTriggerNode].
+ *
+ * `"folder"` (this build) is additive on top of whichever of the three shapes
+ * above a rule is written in — see [VERSION]'s kdoc for why it does not earn
+ * a v4.
  */
 object RuleJson {
 
@@ -53,6 +57,16 @@ object RuleJson {
      * Bumped when the shape changes incompatibly. A file from a *newer* version
      * is refused rather than half-read — losing a rule silently is worse than
      * failing to import.
+     *
+     * `"folder"` does not bump this. No released build has ever written v4 —
+     * 0.0.4 was pulled before it shipped — so there is no file on a real device
+     * today that a bump would even be protecting against. And an unbumped
+     * version is the *more* correct choice here regardless: `"folder"` is read
+     * with [org.json.JSONObject.optString], not required, so a build that has
+     * never heard of it just sees a rule with no folder — it loses the
+     * grouping and keeps the rule, which is the right failure. Bumping VERSION
+     * would instead make an older build refuse the *whole file* over one key
+     * it does not need in order to read everything else correctly.
      */
     const val VERSION = 3
 
@@ -96,6 +110,7 @@ object RuleJson {
     private const val KEY_ACTIONS = "actions"
     private const val KEY_TYPE = "type"
     private const val KEY_CONFIG = "config"
+    private const val KEY_FOLDER = "folder"
 
     // --- export -----------------------------------------------------------
 
@@ -120,6 +135,14 @@ object RuleJson {
         .put(KEY_ENABLED, rule.enabled)
         .put(KEY_TRIGGER, nodeToJson(rule.trigger))
         .put(KEY_ACTIONS, JSONArray(rule.actions.map(::specToJson)))
+        .let { json ->
+            // Normalized again here rather than trusting `rule.folder` was
+            // already clean — see `Rule`'s kdoc. A rule with no folder writes
+            // no key at all, not `"folder": null`, so an export of ungrouped
+            // rules stays byte-identical to what a build before this one wrote.
+            normalizeFolder(rule.folder)?.let { folder -> json.put(KEY_FOLDER, folder) }
+            json
+        }
 
     private fun nodeToJson(node: TriggerNode): JSONObject = when (node) {
         is TriggerNode.One -> specToJson(node.spec)
@@ -196,6 +219,11 @@ object RuleJson {
             actions = actions,
             // Absent means enabled: a rule someone chose to export is one they use.
             enabled = json.optBoolean(KEY_ENABLED, true),
+            // Missing key (an older export, or v1/v2), present-but-blank (a
+            // hand-edited file), and a real name all funnel through the same
+            // normalization — see `Rule`'s kdoc for why blank must not survive
+            // as a second spelling of "no folder".
+            folder = normalizeFolder(json.optString(KEY_FOLDER)),
         )
     }
 

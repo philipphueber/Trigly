@@ -279,10 +279,63 @@ rule with someone else. The format is versioned, and a file from a *newer*
 version is refused rather than half-read: failing to import is better than
 losing a rule silently.
 
+A rule can optionally carry a `folder` — a user-typed name the rule list
+groups by, with ungrouped rules collecting under "Other". It is a single
+nullable `String` throughout: a nullable column on the `rules` row, and an
+additive `"folder"` key in the portable format that does not bump
+`RuleJson.VERSION` — an older build simply ignores the key it does not
+understand and keeps the rule, losing only the grouping. `null` and `""` are
+never allowed to both mean "no folder" at once: every boundary that accepts a
+folder name from outside `:core` normalizes blank to `null` before it is
+stored, and comparison after that is exact, case-sensitive `String` equality —
+see `Rule.folder`'s kdoc.
+
 Room stays an implementation detail of `:core`. Storage is handed out as a
 `RuleRepository` from a factory function, and `room-runtime` is
 `implementation`-scoped so it is not on `:ui`'s compile classpath at all. That
 enforces the boundary rather than merely asking for it.
+
+### Finding a rule: search and folders
+
+The list screen gained two things at once, and they are deliberately different
+kinds of thing.
+
+**Search** filters on a rule's name *and* on the display names of every component
+it uses — every leaf of the trigger tree, and every action. That second half is
+the point: typing "bluetooth" has to find a rule called "Driving mode" that nobody
+named after Bluetooth, because the name is what someone forgot and the trigger is
+what they remember. A query that matches nothing says so in its own words; an
+empty list with no explanation reads as "you have no rules", which is a lie the
+moment a filter is active.
+
+**Folders** are a name the user types on the rule itself — see `Rule.folder`
+above. The list groups by it, each section collapsible with a count, and rules
+without one collect under "Other", pinned last however the alphabet would sort
+the letter O, because it is the leftovers rather than a peer.
+
+Three decisions in there worth keeping:
+
+- **With no folder in use anywhere, the list renders exactly as it did before the
+  feature existed** — the same `LazyColumn` over the same blocks, no headings, no
+  "Other" wrapped around everything. Someone who never types a folder name does
+  not pay for folders. That is asserted by a test rather than left to inspection,
+  and the "are any folders in use" question is asked of *all* the rules rather
+  than the filtered ones, so a search matching only unfoldered rules cannot make
+  the chrome flicker away.
+- **Headings survive a search**, showing only matching rules and only non-empty
+  sections. The heading is how someone tells which "Driving mode" they just
+  found.
+- **Collapsing a section does not compose its rules at all**, rather than drawing
+  them and hiding them. Which sections are shut is `rememberSaveable` view state:
+  it survives a rotation, and it is deliberately not stored on the rule, because
+  it describes this screen right now rather than anything about the automation.
+
+Filing a rule from the editor offers the folders that already exist, through the
+same pick-or-type dialog the app, sound and Bluetooth fields use. That list is
+read in `MainActivity` from the rule list's own ViewModel rather than the editor's,
+which holds one rule and has no business reading the table. Since folder names
+compare case-sensitively, offering the existing ones is what stops a second "car"
+appearing beside "Car".
 
 ### What a block offers: component tools
 

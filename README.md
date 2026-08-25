@@ -98,7 +98,14 @@ Trigly is at an early stage of development. The app has these parts:
 - The plugin design for triggers and actions.
 - The requirement model, and the permission flow that goes with it.
 - **33 triggers** and **20 actions**.
-- A rules list screen. This screen explains why a rule cannot start.
+- A rules list screen. This screen explains why a rule cannot start. You can
+  search it. The search examines the name of each rule, and also the names of
+  the triggers and actions in it. Thus a search for "bluetooth" finds a rule
+  that uses Bluetooth, even if the name of the rule does not say so.
+- **Folders.** Give a rule a folder name in the editor. The list then shows one
+  section for each folder, with a count, and you can close a section. Rules with
+  no folder are in a section named "Other", which is always last. If you use no
+  folders, the list looks the same as before.
 - A **rule editor**. In the editor, you pick a trigger and actions from
   grouped lists, fill in a form, and save the rule. Trigly builds the form
   from each component's declared config schema.

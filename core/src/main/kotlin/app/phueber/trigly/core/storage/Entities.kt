@@ -10,6 +10,7 @@ import app.phueber.trigly.core.ComponentSpec
 import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.RuleJson
 import app.phueber.trigly.core.TriggerNode
+import app.phueber.trigly.core.normalizeFolder
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -57,6 +58,13 @@ data class RuleEntity(
      * still exist on a device that has not opened this rule since upgrading.
      */
     val conditionsJson: String? = null,
+    /**
+     * The user-typed folder the rule list groups by, or null for "no folder" —
+     * every row before database version 4 reads back as null here, which is
+     * exactly right since nothing before this version had the concept. See
+     * `MIGRATION_3_4` and [Rule.folder]'s kdoc.
+     */
+    val folder: String? = null,
 )
 
 /**
@@ -128,6 +136,9 @@ fun RuleWithComponents.toRuleOrNull(): Rule? {
         trigger = trigger,
         actions = actions,
         enabled = rule.enabled,
+        // Normalized again on the way out — see `Rule`'s kdoc — rather than
+        // trusting that every writer already stored a clean value.
+        folder = normalizeFolder(rule.folder),
     )
 }
 
@@ -223,6 +234,9 @@ fun Rule.toEntity(position: Int) = RuleEntity(
     // Deliberately left null: this column is legacy and read-only (see its
     // kdoc). Writing it again would resurrect a second source of truth for
     // the trigger side that `triggerJson` already fills.
+    // Normalized on the way in — see `Rule`'s kdoc — rather than trusting the
+    // caller already did it.
+    folder = normalizeFolder(folder),
 )
 
 fun Rule.toComponentEntities(): List<ComponentEntity> =

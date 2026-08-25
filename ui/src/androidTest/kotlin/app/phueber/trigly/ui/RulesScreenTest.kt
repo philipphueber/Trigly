@@ -6,6 +6,8 @@ import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ComponentSpec
@@ -293,6 +295,112 @@ class RulesScreenTest {
         composeRule.onNodeWithText("Needs Android 12 (API 31) or newer").assertIsDisplayed()
         composeRule.onNodeWithText("GRANT").assertDoesNotExist()
     }
+
+    /**
+     * The requirement I care most about, in the spec's own words: a rule list
+     * with no folder ever named on any rule must render exactly as it did
+     * before folders existed. No heading, no "Other" — nothing to distinguish
+     * it from the plain list at all.
+     */
+    @Test
+    fun no_folders_in_use_renders_the_plain_list() {
+        composeRule.setContent {
+            Screen(
+                listOf(
+                    RuleStatus(sampleRule, unmet = emptyList()),
+                    RuleStatus(sampleRule.copy(id = "second", name = "Second rule"), unmet = emptyList()),
+                )
+            )
+        }
+
+        composeRule.onNodeWithText("PING EVERY MINUTE").assertIsDisplayed()
+        composeRule.onNodeWithText("SECOND RULE").assertIsDisplayed()
+        // No folder is in use, so "Other" — the bucket every unfoldered rule
+        // would otherwise collect under — must not appear either.
+        composeRule.onNodeWithText("OTHER", substring = true).assertDoesNotExist()
+    }
+
+    /**
+     * Two named folders plus a leftover rule become three headed sections,
+     * and "Other" sits after both — not where the letter O would otherwise
+     * sort it, which here would be between "Car" and "Night".
+     */
+    @Test
+    fun folders_group_rules_and_put_other_last() {
+        composeRule.setContent { Screen(statusesOf(drivingModeRule, nightRule, looseRule)) }
+
+        composeRule.onNodeWithText("CAR (1)").assertExists()
+        composeRule.onNodeWithText("NIGHT (1)").assertExists()
+        composeRule.onNodeWithText("OTHER (1)").assertExists()
+
+        fun topOf(text: String) =
+            composeRule.onNodeWithText(text).fetchSemanticsNode().boundsInRoot.top
+
+        assertTrue("Car sorts before Night", topOf("CAR (1)") < topOf("NIGHT (1)"))
+        assertTrue(
+            "Other sits after both named folders, not where its letter would sort",
+            topOf("NIGHT (1)") < topOf("OTHER (1)"),
+        )
+    }
+
+    /** Folding one section away leaves every other section's rules alone. */
+    @Test
+    fun collapsing_a_section_hides_its_rules_but_not_others() {
+        composeRule.setContent { Screen(statusesOf(drivingModeRule, nightRule)) }
+
+        composeRule.onNodeWithText("DRIVING MODE").assertExists()
+        composeRule.onNodeWithText("NIGHT OWL").assertExists()
+
+        composeRule.onNodeWithText("CAR (1)").performScrollTo().performClick()
+
+        composeRule.onNodeWithText("DRIVING MODE").assertDoesNotExist()
+        // The other section was not touched.
+        composeRule.onNodeWithText("NIGHT OWL").assertExists()
+    }
+
+    /**
+     * A rule's name is the obvious match. This is the baseline the next test
+     * — matching by a component nobody named the rule after — is contrasted
+     * against.
+     */
+    @Test
+    fun search_matches_a_rule_by_name() {
+        composeRule.setContent { Screen(statusesOf(drivingModeRule, nightRule)) }
+
+        composeRule.onNodeWithText("SEARCH").performTextInput("driving")
+
+        composeRule.onNodeWithText("DRIVING MODE").assertExists()
+        composeRule.onNodeWithText("NIGHT OWL").assertDoesNotExist()
+    }
+
+    /**
+     * The whole reason search looks past the name: "Driving mode" says
+     * nothing about Bluetooth, but the rule is built on a Bluetooth trigger,
+     * and typing that word must still find it.
+     */
+    @Test
+    fun search_matches_a_rule_by_a_component_it_is_not_named_after() {
+        composeRule.setContent { Screen(statusesOf(drivingModeRule, nightRule)) }
+
+        composeRule.onNodeWithText("SEARCH").performTextInput("bluetooth")
+
+        composeRule.onNodeWithText("DRIVING MODE").assertExists()
+        composeRule.onNodeWithText("NIGHT OWL").assertDoesNotExist()
+    }
+
+    /**
+     * A query with no hits must say so, rather than leaving an empty list that
+     * reads as "you have no rules" — a lie the moment a search is active.
+     */
+    @Test
+    fun a_search_with_no_matches_says_so() {
+        composeRule.setContent { Screen(statusesOf(drivingModeRule, nightRule)) }
+
+        composeRule.onNodeWithText("SEARCH").performTextInput("zzz")
+
+        composeRule.onNodeWithText("No rules match “zzz”.").assertIsDisplayed()
+        composeRule.onNodeWithText("DRIVING MODE").assertDoesNotExist()
+    }
 }
 
 private val notificationAccess =
@@ -304,4 +412,38 @@ private val sampleRule = Rule(
     trigger = ComponentSpec("interval"),
     actions = listOf(ComponentSpec("post_notification")),
     enabled = false,
+)
+
+/** Shorthand for the common case in the folder/search tests: nothing unmet. */
+private fun statusesOf(vararg rules: Rule): List<RuleStatus> = rules.map { RuleStatus(it, unmet = emptyList()) }
+
+/**
+ * In the "Car" folder, and named after nothing about its own trigger — the
+ * fixture the component-search test needs: typing "bluetooth" must find this
+ * one by what it does, not by its name.
+ */
+private val drivingModeRule = Rule(
+    id = "driving-mode",
+    name = "Driving mode",
+    trigger = ComponentSpec("bluetooth_connected"),
+    actions = listOf(ComponentSpec("post_notification")),
+    enabled = true,
+).copy(folder = "Car")
+
+/** In the "Night" folder, and a decoy for the search tests: named differently, built differently. */
+private val nightRule = Rule(
+    id = "night-owl",
+    name = "Night owl",
+    trigger = ComponentSpec("charger_plugged"),
+    actions = listOf(ComponentSpec("post_notification")),
+    enabled = true,
+).copy(folder = "Night")
+
+/** No folder at all — collects under "Other". */
+private val looseRule = Rule(
+    id = "loose-rule",
+    name = "Loose rule",
+    trigger = ComponentSpec("screen_on"),
+    actions = listOf(ComponentSpec("post_notification")),
+    enabled = true,
 )

@@ -13,7 +13,7 @@ import kotlinx.coroutines.flow.map
 
 @Database(
     entities = [RuleEntity::class, ComponentEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class TriglyDatabase : RoomDatabase() {
@@ -63,6 +63,22 @@ internal val MIGRATION_2_3 = object : Migration(2, 3) {
 }
 
 /**
+ * Adds the folder a rule can be filed under.
+ *
+ * One nullable column, same reasoning as `MIGRATION_1_2` and `MIGRATION_2_3`:
+ * null is the honest value for every row that predates this column — every
+ * rule that existed before folders is, correctly, in no folder — and nothing
+ * else about an existing row needs to change. There is no data to translate
+ * from an old shape the way `MIGRATION_2_3` had to for the trigger tree; this
+ * is a bare `ALTER TABLE`.
+ */
+internal val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE rules ADD COLUMN folder TEXT")
+    }
+}
+
+/**
  * The app's rule storage, as a [RuleRepository].
  *
  * Returns the interface rather than the database so Room stays an implementation
@@ -73,13 +89,30 @@ internal val MIGRATION_2_3 = object : Migration(2, 3) {
 fun ruleRepository(context: Context): RuleRepository =
     RoomRuleRepository(triglyDatabase(context).rules())
 
+/**
+ * Every migration, in one place, because the alternative was caught failing.
+ *
+ * A test that opens the database has to register the same chain the app does: the
+ * entities are always at the newest version, so a test fixture built at version 3
+ * still needs 3→4 to open at all. When each call site listed migrations by hand,
+ * adding 3→4 to the app left two older tests still naming only 2→3, and they
+ * failed with "a migration from 3 to 4 was required but not found" — a message
+ * about the fixture, not about the thing under test, which is the worst kind of
+ * failure to read.
+ *
+ * Spreading this array is therefore the only correct way to build a
+ * `TriglyDatabase`, here or in a test. Adding a migration means adding it once.
+ */
+internal val TRIGLY_MIGRATIONS: Array<Migration> =
+    arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+
 internal fun triglyDatabase(context: Context): TriglyDatabase =
     Room.databaseBuilder(context, TriglyDatabase::class.java, TriglyDatabase.NAME)
         // Deliberately no fallbackToDestructiveMigration: these are rules the user
         // built by hand, and silently deleting them on a schema change is not an
         // acceptable failure mode. A missing migration should fail loudly in
         // development instead.
-        .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+        .addMigrations(*TRIGLY_MIGRATIONS)
         .build()
 
 /**
