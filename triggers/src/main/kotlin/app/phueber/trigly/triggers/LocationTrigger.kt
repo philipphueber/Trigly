@@ -22,6 +22,7 @@ import app.phueber.trigly.core.TriggerFactory
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.math.asin
@@ -85,11 +86,29 @@ class LocationTrigger(
     private val radiusMeters: Double,
     private val onEnter: Boolean,
     private val minIntervalMillis: Long,
+    /**
+     * When true this trigger watches nothing and only answers when asked. See
+     * the field's own help text, and `LocationTriggerFactory.producesEvents`,
+     * which has to agree with this or the editor and the engine disagree about
+     * what this leaf can do.
+     */
+    private val checkOnly: Boolean = false,
     private val now: () -> Long = System::currentTimeMillis,
 ) : Trigger {
 
     @SuppressLint("MissingPermission") // ACCESS_FINE_LOCATION is declared as a requirement.
-    override fun events(): Flow<TriggerEvent> = callbackFlow {
+    override fun events(): Flow<TriggerEvent> = if (checkOnly) {
+        // Empty before the service is even looked up, so nothing here can open a
+        // position request. This is the whole switch: `requestLocationUpdates`
+        // below is what costs the battery, and the only way not to pay for it is
+        // not to reach it.
+        emptyFlow()
+    } else {
+        watchArea()
+    }
+
+    @SuppressLint("MissingPermission") // ACCESS_FINE_LOCATION is declared as a requirement.
+    private fun watchArea(): Flow<TriggerEvent> = callbackFlow {
         val manager = context.getSystemService(LocationManager::class.java)
             ?: return@callbackFlow
 
@@ -214,6 +233,7 @@ class LocationTrigger(
         const val CONFIG_RADIUS_METERS = "radiusMeters"
         const val CONFIG_STATE = "state"
         const val CONFIG_MIN_INTERVAL_MILLIS = "minIntervalMillis"
+        const val CONFIG_CHECK_ONLY = "checkOnly"
         const val PAYLOAD_STATE = "state"
         const val ENTERED = "entered"
         const val EXITED = "exited"
@@ -225,6 +245,18 @@ class LocationTrigger(
     }
 }
 
+/**
+ * Whether this configuration says "check, never watch".
+ *
+ * Pure, and separate from the factory, for the reason the other helpers in this
+ * file are: the factory holds a `Context` and cannot be built in a JVM test,
+ * while the answer this gives decides whether a rule can start at all. A missing
+ * or unparseable value means false, which keeps watching the default and matches
+ * every rule saved before this switch existed.
+ */
+fun locationChecksOnly(config: Map<String, String>): Boolean =
+    config[LocationTrigger.CONFIG_CHECK_ONLY]?.toBoolean() ?: false
+
 class LocationTriggerFactory(private val context: Context) : TriggerFactory {
     override val type = LocationTrigger.TYPE
 
@@ -232,6 +264,15 @@ class LocationTriggerFactory(private val context: Context) : TriggerFactory {
     override val category = Category.LOCATION
 
     override val supportsCondition = true
+
+    /**
+     * False for a leaf whose switch is on, which is what keeps the editor and
+     * the engine telling the same story. `TriggerNode.canStart` reads this, so a
+     * rule whose only location leaf is set to check rather than watch is
+     * correctly refused a start it could never have.
+     */
+    override fun producesEvents(config: Map<String, String>): Boolean =
+        !locationChecksOnly(config)
 
     override val configFields = listOf(
         // One field over two keys: a latitude without a longitude is not half an
@@ -242,6 +283,24 @@ class LocationTriggerFactory(private val context: Context) : TriggerFactory {
             label = "Latitude",
             required = true,
             longitudeKey = LocationTrigger.CONFIG_LONGITUDE,
+        ),
+        // Deliberately a switch and not a hint. The component could try to guess
+        // from its position in the tree, and a guess is what this switch exists
+        // to replace: the engine collects every leaf's events, so a location leaf
+        // that a person only ever meant as a check still held an open position
+        // request for as long as the rule was on. The expensive behaviour was the
+        // default and nothing said so. Now it is stated, and the editor stops
+        // offering this component as the thing that starts a rule once it is on.
+        ConfigField.Flag(
+            key = LocationTrigger.CONFIG_CHECK_ONLY,
+            label = "Only check, never watch",
+            default = false,
+            help = "Watching an area keeps a position request open while the rule " +
+                "is on, which is the most expensive thing Trigly can do to the " +
+                "battery. Turn this on and this trigger watches nothing. It " +
+                "answers only when another trigger in the rule starts it, at the " +
+                "cost of one position read. Use this when the area is a condition " +
+                "in an AND or OR group, and something else starts the rule.",
         ),
         ConfigField.Decimal(
             key = LocationTrigger.CONFIG_RADIUS_METERS,
@@ -326,6 +385,7 @@ class LocationTriggerFactory(private val context: Context) : TriggerFactory {
             ),
             minIntervalMillis = config[LocationTrigger.CONFIG_MIN_INTERVAL_MILLIS]
                 ?.toLongOrNull() ?: LocationTrigger.DEFAULT_MIN_INTERVAL_MILLIS,
+            checkOnly = locationChecksOnly(config),
         )
     }
 }

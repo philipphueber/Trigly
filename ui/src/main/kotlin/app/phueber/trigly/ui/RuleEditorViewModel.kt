@@ -270,16 +270,21 @@ class RuleEditorViewModel(
         // way it refuses a rule with no trigger at all.
         return GROUP_OPTIONS + triggerOptions.filter { descriptor ->
             val addition = TriggerDraft.One(ComponentDraft(descriptor.type))
-            val candidate = addTriggerChild(root, path, addition, TriggerNode.Op.ALL)?.toNodeOrNull()
+            // Empty groups ignored rather than refused here: see
+            // [toNodeIgnoringEmptyGroups]. A group waiting to be filled is not a
+            // reason to stop offering the components that would fill it.
+            val candidate = addTriggerChild(root, path, addition, TriggerNode.Op.ALL)
+                ?.toNodeIgnoringEmptyGroups()
             candidate != null && candidate.canStart(::hasEvents, ::hasState)
         }
     }
 
-    private fun hasEvents(type: String): Boolean =
-        registry.triggerDescriptor(type)?.producesEvents ?: false
+    // Asked of the whole spec, so a leaf configured not to watch is not counted
+    // as one that could start the rule. See `Registry.producesEvents`.
+    private fun hasEvents(spec: ComponentSpec): Boolean = registry.producesEvents(spec)
 
-    private fun hasState(type: String): Boolean =
-        registry.triggerDescriptor(type)?.supportsCondition ?: false
+    private fun hasState(spec: ComponentSpec): Boolean =
+        registry.supportsCondition(spec.type)
 
     fun addAction(type: String) = edit {
         val fields = registry.actionDescriptor(type)?.configFields.orEmpty()
@@ -367,6 +372,27 @@ class RuleEditorViewModel(
         }
         if (rule.actions.isEmpty()) {
             fail("Add at least one action, or the rule will do nothing.")
+            return
+        }
+
+        // The picker cannot prevent this one. It filters what a slot offers, so
+        // a tree that cannot start is unbuildable *by adding a trigger*. A
+        // setting changed afterwards is a different route to the same tree: the
+        // location component's "only check, never watch" switch turns off the
+        // events of a leaf that is already there, and a rule whose only trigger
+        // is set to check can never fire. Nothing else would say so. The rule
+        // would sit in the list looking enabled and waiting.
+        //
+        // Refused rather than warned, for the same reason the picker filters
+        // rather than warns: a stored rule that can never run is the failure
+        // this whole model exists to make impossible, and a warning someone can
+        // save past is how it gets stored anyway.
+        if (!rule.trigger.canStart(::hasEvents, ::hasState)) {
+            fail(
+                "This rule can never start. One trigger must start it, and the " +
+                    "others are only checked when it does. A trigger set to only " +
+                    "check never starts a rule."
+            )
             return
         }
 

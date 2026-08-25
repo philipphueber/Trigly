@@ -668,14 +668,28 @@ private fun FolderField(
     if (picking) {
         ValuePickerDialog(
             title = "Folder",
-            searchLabel = "SEARCH OR TYPE A FOLDER NAME",
+            searchLabel = "PICK A FOLDER, OR TYPE A NEW NAME",
             options = existingFolders.map { PickerOption(value = it, primary = it) },
             // Always offered, unlike the optional-field pickers elsewhere: every
             // rule can leave its folder, whether or not it started in one.
             clearLabel = "No folder",
+            // Reads as the one control here that makes something, because that
+            // is what it does. It said `Use "Car"` before, which is the same
+            // sentence the picker could have used for an existing folder: the
+            // row that creates a folder and the row that selects one looked
+            // alike, and the only difference was whether the name happened to
+            // be in the list above. The "+" and the word "New" say which one
+            // this is without the person having to work it out from what is
+            // missing from the list.
             typedOption = { typed ->
                 typed.takeIf { it.isNotBlank() }
-                    ?.let { PickerOption(value = it, primary = "Use \"$it\"") }
+                    ?.let {
+                        PickerOption(
+                            value = it,
+                            primary = "+  New folder \"$it\"",
+                            secondary = "No folder has this name yet.",
+                        )
+                    }
             },
             onPick = { picked ->
                 picking = false

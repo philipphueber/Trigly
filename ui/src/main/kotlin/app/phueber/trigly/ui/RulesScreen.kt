@@ -55,6 +55,8 @@ fun RulesScreen(
     onEditRule: (String) -> Unit,
     onExportAll: () -> Unit,
     onExportRule: (Rule) -> Unit,
+    /** Saves a copy of the rule. See [RulesViewModel.duplicate]. */
+    onDuplicateRule: (Rule) -> Unit = {},
     onImport: () -> Unit,
     describeComponent: (String) -> String,
     modifier: Modifier = Modifier,
@@ -158,6 +160,7 @@ fun RulesScreen(
                                     onEnabledChange = onEnabledChange,
                                     onEditRule = onEditRule,
                                     onExportRule = onExportRule,
+                                    onDuplicateRule = onDuplicateRule,
                                     onResolve = onResolve,
                                     describeComponent = describeComponent,
                                 )
@@ -173,6 +176,7 @@ fun RulesScreen(
                             onEnabledChange = onEnabledChange,
                             onEditRule = onEditRule,
                             onExportRule = onExportRule,
+                            onDuplicateRule = onDuplicateRule,
                             onResolve = onResolve,
                             describeComponent = describeComponent,
                         )
@@ -332,6 +336,7 @@ private fun RuleBlock(
     onEnabledChange: (Rule, Boolean) -> Unit,
     onEditRule: (String) -> Unit,
     onExportRule: (Rule) -> Unit,
+    onDuplicateRule: (Rule) -> Unit,
     onResolve: (ComponentRequirement) -> Unit,
     describeComponent: (String) -> String,
 ) {
@@ -370,6 +375,12 @@ private fun RuleBlock(
                     contentColor = MaterialTheme.extra.accent,
                 ) {
                     onExportRule(status.rule)
+                }
+                BlockTextButton(
+                    text = stringResource(R.string.rules_duplicate),
+                    contentColor = MaterialTheme.extra.accent,
+                ) {
+                    onDuplicateRule(status.rule)
                 }
             }
 

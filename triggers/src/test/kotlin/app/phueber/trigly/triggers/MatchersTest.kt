@@ -293,3 +293,39 @@ private fun contains(pattern: String) = TextFilter.of(pattern, TextMatchMode.CON
 
 /** A regex filter. */
 private fun regex(pattern: String) = TextFilter.of(pattern, TextMatchMode.REGEX)
+
+/**
+ * The location component's "only check, never watch" switch, at the level a JVM
+ * test can reach it: the pure read of the config. What it decides is whether
+ * `events()` opens a position request, and whether the editor treats this leaf
+ * as one that could start a rule, so a wrong answer here is either a battery
+ * cost nobody asked for or a rule that cannot fire.
+ */
+class LocationChecksOnlyTest {
+
+    @Test
+    fun `watching is the default when nothing is stored`() {
+        assertFalse(locationChecksOnly(emptyMap()))
+    }
+
+    @Test
+    fun `the switch turns watching off`() {
+        assertTrue(locationChecksOnly(mapOf(LocationTrigger.CONFIG_CHECK_ONLY to "true")))
+    }
+
+    @Test
+    fun `an explicit false watches`() {
+        assertFalse(locationChecksOnly(mapOf(LocationTrigger.CONFIG_CHECK_ONLY to "false")))
+    }
+
+    /**
+     * A value this build cannot read means watching, the behaviour every rule
+     * had before the switch existed. The alternative would be a stored rule that
+     * quietly stops watching an area because something wrote a word we do not
+     * parse.
+     */
+    @Test
+    fun `an unreadable value watches`() {
+        assertFalse(locationChecksOnly(mapOf(LocationTrigger.CONFIG_CHECK_ONLY to "yes")))
+    }
+}

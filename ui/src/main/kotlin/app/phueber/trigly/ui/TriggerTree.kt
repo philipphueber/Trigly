@@ -1,13 +1,18 @@
 package app.phueber.trigly.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -250,41 +255,79 @@ private fun TriggerGroupBlock(
                     BlockTextButton("Remove") { onRemove(path) }
                 }
 
-                Column(modifier = Modifier.padding(start = 16.dp, top = 12.dp)) {
-                    group.children.forEachIndexed { index, child ->
-                        TriggerNodeBlock(
-                            node = child,
-                            path = path + index,
-                            descriptorFor = descriptorFor,
-                            tools = tools,
-                            onChangeTypeRequested = onChangeTypeRequested,
-                            onAddTriggerRequested = onAddTriggerRequested,
-                                            onSetOp = onSetOp,
-                            onRemove = onRemove,
-                            onConfigChange = onConfigChange,
-                            onResolveRequirement = onResolveRequirement,
-                            isRequirementSatisfied = isRequirementSatisfied,
-                            isExpanded = isExpanded,
-                            onToggleExpanded = onToggleExpanded,
-                            isCaveatShown = isCaveatShown,
-                            onToggleCaveat = onToggleCaveat,
-                            modifier = Modifier.padding(bottom = 12.dp),
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        // One button, not two. A group used to be added from
-                        // here, which made it a different kind of thing from a
-                        // trigger — the mistake this whole model exists to undo.
-                        // "All of these" and "Any of these" are rows in the
-                        // picker this opens, so adding a sub-group is the same
-                        // gesture as adding a trigger. See [GROUP_OPTIONS].
-                        BlockTextButton("Add trigger") { onAddTriggerRequested(path) }
+                // A rail, not an indent. Every level used to add 16dp of left
+                // padding on top of its own card, so a group three deep was
+                // about 90dp narrower than the screen and a trigger's own
+                // fields had nowhere left to go. Depth now reads from the
+                // stacked rails and each group's AND/OR heading, and it costs
+                // the width of a rail instead of the width of a thumb.
+                //
+                // `IntrinsicSize.Min` is load-bearing: `fillMaxHeight` inside a
+                // `Row` that wraps its own height has no bounded constraint to
+                // fill, so the rail would measure zero and draw nothing. The
+                // row is measured to its tallest child first, and the rail then
+                // fills that.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp)
+                        .height(IntrinsicSize.Min),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(GroupRailWidth)
+                            .fillMaxHeight()
+                            .clip(BlockShape)
+                            .background(MaterialTheme.extra.accent),
+                    )
+                    Column(modifier = Modifier.weight(1f).padding(start = GroupRailGap)) {
+                        group.children.forEachIndexed { index, child ->
+                            TriggerNodeBlock(
+                                node = child,
+                                path = path + index,
+                                descriptorFor = descriptorFor,
+                                tools = tools,
+                                onChangeTypeRequested = onChangeTypeRequested,
+                                onAddTriggerRequested = onAddTriggerRequested,
+                                onSetOp = onSetOp,
+                                onRemove = onRemove,
+                                onConfigChange = onConfigChange,
+                                onResolveRequirement = onResolveRequirement,
+                                isRequirementSatisfied = isRequirementSatisfied,
+                                isExpanded = isExpanded,
+                                onToggleExpanded = onToggleExpanded,
+                                isCaveatShown = isCaveatShown,
+                                onToggleCaveat = onToggleCaveat,
+                                modifier = Modifier.padding(bottom = 12.dp),
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            // One button, not two. A group used to be added
+                            // from here, which made it a different kind of
+                            // thing from a trigger, the mistake this whole
+                            // model exists to undo. "All of these" and "Any of
+                            // these" are rows in the picker this opens, so
+                            // adding a sub-group is the same gesture as adding
+                            // a trigger. See [GROUP_OPTIONS].
+                            BlockTextButton("Add trigger") { onAddTriggerRequested(path) }
+                        }
                     }
                 }
             }
         }
     }
 }
+
+/**
+ * The rail that marks one group's contents, and the gap between it and them.
+ *
+ * Small on purpose. This is the only width a level of nesting costs now, so it
+ * is what decides how deep a rule can go before the blocks inside it get
+ * cramped. Wide enough to read as a deliberate line rather than a border
+ * artefact, and no wider.
+ */
+private val GroupRailWidth = 3.dp
+private val GroupRailGap = 8.dp
 
 /** Every trigger leaf under this node, however deep — what a folded group's
  * summary line counts. Counts leaves rather than direct children so a group

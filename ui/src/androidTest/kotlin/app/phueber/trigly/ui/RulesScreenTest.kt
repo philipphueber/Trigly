@@ -38,6 +38,7 @@ class RulesScreenTest {
     private val exported = mutableListOf<String>()
     private var newRuleTaps = 0
     private var importTaps = 0
+    private val duplicated = mutableListOf<String>()
 
     /** Display names come from the factories, so the screen is handed a lookup. */
     private val describe: (String) -> String = { type ->
@@ -64,9 +65,19 @@ class RulesScreenTest {
             onEditRule = { edited += it },
             onExportAll = { exported += "all" },
             onExportRule = { exported += it.id },
+            onDuplicateRule = { duplicated += it.id },
             onImport = { importTaps++ },
             describeComponent = describe,
         )
+    }
+
+    @Test
+    fun each_rule_offers_a_duplicate_control_that_names_the_rule() {
+        composeRule.setContent { Screen(statusesOf(sampleRule)) }
+
+        composeRule.onNodeWithText("DUPLICATE").performScrollTo().performClick()
+
+        assertEquals(listOf("sample-interval"), duplicated)
     }
 
     @Test

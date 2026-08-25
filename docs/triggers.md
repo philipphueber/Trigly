@@ -114,6 +114,32 @@ implementing, each a place where false would have been a lie:
   else in between, reads as "nothing foregrounded": the same staleness trade a
   cached location fix makes.
 
+### Telling the location component to stop watching
+
+`location` is the component whose two roles cost wildly different amounts.
+Watching an area holds an open request for position updates for as long as the
+rule is on, which is the most expensive thing this app can do to a battery.
+Answering "am I in the area now" costs one fix, when something else asks.
+
+Until this switch existed, a rule paid for the first whether it needed it or
+not. The engine collects every leaf's `events()`, so a location leaf that a
+person only ever meant as a condition in an `ALL` group still held the request
+open. The expensive behaviour was the default and nothing on screen said so.
+
+`location` now has an **Only check, never watch** switch. With it on, `events()`
+is empty before the location service is even looked up, so nothing on that path
+can open a request, and `producesEvents(config)` answers false so the editor
+stops offering this leaf as the thing that starts a rule. That pair has to
+agree: a config that declares no events and then produces some is a leaf the
+tree was told to ignore, and a config that declares events and produces none is
+a rule that waits forever.
+
+It is a switch rather than a guess. The component could try to infer the answer
+from where it sits in the tree, and a guess is the thing being replaced here: a
+person who wants the cheap behaviour should be able to say so and see that they
+said it. A missing or unreadable value means watching, which is what every rule
+saved before the switch existed already did.
+
 ### The one condition that is not a trigger at all
 
 `time_window` has **no event stream**: its `events()` is empty and it can never

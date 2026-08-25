@@ -98,6 +98,78 @@ as satisfaction), and edges-versus-levels is now a property of a leaf,
 computed by `TriggerNode.canStart`/`canHold`, rather than a property of a slot
 a two-part shape used to guarantee by construction.
 
+### What a save may not quietly change
+
+The editor works on a `RuleDraft`, and `toNodeOrNull` is the boundary where a
+draft becomes a rule. Two things it used to do there both lost a group without
+saying so, and both are now refusals rather than repairs.
+
+A group holding one child is kept. It used to be unwrapped, on the reasoning
+that the editor never builds a singleton group. It does, on the way to every
+group a person makes: a group is picked from the trigger picker and arrives
+empty, so it holds one child for as long as it takes to add the second. Saving
+in that state replaced the group with its child, so someone who built
+`ALL(screen on, ANY(...))`, added the first branch of the OR and saved, reopened
+the rule to find the OR gone. An `ANY` of one evaluates exactly like the child,
+so keeping it costs nothing and keeps what the person built.
+
+A group holding nothing refuses the save. It used to be pruned out of the tree
+and the rule saved without it. The refusal message existed already but could
+only fire when the root itself was the empty group, which was the one case where
+pruning happened to produce a null tree.
+
+A group that loses children to *removal* still collapses, and that is a
+different question. Removing one of two OR branches leaves the other, and an OR
+of one thing is that thing. The difference is intent: one child because a second
+was removed is a finished edit, one child because a second is not added yet is a
+rule in progress.
+
+The trigger picker asks a third question and needs a third answer.
+`triggerOptionsFor` converts a candidate tree to test whether it could start, so
+strictness there would empty the picker: with `ALL(screen on, ANY())` on screen,
+every candidate for the root would convert to null and be filtered out,
+including the components that would fill the empty group. It uses
+`toNodeIgnoringEmptyGroups`, which prunes exactly the way `toNodeOrNull` used
+to, and is named so the difference is visible at the call site.
+
+### Duplicating a rule
+
+The rules list offers `Duplicate` per rule. Most of a copy is the rule, and the
+parts that are not are the point.
+
+A generated id is minted again rather than copied. Some config values identify
+the rule to something outside it, and a home screen shortcut is the one that
+exists today: the shortcut trigger fires on any tap whose id matches its own, so
+a copied `shortcutId` means one shortcut starts two rules. `ConfigField.GeneratedId`
+is already the declared marker for "the editor mints this, a person never types
+it", so the copy walks every component at every depth of the trigger tree and
+mints each one again. Declared rather than a list of known keys, for the reason
+the field type exists: a new component with an identity of its own must not have
+to edit the duplicate code. A component this build does not know keeps its
+config untouched, because with no schema there is no way to tell which key is an
+identity, and inventing one would corrupt a rule that a build with the component
+installed could still run.
+
+The copy arrives switched off. Duplicating an enabled rule that acts on the
+world would otherwise mean two rules doing the same thing from the moment of the
+tap, before anyone changed the part they duplicated it to change. Off is a state
+a person corrects with one tap in the direction they choose.
+
+The copy lands at the end of the list, like every other new rule: the repository
+gives a rule it has not seen the next free position. Placing it beside the
+original would mean shifting the position of every rule below it, and a list that
+reorders itself around a copy is a bigger surprise than a copy at the bottom.
+
+### Nesting depth costs a rail, not a thumb
+
+A group used to indent its children by 16dp per level, on top of its own card
+padding, so a group three deep was about 90dp narrower than the screen and the
+fields inside a trigger had nowhere left to go. Depth now reads from a 3dp
+accent rail down each group's left edge and from each group's own AND/OR
+heading. `IntrinsicSize.Min` on the row is load-bearing: `fillMaxHeight` inside
+a row that wraps its own height has no bounded constraint to fill, so the rail
+would measure zero and draw nothing.
+
 ### Requirements
 
 Triggers and actions declare what they need (a runtime permission, a settings

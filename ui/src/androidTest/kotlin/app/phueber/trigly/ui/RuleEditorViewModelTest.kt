@@ -571,6 +571,165 @@ class RuleEditorViewModelTest {
     }
 
     @Test
+    fun writing_two_config_keys_at_a_nested_path_keeps_the_tree_shape() = runTest {
+        val editor = viewModel()
+        editor.chooseTrigger("screen_state")
+        editor.addTrigger(emptyList(), "power_connection")
+        editor.addTrigger(listOf(1), "location")
+
+        // What "Use where I am now" does: one latitude write, then one
+        // longitude write, because a coordinate is two config keys.
+        editor.setTriggerConfigValue(listOf(1, 1), "latitude", "52.5")
+        editor.setTriggerConfigValue(listOf(1, 1), "longitude", "13.4")
+
+        val root = editor.state.value.draft.trigger as TriggerDraft.Group
+        assertEquals(2, root.children.size)
+        val inner = root.children[1] as TriggerDraft.Group
+        assertEquals(2, inner.children.size)
+        val leaf = inner.children[1].leaf!!
+        assertEquals("location", leaf.type)
+        assertEquals("52.5", leaf.config["latitude"])
+        assertEquals("13.4", leaf.config["longitude"])
+    }
+
+    /**
+     * The shape a person builds by picking "Any of these" from the trigger
+     * picker: it arrives empty, so it holds one child until the second is
+     * added. Saving used to replace the group with that one child, so the OR
+     * was gone when the rule was reopened.
+     */
+    @Test
+    fun a_group_holding_one_trigger_keeps_its_group_through_a_save() = runTest {
+        val editor = viewModel()
+        editor.setName("Mixed")
+        editor.addAction("toast")
+        editor.setConfigValue(Slot.ACTION, 0, "text", "go")
+        editor.chooseTrigger("screen_state")
+        editor.addTrigger(emptyList(), GROUP_ANY_TYPE)
+        editor.addTrigger(listOf(1), "power_connection")
+
+        val saved = editor.state.value.draft.toRuleOrNull()!!.trigger as TriggerNode.Group
+
+        assertEquals(TriggerNode.Op.ALL, saved.op)
+        assertEquals(2, saved.children.size)
+        val inner = saved.children[1] as TriggerNode.Group
+        assertEquals(TriggerNode.Op.ANY, inner.op)
+        assertEquals("power_connection", (inner.children.single() as TriggerNode.One).spec.type)
+    }
+
+    @Test
+    fun an_or_group_inside_an_and_group_survives_a_save_intact() = runTest {
+        val editor = viewModel()
+        editor.setName("Mixed")
+        editor.addAction("toast")
+        editor.setConfigValue(Slot.ACTION, 0, "text", "go")
+        editor.chooseTrigger("screen_state")
+        editor.addTrigger(emptyList(), GROUP_ANY_TYPE)
+        editor.addTrigger(listOf(1), "power_connection")
+        editor.addTrigger(listOf(1), "battery_level")
+
+        val saved = editor.state.value.draft.toRuleOrNull()!!.trigger as TriggerNode.Group
+
+        assertEquals(TriggerNode.Op.ALL, saved.op)
+        assertEquals("screen_state", (saved.children[0] as TriggerNode.One).spec.type)
+        val inner = saved.children[1] as TriggerNode.Group
+        assertEquals(TriggerNode.Op.ANY, inner.op)
+        assertEquals(
+            listOf("power_connection", "battery_level"),
+            inner.children.map { (it as TriggerNode.One).spec.type },
+        )
+    }
+
+    /**
+     * A group with nothing in it used to be pruned out of the tree and the rule
+     * saved without it. The refusal message existed but could only fire when the
+     * root itself was the empty group.
+     */
+    @Test
+    fun an_empty_group_nested_in_the_tree_refuses_the_save() = runTest {
+        val editor = viewModel()
+        editor.setName("Half built")
+        editor.addAction("toast")
+        editor.setConfigValue(Slot.ACTION, 0, "text", "go")
+        editor.chooseTrigger("screen_state")
+        editor.addTrigger(emptyList(), GROUP_ANY_TYPE)
+
+        editor.save()
+
+        assertEquals(
+            "A group has no triggers in it. Add one, or remove the group.",
+            editor.state.value.error,
+        )
+        assertFalse(editor.state.value.finished)
+    }
+
+    /**
+     * An unfilled group must not empty the picker. Refusing to convert a tree
+     * that holds an empty group is right at save time and wrong here: it would
+     * filter out every candidate, including the ones that would fill the group.
+     */
+    @Test
+    fun an_empty_group_in_the_tree_does_not_empty_the_picker() = runTest {
+        val editor = viewModel()
+        editor.chooseTrigger("screen_state")
+        editor.addTrigger(emptyList(), GROUP_ANY_TYPE)
+
+        // Inside the empty group, and at the root beside it.
+        assertTrue(editor.triggerOptionsFor(listOf(1)).size > 1)
+        assertTrue(editor.triggerOptionsFor(emptyList()).size > 1)
+    }
+
+    /**
+     * The one way to build a rule that can never start. The picker filters what
+     * a slot offers, so no sequence of *additions* produces this tree. Turning
+     * the location component's "only check, never watch" switch on afterwards
+     * does, by taking the events off a leaf that is already there.
+     */
+    @Test
+    fun a_rule_whose_only_trigger_only_checks_is_refused() = runTest {
+        val editor = viewModel()
+        editor.setName("Home only")
+        editor.addAction("toast")
+        editor.setConfigValue(Slot.ACTION, 0, "text", "here")
+        editor.chooseTrigger("location")
+        editor.setTriggerConfigValue(emptyList(), "latitude", "52.5")
+        editor.setTriggerConfigValue(emptyList(), "longitude", "13.4")
+        editor.setTriggerConfigValue(emptyList(), "radiusMeters", "100")
+        editor.setTriggerConfigValue(emptyList(), "state", "entered")
+        editor.setTriggerConfigValue(emptyList(), "checkOnly", "true")
+
+        editor.save()
+
+        val error = editor.state.value.error
+        assertTrue("was: $error", error!!.startsWith("This rule can never start."))
+        assertFalse(editor.state.value.finished)
+    }
+
+    /**
+     * The shape the switch exists for. Something else starts the rule and the
+     * area is only asked, so this must save.
+     */
+    @Test
+    fun a_check_only_location_beside_a_starting_trigger_is_accepted() = runTest {
+        val editor = viewModel()
+        editor.setName("Home and screen")
+        editor.addAction("toast")
+        editor.setConfigValue(Slot.ACTION, 0, "text", "here")
+        editor.chooseTrigger("screen_state")
+        editor.setTriggerConfigValue(emptyList(), "state", "on")
+        editor.addTrigger(emptyList(), "location")
+        editor.setTriggerConfigValue(listOf(1), "latitude", "52.5")
+        editor.setTriggerConfigValue(listOf(1), "longitude", "13.4")
+        editor.setTriggerConfigValue(listOf(1), "radiusMeters", "100")
+        editor.setTriggerConfigValue(listOf(1), "state", "entered")
+        editor.setTriggerConfigValue(listOf(1), "checkOnly", "true")
+
+        editor.save()
+
+        assertEquals(null, editor.state.value.error)
+    }
+
+    @Test
     fun set_trigger_op_at_a_nested_path_leaves_the_root_op_alone() = runTest {
         val editor = viewModel()
         editor.buildThreeDeepTree()

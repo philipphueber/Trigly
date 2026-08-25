@@ -241,8 +241,60 @@ class GateTest {
     private val stateOnlyTypes = setOf("time_window")
     private val bothTypes = setOf("bluetooth")
 
-    private fun hasEvents(type: String) = type in eventOnlyTypes || type in bothTypes
-    private fun hasState(type: String) = type in stateOnlyTypes || type in bothTypes
+    private fun hasEvents(spec: ComponentSpec) =
+        spec.type in eventOnlyTypes || spec.type in bothTypes
+
+    private fun hasState(spec: ComponentSpec) =
+        spec.type in stateOnlyTypes || spec.type in bothTypes
+
+    /**
+     * A component that can be told to stop watching. The location component is
+     * the real one: watching an area holds a position request open, so it offers
+     * a switch that turns its own events off, and whether that leaf can start a
+     * rule is then a question about the leaf rather than about the component.
+     * This is why `canStart` is asked about a whole spec and not a type string.
+     */
+    private fun watcher(watching: Boolean) = TriggerNode.One(
+        ComponentSpec("area", mapOf("checkOnly" to (!watching).toString()))
+    )
+
+    private fun hasEventsWithSwitch(spec: ComponentSpec) = when (spec.type) {
+        "area" -> spec.config["checkOnly"]?.toBoolean() != true
+        else -> hasEvents(spec)
+    }
+
+    private fun hasStateWithSwitch(spec: ComponentSpec) = when (spec.type) {
+        "area" -> true
+        else -> hasState(spec)
+    }
+
+    @Test
+    fun `a leaf switched off from watching cannot start a rule on its own`() {
+        assertFalse(watcher(watching = false).canStart(::hasEventsWithSwitch, ::hasStateWithSwitch))
+        assertTrue(watcher(watching = true).canStart(::hasEventsWithSwitch, ::hasStateWithSwitch))
+    }
+
+    /**
+     * The shape the switch exists for: something else starts the rule and the
+     * area is only asked. That must still be startable, or the switch would make
+     * the component useless in the very group it was added for.
+     */
+    @Test
+    fun `an ALL group starts from another edge while a switched-off leaf only answers`() {
+        assertTrue(
+            all(one("tap"), watcher(watching = false))
+                .canStart(::hasEventsWithSwitch, ::hasStateWithSwitch)
+        )
+    }
+
+    /** Two leaves that both refuse to watch leave nothing to start the rule. */
+    @Test
+    fun `an ALL group of switched-off leaves cannot start`() {
+        assertFalse(
+            all(watcher(watching = false), watcher(watching = false))
+                .canStart(::hasEventsWithSwitch, ::hasStateWithSwitch)
+        )
+    }
 
     @Test
     fun `a lone leaf can start when its component produces events`() {
