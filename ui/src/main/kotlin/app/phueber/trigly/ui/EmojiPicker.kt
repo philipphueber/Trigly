@@ -73,6 +73,14 @@ private val CuratedEmoji: List<String> = listOf(
 )
 
 /**
+ * The gap eaten by [EmojiCell]'s own 4dp padding on each side, added on top of
+ * the 48dp touch-target minimum. This is the column width the grid below hands
+ * `GridCells.Adaptive`, not the cell's own size — the cell measures out 8dp
+ * smaller once its padding comes out, landing it exactly on 48dp square.
+ */
+private val EmojiCellMinSize = 56.dp
+
+/**
  * The dialog: a scrollable grid of [CuratedEmoji], plus the clear row
  * [AppPickerDialog] and the other pickers carry for a field whose blankness is
  * a real setting.
@@ -102,8 +110,23 @@ fun EmojiPickerDialog(
                     BlockDivider()
                 }
 
+                // Adaptive, not Fixed(6): measured on a phone-width dialog, six
+                // fixed columns leave each cell around 33dp square once its 4dp
+                // padding comes out — well under Android's 48dp touch-target
+                // minimum. `Modifier.minimumInteractiveComponentSize()` on the
+                // cell can't fix that: `GridCells.Fixed` hands every item a fixed
+                // *maxWidth* constraint equal to the column width, and a
+                // min-size modifier cannot grow a layout past the max its parent
+                // constrains it to — unlike [OverflowingTouchTarget] in
+                // Blocks.kt, which works because a Row leaves its cross axis
+                // unconstrained. `Adaptive` instead picks however many columns
+                // of at least [EmojiCellMinSize] actually fit, so the column
+                // width itself — the real ceiling on the cell below — is never
+                // narrower than a touch target. Six columns was never the
+                // point; a scannable rack of square cells was, and this keeps
+                // that on any width this dialog renders at.
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(6),
+                    columns = GridCells.Adaptive(minSize = EmojiCellMinSize),
                     modifier = Modifier.heightIn(max = 360.dp).padding(top = 8.dp),
                 ) {
                     // Keyed by position, not by value: a curated list is short

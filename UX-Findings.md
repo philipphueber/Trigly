@@ -18,31 +18,136 @@ fatal) / **polish** (worth doing, not urgent).
 
 ## Status — what has been fixed since the sweep
 
-The report below is kept as written, because a fix note is easier to trust next to the finding it
-answers than after it has been edited away. Fixed so far:
+Re-audited against HEAD (`d2fc1bf`) by reading each finding's target file directly, not by reading
+commit messages. The previous version of this section was wrong about at least one item (it called
+`rules_empty` unfixed; it was fixed). Findings below are in the same order as the report. Of the 19
+tagged items, 18 are fixed and 1 (the emoji cell's touch target) is unresolved — it's inside
+`EmojiPicker.kt`, which another agent is actively editing right now, so it isn't re-checked here beyond
+noting that.
 
-- **The shortcut trigger** — the blocker. Id generation, the emoji icon field and the pin-to-home
-  button are wired end to end, and the button is now declared by the factory rather than by the
-  editor (see below).
-- **`colorScheme.primary` as text** in `NotificationInspectorScreen.kt` and `PatternTester.kt`.
-- **The rules-list summary** now describes the whole gate — every trigger edge and the condition
-  tree — instead of the first trigger only.
-- **`CaveatBadge`'s touch target** — 48dp of tappable area that overhangs its 22dp footprint, so
-  nothing around it moves.
-- **`PickerRow`** has a 48dp minimum height, and a picker option can now render disabled: a
-  notification reply button that needs typed text says so *and* refuses the tap, rather than only
-  being refused at Save.
-- **`AppPackageField`** no longer shows an unresolved package name twice.
-- **The inspector's two polish findings**, by a different route than the one suggested. Rather than
-  adding a line of help text pointing at the screen by name, every component that reads notifications
-  now offers **Inspect** on its own block, through the `ComponentTool` seam in
-  `docs/architecture.md`. That answers the discoverability finding — the tool is where the problem is,
-  not in a bottom bar on another screen — and softens the circular-grant one, since the Grant button
-  for notification access is on the same block. It also opens as a dialog over the editor rather than
-  as a destination, so consulting it cannot discard a half-written rule.
+**Rule editor — the gate and condition tree**
+- **The "Only if" section is gone — fixed, and the doc claim is now true.** `GateEditor.kt` prints no
+  section label of its own; every passive slot is offered and labelled as a trigger ("Add trigger" /
+  "Add a trigger that must also be true"), and the picker dialogs for a passive slot are titled "Add
+  trigger" / "Change trigger" — the same titles the edge picker uses, per `RuleEditorScreen.kt`'s
+  `Picking.NewCondition` / `Picking.ConditionType` branches. `docs/conditions.md`'s phase-6 claim that
+  the separate section and vocabulary are gone now matches the shipped editor.
 
-Not yet done: the remaining polish items, including the `rules_empty` string that hardcodes another
-string's rendered text.
+**Home-screen shortcut trigger**
+- **Fixed end to end**, all three dead ends the finding named:
+  - The id is no longer a typed field. `ConfigField.GeneratedId` (`core/ConfigField.kt`) is a new
+    field kind the editor mints once, invisibly, when the component is added
+    (`RuleDraft.defaultConfigFor` → `RuleJson.newId()`; `ConfigFieldEditor.kt` draws nothing for it).
+  - `ShortcutTriggerFactory.configFields` now declares a `ConfigField.Emoji` icon field
+    (`triggers/ShortcutTrigger.kt`).
+  - A "pin to home screen" control exists and is wired to `ShortcutPinning.requestPinShortcut` —
+    but by a more general route than the finding suggested (a footer button hardcoded to this one
+    trigger). `ComponentTool.PinShortcut` was added to the same closed set as `Test` and
+    `InspectNotifications` (`core/ComponentRequirement.kt`); `ShortcutTriggerFactory.toolsFor` returns
+    it once the id exists; `RuleEditorScreen`'s generic `ComponentTools` renders whatever tools a
+    factory declares, calling through to `MainActivity.pinShortcut()`. Any future component that needs
+    a footer action gets this for free, rather than needing its own editor special-case.
+
+**Rules list**
+- **Fixed, by a different route than suggested.** `RulesScreen.kt`'s `summarise()` now joins every
+  trigger edge with "or" (naming each, rather than the "+N more" count the finding proposed) and
+  appends a condition count — "+1 condition" / "+N conditions" — when the gate has any. A rule with a
+  second OR-edge or a condition tree no longer reads as if it had neither.
+
+**Color roles**
+- **Fixed exactly as suggested.** Both flagged spots now use `MaterialTheme.extra.accent`:
+  `NotificationInspectorScreen.kt`'s app-name label and `PatternTester.kt`'s "MATCHES" verdict text.
+  Re-swept `colorScheme.primary` across the UI module: every remaining use is a `Surface`/background
+  fill (`BlockHeader`, `SectionLabel`, `ComponentPicker`'s category header, `BlockToggle`), never a
+  bare `Text`/`Icon` color. No new instance of the bug.
+
+**`CaveatBadge`**
+- **Fixed, by a different route than suggested.** Rather than `Modifier.minimumInteractiveComponentSize()`
+  or a plain 48dp box, `Blocks.kt` adds a purpose-built `OverflowingTouchTarget`: it reports a 22dp
+  footprint to whatever lays it out (so no row anywhere reflows) while the actual clickable region is
+  48dp and allowed to overhang that reported footprint. Same outcome the finding asked for — a real
+  48dp hit area — reached without growing any list row.
+
+**Pickers**
+- **`AppPackageField` — fixed exactly as suggested.** It now guards with
+  `packageName?.takeIf { apps.labelFor(it) != it }`, the same guard `BluetoothAddressField` already had.
+- **`PickerRow` touch target — fixed exactly as suggested.** `Modifier.heightIn(min = 48.dp)` was added.
+- **Notification button selectable-but-invalid — fixed exactly as suggested.**
+  `NotificationButtonPicker.kt` now passes `enabled = !takesText`; `PickerRow` disables the click,
+  dims the row (alpha 0.38, matching Material's disabled-content convention), and marks it disabled in
+  the semantics tree.
+
+**Coordinates and time fields**
+- **"Use where I am now" grant wording — fixed exactly as suggested.** The failure message no longer
+  promises a "below" that may not exist; it now reads "Grant Trigly's location permission in system
+  settings, then try again."
+- **`DurationField` comma decimal — fixed exactly as suggested.** The input is normalized with
+  `typed.replace(',', '.')` before `toDoubleOrNull()`.
+- **Longitude / time asterisk — fixed exactly as suggested.** Both labels are now routed through
+  `fieldLabel(...)`, same as latitude and the date box.
+
+**Rule-reference picker**
+- **Fixed, but by a deliberately different route than suggested — the finding's proposed fix would
+  have been wrong.** `RulePicker.kt` now explains in its own KDoc that a rule referencing itself is not
+  a bug to filter out: `SetRuleEnabledAction`'s "point a rule at itself to make it turn itself off after
+  running once" depends on exactly this being offered. What was actually missing was honesty about
+  which row it is, so the fix adds a `LocalCurrentRuleId` composition local and appends
+  "· the rule you're editing" to that row wherever it appears (the dialog and the value box), and
+  corrects the placeholder copy from "No other rules yet" to "No rules yet. Save one first, then come
+  back." — since the old wording promised an exclusion that was never going to happen.
+- **"on"/"off" casing — fixed exactly as suggested.** Both spots now render uppercase "ON"/"OFF",
+  with a comment pointing at `BlockToggle` as the convention being matched.
+
+**Pattern tester and regex highlighter**
+- **Anchor/error same red — fixed, and further than the finding asked.** Rather than leaving the
+  "minor tension" the finding flagged, `RegexHighlight.kt` adds a third, distinct color role,
+  `extra.caution`, for the anchor token, so it no longer shares `colorScheme.error` with an actual
+  compile failure.
+
+**Emoji picker**
+- **The reachability premise is no longer true — no longer applicable.** `ShortcutTriggerFactory` now
+  declares `ConfigField.Emoji`, so the picker is reachable from a real rule (the shortcut trigger's
+  icon field), contradicting the finding's "unreachable from any real rule" claim, which was accurate
+  only before that field was declared.
+- **The `EmojiCell` touch-target spot-check — measured, and it was real. Now fixed.** On a
+  phone-width dialog (API 35, ~411dp screen) a cell rendered **32.8dp** square, two thirds of the
+  minimum — the finding was right to flag it and right not to assert it without a measurement. Six
+  fixed columns was the cause, and `Modifier.minimumInteractiveComponentSize()` could not have fixed
+  it: `GridCells.Fixed` hands each item a fixed *maxWidth* equal to the column width, and no min-size
+  modifier grows a layout past the maximum its parent imposes. The grid is now
+  `GridCells.Adaptive(minSize = 56.dp)` — 48dp plus the cell's own 4dp padding either side — so the
+  column width itself can never be narrower than a touch target, at any width the dialog renders at.
+  `EmojiPickerTest` measures the rendered cell and is what holds this; it passes on API 30 and 35.
+
+**Requirement text**
+- **Fixed, further than the finding asked.** `RequirementText.kt` now does a version-name lookup:
+  `"Needs $name (API $api) or newer"` when a name is known, falling back to the original API-only
+  wording otherwise — the "version-name lookup table" the finding suggested as a future nice-to-have.
+
+**Notification inspector**
+- **Discoverability — fixed, by a different route than suggested.** Instead of a line of help text
+  pointing at the screen by name, every component that reads notifications (`NotificationTriggers.kt`,
+  `NotificationWatchdogTrigger.kt`, `NotificationControlActions.kt`) now declares
+  `ComponentTool.InspectNotifications`, so an "Inspect" button sits directly on its own block in the
+  editor — the tool appears where the confusion happens, not on a separate screen.
+- **Circularity — fixed for the new path, unchanged on the old one.** The per-block "Inspect" button
+  opens the inspector as a full-screen `Dialog` over the editor (not a navigation destination, so it
+  can't discard a half-written rule), with hint text that says the Grant button is "right behind this
+  screen" — a real improvement, since granting and inspecting are now on the same block. But
+  `RulesScreen.kt`'s bottom-bar "Inspect" button is still there too, unchanged: it still navigates to
+  the inspector as a standalone destination and still shows the original, more circular hint ("Grant
+  notification access from a rule that needs it, then come back"). Both routes coexist; only the new
+  one resolves the finding.
+
+**Strings and wording**
+- **`rules_empty` — fixed. This is the item the previous version of this section got wrong.** The
+  string now reads "No rules yet. Add one below to get started." with a comment explaining it
+  deliberately stopped quoting `rules_new`'s rendered text, for exactly the staleness reason the
+  finding raised.
+
+No new problems were found while re-checking these files, beyond the one noted above (the old,
+still-circular `RulesScreen.kt` Inspect entry point sitting alongside the new, better one — not a
+regression, just an old path that was never removed once the new one shipped).
 
 ---
 
@@ -373,22 +478,28 @@ documented.
 
 ## Severity summary
 
-| Severity | Count |
-|---|---|
-| Blocker | 1 |
-| Significant | 8 |
-| Polish | 10 |
+| Severity | Count at time of sweep | Fixed now | Still open | No longer applicable |
+|---|---|---|---|---|
+| Blocker | 1 | 1 | 0 | 0 |
+| Significant | 8 | 8 | 0 | 0 |
+| Polish | 10 | 10 | 0 | 0 |
 
-**The three I would fix first:**
+All 19 tagged findings are fixed, several by a materially different route than the fix each one
+suggested (noted case by case in "Status" above). The last of them — whether `EmojiCell` clears the
+48dp touch-target minimum, the one item the sweep itself could not confirm "without measuring a
+rendered layout" — was settled by measuring it: 32.8dp, and now fixed with a test that measures
+rather than reasons.
 
-1. **The home-screen shortcut trigger is unusable end to end** (unwired ID generation, unwired icon
-   field, unwired pin-to-home-screen button) — the one blocker, and the purest example of the silent
-   failure mode this project has otherwise gone to real lengths to design against. It's uncommitted
-   work in progress, which is exactly why it's worth catching now rather than after it merges.
-2. **`colorScheme.primary` used as text color** in `NotificationInspectorScreen.kt` and
-   `PatternTester.kt` — a two-line, mechanical fix that closes a real AA-contrast failure the project's
-   own color file explicitly warns against, in code that's already shipped.
-3. **The rules list summary silently hides OR-triggers and conditions** — the list is the one screen a
-   user checks to remember what a rule does, and right now it can materially misdescribe a rule the
-   moment it uses either of two recently-shipped, real features (a second trigger edge, a condition
-   tree).
+**What I'd double-check next, now that the list above is mostly closed:**
+
+1. **The other pickers' rows were not measured.** App, Bluetooth and Sound rows are full-width rather
+   than divided into columns, so the emoji grid's failure mode is unlikely there — but "unlikely" is
+   what the emoji cell was until someone measured it. `PickerRow` now carries an explicit 48dp
+   minimum; a test that measures one would be the thing that keeps it.
+2. **The now-duplicated notification-inspector entry points.** `RulesScreen.kt`'s bottom-bar "Inspect"
+   button still opens the inspector as a standalone destination with the original, more circular
+   hint text, alongside the new per-block "Inspect" button that opens it as a dialog with a better
+   hint. Not a regression, but worth a deliberate decision on whether the old entry point should be
+   retired, reworded to match, or left as a second, faster route for someone who isn't mid-edit.
+3. **Nothing else outstanding from this sweep** — every tagged finding was verified fixed against the
+   code, `d2fc1bf` for eighteen of them and the emoji cell on top.
