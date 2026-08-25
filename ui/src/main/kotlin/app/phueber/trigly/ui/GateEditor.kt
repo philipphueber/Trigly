@@ -52,6 +52,15 @@ import app.phueber.trigly.core.ComponentRequirement
 internal fun GateEditor(
     conditions: ConditionDraft?,
     descriptorFor: (String) -> ComponentDescriptor?,
+    /**
+     * Whatever tools the component in a slot offers, drawn into its footer.
+     *
+     * A composable lambda rather than a list of tools, so this file needs to know
+     * neither what tools exist nor how one is rendered — a condition on
+     * notification content wants the same "Inspect" button the trigger form of it
+     * has, and that should not be two implementations.
+     */
+    tools: @Composable (String, Map<String, String>) -> Unit = { _, _ -> },
     onAddCheckRequested: (List<Int>) -> Unit,
     onChangeTypeRequested: (List<Int>) -> Unit,
     onAddGroup: (List<Int>) -> Unit,
@@ -98,6 +107,7 @@ internal fun GateEditor(
         node = conditions,
         path = emptyList(),
         descriptorFor = descriptorFor,
+        tools = tools,
         onAddCheckRequested = onAddCheckRequested,
         onChangeTypeRequested = onChangeTypeRequested,
         onAddGroup = onAddGroup,
@@ -134,6 +144,7 @@ private fun ConditionNodeBlock(
     node: ConditionDraft,
     path: List<Int>,
     descriptorFor: (String) -> ComponentDescriptor?,
+    tools: @Composable (String, Map<String, String>) -> Unit,
     onAddCheckRequested: (List<Int>) -> Unit,
     onChangeTypeRequested: (List<Int>) -> Unit,
     onAddGroup: (List<Int>) -> Unit,
@@ -164,7 +175,10 @@ private fun ConditionNodeBlock(
                 onConfigChange = { fieldKey, value -> onConfigChange(path, fieldKey, value) },
                 onResolveRequirement = onResolveRequirement,
                 modifier = Modifier.padding(bottom = 12.dp),
-                footer = { BlockTextButton("Remove") { onRemove(path) } },
+                footer = {
+                    tools(node.component.type, node.component.config)
+                    BlockTextButton("Remove") { onRemove(path) }
+                },
                 expanded = isExpanded(key),
                 onToggleExpanded = { onToggleExpanded(key) },
                 caveatShown = isCaveatShown(key),
@@ -177,6 +191,7 @@ private fun ConditionNodeBlock(
             group = node,
             path = path,
             descriptorFor = descriptorFor,
+            tools = tools,
             onAddCheckRequested = onAddCheckRequested,
             onChangeTypeRequested = onChangeTypeRequested,
             onAddGroup = onAddGroup,
@@ -217,6 +232,7 @@ private fun ConditionGroupBlock(
     group: ConditionDraft.Group,
     path: List<Int>,
     descriptorFor: (String) -> ComponentDescriptor?,
+    tools: @Composable (String, Map<String, String>) -> Unit,
     onAddCheckRequested: (List<Int>) -> Unit,
     onChangeTypeRequested: (List<Int>) -> Unit,
     onAddGroup: (List<Int>) -> Unit,
@@ -256,6 +272,7 @@ private fun ConditionGroupBlock(
                         node = child,
                         path = path + index,
                         descriptorFor = descriptorFor,
+                        tools = tools,
                         onAddCheckRequested = onAddCheckRequested,
                         onChangeTypeRequested = onChangeTypeRequested,
                         onAddGroup = onAddGroup,

@@ -5,6 +5,7 @@ import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.chooseButton
 import app.phueber.trigly.core.chooseNotification
+import app.phueber.trigly.core.ComponentTool
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.NotificationController
@@ -132,6 +133,14 @@ class DismissNotificationActionFactory(
             "that app's newest notification, whatever fired the rule."
 
     override val requirements = NOTIFICATION_ACCESS
+
+    // Its filters are written against what a notification actually contains — a
+    // package, a title, a piece of text — which is exactly what nobody can fill
+    // in by guessing, and where a wrong guess yields a rule that silently never
+    // fires. The inspector is the answer, so it is offered here rather than only
+    // from the rule list, where you would have to know it exists.
+    override fun toolsFor(config: Map<String, String>): List<ComponentTool> =
+        listOf(ComponentTool.Test, ComponentTool.InspectNotifications)
 
     override fun create(config: Map<String, String>): Action = DismissNotificationAction(
         controller = controller,
@@ -324,6 +333,14 @@ class TriggerNotificationButtonActionFactory(
             "all — the setting below is the workaround, and it uses the screen."
 
     override val requirements = NOTIFICATION_ACCESS
+
+    // Its filters are written against what a notification actually contains — a
+    // package, a title, a piece of text — which is exactly what nobody can fill
+    // in by guessing, and where a wrong guess yields a rule that silently never
+    // fires. The inspector is the answer, so it is offered here rather than only
+    // from the rule list, where you would have to know it exists.
+    override fun toolsFor(config: Map<String, String>): List<ComponentTool> =
+        listOf(ComponentTool.Test, ComponentTool.InspectNotifications)
 
     override fun create(config: Map<String, String>): Action {
         val legacy = config[TriggerNotificationButtonAction.CONFIG_BUTTON_INDEX]

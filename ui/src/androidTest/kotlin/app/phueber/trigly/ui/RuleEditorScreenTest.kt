@@ -1,17 +1,26 @@
 package app.phueber.trigly.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertWidthIsAtLeast
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import app.phueber.trigly.actions.actionFactories
 import app.phueber.trigly.core.ComponentRequirement
+import app.phueber.trigly.core.ComponentSpec
+import app.phueber.trigly.core.ComponentTool
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.Registry
@@ -42,6 +51,7 @@ class RuleEditorScreenTest {
 
     private val configChanges = mutableListOf<Triple<Slot, String, String?>>()
     private val tested = mutableListOf<Int>()
+    private val pinned = mutableListOf<Map<String, String>>()
     private var saves = 0
     private var backs = 0
 
@@ -49,6 +59,11 @@ class RuleEditorScreenTest {
     private fun Editor(
         state: EditorState,
         isRequirementSatisfied: (ComponentRequirement) -> Boolean = { false },
+        // Defaults to what the app really does, so a test that says nothing about
+        // tools renders the same buttons a user sees.
+        toolsFor: (String, Map<String, String>) -> List<ComponentTool> = { type, config ->
+            registry.toolsFor(ComponentSpec(type, config))
+        },
     ) {
         RuleEditorScreen(
             state = state,
@@ -74,6 +89,8 @@ class RuleEditorScreenTest {
             onBack = { backs++ },
             onResolveRequirement = {},
             isRequirementSatisfied = isRequirementSatisfied,
+            toolsFor = toolsFor,
+            onPinShortcut = { pinned += it },
         )
     }
 
@@ -501,6 +518,36 @@ class RuleEditorScreenTest {
     }
 
     @Test
+    fun the_caveat_badge_is_tappable_well_outside_its_glyph() {
+        // The badge draws at 22dp and is the only route to a component's caveat
+        // prose, so its *touch* target is grown to Android's 48dp minimum
+        // without the glyph or the row around it changing size — the target
+        // overhangs the space the row reserves for it. That is easy to write and
+        // easy to have silently not work, because `performClick` hits a node's
+        // centre and would pass either way. So this presses near the corner of
+        // the enlarged target, which is outside the glyph entirely.
+        val caveated = registry.triggerDescriptors.first { it.warning != null }
+
+        composeRule.setContent {
+            ComponentPickerDialog(
+                title = "Choose a trigger",
+                options = listOf(caveated),
+                onPick = {},
+                onDismiss = {},
+            )
+        }
+
+        val badge = composeRule.onNodeWithContentDescription(CAVEAT_DESCRIPTION)
+        badge.assertWidthIsAtLeast(48.dp)
+        badge.assertHeightIsAtLeast(48.dp)
+
+        // 3dp in from the target's own corner: ~10dp clear of the 22dp glyph
+        // centred inside it, and still comfortably within the target.
+        badge.performTouchInput { click(Offset(3.dp.toPx(), 3.dp.toPx())) }
+        composeRule.onNodeWithText(caveated.warning!!).assertIsDisplayed()
+    }
+
+    @Test
     fun the_picker_leaves_an_uncomplicated_component_unmarked() {
         val plain = registry.triggerDescriptors.first { it.warning == null }
 
@@ -649,5 +696,107 @@ class RuleEditorScreenTest {
         composeRule.onNodeWithText("CHOOSE A TRIGGER").assertIsDisplayed()
         composeRule.onNodeWithText("HIDE").assertDoesNotExist()
         composeRule.onNodeWithText("SHOW").assertDoesNotExist()
+    }
+
+    @Test
+    fun a_component_only_shows_the_tools_it_declares() {
+        // The seam, from the screen's side: it renders what it is handed and
+        // nothing else. `power_connection` declares no tools, `play_alert`
+        // declares Test by being an action, and neither is named anywhere in the
+        // editor's own source.
+        composeRule.setContent {
+            Editor(
+                EditorState(
+                    RuleDraft(
+                        id = null,
+                        name = "Tools",
+                        trigger = ComponentDraft("power_connection", mapOf("state" to "connected")),
+                        actions = listOf(ComponentDraft("play_alert")),
+                    )
+                )
+            )
+        }
+
+        composeRule.onNodeWithText("TEST").assertExists()
+        // A trigger cannot be run, so nothing offers to.
+        composeRule.onNodeWithText("ADD TO HOME SCREEN").assertDoesNotExist()
+        composeRule.onNodeWithText("INSPECT").assertDoesNotExist()
+    }
+
+    @Test
+    fun a_notification_action_offers_the_inspector_beside_its_test() {
+        composeRule.setContent {
+            Editor(
+                EditorState(
+                    RuleDraft(
+                        id = null,
+                        name = "Inspect",
+                        trigger = ComponentDraft("power_connection", mapOf("state" to "connected")),
+                        actions = listOf(ComponentDraft("dismiss_notification")),
+                    )
+                )
+            )
+        }
+
+        // Both, and from the factory's declaration rather than from a name this
+        // screen recognises.
+        composeRule.onNodeWithText("TEST").assertExists()
+        composeRule.onNodeWithText("INSPECT").assertExists()
+    }
+
+    @Test
+    fun the_inspector_opens_over_the_editor_without_leaving_it() {
+        composeRule.setContent {
+            Editor(
+                EditorState(
+                    RuleDraft(
+                        id = "abc",
+                        name = "Kept",
+                        trigger = ComponentDraft("power_connection", mapOf("state" to "connected")),
+                        actions = listOf(ComponentDraft("dismiss_notification")),
+                    )
+                )
+            )
+        }
+
+        // Scrolled to first: the editor composes every block whether or not it is
+        // in view, so a node this far down the page exists but is off-screen, and
+        // a tap dispatched at its coordinates would land outside the window. The
+        // file's other tests use `assertExists` for the same reason.
+        composeRule.onNodeWithText("INSPECT").performScrollTo().performClick()
+        composeRule.onNodeWithText("WHAT TRIGLY SEES").assertIsDisplayed()
+
+        composeRule.onNodeWithText("BACK").performClick()
+        // Still the same editor, with the draft it had. This is the whole reason
+        // the inspector is a dialog here and not a destination: navigating away
+        // would reset the draft on the way back in. `assertExists`, not
+        // `assertIsDisplayed` — the editor is still scrolled to where the action
+        // block is, so its header is off-screen but very much present.
+        composeRule.onNodeWithText("EDIT RULE").assertExists()
+        composeRule.onNodeWithText("Kept").assertExists()
+        composeRule.onNodeWithText("WHAT TRIGLY SEES").assertDoesNotExist()
+    }
+
+    @Test
+    fun a_declared_setup_tool_reports_the_whole_config() {
+        // Pinning takes the config rather than an id, because the label and the
+        // icon live there too. Driven through a stub rather than the shortcut
+        // trigger, so this holds even if that trigger changes its keys.
+        val config = mapOf("shortcutId" to "s1", "label" to "Go")
+        composeRule.setContent {
+            Editor(
+                state = EditorState(
+                    RuleDraft(
+                        id = null,
+                        name = "Pin",
+                        trigger = ComponentDraft("power_connection", config),
+                    )
+                ),
+                toolsFor = { _, _ -> listOf(ComponentTool.PinShortcut) },
+            )
+        }
+
+        composeRule.onNodeWithText("ADD TO HOME SCREEN").performScrollTo().performClick()
+        assertEquals(listOf(config), pinned)
     }
 }

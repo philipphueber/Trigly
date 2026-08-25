@@ -16,6 +16,36 @@ fatal) / **polish** (worth doing, not urgent).
 
 ---
 
+## Status — what has been fixed since the sweep
+
+The report below is kept as written, because a fix note is easier to trust next to the finding it
+answers than after it has been edited away. Fixed so far:
+
+- **The shortcut trigger** — the blocker. Id generation, the emoji icon field and the pin-to-home
+  button are wired end to end, and the button is now declared by the factory rather than by the
+  editor (see below).
+- **`colorScheme.primary` as text** in `NotificationInspectorScreen.kt` and `PatternTester.kt`.
+- **The rules-list summary** now describes the whole gate — every trigger edge and the condition
+  tree — instead of the first trigger only.
+- **`CaveatBadge`'s touch target** — 48dp of tappable area that overhangs its 22dp footprint, so
+  nothing around it moves.
+- **`PickerRow`** has a 48dp minimum height, and a picker option can now render disabled: a
+  notification reply button that needs typed text says so *and* refuses the tap, rather than only
+  being refused at Save.
+- **`AppPackageField`** no longer shows an unresolved package name twice.
+- **The inspector's two polish findings**, by a different route than the one suggested. Rather than
+  adding a line of help text pointing at the screen by name, every component that reads notifications
+  now offers **Inspect** on its own block, through the `ComponentTool` seam in
+  `docs/architecture.md`. That answers the discoverability finding — the tool is where the problem is,
+  not in a bottom bar on another screen — and softens the circular-grant one, since the Grant button
+  for notification access is on the same block. It also opens as a dialog over the editor rather than
+  as a destination, so consulting it cannot discard a half-written rule.
+
+Not yet done: the remaining polish items, including the `rules_empty` string that hardcodes another
+string's rendered text.
+
+---
+
 ## Rule editor — the gate and condition tree
 
 **[significant] The condition tree still has its own "Only if" section, which an uncommitted doc

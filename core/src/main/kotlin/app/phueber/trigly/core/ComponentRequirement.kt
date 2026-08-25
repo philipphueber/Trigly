@@ -152,6 +152,31 @@ interface ComponentFactory {
     fun requirementsFor(config: Map<String, String>): List<ComponentRequirement> = requirements
 
     /**
+     * Tools this component offers on its own block in the editor, beyond editing
+     * its settings.
+     *
+     * The editor already had two of these and knew both by name: a Test button
+     * for actions, and "Add to home screen" for the shortcut trigger, the latter
+     * keyed on a config key the screen had to know about. A third — reaching the
+     * notification inspector from the components whose filters depend on what a
+     * notification actually contains — would have made three special cases, which
+     * is where the plugin rule in `CLAUDE.md` says the abstraction is wrong rather
+     * than the components.
+     *
+     * So a component declares what it offers and the editor renders it without
+     * knowing any component's name. The pattern matches [configFields] and
+     * [requirements] exactly: declared on the factory, consumed by the UI,
+     * invisible to the engine.
+     *
+     * What it deliberately is *not*: a way to run arbitrary UI from a factory.
+     * The kinds are a closed set the editor knows how to honour — see [ComponentTool] —
+     * because `:core` and `:triggers` must stay free of Compose, and because a
+     * component asking for "a button that does anything" would put screen logic
+     * in a module that cannot see a screen.
+     */
+    fun toolsFor(config: Map<String, String>): List<ComponentTool> = emptyList()
+
+    /**
      * The settings this component accepts, for the editor to render. Empty means
      * "nothing to configure". See [ConfigField] for why this does not replace the
      * validation inside `create()`.
@@ -166,4 +191,46 @@ interface ComponentFactory {
      */
     val warning: String?
         get() = null
+}
+
+
+/**
+ * A tool the editor offers on a component's block.
+ *
+ * A closed set, not a callback: the editor decides how each is drawn and what it
+ * does, so a factory in `:triggers` or `:actions` never needs to see Compose or an
+ * `Activity`. Adding a kind is a deliberate act — the point is that the editor
+ * knows how to honour every one of them.
+ */
+sealed interface ComponentTool {
+
+    /**
+     * Runs the component now, so the sensory half of an action — which sound, how
+     * loud, how the spoken text reads — can be judged by ear rather than by
+     * saving and waiting for the real trigger.
+     *
+     * Actions declare this; a trigger cannot, because "run this trigger" means
+     * waiting for the world to change.
+     */
+    data object Test : ComponentTool
+
+    /**
+     * Opens the notification inspector: what Trigly can actually see on the
+     * notifications currently posted.
+     *
+     * Declared by the components whose configuration is written *against* that
+     * content — a package, a title, a piece of text, a button's name. Those are
+     * the fields nobody can fill in correctly by guessing, and where a wrong
+     * guess produces a rule that silently never fires.
+     */
+    data object InspectNotifications : ComponentTool
+
+    /**
+     * Asks the launcher to pin a home-screen button for this component.
+     *
+     * The one tool whose absence makes a component inert: a shortcut trigger with
+     * no button on the home screen can never fire, so the affordance is not a
+     * convenience but the other half of the feature.
+     */
+    data object PinShortcut : ComponentTool
 }

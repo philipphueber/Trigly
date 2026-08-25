@@ -274,6 +274,43 @@ Room stays an implementation detail of `:core`. Storage is handed out as a
 `implementation`-scoped so it is not on `:ui`'s compile classpath at all. That
 enforces the boundary rather than merely asking for it.
 
+### What a block offers: component tools
+
+A block in the editor can carry buttons of its own — run this action now, add a
+home-screen button for this shortcut, look at what notifications actually contain.
+The screen does not decide which: a factory declares them through
+`ComponentFactory.toolsFor(config)`, returning values of the closed
+`ComponentTool` set, and the editor renders whatever comes back without knowing
+which component it is looking at.
+
+The alternative, which this replaced, was the editor recognising components by
+name. Test was written into the action section for every action. Pinning was
+keyed off a config key that happened to be unique to one trigger, with a comment
+admitting it was a special case. Adding "Inspect" to the notification components
+would have been the third, and the point at which the editor's knowledge of
+particular components stopped being an accident and started being a design. The
+project rule that adding a trigger must not require editing an existing one has a
+quieter corollary: adding one must not require editing the editor either.
+
+Config-aware, for the same reason `requirementsFor` is: the shortcut trigger has
+nothing to pin until it has an id, and a button that pins nothing is worse than no
+button. `ActionFactory` defaults to offering `Test`, since every action can be
+run on demand; `TriggerFactory` defaults to offering nothing, because a trigger
+cannot be.
+
+Two things stay with the screen. The Test button doubles as Stop while an action
+is running, and only the screen knows which action that is — so the tool declares
+*that there is a test*, and the label and handler are passed in. And the
+condition slots render tools through a composable lambda handed to `GateEditor`,
+so a notification condition gets the same Inspect button its trigger form has
+without that file learning what a tool is.
+
+An instrumented contract test holds the notification half of this: any component
+declaring `SpecialAccessKind.NOTIFICATION_LISTENER` must offer
+`InspectNotifications`. Keyed on the requirement rather than on a list of names,
+because the failure being prevented is the *next* notification component, added
+by someone who never learns the inspector exists.
+
 ### Testing an action from the editor
 
 Each action block has a Test button that runs that action immediately. It exists
@@ -369,6 +406,20 @@ Its two empty states are different problems and are reported as such: notificati
 access not granted, versus granted with nothing currently posted. Only what is
 posted *now* can be inspected — there is no history, because the listener keeps
 none — so the screen says so instead of looking broken while it waits.
+
+**Reachable two ways, and only one of them is a destination.** From the rule list
+it is a screen you navigate to. From a notification component's own block in the
+editor it opens as a full-bleed dialog *over* the editor, and that is not a
+styling choice: leaving the editor's composition fires the fresh-entry reset that
+keeps a new rule empty, so navigating away to check a package name would discard
+the half-written rule you were checking it for. A reference you consult while
+filling in a field has no business costing you the field.
+
+Which is also why the "no access" message is a parameter. From the list there is
+no Grant control anywhere in sight and the honest advice is to open a
+notification trigger and grant it there. From a block there is one directly
+behind the dialog, and repeating the first message would send someone hunting for
+a button they are standing on.
 
 ### Where the engine runs
 

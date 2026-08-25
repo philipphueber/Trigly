@@ -31,6 +31,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.core.net.toUri
 import app.phueber.trigly.core.ComponentRequirement
+import app.phueber.trigly.core.ComponentSpec
 import app.phueber.trigly.core.SpecialAccessKind
 import app.phueber.trigly.core.Rule
 
@@ -265,6 +266,7 @@ class MainActivity : ComponentActivity() {
      */
     @androidx.compose.runtime.Composable
     private fun EditorHost(ruleId: String?, onDone: () -> Unit) {
+        val installedApps = LocalInstalledApps.current
         val editor: RuleEditorViewModel = viewModel(
             key = "editor-${ruleId ?: "new"}",
             factory = RuleEditorViewModel.factory(
@@ -368,6 +370,21 @@ class MainActivity : ComponentActivity() {
             onChangeConditionType = editor::changeConditionType,
             onConditionConfigChange = editor::setConditionConfigValue,
             onPinShortcut = ::pinShortcut,
+            // What each block offers on itself, asked of the registry so this
+            // screen never learns a component's name. `grantEpoch` is not in
+            // play here: tools follow from configuration, not from what is
+            // granted.
+            toolsFor = { type, config ->
+                container.registry.toolsFor(ComponentSpec(type, config))
+            },
+            // The inspector opens over the editor instead of navigating to it, so
+            // consulting what a notification actually contains cannot cost a
+            // half-written rule. Read through lambdas rather than passed as a
+            // list: it must show what is posted *now*, and hoisting the read here
+            // would freeze it at whatever was on screen when the editor opened.
+            inspectorNotifications = { container.notifications.activeNotifications() },
+            inspectorConnected = { container.notifications.isConnected },
+            describeApp = installedApps::labelFor,
         )
     }
 

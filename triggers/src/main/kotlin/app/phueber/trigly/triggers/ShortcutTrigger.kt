@@ -1,5 +1,6 @@
 package app.phueber.trigly.triggers
 
+import app.phueber.trigly.core.ComponentTool
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
@@ -119,6 +120,16 @@ class ShortcutTriggerFactory : TriggerFactory {
             blankMeaning = "Trigly's own icon",
         ),
     )
+
+    // Not a convenience: without a button on the home screen this trigger can
+    // never fire, so the editor must offer a way to make one. Declared only once
+    // there is an id to pin, which the editor mints when the trigger is added.
+    override fun toolsFor(config: Map<String, String>): List<ComponentTool> =
+        if (config[ShortcutTrigger.CONFIG_SHORTCUT_ID].isNullOrBlank()) {
+            emptyList()
+        } else {
+            listOf(ComponentTool.PinShortcut)
+        }
 
     override fun create(config: Map<String, String>): Trigger {
         val shortcutId = config[ShortcutTrigger.CONFIG_SHORTCUT_ID]

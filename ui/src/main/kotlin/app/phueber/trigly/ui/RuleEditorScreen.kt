@@ -17,6 +17,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -30,8 +31,12 @@ import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import app.phueber.trigly.core.ActiveNotification
 import app.phueber.trigly.core.ComponentDescriptor
 import app.phueber.trigly.core.ComponentRequirement
+import app.phueber.trigly.core.ComponentTool
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.shownWith
 import app.phueber.trigly.core.companionKeys
@@ -120,9 +125,30 @@ fun RuleEditorScreen(
      * live there, and the screen has no business picking them apart.
      */
     onPinShortcut: (Map<String, String>) -> Unit = {},
+    /**
+     * What tools a component offers on its block — see [ComponentTool].
+     *
+     * Asked per component *and per configuration*, rather than derived from a type
+     * string, which is how this screen stopped knowing that shortcut triggers can
+     * be pinned and that actions can be tested. Defaults to nothing, so a preview
+     * or a test renders plain blocks.
+     */
+    toolsFor: (String, Map<String, String>) -> List<ComponentTool> = { _, _ -> emptyList() },
+    /** Live notifications for the inspector, shown over the editor rather than navigated to. */
+    inspectorNotifications: () -> List<ActiveNotification> = { emptyList() },
+    /** Whether the notification listener is bound — an empty list means two different things. */
+    inspectorConnected: () -> Boolean = { false },
+    describeApp: (String) -> String = { it },
     modifier: Modifier = Modifier,
 ) {
     var picking by remember { mutableStateOf<Picking?>(null) }
+
+    // The inspector opens *over* the editor rather than as a destination, and that
+    // is not cosmetic: leaving the editor's composition would fire the
+    // fresh-entry reset that keeps a new rule empty, discarding the draft someone
+    // is halfway through writing. A reference you consult while filling a field
+    // has no business costing you the field.
+    var inspecting by remember { mutableStateOf(false) }
     val draft = state.draft
 
     // Which blocks are folded shut. Kept as the collapsed set rather than the
@@ -153,273 +179,293 @@ fun RuleEditorScreen(
         if (!shownCaveats.remove(key)) shownCaveats += key
     }
 
-    Column(modifier = modifier.fillMaxSize().imePadding()) {
-        BlockHeader(
-            title = if (draft.isNew) "New rule" else "Edit rule",
-            leading = {
-                // Discoverable back, for the half of Android that navigates by
-                // gesture and never learned the edge swipe.
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                }
-            },
-        )
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-        ) {
-            OutlinedTextField(
-                value = draft.name,
-                onValueChange = onNameChange,
-                label = { Text("NAME *", style = MaterialTheme.typography.labelMedium) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+    // Scoped to this screen's own content rather than provided by the
+    // activity: only the editor knows which rule is currently open, and
+    // that changes every time the editor does. See `LocalCurrentRuleId`'s
+    // KDoc in `RulePicker.kt` for why a rule-reference field needs this at
+    // all: it's what lets the picker mark this rule as the one being
+    // edited, rather than excluding it (a deliberate, documented feature
+    // — see `SetRuleEnabledActionFactory`).
+    CompositionLocalProvider(LocalCurrentRuleId provides draft.id) {
+        Column(modifier = modifier.fillMaxSize().imePadding()) {
+            BlockHeader(
+                title = if (draft.isNew) "New rule" else "Edit rule",
+                leading = {
+                    // Discoverable back, for the half of Android that navigates by
+                    // gesture and never learned the edge swipe.
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
             )
 
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
             ) {
-                BlockToggle(checked = draft.enabled, onCheckedChange = onEnabledChange)
-                Text(
-                    text = "ENABLED",
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.padding(start = 12.dp),
+                OutlinedTextField(
+                    value = draft.name,
+                    onValueChange = onNameChange,
+                    label = { Text("NAME *", style = MaterialTheme.typography.labelMedium) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
                 )
-            }
 
-            // A refused save, unlike a component caveat, is a fault: it gets the
-            // error colour and a block of its own rather than a line of text.
-            state.error?.let { message ->
-                Surface(
-                    color = MaterialTheme.colorScheme.errorContainer,
-                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                    border = androidx.compose.foundation.BorderStroke(
-                        2.dp,
-                        MaterialTheme.colorScheme.error,
-                    ),
-                    shape = BlockShape,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 16.dp)
-                        .hardShadow(BlockShape),
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    BlockToggle(checked = draft.enabled, onCheckedChange = onEnabledChange)
                     Text(
-                        text = message,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(14.dp),
-                    )
-                }
-            }
-
-            // What a test run reported. Deliberately not the error colour: a
-            // test that fails is information, not a fault in the rule — and one
-            // that succeeds still needs saying, or pressing Test on a silent
-            // action looks like nothing happened.
-            state.testResult?.let { message ->
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceContainerLow,
-                    border = androidx.compose.foundation.BorderStroke(
-                        2.dp,
-                        MaterialTheme.colorScheme.outline,
-                    ),
-                    shape = BlockShape,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 16.dp)
-                        .hardShadow(BlockShape),
-                ) {
-                    Text(
-                        text = message,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(14.dp),
-                    )
-                }
-            }
-
-            SectionLabel("When")
-            if (draft.triggers.isEmpty()) {
-                // Unchosen: exactly the one block this section has always shown,
-                // with no footer and no "Add trigger" beneath it. A second edge
-                // is something you add to a trigger you already have, not
-                // something offered before you have picked the first one.
-                ComponentBlock(
-                    chosenType = null,
-                    descriptor = null,
-                    config = emptyMap(),
-                    emptyLabel = "Choose a trigger",
-                    onChoose = { picking = Picking.NewTrigger },
-                    onConfigChange = { _, _ -> },
-                    onResolveRequirement = onResolveRequirement,
-                    expanded = TRIGGER_KEY !in collapsed,
-                    onToggleExpanded = { toggle(TRIGGER_KEY) },
-                    caveatShown = TRIGGER_KEY in shownCaveats,
-                    onToggleCaveat = { toggleCaveat(TRIGGER_KEY) },
-                    isRequirementSatisfied = isRequirementSatisfied,
-                )
-            } else {
-                // The OR only exists to read at all once there is a second edge
-                // to be one of — a single trigger carries no hint that this text
-                // could ever appear, which is the whole point of it being absent
-                // until then.
-                if (draft.triggers.size > 1) {
-                    Text(
-                        text = "Any of these fire the rule.",
+                        text = "ENABLED",
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 8.dp),
+                        modifier = Modifier.padding(start = 12.dp),
                     )
                 }
-                draft.triggers.forEachIndexed { index, trigger ->
-                    // No footer at all for the common one-trigger case — see the
-                    // KDoc on this call site's caller and `docs/conditions.md`:
-                    // a single edge must look exactly as it did before several
-                    // were possible, and that includes not gaining a Remove
-                    // button it never had.
-                    // A shortcut trigger is the one kind that cannot fire until
-                    // the user does something outside Trigly: a launcher button
-                    // has to exist. So it gets an affordance to create one, and
-                    // without it the rule saves, looks healthy, and never fires
-                    // — the failure this app tries hardest not to have.
-                    //
-                    // Keyed on the trigger declaring a shortcut id rather than on
-                    // its type string, so this stays one line of "does this
-                    // component need pinning" rather than the editor learning the
-                    // name of a trigger. Still a special case, and the honest
-                    // generic answer would be for a factory to declare setup
-                    // actions the editor offers — worth doing if a second
-                    // component ever needs one.
-                    val pinnable = trigger.config.containsKey(SHORTCUT_ID_KEY)
-                    val movable = draft.triggers.size > 1
 
-                    val footer: (@Composable () -> Unit)? = if (movable || pinnable) {
-                        {
-                            if (pinnable) {
-                                BlockTextButton("Add to home screen") {
-                                    onPinShortcut(trigger.config)
+                // A refused save, unlike a component caveat, is a fault: it gets the
+                // error colour and a block of its own rather than a line of text.
+                state.error?.let { message ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                        border = androidx.compose.foundation.BorderStroke(
+                            2.dp,
+                            MaterialTheme.colorScheme.error,
+                        ),
+                        shape = BlockShape,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 16.dp)
+                            .hardShadow(BlockShape),
+                    ) {
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(14.dp),
+                        )
+                    }
+                }
+
+                // What a test run reported. Deliberately not the error colour: a
+                // test that fails is information, not a fault in the rule — and one
+                // that succeeds still needs saying, or pressing Test on a silent
+                // action looks like nothing happened.
+                state.testResult?.let { message ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        border = androidx.compose.foundation.BorderStroke(
+                            2.dp,
+                            MaterialTheme.colorScheme.outline,
+                        ),
+                        shape = BlockShape,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 16.dp)
+                            .hardShadow(BlockShape),
+                    ) {
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(14.dp),
+                        )
+                    }
+                }
+
+                SectionLabel("When")
+                if (draft.triggers.isEmpty()) {
+                    // Unchosen: exactly the one block this section has always shown,
+                    // with no footer and no "Add trigger" beneath it. A second edge
+                    // is something you add to a trigger you already have, not
+                    // something offered before you have picked the first one.
+                    ComponentBlock(
+                        chosenType = null,
+                        descriptor = null,
+                        config = emptyMap(),
+                        emptyLabel = "Choose a trigger",
+                        onChoose = { picking = Picking.NewTrigger },
+                        onConfigChange = { _, _ -> },
+                        onResolveRequirement = onResolveRequirement,
+                        expanded = TRIGGER_KEY !in collapsed,
+                        onToggleExpanded = { toggle(TRIGGER_KEY) },
+                        caveatShown = TRIGGER_KEY in shownCaveats,
+                        onToggleCaveat = { toggleCaveat(TRIGGER_KEY) },
+                        isRequirementSatisfied = isRequirementSatisfied,
+                    )
+                } else {
+                    // The OR only exists to read at all once there is a second edge
+                    // to be one of — a single trigger carries no hint that this text
+                    // could ever appear, which is the whole point of it being absent
+                    // until then.
+                    if (draft.triggers.size > 1) {
+                        Text(
+                            text = "Any of these fire the rule.",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
+                    }
+                    draft.triggers.forEachIndexed { index, trigger ->
+                        // No footer at all for the common one-trigger case — see the
+                        // KDoc on this call site's caller and `docs/conditions.md`:
+                        // a single edge must look exactly as it did before several
+                        // were possible, and that includes not gaining a Remove
+                        // button it never had.
+                        // Whatever this component says it offers, plus the
+                        // reordering controls, which belong to the *slot* rather
+                        // than to the component. The screen no longer knows that a
+                        // shortcut trigger can be pinned — the factory declares it;
+                        // see `ComponentFactory.toolsFor`.
+                        val tools = toolsFor(trigger.type, trigger.config)
+                        val movable = draft.triggers.size > 1
+
+                        val footer: (@Composable () -> Unit)? =
+                            if (movable || tools.isNotEmpty()) {
+                            {
+                                ComponentTools(
+                                    tools = tools,
+                                    config = trigger.config,
+                                    onPinShortcut = onPinShortcut,
+                                    onInspect = { inspecting = true },
+                                )
+                                if (movable && index > 0) {
+                                    BlockTextButton("Up") { onMoveTrigger(index, index - 1) }
+                                }
+                                if (movable && index < draft.triggers.lastIndex) {
+                                    BlockTextButton("Down") { onMoveTrigger(index, index + 1) }
+                                }
+                                if (movable) {
+                                    BlockTextButton("Remove") { onRemoveTrigger(index) }
                                 }
                             }
-                            if (movable && index > 0) {
-                                BlockTextButton("Up") { onMoveTrigger(index, index - 1) }
-                            }
-                            if (movable && index < draft.triggers.lastIndex) {
-                                BlockTextButton("Down") { onMoveTrigger(index, index + 1) }
-                            }
-                            if (movable) {
-                                BlockTextButton("Remove") { onRemoveTrigger(index) }
-                            }
+                        } else {
+                            null
                         }
-                    } else {
-                        null
+                        ComponentBlock(
+                            chosenType = trigger.type,
+                            descriptor = descriptorFor(Slot.TRIGGER, trigger.type),
+                            config = trigger.config,
+                            emptyLabel = "Choose a trigger",
+                            onChoose = { picking = Picking.TriggerType(index) },
+                            onConfigChange = { key, value -> onConfigChange(Slot.TRIGGER, index, key, value) },
+                            onResolveRequirement = onResolveRequirement,
+                            modifier = Modifier.padding(bottom = 12.dp),
+                            footer = footer,
+                            expanded = triggerKey(index) !in collapsed,
+                            onToggleExpanded = { toggle(triggerKey(index)) },
+                            caveatShown = triggerKey(index) in shownCaveats,
+                            onToggleCaveat = { toggleCaveat(triggerKey(index)) },
+                            isRequirementSatisfied = isRequirementSatisfied,
+                        )
                     }
+                    BlockOutlineButton(
+                        text = "Add trigger",
+                        onClick = { picking = Picking.NewTrigger },
+                        fillWidth = true,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
+                    )
+                }
+
+                GateEditor(
+                    conditions = draft.conditions,
+                    // A condition check resolves through the same lookup a trigger
+                    // does — see the KDoc on [Slot] for why there is no third value
+                    // to ask for here.
+                    descriptorFor = { type -> descriptorFor(Slot.TRIGGER, type) },
+                    onAddCheckRequested = { path -> picking = Picking.NewCondition(path) },
+                    onChangeTypeRequested = { path -> picking = Picking.ConditionType(path) },
+                    onAddGroup = onAddConditionGroup,
+                    onRemove = onRemoveCondition,
+                    onSetOp = onSetConditionOp,
+                    onConfigChange = onConditionConfigChange,
+                    // Conditions get the same tools their trigger form does: a
+                    // notification condition is configured against the same
+                    // invisible fields, so it needs the same way of seeing them.
+                    tools = { type, config ->
+                        ComponentTools(
+                            tools = toolsFor(type, config),
+                            config = config,
+                            onPinShortcut = onPinShortcut,
+                            onInspect = { inspecting = true },
+                        )
+                    },
+                    onResolveRequirement = onResolveRequirement,
+                    isRequirementSatisfied = isRequirementSatisfied,
+                    isExpanded = { key -> key !in collapsed },
+                    onToggleExpanded = ::toggle,
+                    isCaveatShown = { key -> key in shownCaveats },
+                    onToggleCaveat = ::toggleCaveat,
+                )
+
+                SectionLabel("Then")
+                draft.actions.forEachIndexed { index, action ->
                     ComponentBlock(
-                        chosenType = trigger.type,
-                        descriptor = descriptorFor(Slot.TRIGGER, trigger.type),
-                        config = trigger.config,
-                        emptyLabel = "Choose a trigger",
-                        onChoose = { picking = Picking.TriggerType(index) },
-                        onConfigChange = { key, value -> onConfigChange(Slot.TRIGGER, index, key, value) },
+                        chosenType = action.type,
+                        descriptor = descriptorFor(Slot.ACTION, action.type),
+                        config = action.config,
+                        emptyLabel = "Choose an action",
+                        onChoose = { picking = Picking.ActionType(index) },
+                        onConfigChange = { key, value ->
+                            onConfigChange(Slot.ACTION, index, key, value)
+                        },
                         onResolveRequirement = onResolveRequirement,
                         modifier = Modifier.padding(bottom = 12.dp),
-                        footer = footer,
-                        expanded = triggerKey(index) !in collapsed,
-                        onToggleExpanded = { toggle(triggerKey(index)) },
-                        caveatShown = triggerKey(index) in shownCaveats,
-                        onToggleCaveat = { toggleCaveat(triggerKey(index)) },
+                        footer = {
+                            // Test is no longer written here: every action declares
+                            // it through `ActionFactory.toolsFor`, and the ones with
+                            // more to offer — the notification actions, which can
+                            // open the inspector — declare that alongside it. The
+                            // running/Stop state stays the screen's business,
+                            // because only the screen knows which action is running.
+                            ComponentTools(
+                                tools = toolsFor(action.type, action.config),
+                                config = action.config,
+                                onPinShortcut = onPinShortcut,
+                                onInspect = { inspecting = true },
+                                testLabel = if (state.testing == index) "Stop" else "Test",
+                                onTest = { onTestAction(index) },
+                            )
+                            // Order matters — actions run in sequence.
+                            if (index > 0) {
+                                BlockTextButton("Up") { onMoveAction(index, index - 1) }
+                            }
+                            if (index < draft.actions.lastIndex) {
+                                BlockTextButton("Down") { onMoveAction(index, index + 1) }
+                            }
+                            BlockTextButton("Remove") { onRemoveAction(index) }
+                        },
+                        expanded = actionKey(index) !in collapsed,
+                        onToggleExpanded = { toggle(actionKey(index)) },
+                        caveatShown = actionKey(index) in shownCaveats,
+                        onToggleCaveat = { toggleCaveat(actionKey(index)) },
                         isRequirementSatisfied = isRequirementSatisfied,
                     )
                 }
+
+                // Full width, like the trigger block above it: both are the "pick a
+                // component" affordance for their section, and a shrink-wrapped box
+                // floating at the left read as a stray control rather than the
+                // counterpart to "Choose a trigger".
                 BlockOutlineButton(
-                    text = "Add trigger",
-                    onClick = { picking = Picking.NewTrigger },
+                    text = "Add action",
+                    onClick = { picking = Picking.NewAction },
                     fillWidth = true,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
+                    modifier = Modifier.padding(top = 4.dp, bottom = 24.dp),
                 )
             }
 
-            GateEditor(
-                conditions = draft.conditions,
-                // A condition check resolves through the same lookup a trigger
-                // does — see the KDoc on [Slot] for why there is no third value
-                // to ask for here.
-                descriptorFor = { type -> descriptorFor(Slot.TRIGGER, type) },
-                onAddCheckRequested = { path -> picking = Picking.NewCondition(path) },
-                onChangeTypeRequested = { path -> picking = Picking.ConditionType(path) },
-                onAddGroup = onAddConditionGroup,
-                onRemove = onRemoveCondition,
-                onSetOp = onSetConditionOp,
-                onConfigChange = onConditionConfigChange,
-                onResolveRequirement = onResolveRequirement,
-                isRequirementSatisfied = isRequirementSatisfied,
-                isExpanded = { key -> key !in collapsed },
-                onToggleExpanded = ::toggle,
-                isCaveatShown = { key -> key in shownCaveats },
-                onToggleCaveat = ::toggleCaveat,
-            )
-
-            SectionLabel("Then")
-            draft.actions.forEachIndexed { index, action ->
-                ComponentBlock(
-                    chosenType = action.type,
-                    descriptor = descriptorFor(Slot.ACTION, action.type),
-                    config = action.config,
-                    emptyLabel = "Choose an action",
-                    onChoose = { picking = Picking.ActionType(index) },
-                    onConfigChange = { key, value ->
-                        onConfigChange(Slot.ACTION, index, key, value)
-                    },
-                    onResolveRequirement = onResolveRequirement,
-                    modifier = Modifier.padding(bottom = 12.dp),
-                    footer = {
-                        // Runs it now, because half of what an action does is
-                        // sensory — which sound, how loud, how the spoken text
-                        // reads — and the alternative is saving, waiting for the
-                        // real trigger, and guessing. Doubles as a stop button
-                        // while running: `play_alert` loops for up to a minute.
-                        BlockTextButton(
-                            if (state.testing == index) "Stop" else "Test"
-                        ) { onTestAction(index) }
-                        // Order matters — actions run in sequence.
-                        if (index > 0) {
-                            BlockTextButton("Up") { onMoveAction(index, index - 1) }
-                        }
-                        if (index < draft.actions.lastIndex) {
-                            BlockTextButton("Down") { onMoveAction(index, index + 1) }
-                        }
-                        BlockTextButton("Remove") { onRemoveAction(index) }
-                    },
-                    expanded = actionKey(index) !in collapsed,
-                    onToggleExpanded = { toggle(actionKey(index)) },
-                    caveatShown = actionKey(index) in shownCaveats,
-                    onToggleCaveat = { toggleCaveat(actionKey(index)) },
-                    isRequirementSatisfied = isRequirementSatisfied,
-                )
-            }
-
-            // Full width, like the trigger block above it: both are the "pick a
-            // component" affordance for their section, and a shrink-wrapped box
-            // floating at the left read as a stray control rather than the
-            // counterpart to "Choose a trigger".
-            BlockOutlineButton(
-                text = "Add action",
-                onClick = { picking = Picking.NewAction },
-                fillWidth = true,
-                modifier = Modifier.padding(top = 4.dp, bottom = 24.dp),
-            )
-        }
-
-        BlockBottomBar {
-            BlockButton(text = "Save", onClick = onSave, modifier = Modifier.weight(1f))
-            if (!draft.isNew) {
-                BlockOutlineButton(
-                    text = "Delete rule",
-                    onClick = onDelete,
-                    contentColor = MaterialTheme.colorScheme.error,
-                )
+            BlockBottomBar {
+                BlockButton(text = "Save", onClick = onSave, modifier = Modifier.weight(1f))
+                if (!draft.isNew) {
+                    BlockOutlineButton(
+                        text = "Delete rule",
+                        onClick = onDelete,
+                        contentColor = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
         }
     }
@@ -473,6 +519,82 @@ fun RuleEditorScreen(
             onPick = { picking = null; onChangeActionType(target.index, it) },
             onDismiss = { picking = null },
         )
+    }
+
+    if (inspecting) {
+        // Full-bleed rather than an inset dialog: it is a screen's worth of
+        // content — several notifications, each with every field a matcher can
+        // read — and squeezing that into a dialog's default width would make the
+        // one thing it exists to show, the exact strings, wrap into mush.
+        Dialog(
+            onDismissRequest = { inspecting = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background,
+            ) {
+                // Read on open and on Refresh, never held: what is posted changes
+                // while this is up, and a stale list is the one thing a diagnostic
+                // must not show.
+                var seen by remember { mutableStateOf(inspectorNotifications()) }
+                NotificationInspectorScreen(
+                    notifications = seen,
+                    listenerConnected = inspectorConnected(),
+                    onRefresh = { seen = inspectorNotifications() },
+                    onBack = { inspecting = false },
+                    describeApp = describeApp,
+                    accessHint = "Trigly cannot read notifications without access. " +
+                        "Close this and grant it on the block you came from — the " +
+                        "Grant button is right behind this screen — then open it again.",
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The tools a component declares, rendered without knowing which component it is.
+ *
+ * This exists so that "this block has a button on it" is a fact a factory states
+ * rather than a name this screen recognises. Before it, testing an action was
+ * hardcoded here and pinning a shortcut was keyed off a config key that happened
+ * to be unique — two special cases, and the inspector would have been a third.
+ *
+ * A tool that needs state only the screen has — Test doubles as Stop while an
+ * action runs — takes it as a parameter. A tool nobody passes a handler for is
+ * simply not drawn, which is why [onTest] is nullable: triggers declare no Test
+ * and would have nothing to run.
+ */
+@Composable
+private fun ComponentTools(
+    tools: List<ComponentTool>,
+    config: Map<String, String>,
+    onPinShortcut: (Map<String, String>) -> Unit,
+    onInspect: () -> Unit,
+    testLabel: String = "Test",
+    onTest: (() -> Unit)? = null,
+) {
+    tools.forEach { tool ->
+        when (tool) {
+            // Half of what an action does is sensory — which sound, how loud, how
+            // the spoken text reads — and the alternative is saving, waiting for
+            // the real trigger, and guessing.
+            ComponentTool.Test ->
+                if (onTest != null) BlockTextButton(testLabel, onClick = onTest)
+
+            // Offered by everything that reads or writes notifications, because
+            // every one of them is configured against fields nobody can see from
+            // outside: the package, what the platform calls the title versus the
+            // text, what a button is named under its icon.
+            ComponentTool.InspectNotifications ->
+                BlockTextButton("Inspect", onClick = onInspect)
+
+            // A shortcut trigger cannot fire until a launcher button exists, so
+            // without this the rule saves, looks healthy, and never fires.
+            ComponentTool.PinShortcut ->
+                BlockTextButton("Add to home screen") { onPinShortcut(config) }
+        }
     }
 }
 
@@ -723,14 +845,3 @@ private val stringListSaver: Saver<SnapshotStateList<String>, Any> = listSaver(
     restore = { it.toMutableStateList() },
 )
 
-
-/**
- * The config key a shortcut trigger stores its generated id under.
- *
- * Duplicated from `ShortcutTrigger` rather than imported, because `:ui` must not
- * depend on a particular trigger existing — the same reason a `Rule` stores a
- * type string instead of a class. If it ever drifts, the button simply stops
- * appearing, which is visible; importing would make `:ui` know about `:triggers`
- * internals, which is not.
- */
-private const val SHORTCUT_ID_KEY = "shortcutId"

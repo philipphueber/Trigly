@@ -117,6 +117,21 @@ class Registry(
             ).distinct()
     }
 
+    /**
+     * The tools a component offers on its editor block, for this configuration.
+     *
+     * Deliberately *not* a field on [ComponentDescriptor]: a descriptor is a
+     * config-independent snapshot, and the tools depend on config — a shortcut
+     * trigger offers pinning only once it has an id to pin. Asking the registry
+     * keeps the descriptor honest about what it is.
+     *
+     * An unknown type yields nothing rather than throwing: a rule naming a
+     * component this build lacks already renders as an unavailable block, and
+     * failing here would take the whole editor down with it.
+     */
+    fun toolsFor(spec: ComponentSpec): List<ComponentTool> =
+        (triggers[spec.type] ?: actions[spec.type])?.toolsFor(spec.config).orEmpty()
+
     fun createTrigger(spec: ComponentSpec): Trigger {
         val factory = triggers[spec.type]
             ?: throw UnknownComponentException(

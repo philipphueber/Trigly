@@ -23,4 +23,20 @@ interface Action {
  */
 interface ActionFactory : ComponentFactory {
     fun create(config: Map<String, String>): Action
+
+    /**
+     * Every action can be run on demand, so every action offers [ComponentTool.Test]
+     * without saying so.
+     *
+     * A trigger cannot: "run this trigger" means waiting for the world to change.
+     * That asymmetry is why the default lives here rather than on
+     * [ComponentFactory] — the editor used to hardcode a Test button for actions
+     * and nothing for triggers, which was the same knowledge in a place that could
+     * not be overridden.
+     *
+     * An action with more to offer overrides this and includes [ComponentTool.Test]
+     * itself, so losing the button is a visible choice rather than an accident.
+     */
+    override fun toolsFor(config: Map<String, String>): List<ComponentTool> =
+        listOf(ComponentTool.Test)
 }

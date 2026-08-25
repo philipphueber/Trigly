@@ -1,6 +1,7 @@
 package app.phueber.trigly.triggers.notification
 
 import app.phueber.trigly.core.ComponentRequirement
+import app.phueber.trigly.core.ComponentTool
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.DurationUnit
 import app.phueber.trigly.triggers.Category
@@ -164,6 +165,14 @@ class NotificationWatchdogTriggerFactory : TriggerFactory {
     override val requirements = listOf(
         ComponentRequirement.SpecialAccess(SpecialAccessKind.NOTIFICATION_LISTENER),
     )
+
+    // Its filters are written against what a notification actually contains — a
+    // package, a title, a piece of text — which is exactly what nobody can fill
+    // in by guessing, and where a wrong guess yields a rule that silently never
+    // fires. The inspector is the answer, so it is offered here rather than only
+    // from the rule list, where you would have to know it exists.
+    override fun toolsFor(config: Map<String, String>): List<ComponentTool> =
+        listOf(ComponentTool.InspectNotifications)
 
     override fun create(config: Map<String, String>): Trigger {
         val packageName = config[NotificationWatchdogTrigger.CONFIG_PACKAGE]

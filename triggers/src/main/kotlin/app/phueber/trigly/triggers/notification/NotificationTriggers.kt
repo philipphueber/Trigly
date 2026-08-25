@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.NotificationManager
 import android.service.notification.StatusBarNotification
 import app.phueber.trigly.core.ComponentRequirement
+import app.phueber.trigly.core.ComponentTool
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.triggers.Category
 import app.phueber.trigly.triggers.packageFilter
@@ -149,6 +150,14 @@ class NotificationPostedTriggerFactory : TriggerFactory {
         ),
     )
     override val requirements = NOTIFICATION_ACCESS
+
+    // Its filters are written against what a notification actually contains — a
+    // package, a title, a piece of text — which is exactly what nobody can fill
+    // in by guessing, and where a wrong guess yields a rule that silently never
+    // fires. The inspector is the answer, so it is offered here rather than only
+    // from the rule list, where you would have to know it exists.
+    override fun toolsFor(config: Map<String, String>): List<ComponentTool> =
+        listOf(ComponentTool.InspectNotifications)
 
     override fun create(config: Map<String, String>): Trigger = NotificationPostedTrigger(
         packageName = config[NotificationPostedTrigger.CONFIG_PACKAGE],

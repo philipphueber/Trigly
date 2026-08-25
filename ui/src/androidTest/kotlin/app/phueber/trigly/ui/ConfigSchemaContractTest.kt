@@ -5,9 +5,12 @@ import androidx.test.platform.app.InstrumentationRegistry
 import app.phueber.trigly.actions.actionFactories
 import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ComponentFactory
+import app.phueber.trigly.core.ComponentRequirement
+import app.phueber.trigly.core.ComponentTool
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.companionKeys
 import app.phueber.trigly.core.NotificationController
+import app.phueber.trigly.core.SpecialAccessKind
 import app.phueber.trigly.core.TriggerFactory
 import app.phueber.trigly.triggers.triggerFactories
 import org.junit.Assert.assertTrue
@@ -54,6 +57,57 @@ class ConfigSchemaContractTest {
             "these components would be grouped under \"Other\": " +
                 uncategorised.map { it.type },
             uncategorised.isEmpty(),
+        )
+    }
+
+    @Test
+    fun every_component_matched_against_a_notification_offers_the_inspector() {
+        // The contract, not a list of four names: a component whose configuration
+        // is *matched against a notification* is configured against fields nobody
+        // can see from outside — the posting package, what the platform calls the
+        // title versus the text, what a button is named under its icon — and a
+        // wrong guess there is a rule that silently never fires. So the way to
+        // look at them belongs on that component's own block.
+        //
+        // Needing notification access is not the key, and `dnd_mode` is why: it
+        // holds that access to read the interruption filter, reads no
+        // notification, and has nothing the inspector could help anyone fill in.
+        // The key is a matcher field held by a component that can see
+        // notifications at all — a text pattern on an SMS trigger is not one of
+        // these, because it never had the access.
+        val missing = factories.filter { factory ->
+            val needsListener = factory.requirements.any {
+                it is ComponentRequirement.SpecialAccess &&
+                    it.kind == SpecialAccessKind.NOTIFICATION_LISTENER
+            }
+            val matchesContent = factory.configFields.any {
+                it is ConfigField.TextPattern ||
+                    it is ConfigField.AppPackage ||
+                    it is ConfigField.NotificationButton
+            }
+            needsListener && matchesContent &&
+                ComponentTool.InspectNotifications !in factory.toolsFor(emptyMap())
+        }
+        assertTrue(
+            "these are matched against notifications but offer no way to see one: " +
+                missing.map { it.type },
+            missing.isEmpty(),
+        )
+    }
+
+    @Test
+    fun no_trigger_offers_to_be_run() {
+        // `Test` runs a component on demand, which only an action can do — the
+        // editor draws it only where it has something to run, so a trigger that
+        // declared it would produce nothing at all. Caught here rather than left
+        // to render as an absence, since a tool that silently does not appear is
+        // the same class of bug as a rule that silently never fires.
+        val offenders = factories
+            .filterIsInstance<TriggerFactory>()
+            .filter { ComponentTool.Test in it.toolsFor(emptyMap()) }
+        assertTrue(
+            "a trigger cannot be run on demand: " + offenders.map { it.type },
+            offenders.isEmpty(),
         )
     }
 
