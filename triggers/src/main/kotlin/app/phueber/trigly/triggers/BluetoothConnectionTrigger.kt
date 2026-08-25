@@ -2,6 +2,7 @@ package app.phueber.trigly.triggers
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
@@ -20,12 +21,15 @@ import app.phueber.trigly.core.TextFilter
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
+import kotlin.coroutines.resume
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Whether a connecting device is the one a rule asked for.
@@ -259,26 +263,37 @@ class BluetoothConnectionTrigger(
      * now — the condition seam from `docs/conditions.md`, and the recheck the
      * disconnect debounce leans on.
      *
-     * [BluetoothManager.getConnectedDevices] with [BluetoothProfile.GATT] is the
-     * only public, synchronous way to ask "is this device connected" — no
-     * reflection, no proxy. It is also only ever right about LE: a classic
-     * profile (A2DP, HEADSET — a car head unit's profile, typically) keeps no GATT
-     * link, so it never appears in that list even while genuinely connected.
-     * `BluetoothAdapter.getBondedDevices()` cannot fill that gap either — bonded
-     * only means paired, and a paired device is routinely sitting disconnected in
-     * a pocket. The classic answer exists (`BluetoothProfile.ServiceListener` via
-     * `getProfileProxy`), but it is asynchronous and per-profile, not a fit for a
-     * suspend function meant to answer quickly.
+     * [BluetoothManager.getConnectedDevices] with [BluetoothProfile.GATT] answers
+     * synchronously, but only for LE: a classic profile (A2DP, HEADSET — a car
+     * head unit's profile, typically) keeps no GATT link, so it never appears on
+     * that list even while genuinely connected. An earlier version of this
+     * function stopped there and treated every classic device as permanently
+     * unreadable, which was backwards for exactly the debounce above: a car
+     * stereo is *the* device that flickers on and off, and a check that can never
+     * see it as connected can never catch the flicker either — the debounce
+     * silently did nothing for the one case it was built for.
      *
-     * So a positive match is trustworthy — the device is on the GATT list, it is
-     * connected, full stop. An absence is not: it is either a genuinely
-     * disconnected device, or a classic-profile device this call cannot see at
-     * all, and there is no honest way here to tell those apart. Reporting "not
-     * connected" anyway would be exactly the wrong false `docs/conditions.md`
-     * warns about, so an absence returns null — a rule gated on this can still
-     * fire, it just cannot fire on the strength of a classic device having
-     * *disconnected*, only of one currently seen connected, or of the permission
-     * and read failures below.
+     * `BluetoothAdapter.getBondedDevices()` cannot fill the gap: bonded only
+     * means paired, and a paired device is routinely sitting disconnected in a
+     * pocket. What does fill it is [connectedDevicesForProfile], asked once for
+     * [BluetoothProfile.A2DP] and once for [BluetoothProfile.HEADSET] — the two
+     * profiles a car head unit or a classic headset actually uses. See that
+     * function for the bind/timeout cost this adds on top of the free GATT read.
+     *
+     * The three lists — GATT, A2DP, HEADSET — are unioned: a match on any one of
+     * them is a confirmed connection, so a GATT failure no longer forces null by
+     * itself if a classic profile still answers. An absence across all three is
+     * *not* the mirror image and still returns null, not false: two different
+     * situations produce that absence and nothing here can tell them apart — a
+     * genuinely disconnected device, or one connected on a profile this function
+     * never asks about (HID, a hearing aid, LE Audio, anything else
+     * `BluetoothProfile` defines beyond these three). Reporting "not connected"
+     * for the second case would be exactly the wrong false `docs/conditions.md`
+     * warns about. So a positive match is trustworthy full stop, and a rule gated
+     * on this can still fire on a *connect*, or on the permission and read
+     * failures below; only "this specific device just disconnected" is a claim
+     * this function can never back up for a device living outside GATT, A2DP and
+     * HEADSET.
      */
     // BLUETOOTH_CONNECT is checked on the first line and null returned without
     // it; lint does not follow the helper, and the file's other reads are
@@ -288,14 +303,84 @@ class BluetoothConnectionTrigger(
         if (!context.hasBluetoothConnectPermission()) return null
 
         val manager = context.getSystemService(BluetoothManager::class.java) ?: return null
-        val connectedMatch = runCatching {
-            manager.getConnectedDevices(BluetoothProfile.GATT).any { device ->
+        val adapter = manager.adapter ?: return null
+
+        fun matches(devices: List<BluetoothDevice>?): Boolean =
+            devices?.any { device ->
                 val (address, name) = identify(device)
                 bluetoothDeviceMatches(deviceAddress, nameFilter, address, name)
-            }
-        }.getOrNull() ?: return null
+            } ?: false
+
+        val gattDevices = runCatching { manager.getConnectedDevices(BluetoothProfile.GATT) }.getOrNull()
+        val a2dpDevices = connectedDevicesForProfile(adapter, BluetoothProfile.A2DP)
+        val headsetDevices = connectedDevicesForProfile(adapter, BluetoothProfile.HEADSET)
+
+        val connectedMatch = matches(gattDevices) || matches(a2dpDevices) || matches(headsetDevices)
 
         return if (connectedMatch) onConnect else null
+    }
+
+    /**
+     * The devices currently connected on one classic Bluetooth profile —
+     * [BluetoothProfile.A2DP] or [BluetoothProfile.HEADSET] — or null if the
+     * profile's service never answered in time.
+     *
+     * Unlike GATT, a classic profile is not a list [BluetoothManager] can be
+     * asked about directly; it is a system *service* an app has to bind to via
+     * [BluetoothAdapter.getProfileProxy]. That call is fire-and-forget — its
+     * `Boolean` return says whether the bind was *requested*, not whether it
+     * succeeded — and the real answer arrives later, on
+     * [BluetoothProfile.ServiceListener.onServiceConnected]. [suspendCancellableCoroutine]
+     * turns that one-shot callback back into an ordinary return value.
+     *
+     * The wait is capped at [PROFILE_PROXY_TIMEOUT_MILLIS], 1.5 seconds. In the
+     * ordinary case this binds to a service that is already running — the same
+     * A2DP/HEADSET process every other Bluetooth-using app on the phone shares —
+     * so the callback is fast; the cap exists for the adapter that is busy or
+     * wedged. [currentlyHolds] runs synchronously inside a rule's gate
+     * evaluation, so a bind that simply never answered would otherwise hang that
+     * evaluation forever. 1.5 seconds is long enough to survive a cold bind (the
+     * profile process occasionally has to start rather than merely reply) and
+     * short enough that one flaky device does not make a condition check feel
+     * broken; there is no measurement behind the exact number beyond that, only
+     * the shape of the trade-off.
+     *
+     * The proxy is closed the moment its answer is read — [closeProfileProxy],
+     * right there in the listener, whether or not the timeout above has already
+     * fired. An unclosed proxy is a live binder connection to a system service
+     * for the rest of the process's life, and avoiding exactly that is this
+     * function's reason to exist: it asks once and lets go, rather than holding
+     * a profile connection open between checks the way a trigger's [events] would.
+     * If the timeout wins the race, the listener is not told to stop listening —
+     * there is no API to cancel a [BluetoothAdapter.getProfileProxy] request in
+     * flight — so a very late answer can still arrive after this has already
+     * returned null; it still gets closed then, just too late to be used.
+     */
+    // Same reasoning as currentlyHolds' own suppression: BLUETOOTH_CONNECT is
+    // checked by that caller before this is ever reached, and lint cannot see
+    // across the call.
+    @SuppressLint("MissingPermission")
+    private suspend fun connectedDevicesForProfile(
+        adapter: BluetoothAdapter,
+        profile: Int,
+    ): List<BluetoothDevice>? = withTimeoutOrNull(PROFILE_PROXY_TIMEOUT_MILLIS) {
+        suspendCancellableCoroutine { continuation ->
+            val listener = object : BluetoothProfile.ServiceListener {
+                override fun onServiceConnected(connectedProfile: Int, proxy: BluetoothProfile) {
+                    val devices = runCatching { proxy.connectedDevices }.getOrNull()
+                    adapter.closeProfileProxy(profile, proxy)
+                    if (continuation.isActive) continuation.resume(devices)
+                }
+
+                override fun onServiceDisconnected(disconnectedProfile: Int) = Unit
+            }
+            val requested = runCatching { adapter.getProfileProxy(context, listener, profile) }.getOrDefault(false)
+            if (!requested && continuation.isActive) {
+                // getProfileProxy said the bind was never even attempted — there is
+                // no service connection pending and therefore nothing to close.
+                continuation.resume(null)
+            }
+        }
     }
 
     /**
@@ -329,6 +414,18 @@ class BluetoothConnectionTrigger(
         const val CONFIG_NAME_MODE = "nameMode"
         const val CONFIG_STATE = "state"
         const val CONFIG_DISCONNECT_DEBOUNCE_MILLIS = "disconnectDebounceMillis"
+
+        /**
+         * The editor's "identify the device by" choice. A third key, never read by
+         * [BluetoothConnectionTrigger] itself — [CONFIG_ADDRESS] and [CONFIG_NAME]
+         * keep being read independently and ANDed exactly as they always were, see
+         * [bluetoothDeviceMatches] — this only decides which of the two fields the
+         * editor draws. See [BluetoothConnectionTriggerFactory.configFields] for why
+         * that split is safe for a rule saved before this key existed.
+         */
+        const val CONFIG_IDENTIFY_BY = "identifyBy"
+        const val IDENTIFY_BY_ADDRESS = "address"
+        const val IDENTIFY_BY_NAME = "name"
         const val PAYLOAD_ADDRESS = "address"
         const val PAYLOAD_NAME = "name"
         const val PAYLOAD_STATE = "state"
@@ -336,6 +433,13 @@ class BluetoothConnectionTrigger(
         const val DISCONNECTED = "disconnected"
     }
 }
+
+/**
+ * How long [BluetoothConnectionTrigger.connectedDevicesForProfile] waits for a
+ * classic profile service to answer before giving up and returning null. See
+ * that function for what the number is trading off.
+ */
+private const val PROFILE_PROXY_TIMEOUT_MILLIS = 1_500L
 
 private fun Context.hasBluetoothConnectPermission(): Boolean =
     ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) ==
@@ -349,13 +453,62 @@ class BluetoothConnectionTriggerFactory(
     override val displayName = "Bluetooth device"
     override val category = Category.RADIOS
 
-    // See BluetoothConnectionTrigger.currentlyHolds: it answers for real when the
-    // device is seen connected, and honestly declines (null) rather than guess
-    // when it is not — which is enough to satisfy the contract this flag makes,
-    // just not on every configuration.
+    // See BluetoothConnectionTrigger.currentlyHolds: querying GATT, A2DP and
+    // HEADSET together answers for real whenever the device is seen connected
+    // on any of the three, and honestly declines (null) rather than guess when
+    // it is not — which is enough to satisfy the contract this flag makes, just
+    // not for a device that only ever shows up on some other profile.
     override val supportsCondition = true
 
+    // Surfaced here, on the factory, rather than left in currentlyHolds' KDoc,
+    // because that KDoc lives on a suspend function nobody choosing a condition
+    // in the editor will ever open — this is the one place the caveat reaches
+    // the person it is actually for.
+    override val warning: String =
+        "As a condition, this can confirm a device is connected, including a " +
+            "classic-audio device like a car stereo — at the cost of a brief " +
+            "extra check beyond the instant one for a Bluetooth LE device. It can " +
+            "only confirm a device is *disconnected* if it uses GATT, A2DP or " +
+            "HEADSET; on any other profile (HID, a hearing aid, LE Audio) this " +
+            "quietly never answers, rather than answering wrong."
+
     override val configFields = listOf(
+        // One decision, not two overlapping filters: which of CONFIG_ADDRESS and
+        // CONFIG_NAME is visible follows from this choice, so the editor never
+        // shows both at once and never has to explain, in prose, that one is a
+        // workaround for the other. bluetoothDeviceMatches still ANDs both if
+        // both happen to be set — a rule from before this field existed may
+        // carry either, both, or neither, and none of that changes.
+        //
+        // Defaulted to "address" rather than "name". CONFIG_IDENTIFY_BY is a key
+        // no rule saved before this existed has, so for every one of them
+        // ConfigField.shownWith falls back to this default to decide what to
+        // draw — there is no way to compute a default from what a rule already
+        // has stored, only one fixed value that has to serve every legacy shape
+        // at once. "address" is the one that does that best: it is correct for
+        // the two commonest legacy shapes — no filter at all (shows "Any
+        // device", which is exactly what was configured) and an address picked
+        // from the paired-device list (shows it) — because the address field,
+        // not the name filter, is what every rule had before the name filter
+        // was added as an escape hatch for unpaired LE gear. A rule that used
+        // that escape hatch instead opens showing "Any device" with its name
+        // filter hidden — not lost: a hidden field's stored value is never
+        // cleared on save, only left undrawn, so the filter keeps applying —
+        // and one tap on this choice reveals it again.
+        ConfigField.Choice(
+            key = BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY,
+            label = "Identify the device by",
+            options = listOf(
+                ConfigField.Option(BluetoothConnectionTrigger.IDENTIFY_BY_ADDRESS, "Paired device"),
+                ConfigField.Option(BluetoothConnectionTrigger.IDENTIFY_BY_NAME, "Name"),
+            ),
+            default = BluetoothConnectionTrigger.IDENTIFY_BY_ADDRESS,
+            help = "A paired device keeps the same address, so picking one from " +
+                "the list is the durable match. An unpaired Bluetooth LE " +
+                "accessory rotates its address every few minutes, so match it by " +
+                "the name it advertises instead — pairing the device removes the " +
+                "need.",
+        ),
         // A picker over the phone's paired devices rather than a box asking for
         // 00:11:22:33:44:55. It still stores an address — a paired device is a
         // convenience, not the set of devices that can connect — so an address
@@ -364,9 +517,13 @@ class BluetoothConnectionTriggerFactory(
             key = BluetoothConnectionTrigger.CONFIG_ADDRESS,
             label = "Device",
             blankMeaning = "Any device",
+            shownWhen = FieldCondition(
+                key = BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY,
+                value = BluetoothConnectionTrigger.IDENTIFY_BY_ADDRESS,
+            ),
             help = "Lists the devices this phone is paired with. Reading that " +
-                "list, and the address of a device that connects, both need the " +
-                "Bluetooth permission below.",
+                "list, and the address of a device that connects, both need " +
+                "this trigger's Bluetooth permission.",
         ),
         stateChoice(
             label = "Fires when the device",
@@ -375,25 +532,30 @@ class BluetoothConnectionTriggerFactory(
             offValue = BluetoothConnectionTrigger.DISCONNECTED,
             offLabel = "disconnects",
         ),
-        // The escape hatch for a rotating address, and the reason the two are
-        // separate optional filters rather than a "match on…" choice: they narrow
-        // independently, an absent one means "no opinion" exactly as it does
-        // everywhere else, and no rule saved before this existed needs migrating.
-        textFilter(
+        // Built directly rather than through the textFilter() helper in
+        // ConfigSchema.kt: that helper has no shownWhen parameter, and this is
+        // the one text filter in the project that needs one.
+        ConfigField.TextPattern(
             key = BluetoothConnectionTrigger.CONFIG_NAME,
-            label = "Device name contains",
+            label = "Name contains",
             blankMeaning = "Any name",
-            help = "Use this instead of the device above for a Bluetooth LE " +
-                "accessory: an unpaired one changes its address every few " +
-                "minutes, so a rule pinned to an address stops matching. Pairing " +
-                "the device also fixes that.",
+            shownWhen = FieldCondition(
+                key = BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY,
+                value = BluetoothConnectionTrigger.IDENTIFY_BY_NAME,
+            ),
+            help = "The name a Bluetooth LE accessory advertises — the " +
+                "identifier that survives when it is not paired. An unpaired " +
+                "accessory rotates its address every few minutes, which is what " +
+                "makes a name the more durable choice for one; pairing it fixes " +
+                "the rotation and makes \"Paired device\" the better choice " +
+                "again.",
         ),
         // Only shown for the disconnect direction: a connection that appears is
         // real, so there is nothing to debounce on the connect side. Defaults to
         // off so a rule saved before this existed keeps firing on the raw edge.
         ConfigField.Duration(
             key = BluetoothConnectionTrigger.CONFIG_DISCONNECT_DEBOUNCE_MILLIS,
-            label = "Wait before firing",
+            label = "Ignore a reconnect within",
             shownWhen = FieldCondition(
                 key = BluetoothConnectionTrigger.CONFIG_STATE,
                 value = BluetoothConnectionTrigger.DISCONNECTED,
@@ -408,11 +570,42 @@ class BluetoothConnectionTriggerFactory(
         ),
     )
 
-    // Without it the trigger still fires, but events carry no device address,
-    // so a rule narrowed to one device can never match.
+    // The honest worst case: without it the trigger still fires, but events
+    // carry no device address or name, so a rule narrowed to a device can never
+    // match. Kept unconditional, rather than removed in favour of
+    // requirementsFor below, as the answer for any caller that reads
+    // `requirements` directly — the rules list is not that caller; see
+    // requirementsFor.
     override val requirements = listOf(
         ComponentRequirement.RuntimePermission(Manifest.permission.BLUETOOTH_CONNECT),
     )
+
+    // The honest common case, for the rules list specifically: an "any device"
+    // rule matches on the raw ACL broadcast alone and needs nothing, because
+    // bluetoothDeviceMatches(null, TextFilter.Any, null, null) is true
+    // regardless of whether identify() could read an address or a name.
+    // Narrowing by CONFIG_ADDRESS or CONFIG_NAME is what turns a missing
+    // address or name from a missing detail into a missing match, and that is
+    // the point this permission actually starts to matter. Declaring it
+    // unconditionally would mark that unnarrowed rule "cannot fire" in the
+    // rules list when it fires perfectly well — and a requirement that is
+    // sometimes irrelevant teaches people to ignore requirements, which is the
+    // opposite of what the list is for.
+    //
+    // This is deliberately about the *edge* role only. Used as a condition, an
+    // unnarrowed "any device" check still needs this permission just to call
+    // getConnectedDevices/getProfileProxy at all — currentlyHolds returns null
+    // without it regardless of narrowing — and requirementsFor has no way to
+    // know which slot a given config ends up in, only what the config says. A
+    // rule that puts this unnarrowed in a condition slot without the permission
+    // will silently never hold rather than being flagged unfirable; that gap is
+    // real and is not fixed here, only left visible in this comment rather than
+    // hidden in a decision only this function's author was in a position to make.
+    override fun requirementsFor(config: Map<String, String>): List<ComponentRequirement> {
+        val narrowed = !config[BluetoothConnectionTrigger.CONFIG_ADDRESS].isNullOrEmpty() ||
+            !config[BluetoothConnectionTrigger.CONFIG_NAME].isNullOrEmpty()
+        return if (narrowed) requirements else emptyList()
+    }
 
     override fun create(config: Map<String, String>): Trigger =
         BluetoothConnectionTrigger(

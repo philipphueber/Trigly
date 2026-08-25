@@ -135,6 +135,23 @@ interface ComponentFactory {
         get() = emptyList()
 
     /**
+     * What this component needs *given how it is configured*.
+     *
+     * Defaults to [requirements], so a component whose needs do not vary says
+     * nothing extra. Overriding it is how a component stops demanding access it
+     * will not use: `play_alert` needs notification access only when asked to
+     * stop early, and `bluetooth_connected` needs the Bluetooth permission only
+     * when it has been narrowed to a particular device.
+     *
+     * This exists because the alternative was showing a Grant button for a
+     * permission the rule as written never touches — and, worse, marking a rule
+     * "cannot fire" when it could. A requirement that is sometimes irrelevant
+     * teaches people to ignore requirements, which is the opposite of what the
+     * model is for.
+     */
+    fun requirementsFor(config: Map<String, String>): List<ComponentRequirement> = requirements
+
+    /**
      * The settings this component accepts, for the editor to render. Empty means
      * "nothing to configure". See [ConfigField] for why this does not replace the
      * validation inside `create()`.

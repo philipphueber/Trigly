@@ -93,11 +93,29 @@ class Registry(
     fun displayNameOf(type: String): String =
         (triggers[type] ?: actions[type])?.displayName ?: type
 
-    /** Everything [rule] needs, deduplicated — what a "why isn't this firing?" screen shows. */
-    fun requirementsOf(rule: Rule): List<ComponentRequirement> =
-        (triggerRequirements(rule.trigger.type) +
-            rule.actions.flatMap { actionRequirements(it.type) })
-            .distinct()
+    /**
+     * Everything [rule] needs, deduplicated — what a "why isn't this firing?"
+     * screen shows.
+     *
+     * **The whole gate, not just the first edge.** This read `rule.trigger` while
+     * a rule could only have one; once gates arrived, a permission needed by a
+     * second trigger or by any condition became invisible, and the list would
+     * call such a rule firable when it was not. That is the exact failure the
+     * requirement model exists to prevent, so it is worth being explicit: every
+     * edge, every condition check, every action.
+     *
+     * Each component is asked what it needs *as configured* — see
+     * [ComponentFactory.requirementsFor]. A rule that never uses a capability is
+     * not blocked on it.
+     */
+    fun requirementsOf(rule: Rule): List<ComponentRequirement> {
+        val fromGate = rule.gate.triggers + rule.gate.conditions?.checks().orEmpty()
+
+        return (
+            fromGate.flatMap { triggers[it.type]?.requirementsFor(it.config).orEmpty() } +
+                rule.actions.flatMap { actions[it.type]?.requirementsFor(it.config).orEmpty() }
+            ).distinct()
+    }
 
     fun createTrigger(spec: ComponentSpec): Trigger {
         val factory = triggers[spec.type]
