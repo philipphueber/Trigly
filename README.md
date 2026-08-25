@@ -5,6 +5,33 @@
 Trigly is an open source automation app for Android. It is written in native
 Kotlin, and it uses Jetpack Compose for its UI.
 
+> ### This is alpha software
+>
+> The version number is `0.0.x`, and that is a statement. The app runs and the
+> rules work, but the surface is not settled: a control can move, a trigger can
+> change its name, and a setting can change its meaning between two releases.
+>
+> **Your rules survive an update.** That promise is separate from the one above,
+> and it holds at every version. The rule format and the database each carry
+> their own version number, and each release reads what the release before it
+> wrote.
+>
+> Three limits to know before you install:
+>
+> - **There is no scheduler yet.** A rule that waits for a time of day, a day of
+>   the week, or the next sunrise is not reliable, because the wait is a
+>   coroutine and Android stops it in Doze. See "Cross-cutting blockers" in
+>   `docs/triggers.md`.
+> - **Nothing tests the release build.** The tests cover the debug build. The
+>   release build shrinks and renames code, and no test exercises the result.
+> - **An OEM can end the engine.** A force stop, or an aggressive battery
+>   manager, ends the process that watches your triggers. Trigly says when a
+>   rule cannot start, and it cannot say when the system has stopped it.
+>
+> Report anything that surprises you. A rule that does nothing and says nothing
+> is the failure this app is designed against, so it is the most useful thing
+> you can report.
+
 A rule has this form: when a trigger starts, the rule runs a set of actions.
 Triggers and actions use a plugin design. Each type is its own class, behind
 a common interface. You can add a new type without a change to an existing
