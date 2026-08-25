@@ -29,7 +29,7 @@ backwards for.
 ## What was checked, and against what
 
 Per this project's standing rule, everything below is checked against
-`/home/philipp/Android/Sdk/platforms/android-35/android.jar` with `javap`,
+`$ANDROID_HOME/platforms/android-35/android.jar` with `javap`,
 not recalled. Two things are explicitly *not* in that jar and could not be
 checked that way: `androidx.car.app` (an AndroidX library, not part of the
 platform) and the exact AOAP manufacturer/model strings Google's Android Auto
