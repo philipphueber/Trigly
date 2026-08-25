@@ -1,13 +1,19 @@
 package app.phueber.trigly.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.height
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ComponentSpec
@@ -69,6 +75,29 @@ class RulesScreenTest {
             onImport = { importTaps++ },
             describeComponent = describe,
         )
+    }
+
+    /**
+     * The same guarantee the editor's footer has, for the list's own controls.
+     *
+     * This row gained Duplicate beside Share, and a label is only as short as the
+     * language it is translated into. Asserting height rather than presence,
+     * because a control squeezed to one letter per line is present and displayed
+     * and unreadable.
+     */
+    @Test
+    fun a_rules_controls_are_not_crushed_on_a_narrow_screen() {
+        composeRule.setContent {
+            Box(modifier = Modifier.width(320.dp)) { Screen(statusesOf(sampleRule)) }
+        }
+
+        listOf("SHARE", "DUPLICATE").forEach { label ->
+            val height = composeRule.onNodeWithText(label)
+                .performScrollTo()
+                .getUnclippedBoundsInRoot()
+                .height
+            assertTrue("$label is $height tall", height < 64.dp)
+        }
     }
 
     @Test

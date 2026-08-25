@@ -261,6 +261,24 @@ fun BlockDivider(modifier: Modifier = Modifier) {
 }
 
 /**
+ * Why every button label in this file is one line, and never wraps.
+ *
+ * A label given no limit wraps to fit whatever width it is handed, and a button
+ * squeezed narrow enough wraps *per character*: a real device showed a footer
+ * whose last control read as a vertical column of letters, one under the next,
+ * still tappable and no longer readable. Nothing failed. The row simply ran out
+ * of room and the text obeyed.
+ *
+ * `maxLines = 1` with `softWrap = false` makes that impossible. A label that
+ * does not fit is clipped, which is visibly wrong and reads as wrong, instead of
+ * rearranging itself into something that looks deliberate.
+ *
+ * Not fitting is still a layout bug; this only decides how it shows. The
+ * container is the other half: a row of buttons that can grow past the width
+ * wraps to a second line rather than squeezing its last child. See
+ * `RuleEditorScreen`'s footer.
+ */
+/**
  * A filled, full-width-by-default action.
  *
  * The label is uppercased here rather than at every call site, so a button
@@ -287,7 +305,12 @@ fun BlockButton(
         ),
         modifier = modifier.hardShadow(BlockShape),
     ) {
-        Text(text = text.uppercase(), style = MaterialTheme.typography.labelLarge)
+        Text(
+            text = text.uppercase(),
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+            softWrap = false,
+        )
     }
 }
 
@@ -326,6 +349,8 @@ fun BlockOutlineButton(
             text = text.uppercase(),
             style = MaterialTheme.typography.labelLarge,
             textAlign = TextAlign.Center,
+            maxLines = 1,
+            softWrap = false,
             modifier = (if (fillWidth) Modifier.fillMaxWidth() else Modifier)
                 .padding(horizontal = 20.dp, vertical = 14.dp),
         )
@@ -353,7 +378,12 @@ fun BlockTextButton(
         colors = ButtonDefaults.textButtonColors(contentColor = contentColor),
         modifier = modifier,
     ) {
-        Text(text = text.uppercase(), style = MaterialTheme.typography.labelMedium)
+        Text(
+            text = text.uppercase(),
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1,
+            softWrap = false,
+        )
     }
 }
 
@@ -451,6 +481,8 @@ fun BlockToggleChip(
             text = text.uppercase(),
             style = MaterialTheme.typography.labelSmall,
             textAlign = TextAlign.Center,
+            maxLines = 1,
+            softWrap = false,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
         )
     }
