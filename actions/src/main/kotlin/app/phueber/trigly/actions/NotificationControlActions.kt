@@ -58,8 +58,8 @@ class DismissNotificationAction(
         if (targetPackage == null) {
             val triggering = event.payload[SharedPayloadKeys.NOTIFICATION_KEY]
                 ?: return ActionResult.Failure(
-                    "nothing to dismiss: choose an app, or use this action on a rule " +
-                        "triggered by a notification"
+                    "There is nothing to dismiss. Choose an app, or use this " +
+                        "action on a rule triggered by a notification."
                 )
             return controller.dismiss(triggering)
         }
@@ -69,7 +69,7 @@ class DismissNotificationAction(
         val active = controller.activeNotifications()
         if (active.isEmpty() && !controller.isConnected) {
             return ActionResult.Failure(
-                "notification access is not granted, or the listener is not bound yet"
+                "Notification access is not granted, or the listener is not bound yet."
             )
         }
 
@@ -80,7 +80,7 @@ class DismissNotificationAction(
             // trigger's notification instead when that app has nothing showing
             // would be the wrong notification, reported as success.
             triggeringKey = null,
-        ) ?: return ActionResult.Failure("no notification from '$targetPackage' is showing")
+        ) ?: return ActionResult.Failure("No notification from '$targetPackage' is showing.")
 
         return controller.dismiss(target.key)
     }
@@ -189,7 +189,7 @@ class TriggerNotificationButtonAction(
         val active = controller.activeNotifications()
         if (active.isEmpty() && !controller.isConnected) {
             return ActionResult.Failure(
-                "notification access is not granted, or the listener is not bound yet"
+                "Notification access is not granted, or the listener is not bound yet."
             )
         }
 
@@ -199,10 +199,10 @@ class TriggerNotificationButtonAction(
             triggeringKey = event.payload[SharedPayloadKeys.NOTIFICATION_KEY],
         ) ?: return ActionResult.Failure(
             if (targetPackage != null) {
-                "no notification from '$targetPackage' is showing"
+                "No notification from '$targetPackage' is showing."
             } else {
-                "no notification to act on: choose an app, or use this action on a " +
-                    "rule triggered by a notification"
+                "There is no notification to act on. Choose an app, or use " +
+                    "this action on a rule triggered by a notification."
             }
         )
 
@@ -212,8 +212,8 @@ class TriggerNotificationButtonAction(
         // go straight to the screen if the rule allows it.
         if (target.buttons.isEmpty()) {
             return pressOnScreen(
-                reason = "that notification exposes no buttons to the system — its " +
-                    "app draws them itself"
+                reason = "That notification exposes no buttons to the system. " +
+                    "Its app draws them itself."
             )
         }
 
@@ -223,10 +223,10 @@ class TriggerNotificationButtonAction(
             wantedLabel = buttonLabel,
             storedIndex = legacyIndex,
         ) ?: return pressOnScreen(
-            reason = "that notification has no button matching " +
+            reason = "That notification has no button matching " +
                 "'${buttonLabel ?: legacyIndex ?: "anything configured"}'. " +
-                "It has ${target.buttons.size}: " +
-                target.buttons.joinToString { it.label ?: "?" }
+                "It has ${target.buttons.size} buttons: " +
+                "${target.buttons.joinToString { it.label ?: "?" }}."
         )
 
         // Refused rather than attempted. Firing a reply button's intent with no
@@ -235,8 +235,8 @@ class TriggerNotificationButtonAction(
         // is trying not to have.
         if (button.takesText) {
             return ActionResult.Failure(
-                "'${button.label}' is a reply box and needs text typed into it, " +
-                    "which a rule cannot supply"
+                "'${button.label}' is a reply box. It needs text typed into it, " +
+                    "which a rule cannot supply."
             )
         }
 
@@ -256,21 +256,23 @@ class TriggerNotificationButtonAction(
      * the button exist on screen.
      */
     private suspend fun pressOnScreen(reason: String): ActionResult {
+        // `reason` is already a complete sentence, so what follows is joined
+        // with a space rather than a second full stop.
         if (!useScreenFallback) {
             return ActionResult.Failure(
-                "$reason. Turn on \"use the screen\" for this action to press it " +
+                "$reason Turn on \"use the screen\" for this action to press it " +
                     "through the notification shade instead."
             )
         }
         val label = buttonLabel?.takeIf { it.isNotBlank() }
             ?: return ActionResult.Failure(
-                "$reason. Pressing through the screen needs the button's name, " +
+                "$reason Pressing through the screen needs the button's name, " +
                     "which this rule does not have."
             )
 
         return when (val pressed = ui.pressNotificationButton(targetPackage, label)) {
             is ActionResult.Success -> pressed
-            is ActionResult.Failure -> ActionResult.Failure("$reason. ${pressed.reason}")
+            is ActionResult.Failure -> ActionResult.Failure("$reason ${pressed.reason}")
         }
     }
 

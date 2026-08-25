@@ -21,10 +21,10 @@ class VibrateAction(
 
     override suspend fun execute(event: TriggerEvent): ActionResult {
         val vibrator = context.vibrator()
-            ?: return ActionResult.Failure("this device has no vibrator")
+            ?: return ActionResult.Failure("This device has no vibrator.")
 
         if (!vibrator.hasVibrator()) {
-            return ActionResult.Failure("this device has no vibrator")
+            return ActionResult.Failure("This device has no vibrator.")
         }
 
         vibrator.vibrate(

@@ -36,8 +36,8 @@ internal fun Context.launchForRule(intent: Intent): ActionResult {
         startActivity(intent)
         ActionResult.Success
     } catch (notFound: ActivityNotFoundException) {
-        ActionResult.Failure("nothing on this device handles that", notFound)
+        ActionResult.Failure("No app on this device can handle this action.", notFound)
     } catch (denied: SecurityException) {
-        ActionResult.Failure("the system refused the start: ${denied.message}", denied)
+        ActionResult.Failure("The system refused to start this. ${denied.message}", denied)
     }
 }

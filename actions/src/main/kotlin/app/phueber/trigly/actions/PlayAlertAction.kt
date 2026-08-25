@@ -188,13 +188,15 @@ fun alertStop(
     val key = event.payload[SharedPayloadKeys.NOTIFICATION_KEY]
     return when {
         key.isNullOrBlank() -> AlertStop.Unwatchable(
-            "\"stop when the notification goes away\" needs a notification to watch, " +
-                "and this rule was fired by ${event.triggerType}, which carries no " +
-                "notification — the alert played for its full length"
+            "The \"stop when the notification goes away\" option needs a " +
+                "notification to watch. This rule was fired by " +
+                "${event.triggerType}, which carries no notification. The alert " +
+                "played for its full length."
         )
         !notificationAccess -> AlertStop.Unwatchable(
-            "\"stop when the notification goes away\" needs notification access, which " +
-                "is not granted or not bound yet — the alert played for its full length"
+            "The \"stop when the notification goes away\" option needs " +
+                "notification access. Notification access is not granted, or is " +
+                "not bound yet. The alert played for its full length."
         )
         else -> AlertStop.WhenGone(key)
     }
@@ -265,12 +267,12 @@ class PlayAlertAction(
         val custom = customUri?.trim().orEmpty()
         if (custom.isNotEmpty() && !isPlayableSoundUri(custom)) {
             return ActionResult.Failure(
-                "a custom sound must be a content: or file: URI, got '$custom'"
+                "A custom sound must use a content: or file: URI. This value is '$custom'."
             )
         }
 
         val uri = resolveUri() ?: return ActionResult.Failure(
-            "no ${sound.configValue} sound is set on this device"
+            "This device has no ${sound.configValue} sound set."
         )
 
         // Decided before a note is played, so that an option that cannot work
@@ -316,7 +318,7 @@ class PlayAlertAction(
             // A bad custom URI, an unreadable file, a codec the device lacks.
             // Reported rather than thrown: one broken action must not take down
             // the rest of the rule.
-            ActionResult.Failure("could not play the alert: ${failure.message}", failure)
+            ActionResult.Failure("Trigly could not play the alert. ${failure.message}", failure)
         } finally {
             // Reached on cancellation too, which is what makes disabling the rule
             // an actual stop button. stop() throws if the player never started.

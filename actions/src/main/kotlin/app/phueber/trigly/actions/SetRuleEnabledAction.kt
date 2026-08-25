@@ -62,14 +62,14 @@ class SetRuleEnabledAction(
 
     override suspend fun execute(event: TriggerEvent): ActionResult {
         val target = ruleId?.takeIf { it.isNotBlank() }
-            ?: return ActionResult.Failure("no rule chosen for this action to switch")
+            ?: return ActionResult.Failure("This action has no rule chosen to switch.")
 
         // A one-shot read, like the editor's: acting on a snapshot is right here,
         // because the decision is about the rule as it is at this instant.
         val rule: Rule = repository.rules().first().firstOrNull { it.id == target }
             ?: return ActionResult.Failure(
-                "no rule with id '$target' — it was probably deleted after this " +
-                    "action was set up"
+                "No rule has the id '$target'. It was probably deleted after " +
+                    "this action was set up."
             )
 
         val wanted = mode.applyTo(rule.enabled)

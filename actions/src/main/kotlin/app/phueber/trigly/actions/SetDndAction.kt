@@ -50,17 +50,17 @@ class SetDndAction(
 
     override suspend fun execute(event: TriggerEvent): ActionResult {
         val manager = context.getSystemService(NotificationManager::class.java)
-            ?: return ActionResult.Failure("no notification service")
+            ?: return ActionResult.Failure("There is no notification service.")
 
         if (!manager.isNotificationPolicyAccessGranted) {
-            return ActionResult.Failure("Do Not Disturb access is not granted")
+            return ActionResult.Failure("Do Not Disturb access is not granted.")
         }
 
         return try {
             manager.setInterruptionFilter(mode.filter)
             ActionResult.Success
         } catch (denied: SecurityException) {
-            ActionResult.Failure("Do Not Disturb access was revoked", denied)
+            ActionResult.Failure("Do Not Disturb access was revoked.", denied)
         }
     }
 

@@ -149,8 +149,8 @@ interface UiController {
             packageName: String?,
             label: String,
         ): ActionResult = ActionResult.Failure(
-            "accessibility access is not available, so the screen cannot be used " +
-                "to press '$label'"
+            "Accessibility access is not available. The screen cannot be used " +
+                "to press '$label'."
         )
     }
 }

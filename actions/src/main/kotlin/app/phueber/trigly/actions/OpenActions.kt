@@ -32,7 +32,9 @@ class OpenUrlAction(
 
     override suspend fun execute(event: TriggerEvent): ActionResult {
         if (!isLaunchableWebUrl(url)) {
-            return ActionResult.Failure("only http and https URLs can be opened, got '$url'")
+            return ActionResult.Failure(
+                "This action opens only http and https URLs. This URL is '$url'."
+            )
         }
         return context.launchForRule(Intent(Intent.ACTION_VIEW, url.toUri()))
     }
@@ -87,8 +89,8 @@ class OpenAppAction(
     override suspend fun execute(event: TriggerEvent): ActionResult {
         val intent = context.packageManager.getLaunchIntentForPackage(packageName)
             ?: return ActionResult.Failure(
-                "cannot launch '$packageName': it is not installed, or not visible to " +
-                    "Trigly under Android 11 package visibility rules"
+                "Trigly cannot launch '$packageName'. It is either not installed, " +
+                    "or Android's package visibility rules hide it from Trigly."
             )
 
         return context.launchForRule(intent)

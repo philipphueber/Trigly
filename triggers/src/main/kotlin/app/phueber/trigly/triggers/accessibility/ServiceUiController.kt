@@ -53,11 +53,11 @@ class ServiceUiController : UiController {
     ): ActionResult {
         val service = AccessibilityEvents.service
             ?: return ActionResult.Failure(
-                "accessibility access is not granted, or the service is not bound yet"
+                "Accessibility access is not granted, or the service is not bound yet."
             )
 
         if (label.isBlank()) {
-            return ActionResult.Failure("no button name to look for")
+            return ActionResult.Failure("There is no button name to look for.")
         }
 
         // Checked before the shade is touched, because on a locked phone the
@@ -69,16 +69,16 @@ class ServiceUiController : UiController {
             !canPressThroughShade(keyguard.isKeyguardLocked, keyguard.isDeviceSecure)
         ) {
             return ActionResult.Failure(
-                "the screen is locked, and pressing a button through the shade needs " +
-                    "an unlocked phone — a rule cannot answer the unlock prompt. " +
-                    "Buttons the app exposes properly do not have this limit."
+                "The screen is locked. Pressing a button through the shade needs " +
+                    "an unlocked phone, and a rule cannot answer the unlock " +
+                    "prompt. Buttons the app exposes properly do not have this limit."
             )
         }
 
         // Opening the shade is a visible side effect, and the reason this whole
         // path is opt-in per rule rather than a silent fallback.
         if (!service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS)) {
-            return ActionResult.Failure("could not open the notification shade")
+            return ActionResult.Failure("Trigly could not open the notification shade.")
         }
 
         return try {
@@ -87,10 +87,10 @@ class ServiceUiController : UiController {
             // enough for a slow device is a wait everyone pays.
             val target = awaitPressTarget(service, packageName, label)
                 ?: return ActionResult.Failure(
-                    "no button called '$label' in the notification shade" +
+                    "There is no button called '$label' in the notification shade" +
                         (packageName?.let { " for $it" } ?: "") +
-                        ". Custom notification layouts sometimes label nothing the " +
-                        "screen reader can see, in which case this cannot work."
+                        ". Custom notification layouts sometimes label nothing " +
+                        "the screen reader can see. In that case, this cannot work."
                 )
 
             if (target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
@@ -99,7 +99,7 @@ class ServiceUiController : UiController {
                 // The platform refused a click on a node that said it was
                 // clickable. Reported rather than retried: it means the tree
                 // moved under us, and pressing again could hit something else.
-                ActionResult.Failure("the shade refused the press on '$label'")
+                ActionResult.Failure("The shade refused the press on '$label'.")
             }
         } finally {
             // Always close it, including on failure. Leaving the shade open

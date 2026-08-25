@@ -34,7 +34,7 @@ class SpeakAction(
 ) : Action {
 
     override suspend fun execute(event: TriggerEvent): ActionResult {
-        if (text.isBlank()) return ActionResult.Failure("nothing to speak")
+        if (text.isBlank()) return ActionResult.Failure("There is no text to speak.")
 
         return suspendCancellableCoroutine { continuation ->
             var engine: TextToSpeech? = null
@@ -47,7 +47,7 @@ class SpeakAction(
                 val tts = engine
                 if (status != TextToSpeech.SUCCESS || tts == null) {
                     tts?.shutdown()
-                    finish(ActionResult.Failure("no working text-to-speech engine"))
+                    finish(ActionResult.Failure("No text-to-speech engine works."))
                     return@TextToSpeech
                 }
 
@@ -69,7 +69,7 @@ class SpeakAction(
                     finish(ActionResult.Success)
                 } else {
                     tts.shutdown()
-                    finish(ActionResult.Failure("the speech engine refused the text"))
+                    finish(ActionResult.Failure("The speech engine refused the text."))
                 }
             }
 

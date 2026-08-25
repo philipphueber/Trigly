@@ -31,7 +31,7 @@ class ClipboardWriteAction(
 
     override suspend fun execute(event: TriggerEvent): ActionResult {
         val clipboard = context.getSystemService(ClipboardManager::class.java)
-            ?: return ActionResult.Failure("no clipboard service")
+            ?: return ActionResult.Failure("There is no clipboard service.")
 
         val clip = ClipData.newPlainText(LABEL, text).apply {
             if (sensitive && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
