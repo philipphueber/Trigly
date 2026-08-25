@@ -44,7 +44,6 @@ fun RulesScreen(
     onExportAll: () -> Unit,
     onExportRule: (Rule) -> Unit,
     onImport: () -> Unit,
-    onInspectNotifications: () -> Unit,
     describeComponent: (String) -> String,
     modifier: Modifier = Modifier,
 ) {
@@ -100,13 +99,6 @@ fun RulesScreen(
                 text = stringResource(R.string.rules_new),
                 onClick = onNewRule,
                 modifier = Modifier.weight(1f),
-            )
-            // Beside the primary action rather than up in the header: the header
-            // already carries the two rule-file actions, and a fourth control up
-            // there would push the title into an ellipsis on a narrow screen.
-            BlockOutlineButton(
-                text = stringResource(R.string.rules_inspect),
-                onClick = onInspectNotifications,
             )
         }
     }

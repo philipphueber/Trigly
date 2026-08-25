@@ -49,16 +49,6 @@ fun NotificationInspectorScreen(
     onRefresh: () -> Unit,
     onBack: () -> Unit,
     describeApp: (String) -> String,
-    /**
-     * What to say when access is missing.
-     *
-     * A parameter because the way *out* of that state depends on where this screen
-     * was opened from: from the rule list there is no Grant control anywhere in
-     * sight, while from a notification component's own block it is directly behind
-     * this screen. Sending someone to look for a button they are already standing
-     * on is its own small failure.
-     */
-    accessHint: String = DEFAULT_ACCESS_HINT,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize()) {
@@ -76,7 +66,18 @@ fun NotificationInspectorScreen(
             // on, because it isn't a rule. The permission is real and the
             // same one a notification trigger needs, so the way in is
             // through one of those.
-            !listenerConnected -> Explanation(accessHint)
+            // Not a parameter. This screen has exactly one host — the
+            // `Inspect` button on the block of whichever component reads
+            // notifications — and the way out of "no access" is the Grant
+            // control on that same block, directly behind this screen. When it
+            // was also a destination on the rules list, the sentence had to be
+            // vaguer ("that lives on a rule's notification trigger") because the
+            // control genuinely was elsewhere. It is not any more, so it says so.
+            !listenerConnected -> Explanation(
+                "Trigly cannot read notifications without access. Close this and " +
+                    "grant it on the block you came from — the Grant button is " +
+                    "right behind this screen — then open it again."
+            )
 
             notifications.isEmpty() -> Explanation(
                 "Nothing is showing. Only notifications posted right now can be " +
@@ -100,13 +101,6 @@ fun NotificationInspectorScreen(
         }
     }
 }
-
-/** Said when this screen is reached from the rule list, with no rule in hand. */
-private const val DEFAULT_ACCESS_HINT =
-    "Trigly cannot read notifications without access, and this screen has no " +
-        "permission control of its own to grant it with — that lives on a rule's " +
-        "notification trigger. Open or add one, grant it there, then come back to " +
-        "inspect what's on screen."
 
 @Composable
 private fun Explanation(text: String) {

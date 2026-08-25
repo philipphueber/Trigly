@@ -227,27 +227,7 @@ class MainActivity : ComponentActivity() {
                     onExportAll = { export(listViewModel.exportAll(), "trigly-rules.json") },
                     onExportRule = ::exportSingle,
                     onImport = { openDocument.launch(arrayOf("application/json", "text/*")) },
-                    onInspectNotifications = { onNavigate(Screen.NotificationInspector) },
                     describeComponent = container.registry::displayNameOf,
-                )
-            }
-
-            Screen.NotificationInspector -> {
-                // No BackHandler here: the app has one handler for the whole
-                // activity, and `backTarget` already routes the inspector back to
-                // the list. A per-destination handler is the arrangement that
-                // refactor removed — see the Navigation section in the docs.
-                //
-                // Re-read on each refresh rather than held: what is posted changes
-                // while the screen is open, and a stale list is the one thing a
-                // diagnostic must not show.
-                var seen by remember { mutableStateOf(container.notifications.activeNotifications()) }
-                NotificationInspectorScreen(
-                    notifications = seen,
-                    listenerConnected = container.notifications.isConnected,
-                    onRefresh = { seen = container.notifications.activeNotifications() },
-                    onBack = { onNavigate(Screen.RuleList) },
-                    describeApp = installedApps::labelFor,
                 )
             }
 

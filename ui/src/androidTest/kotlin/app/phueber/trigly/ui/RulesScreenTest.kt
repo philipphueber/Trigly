@@ -36,7 +36,6 @@ class RulesScreenTest {
     private val exported = mutableListOf<String>()
     private var newRuleTaps = 0
     private var importTaps = 0
-    private var inspectTaps = 0
 
     /** Display names come from the factories, so the screen is handed a lookup. */
     private val describe: (String) -> String = { type ->
@@ -64,22 +63,21 @@ class RulesScreenTest {
             onExportAll = { exported += "all" },
             onExportRule = { exported += it.id },
             onImport = { importTaps++ },
-            onInspectNotifications = { inspectTaps++ },
             describeComponent = describe,
         )
     }
 
-    /**
-     * Reachable with no rules in the list: someone whose first notification rule
-     * never fired is exactly who needs it, and they may well have deleted it.
-     */
     @Test
-    fun the_notification_inspector_is_reachable_from_an_empty_list() {
+    fun the_list_offers_no_diagnostic_of_its_own() {
+        // The inspector used to sit in this bottom bar. It now opens from the
+        // `Inspect` button on the block of whichever component reads
+        // notifications, which is where someone is when a notification rule is
+        // not behaving — and, unlike navigating away, it cannot cost them a
+        // half-written rule. This asserts the old entry point is gone rather than
+        // trusting that nobody put it back.
         composeRule.setContent { Screen(emptyList()) }
 
-        composeRule.onNodeWithText("WHAT TRIGLY SEES").performClick()
-
-        assertEquals(1, inspectTaps)
+        composeRule.onNodeWithText("WHAT TRIGLY SEES").assertDoesNotExist()
     }
 
     @Test

@@ -350,9 +350,16 @@ test can establish.
 
 ### Navigation
 
-Three destinations — the list, the editor, and the notification inspector — do
-not justify a navigation library and the dependency it brings. A sealed `Screen`
-plus **one** `BackHandler` is the whole feature.
+Two destinations — the list and the editor — do not justify a navigation library
+and the dependency it brings. A sealed `Screen` plus **one** `BackHandler` is the
+whole feature.
+
+It was three. The notification inspector was reachable from a button in the rule
+list's bottom bar, and that button is gone: the inspector now opens only as a
+dialog from the block of whichever component reads notifications. Removing it
+took the `Screen` case, the `backTarget` branch, the `ScreenSaver` tag and the
+string with it, which is the argument for a sealed type over a route table —
+deleting a destination is a change the compiler checks.
 
 One handler, not one per destination, and the difference is the whole reason this
 section exists. Per-destination handlers are added and removed as the screen
@@ -362,8 +369,7 @@ is being torn down. The rule list, meanwhile, registered no handler at all and
 leaned on the framework default to finish the activity, so "back on the list
 closes the app" was never something the app actually said. Now `backTarget` says
 it: a `Screen?` where null means the list is the bottom of the stack and back
-leaves, and every other destination — the editor, the inspector — maps back to
-the list. It is a pure function precisely so that the one decision here is
+leaves, and the editor maps back to the list. It is a pure function precisely so that the one decision here is
 checkable without a device.
 
 `Screen` is saved through `ScreenSaver`, so a rotation inside the editor does not
@@ -422,19 +428,23 @@ access not granted, versus granted with nothing currently posted. Only what is
 posted *now* can be inspected — there is no history, because the listener keeps
 none — so the screen says so instead of looking broken while it waits.
 
-**Reachable two ways, and only one of them is a destination.** From the rule list
-it is a screen you navigate to. From a notification component's own block in the
-editor it opens as a full-bleed dialog *over* the editor, and that is not a
-styling choice: leaving the editor's composition fires the fresh-entry reset that
-keeps a new rule empty, so navigating away to check a package name would discard
-the half-written rule you were checking it for. A reference you consult while
-filling in a field has no business costing you the field.
+**Reached one way, and it is not a destination.** It opens as a full-bleed dialog
+*over* the editor, from the `Inspect` button on the block of whichever component
+reads notifications. That is not a styling choice: leaving the editor's
+composition fires the fresh-entry reset that keeps a new rule empty, so
+navigating away to check a package name would discard the half-written rule you
+were checking it for. A reference you consult while filling in a field has no
+business costing you the field.
 
-Which is also why the "no access" message is a parameter. From the list there is
-no Grant control anywhere in sight and the honest advice is to open a
-notification trigger and grant it there. From a block there is one directly
-behind the dialog, and repeating the first message would send someone hunting for
-a button they are standing on.
+It used to *also* be a destination, reachable from a button in the rule list. That
+button is gone. Two entry points to one screen is not itself a problem; two with
+different quality was — the list's route navigated away, could cost you a draft,
+and had to give vaguer advice about granting access, because from there the Grant
+control genuinely is elsewhere. With one host the screen states the specific
+thing: the Grant button is on the block directly behind it. That sentence lives
+in the screen rather than arriving as a parameter, because there is now exactly
+one caller and a parameter would be a sentence written for a host nobody can
+see.
 
 ### Where the engine runs
 

@@ -205,7 +205,7 @@ class NotificationInspectorScreenTest {
                     onRefresh = {},
                     onBack = {},
                     describeApp = { it },
-                )
+                    )
             }
         }
 

@@ -513,9 +513,6 @@ fun RuleEditorScreen(
                     onRefresh = { seen = inspectorNotifications() },
                     onBack = { inspecting = false },
                     describeApp = describeApp,
-                    accessHint = "Trigly cannot read notifications without access. " +
-                        "Close this and grant it on the block you came from — the " +
-                        "Grant button is right behind this screen — then open it again.",
                 )
             }
         }

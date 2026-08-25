@@ -34,17 +34,11 @@ class ScreenTest {
     }
 
     @Test
-    fun `back from the inspector returns to the list`() {
-        assertEquals(Screen.RuleList, backTarget(Screen.NotificationInspector))
-    }
-
-    @Test
     fun `the destination survives a configuration change`() {
         listOf(
             Screen.RuleList,
             Screen.RuleEditor("rule-1"),
             Screen.RuleEditor(null),
-            Screen.NotificationInspector,
         ).forEach { screen ->
             val saved = with(ScreenSaver) { scope.save(screen) }
             assertEquals(screen, ScreenSaver.restore(requireNotNull(saved)))
