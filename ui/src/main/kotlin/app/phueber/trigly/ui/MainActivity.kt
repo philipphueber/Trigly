@@ -367,7 +367,33 @@ class MainActivity : ComponentActivity() {
             onSetConditionOp = editor::setConditionOp,
             onChangeConditionType = editor::changeConditionType,
             onConditionConfigChange = editor::setConditionConfigValue,
+            onPinShortcut = ::pinShortcut,
         )
+    }
+
+    /**
+     * Asks the launcher to pin a home-screen button for a shortcut trigger.
+     *
+     * Needs an `Activity` rather than the application context, because the
+     * launcher shows a confirmation dialog attributed to the foreground app —
+     * which is why this lives here and not in the screen.
+     *
+     * A launcher that does not support pinning is reported rather than ignored.
+     * Silence would be indistinguishable from success, and the user would go
+     * looking for a button that was never going to appear.
+     */
+    private fun pinShortcut(config: Map<String, String>) {
+        val id = config["shortcutId"]?.takeIf { it.isNotBlank() } ?: return
+        val label = config["label"]?.takeIf { it.isNotBlank() } ?: getString(R.string.app_name)
+
+        when (ShortcutPinning.requestPinShortcut(this, id, label, config["icon"].orEmpty())) {
+            PinShortcutResult.Requested -> Unit
+            PinShortcutResult.UnsupportedByLauncher -> Toast.makeText(
+                this,
+                "This launcher cannot add shortcuts to the home screen.",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
     }
 
     override fun onResume() {

@@ -115,7 +115,11 @@ private fun NotificationBlock(
             Text(
                 text = describeApp(notification.packageName).uppercase(),
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
+                // `extra.accent`, not `colorScheme.primary`: primary is the
+                // logo orange, which measures 3.23:1 on the page and fails AA as
+                // small text. Palette.kt exists to make that distinction, and
+                // this is the mistake it warns about.
+                color = MaterialTheme.extra.accent,
             )
             // The package, not the label, is what a rule stores.
             Mono(notification.packageName)

@@ -188,11 +188,13 @@ private fun Verdict(matches: Boolean?, hasPattern: Boolean, hasSample: Boolean, 
             MaterialTheme.colorScheme.onSurfaceVariant
         matches == null -> "PATTERN DOES NOT COMPILE" to MaterialTheme.colorScheme.error
         !hasSample -> "TYPE SOME SAMPLE TEXT" to MaterialTheme.colorScheme.onSurfaceVariant
+        // `extra.accent` rather than `colorScheme.primary` throughout: primary
+        // is a fill colour and fails AA contrast as label text. See Palette.kt.
         matches && hits > 0 -> "MATCHES · $hits ${if (hits == 1) "HIT" else "HITS"}" to
-            MaterialTheme.colorScheme.primary
+            MaterialTheme.extra.accent
         // Matched, but with nothing to underline — a zero-width pattern such as
         // `a*`. Both halves are true and saying only one of them would mislead.
-        matches -> "MATCHES · NOTHING TO HIGHLIGHT" to MaterialTheme.colorScheme.primary
+        matches -> "MATCHES · NOTHING TO HIGHLIGHT" to MaterialTheme.extra.accent
         else -> "NO MATCH" to MaterialTheme.colorScheme.error
     }
 

@@ -87,15 +87,16 @@ nothing to fail); `Any` of nothing is false (there is nothing to satisfy it).
 
 The state-capable majority: Wi-Fi, battery level and temperature, charger type,
 headset, screen, Bluetooth adapter and device, airplane mode, Do Not Disturb, GPS
-provider, orientation, dark theme, app foreground, location-in-area, call state.
+provider, orientation, dark theme, app foreground, call state.
 
 The pure events, which have no state to ask about as such: `notification_posted`,
 `sms_received`, `ui_click`, `screen_content`, `interval`, `solar`,
-`device_restart`, `package_change`, `clipboard`, `notification_watchdog`.
+`device_restart`, `package_change`, `clipboard`, `notification_watchdog`,
+`location`, `shortcut`.
 
 ### A passive form is a different question, not the same one
 
-Several of those ten *do* have a meaningful passive form, because the state
+Several of those twelve *do* have a meaningful passive form, because the state
 version asks something related but distinct:
 
 | Trigger | As an edge | As a condition |
@@ -105,12 +106,18 @@ version asks something related but distinct:
 | `solar` | at sunrise/sunset | it is **currently** after sunrise / after sunset |
 | `package_change` | an app was installed | that app **is installed** |
 | `notification_watchdog` | the notification vanished | the notification **is present** |
+| `location` | entered or left an area | is **currently inside** the area |
 
 `solar` is the striking one: the passive form is a pure calculation, so "is it
-currently dark" costs nothing at all.
+currently dark" costs nothing at all. `location` is close to the opposite
+extreme — its passive form is not free, only far cheaper than the edge, because
+asking for one position is a different operation from holding one open. The full
+cost, and the correction that produced this row, are under "Passive-only checks"
+below.
 
 No passive form: `ui_click` (a click is inherently an instant), `sms_received` (we
-keep no history), `interval`, `device_restart`.
+keep no history), `interval`, `device_restart`, `shortcut` (a tap is inherently an
+instant too).
 
 ### Grouped under one component, transparently
 
@@ -129,14 +136,22 @@ editor affordance to express something already expressible.
 ## Passive-only checks
 
 Some checks are impractical or impossible as triggers and trivial as conditions,
-because a condition is *asked* rather than *watched*. Philipp's note names the two
-that matter.
+because a condition is *asked* rather than *watched*. **Passive-only is the
+exception in this design, not the rule.** Almost every component that can answer
+a condition is a trigger that also has an event stream, wearing its condition
+role as a second, cheaper question about the same subject — that is what the
+whole "passive form" table above is. Philipp's note names the one case where
+there genuinely is no trigger to be the passive form of.
 
 ### Time of day
 
 A time **trigger** needs `AlarmManager` — blocker 2 in `docs/triggers.md`, still
 unbuilt, and the largest missing piece in the project. A time **condition** needs
-nothing at all: read the clock when the gate is evaluated.
+nothing at all: read the clock when the gate is evaluated. `time_window` earns its
+place in this section, alone, precisely because there is no time trigger for it to
+be the passive form *of* — the scheduler that trigger would need does not exist.
+Every other condition in this document is a slot on a component that also fires;
+this is the one that is a component all by itself.
 
 So "when the doorbell rings, if it is between 22:00 and 07:00, sound the alarm"
 becomes expressible **without the scheduler**. This is the single largest thing
@@ -145,11 +160,23 @@ the gate model unlocks, and it arrives free.
 Wraparound windows (22:00–07:00) are the obvious trap and belong in a pure
 function with tests, alongside `solarTime`.
 
-### Location — checked, not watched
+### Location is not one of these — it is a passive form, not a passive-only check
 
-The location **trigger** holds an active `requestLocationUpdates(GPS_PROVIDER, …)`
-for as long as the rule is enabled, which is why its warning calls it expensive. A
-location **condition** does not: it reads a position once, when asked.
+Location was, briefly, the mistake this whole document argues against. The build
+had `location`, an edge-only trigger ("entered or left an area"), and
+`location_check`, a condition-only component ("in an area") that could never fire
+a rule — two names for one question, split exactly along the trigger/condition
+line that a single component's slot is supposed to decide on its own. It is the
+same failure mode "Grouped under one component, transparently" warns the *editor*
+away from above, committed instead at the model level: `location_check` was never
+an editor bug, it was a second component that should not have existed.
+
+The fix is the one this document already applies to `solar` and
+`notification_posted`: one `location` component, and the condition role is its
+passive form, not a second component. The location **trigger**, used as an edge,
+holds an active `requestLocationUpdates(GPS_PROVIDER, …)` for as long as the rule
+is enabled, which is why its warning calls it expensive. The same component,
+asked as a **condition**, holds nothing open — it reads a position once:
 
 - `LocationManager.getCurrentLocation(...)` — one shot, API 30+.
 - `getLastKnownLocation(provider)` — free, no hold, possibly stale. The fallback
@@ -159,11 +186,13 @@ Neither touches the Geofencing API, and neither keeps GPS awake. State the
 staleness in the field's help: a cached fix can be minutes old, which is fine for
 "am I at home" and wrong for "am I in the driveway".
 
-**The reboot restriction still applies.** Per the boot-started-foreground-service
-note, a service started at boot is denied location access for its whole life — so
-a passive location check in a rule that runs after a reboot reads nothing, and
-must therefore not hold. Same silent failure as the location trigger, needing the
-same disclosure.
+**The reboot restriction still applies to the condition role, same as the edge.**
+Per the boot-started-foreground-service note, a service started at boot is denied
+location access for its whole life — so asking the passive form in a rule that
+runs after a reboot reads nothing, and must therefore not hold. It is the same
+silent failure the edge already has, which is exactly the point of folding them
+into one component: one disclosure instead of two components each carrying half
+of it, with no guarantee the user ever reads both.
 
 ## Storage
 
@@ -198,15 +227,26 @@ kind of reassurance that gets planned around.
 4. **Built.** `currentlyHolds()` across the state-capable triggers — twenty-four
    components now answer, and `docs/triggers.md` records how each reads its level
    and where the honest answer is null.
-5. **Built.** The passive forms (`notification_posted`, `notification_watchdog`,
-   `dnd_mode`, `screen_content`, `solar`, `package_change`) and the two
-   passive-only checks, `time_window` and `location_check`.
-6. **Built.** The editor: a first level that stays invisible until a second edge
-   exists, an "Only if" section holding the nested AND/OR tree, and pickers
-   filtered by `supportsCondition` so a component that cannot answer is never
-   offered rather than offered and refused. Adding a sibling to a lone check
-   promotes it into a group and removing back to one un-promotes it, so a single
-   condition carries no AND/OR chrome — the same rule the single trigger follows.
+5. **Built, then corrected.** The passive forms (`notification_posted`,
+   `notification_watchdog`, `dnd_mode`, `screen_content`, `solar`,
+   `package_change`, and later `location`) and the one genuine passive-only
+   check, `time_window`. This phase originally shipped a second passive-only
+   check, `location_check` — a mistake caught and fixed after the fact: it was
+   folded into `location` as that trigger's passive form rather than left
+   standing as a component of its own. See "Passive-only checks" below.
+6. **Built.** The editor speaks of **triggers**, not of a second thing called a
+   "check." A rule's gate is one tree of **trigger slots** with AND/OR groups
+   over them: the very first slot is the edge and accepts any trigger; every
+   slot after it is a condition slot, filtered by `supportsCondition` so a
+   component that cannot answer is never offered rather than offered and
+   refused. An earlier build grew a separate "Only if" section with its own
+   "add a check" affordance — a second vocabulary for the same underlying thing,
+   which meant a user had to learn that a "check" is a trigger wearing a
+   different hat before the screen made sense. That section is gone; grouping
+   now happens under the same trigger tree, transparently, which is Philipp's
+   own phrasing for the fix. Adding a sibling to a lone slot promotes it into a
+   group and removing back to one un-promotes it, so a single trigger — and
+   likewise a single condition — carries no AND/OR chrome.
 
 Phase 1 was invariant to every later decision, which is why it went first — and it
 held: nothing in phases 2–5 changed the model.

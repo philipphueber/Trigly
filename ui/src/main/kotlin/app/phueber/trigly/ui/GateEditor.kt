@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -13,14 +15,26 @@ import app.phueber.trigly.core.ComponentDescriptor
 import app.phueber.trigly.core.ComponentRequirement
 
 /**
- * The "Only if" section: an optional tree of checks and AND/OR groups that
- * must hold when one of the gate's triggers fires — see `docs/conditions.md`
- * for the model, [ConditionDraft] for its editable mirror.
+ * The tail of the "When" section: an optional tree of further trigger slots,
+ * each one asked passively rather than watched, combined with AND/OR groups
+ * that must hold when the gate's edge fires — see `docs/conditions.md` for the
+ * model, [ConditionDraft] for its editable mirror.
+ *
+ * Deliberately headless: [RuleEditorScreen] prints its one "When" [SectionLabel]
+ * above the trigger blocks and never another one here, so the edge and the
+ * passive slots beneath it read as one tree rather than a trigger section and
+ * a second, differently-named section underneath. An earlier build gave this a
+ * heading of its own and called what it holds a "check" — a second vocabulary
+ * for the same underlying thing, which meant learning that a "check" is a
+ * trigger wearing a different hat before the screen made sense. Gone; every
+ * slot here is offered and labelled as a trigger, the same as the edge above
+ * it, and the only thing telling the two apart on screen is position and the
+ * "must also be true" phrasing below, not a different name for the object.
  *
  * Kept out of [RuleEditorScreen] rather than folded into its single scrolling
  * `Column` the way the trigger and action sections are. Those two are each a
  * flat list with one position per item, so a string key like `"action-2"` is
- * enough to address one for folding or a caveat. A condition is a tree, so an
+ * enough to address one for folding or a caveat. This tail is a tree, so an
  * item's address is a path of child indices through nested groups — a
  * different enough addressing scheme, and a recursive one, that it earns its
  * own file rather than becoming one more shape the trigger/action rendering
@@ -51,21 +65,34 @@ internal fun GateEditor(
     isCaveatShown: (String) -> Boolean,
     onToggleCaveat: (String) -> Unit,
 ) {
-    SectionLabel("Only if")
-
     if (conditions == null) {
-        // The one affordance an empty section gets — see `docs/conditions.md`:
-        // a rule with no conditions must not gain visual weight, so there is no
-        // group card, no toggle, nothing to fold here. Just the same "add the
-        // first thing" button the trigger and action sections open with.
+        // The one affordance an empty tail gets — see `docs/conditions.md`:
+        // a rule with no further slots must not gain visual weight, so there is
+        // no group card, no toggle, nothing to fold here. Just the same "add the
+        // first thing" button the trigger and action sections open with, its own
+        // label carrying the "must also be true" phrasing since there is no tree
+        // yet to caption.
         BlockOutlineButton(
-            text = "Add a condition",
+            text = "Add a trigger that must also be true",
             onClick = { onAddCheckRequested(emptyList()) },
             fillWidth = true,
             modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
         )
         return
     }
+
+    // Told once, above whatever is here — a lone slot, a group, or a nested
+    // tree — the same way the edge section only says "Any of these fire the
+    // rule" once there is more than one edge. Unlike that hint, this one holds
+    // even for a single slot: an edge needs no explanation to read as itself,
+    // but a passive slot does, or it reads as an indistinguishable second
+    // trigger block rather than a level the fired edge must also satisfy.
+    Text(
+        text = "Must also be true.",
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = 8.dp),
+    )
 
     ConditionNodeBlock(
         node = conditions,
@@ -85,7 +112,7 @@ internal fun GateEditor(
         onToggleCaveat = onToggleCaveat,
     )
 
-    // A lone top-level check has no group of its own to add a sibling to — see
+    // A lone top-level slot has no group of its own to add a sibling to — see
     // [ConditionDraft]'s KDoc on promotion. Once it is a group, the same two
     // affordances live inside that group's own block instead (below), and
     // repeating them here would let someone add a second, sibling group at the
@@ -95,7 +122,7 @@ internal fun GateEditor(
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            BlockTextButton("Add a check") { onAddCheckRequested(emptyList()) }
+            BlockTextButton("Add trigger") { onAddCheckRequested(emptyList()) }
             BlockTextButton("Add a group") { onAddGroup(emptyList()) }
         }
     }
@@ -132,7 +159,7 @@ private fun ConditionNodeBlock(
                 chosenType = node.component.type,
                 descriptor = descriptorFor(node.component.type),
                 config = node.component.config,
-                emptyLabel = "Choose a condition",
+                emptyLabel = "Choose a trigger",
                 onChoose = { onChangeTypeRequested(path) },
                 onConfigChange = { fieldKey, value -> onConfigChange(path, fieldKey, value) },
                 onResolveRequirement = onResolveRequirement,
@@ -244,7 +271,7 @@ private fun ConditionGroupBlock(
                     )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    BlockTextButton("Add a check") { onAddCheckRequested(path) }
+                    BlockTextButton("Add trigger") { onAddCheckRequested(path) }
                     BlockTextButton("Add a group") { onAddGroup(path) }
                 }
             }

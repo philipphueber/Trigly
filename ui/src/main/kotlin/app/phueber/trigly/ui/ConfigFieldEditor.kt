@@ -73,6 +73,12 @@ fun ConfigFieldEditor(
 
             // The one field kind that is not a text box: picking from the
             // installed apps is the whole reason AppPackage is its own kind.
+            // Draws nothing at all. The value is minted when the component is
+            // added and there is no decision here for a person to make; a
+            // read-only box showing a UUID would be noise that looks like a
+            // setting.
+            is ConfigField.GeneratedId -> Unit
+
             is ConfigField.AppPackage -> AppPackageField(
                 label = fieldLabel(field.label, field.required),
                 packageName = value?.ifEmpty { null },
@@ -101,6 +107,16 @@ fun ConfigFieldEditor(
             is ConfigField.BluetoothAddress -> BluetoothAddressField(
                 label = fieldLabel(field.label, field.required),
                 address = value?.ifEmpty { null },
+                blankMeaning = field.blankMeaning,
+                onPick = onValueChange,
+            )
+
+            // Same reasoning as AppPackage, for a shortcut's icon: picked off a
+            // curated grid rather than typed, because nobody should have to leave
+            // the app to find their keyboard's emoji tab.
+            is ConfigField.Emoji -> EmojiField(
+                label = fieldLabel(field.label, field.required),
+                emoji = value?.ifEmpty { null },
                 blankMeaning = field.blankMeaning,
                 onPick = onValueChange,
             )
@@ -187,7 +203,7 @@ fun ConfigFieldEditor(
         }
 
         // The blank-means-something hint only helps while the field is empty.
-        // The three picker kinds are absent on purpose: a picker shows the blank
+        // The picker kinds are absent on purpose: a picker shows the blank
         // meaning as the field's own value ("Any app", "Use the tone above"), so
         // repeating it below would say the same thing twice.
         val blankHint = when (field) {

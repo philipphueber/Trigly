@@ -3,11 +3,16 @@ package app.phueber.trigly.triggers
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.os.Build
 import android.os.Bundle
+import android.os.CancellationSignal
 import android.os.Looper
+import androidx.annotation.RequiresApi
+import androidx.core.content.ContextCompat
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.DurationUnit
@@ -17,6 +22,8 @@ import app.phueber.trigly.core.TriggerFactory
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import kotlin.math.asin
 import kotlin.math.cos
 import kotlin.math.pow
@@ -24,6 +31,9 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 private const val EARTH_RADIUS_METERS = 6_371_000.0
+
+/** Tried in order; the fix is used from whichever of these is switched on. */
+private val CANDIDATE_PROVIDERS = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
 
 /**
  * Great-circle distance in metres.
@@ -58,6 +68,15 @@ fun distanceMeters(
  *
  * Entering and leaving are edges, so [StateTracker] does the same job it does for
  * broadcasts: the position at the moment the rule starts is recorded, not fired.
+ *
+ * Also answers as a condition, via [currentlyHolds]: "am I currently inside" is
+ * the same geometry asked instead of watched, per `docs/conditions.md`'s
+ * "Location — checked, not watched" and "Grouped under one component,
+ * transparently" — one component, and the slot it is placed in decides which
+ * question is being asked. [currentlyHolds] takes a single fix and lets go
+ * rather than starting or reusing the [events] hold, which is the entire point:
+ * asking is cheap where watching is not, and asking through the trigger's own
+ * active request would spend the expensive thing on the cheap question.
  */
 class LocationTrigger(
     private val context: Context,
@@ -118,6 +137,76 @@ class LocationTrigger(
         awaitClose { manager.removeUpdates(listener) }
     }
 
+    /**
+     * Null, not false, whenever the question could not actually be asked:
+     * permission withheld, every provider switched off, the read coming back
+     * with no fix, or the platform call throwing. Each of those is "I could
+     * not look", which the gate must not read as "you are not there" — see
+     * [Trigger.currentlyHolds] and `docs/conditions.md`'s note that null must
+     * not read as true. The same reboot restriction [events] carries applies
+     * here unchanged: a boot-started engine has no location access at all, so
+     * this returns null for the engine's whole lifetime rather than the false
+     * a careless read would produce.
+     *
+     * Reads the direction from [onEnter]: configured for "entered", this holds
+     * while inside the radius; configured for "exited", while outside. Same
+     * config, same [distanceMeters] call [events] uses to find the boundary —
+     * only the question changes from "did you just cross it" to "which side
+     * are you on".
+     */
+    @SuppressLint("MissingPermission") // ACCESS_FINE_LOCATION is declared as a requirement.
+    override suspend fun currentlyHolds(): Boolean? {
+        val granted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) return null
+
+        val manager = context.getSystemService(LocationManager::class.java) ?: return null
+        val provider = CANDIDATE_PROVIDERS.firstOrNull { manager.isProviderEnabled(it) } ?: return null
+
+        val location = runCatching { readOnce(manager, provider) }.getOrNull() ?: return null
+
+        val inside = distanceMeters(latitude, longitude, location.latitude, location.longitude) <= radiusMeters
+        return inside == onEnter
+    }
+
+    // Suppressed on the helpers too, not only on the caller: the permission is
+    // checked once at the top of `currentlyHolds` and null returned without it,
+    // but lint cannot follow that across a function boundary.
+    @SuppressLint("MissingPermission")
+    private suspend fun readOnce(manager: LocationManager, provider: String): Location? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            currentLocationOnce(manager, provider)
+        } else {
+            manager.getLastKnownLocation(provider)
+        }
+
+    // getCurrentLocation is callback-based, not suspend, so it is bridged here.
+    // Cancelling the coroutine cancels the platform request through the
+    // CancellationSignal rather than leaving it to complete and be discarded —
+    // there is no reason to keep a radio warm for an answer nobody will read.
+    // This is a one-shot request of its own, separate from and never touching
+    // the `requestLocationUpdates` hold [events] keeps open — the two never
+    // run at once for the same instance, but they do not share state either
+    // way, so there is nothing to reuse even when [events] happens to be
+    // collected at the same time.
+    @RequiresApi(Build.VERSION_CODES.R)
+    @SuppressLint("MissingPermission")
+    private suspend fun currentLocationOnce(manager: LocationManager, provider: String): Location? =
+        suspendCancellableCoroutine { continuation ->
+            val signal = CancellationSignal()
+            continuation.invokeOnCancellation { signal.cancel() }
+
+            manager.getCurrentLocation(
+                provider,
+                signal,
+                ContextCompat.getMainExecutor(context),
+            ) { location ->
+                if (continuation.isActive) continuation.resume(location)
+            }
+        }
+
     companion object {
         const val TYPE = "location"
         const val CONFIG_LATITUDE = "latitude"
@@ -141,6 +230,8 @@ class LocationTriggerFactory(private val context: Context) : TriggerFactory {
 
     override val displayName = "Enter or leave an area"
     override val category = Category.LOCATION
+
+    override val supportsCondition = true
 
     override val configFields = listOf(
         // One field over two keys: a latitude without a longitude is not half an
@@ -181,8 +272,9 @@ class LocationTriggerFactory(private val context: Context) : TriggerFactory {
     // Everything then looks healthy: the engine is running, every broadcast
     // trigger fires, and the requirement check passes because ACCESS_FINE_LOCATION
     // genuinely *is* granted — it is the service instance that is restricted, which
-    // nothing in the app models. The rule simply never fires, and that is
-    // indistinguishable from "you have not reached the area yet".
+    // nothing in the app models. The rule simply never fires (as a trigger) or
+    // never holds (as a condition), and either reads as "you have not reached
+    // the area" / "you are not there" rather than as the failure it is.
     //
     // Saying it is the honest stopgap, not the fix. The fix is for the engine to
     // notice it was boot-started and re-`startForeground` from a foreground
@@ -193,12 +285,22 @@ class LocationTriggerFactory(private val context: Context) : TriggerFactory {
     // service that only re-delivers `onStartCommand` — the instance, and its
     // restriction, are the same one. Naming a remedy that does not work would be
     // worse than naming none, so the warning states the condition only.
+    //
+    // Two different costs for the two roles this component plays, both stated
+    // rather than left implicit: as a trigger it holds GPS open, which is a
+    // battery cost; as a condition it takes one fix and lets go, which trades
+    // that battery cost for staleness instead — a cached fix can be minutes
+    // old, fine for "am I at home" and wrong for "am I in the driveway". The
+    // reboot limitation is the one thing both roles share unchanged.
     override val warning: String =
-        "Holds an active GPS request while the rule is enabled, which is expensive. " +
-            "Prefer a generous radius and a long check interval. Known limitation: " +
-            "after a reboot Android denies the background engine location access, so " +
-            "this rule cannot fire until the engine is started fresh — and nothing " +
-            "else in the app reports that."
+        "As a trigger, holds an active GPS request while the rule is enabled, " +
+            "which is expensive — prefer a generous radius and a long check " +
+            "interval. As a condition, takes a single fix instead: cheaper, but " +
+            "a cached fix can be minutes old, which is fine for \"am I at home\" " +
+            "and wrong for \"am I in the driveway\". Known limitation either way: " +
+            "after a reboot Android denies the background engine location access, " +
+            "so this cannot fire or hold until the engine is started fresh — and " +
+            "nothing else in the app reports that."
 
     override val requirements = listOf(
         ComponentRequirement.RuntimePermission(Manifest.permission.ACCESS_FINE_LOCATION),

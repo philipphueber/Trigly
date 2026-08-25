@@ -61,6 +61,32 @@ fun bluetoothDeviceMatches(
 }
 
 /**
+ * Whether two sightings of a device are the same physical device — a different
+ * question from [bluetoothDeviceMatches], and the one the disconnect debounce's
+ * reconnect check actually needs answered.
+ *
+ * [bluetoothDeviceMatches] asks "does this device satisfy the rule's filter",
+ * which for a rule with no address or name set is yes for every device there
+ * is. That is the right question when deciding whether to emit, but the wrong
+ * one when deciding whether *this* connect is the reconnect of the device that
+ * *just* disconnected: answering it with the rule's filter would let an
+ * unrelated device connecting — a watch, a stray BLE beacon, anything else
+ * nearby — cancel the disconnect of a completely different device.
+ *
+ * Compared by address when both sightings report one, since a MAC is otherwise
+ * unique; by name only when an address is missing on either side. When neither
+ * survived — no `BLUETOOTH_CONNECT` permission, most commonly — this declines
+ * rather than guesses: a coincidental match here would suppress a real
+ * disconnect, which is the failure the debounce exists to avoid, not to cause.
+ */
+private fun isSameDevice(address1: String?, name1: String?, address2: String?, name2: String?): Boolean =
+    when {
+        address1 != null && address2 != null -> address1.equals(address2, ignoreCase = true)
+        name1 != null && name2 != null -> name1 == name2
+        else -> false
+    }
+
+/**
  * Fires when a Bluetooth device connects or disconnects.
  *
  * [deviceAddress] narrows it to one device and [nameFilter] to a name; either
@@ -93,13 +119,25 @@ class BluetoothConnectionTrigger(
 ) : Trigger {
 
     override fun events(): Flow<TriggerEvent> = callbackFlow {
-        // The disconnect edge currently waiting out its settle window, if any. A
-        // reconnect for the matched device cancels it outright — the cheap,
-        // deterministic half of the debounce. [currentlyHolds] backs it up for the
-        // case where no reconnect broadcast ever arrives to cancel it (a genuinely
-        // classic-profile device, for instance), by re-checking state instead of
-        // relying only on having seen every edge.
+        // The disconnect edge currently waiting out its settle window, if any, and
+        // the identity of the device it belongs to. A reconnect *of that same
+        // device* cancels it outright — the cheap, deterministic half of the
+        // debounce. [currentlyHolds] backs it up for the case where no reconnect
+        // broadcast ever arrives to cancel it (a genuinely classic-profile device,
+        // for instance), by re-checking state instead of relying only on having
+        // seen every edge.
+        //
+        // The identity is tracked separately from the rule's own filter on
+        // purpose. [bluetoothDeviceMatches] answers "does this device satisfy the
+        // rule", which for a rule with no device or name set — "any device" — is
+        // yes for every device there is. Reusing that answer to decide whether a
+        // *reconnect* happened would let an unrelated device connecting (a watch
+        // reconnecting, a stray BLE beacon, anything) cancel the disconnect of a
+        // completely different device, starving the rule of a disconnect it
+        // should have reported.
         var pendingDisconnect: Job? = null
+        var pendingDisconnectAddress: String? = null
+        var pendingDisconnectName: String? = null
 
         fun emit(address: String?, name: String?, state: String) {
             trySend(
@@ -135,15 +173,26 @@ class BluetoothConnectionTrigger(
                             // on this side, a flicker of *missing* connects is not a
                             // thing a broadcast receiver can even observe.
                             emit(address, name, CONNECTED)
-                        } else {
+                        } else if (
+                            isSameDevice(pendingDisconnectAddress, pendingDisconnectName, address, name)
+                        ) {
                             // The registration below only adds this broadcast when a
                             // disconnect debounce is running, so reaching here means
-                            // exactly that: the device came back before the settle
-                            // window elapsed, so the disconnect we were about to
-                            // report never really happened.
+                            // the device that just disconnected — specifically that
+                            // one, not merely some device the rule's filter would
+                            // also accept — came back before the settle window
+                            // elapsed, so the disconnect we were about to report
+                            // never really happened.
                             pendingDisconnect?.cancel()
                             pendingDisconnect = null
+                            pendingDisconnectAddress = null
+                            pendingDisconnectName = null
                         }
+                        // Any other connect — a different device, or one this
+                        // receiver cannot identify as the same — leaves the pending
+                        // disconnect running. [isSameDevice] declining rather than
+                        // guessing is what keeps that safe: a coincidental match
+                        // here would suppress a real disconnect.
                     }
 
                     BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
@@ -151,6 +200,8 @@ class BluetoothConnectionTrigger(
                             emit(address, name, DISCONNECTED)
                         } else {
                             pendingDisconnect?.cancel()
+                            pendingDisconnectAddress = address
+                            pendingDisconnectName = name
                             pendingDisconnect = launch {
                                 delay(disconnectDebounceMillis)
                                 // null means the state could not be re-read (missing
@@ -163,6 +214,8 @@ class BluetoothConnectionTrigger(
                                     emit(address, name, DISCONNECTED)
                                 }
                                 pendingDisconnect = null
+                                pendingDisconnectAddress = null
+                                pendingDisconnectName = null
                             }
                         }
                     }

@@ -30,12 +30,17 @@ fun triggerFactories(context: Context): List<TriggerFactory> = listOf(
     IntervalTriggerFactory(),
     SolarTriggerFactory(),
 
-    // Conditions only — these have no event stream and can never start a rule.
-    // They live in this list anyway because a condition *is* a trigger, asked
-    // rather than watched; the editor decides which slots to offer them in from
+    // Condition only — no event stream, so it can never start a rule. It lives in
+    // this list anyway because a condition *is* a trigger, asked rather than
+    // watched; the editor decides which slots to offer it in from
     // `supportsCondition`. See `docs/conditions.md`.
+    //
+    // It is the *exception*: there is no time trigger to fold it into, because the
+    // scheduler does not exist. Everything else that can be asked is a passive
+    // form of a trigger that already existed — the location check folded into
+    // `location` rather than standing beside it, which is what "one component,
+    // the slot decides the question" means.
     TimeWindowCheckFactory(),
-    LocationCheckFactory(context),
 
     // Power
     BatteryLevelTriggerFactory(context),
@@ -57,6 +62,11 @@ fun triggerFactories(context: Context): List<TriggerFactory> = listOf(
     DarkThemeTriggerFactory(context),
     OrientationTriggerFactory(context),
     DeviceRestartTriggerFactory(),
+    // Tapped by the user, so it can only ever be an edge — there is no "is a
+    // shortcut currently being tapped". Like `device_restart` it may arrive
+    // before the engine exists, because the tap is what starts the process; see
+    // `ShortcutEvents`.
+    ShortcutTriggerFactory(),
 
     // Apps and system settings
     PackageChangeTriggerFactory(context),

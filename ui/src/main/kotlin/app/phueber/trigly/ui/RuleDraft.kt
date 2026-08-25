@@ -177,7 +177,16 @@ private fun ConditionDraft.toConditionNodeOrNull(): ConditionNode? = when (this)
  * to a deliberate choice while actually being an accident of the editor.
  */
 fun defaultConfigFor(fields: List<ConfigField>): Map<String, String> =
-    fields.mapNotNull { field -> field.defaultValue()?.let { field.key to it } }.toMap()
+    fields.mapNotNull { field ->
+        when (field) {
+            // Minted here, once, because a fresh identifier cannot come from
+            // `defaultValue()` — a pure function asked twice would answer twice
+            // differently. This is the only value the editor invents rather than
+            // reads, and it is invisible: `GeneratedId` draws no control.
+            is ConfigField.GeneratedId -> field.key to RuleJson.newId()
+            else -> field.defaultValue()?.let { field.key to it }
+        }
+    }.toMap()
 
 /**
  * Carries config across a type change, keeping only keys the new type knows.

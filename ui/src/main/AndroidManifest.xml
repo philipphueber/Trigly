@@ -51,6 +51,27 @@
         </activity>
 
         <!--
+          Where a tap on a pinned shortcut lands. exported="true" is required
+          for the same reason as BootReceiver below: the launcher is a
+          different app and can only start this by explicit component name if
+          it is exported, regardless of intent-filter matching.
+
+          Theme.NoDisplay rather than a translucent theme: this activity never
+          draws, and NoDisplay is the platform's own contract for that - it
+          requires finish() to be called before onResume completes and throws
+          if it is not, which makes "draws nothing" a checked property instead
+          of a hope. excludeFromRecents and noHistory keep a tap from leaving
+          behind a task entry or a back-stack entry for an activity nobody
+          will ever see.
+        -->
+        <activity
+            android:name=".ShortcutTargetActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.NoDisplay" />
+
+        <!--
           specialUse, and there is no honest alternative. The catalogue of
           foreground service types describes what the service is *doing* —
           playing media, syncing data, tracking a location — and general-purpose

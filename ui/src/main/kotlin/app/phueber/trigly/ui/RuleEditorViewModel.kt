@@ -199,10 +199,10 @@ class RuleEditorViewModel(
      * path — picking its component from [conditionOptions] first.
      *
      * The one function behind three different-looking moments: filling the
-     * "Only if" section's empty state, adding a second top-level condition
-     * (which promotes the first into a group), and adding a check inside an
-     * existing group. All three are "add this child at this address," which is
-     * exactly what [addCondition] does.
+     * empty tail beneath the trigger blocks with its first passive slot,
+     * adding a second top-level slot (which promotes the first into a group),
+     * and adding a slot inside an existing group. All three are "add this
+     * child at this address," which is exactly what [addCondition] does.
      */
     fun addConditionCheck(path: List<Int>, type: String) = edit {
         val fields = registry.triggerDescriptor(type)?.configFields.orEmpty()
@@ -456,15 +456,23 @@ class RuleEditorViewModel(
                 }
         }
 
-        // A condition check is built the same way a trigger is — it names the
-        // same factory, only asked a different question — so the same
-        // construction failure is possible and gets the same treatment.
-        rule.gate.conditions?.checks()?.forEachIndexed { index, spec ->
+        // A passive slot is built the same way an edge is — it names the same
+        // factory, only asked a different question — so the same construction
+        // failure is possible and gets the same treatment. Labelled by what it
+        // does ("must also be true") rather than by a name for the object, the
+        // same choice the screen itself makes — see `docs/conditions.md`.
+        val checks = rule.gate.conditions?.checks().orEmpty()
+        checks.forEachIndexed { index, spec ->
             runCatching { registry.createTrigger(spec) }
                 .exceptionOrNull()
                 ?.let {
                     val name = registry.displayNameOf(spec.type)
-                    return describe(it, "$name (condition ${index + 1})")
+                    val label = if (checks.size > 1) {
+                        "$name (must also be true, ${index + 1})"
+                    } else {
+                        "$name (must also be true)"
+                    }
+                    return describe(it, label)
                 }
         }
 

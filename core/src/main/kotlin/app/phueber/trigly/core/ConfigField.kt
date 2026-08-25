@@ -103,6 +103,32 @@ sealed interface ConfigField {
         val unit: String? = null,
     ) : ConfigField
 
+    /**
+     * An opaque identifier the *editor* mints when the component is added, and
+     * nobody ever types or reads.
+     *
+     * `shortcut` needs one: a launcher shortcut has to name the rule it fires,
+     * and a trigger is never told its own rule id — so the identity has to live
+     * in the trigger's own config. Before this kind existed it was a required
+     * `Text` field whose help said "generated automatically" while nothing
+     * generated it, which is the worst shape a field can have: mandatory,
+     * unfillable, and silently fatal to the rule.
+     *
+     * Declared rather than special-cased so the editor stays free of
+     * per-component knowledge — the same reason [ConfigField] exists at all. The
+     * editor seeds it once at creation and draws no control for it, because
+     * there is nothing here for a person to decide.
+     */
+    data class GeneratedId(
+        override val key: String,
+        override val label: String,
+        override val help: String? = null,
+        override val shownWhen: FieldCondition? = null,
+    ) : ConfigField {
+        /** Always present once seeded, so never a required *prompt*. */
+        override val required: Boolean get() = false
+    }
+
     /** A switch. Stored as "true"/"false". */
     data class Flag(
         override val key: String,
@@ -181,6 +207,26 @@ sealed interface ConfigField {
      * editor to state, not to hide.
      */
     data class BluetoothAddress(
+        override val key: String,
+        override val label: String,
+        override val required: Boolean = false,
+        override val help: String? = null,
+        override val shownWhen: FieldCondition? = null,
+        val blankMeaning: String? = null,
+    ) : ConfigField
+
+    /**
+     * An emoji, stored as the literal character(s). Stored and validated exactly
+     * like [Text]; separate for the same reason [AppPackage] and [SoundUri] are —
+     * so the editor can offer a curated grid instead of sending someone off to
+     * find their keyboard's emoji tab and remember which one they used last time.
+     *
+     * Blankness carries the same weight it does on [AppPackage] and [SoundUri]:
+     * a shortcut with no chosen icon has to fall back to something (its target's
+     * own icon, a generic one), and that fallback needs to stay reachable once
+     * the picker has been opened.
+     */
+    data class Emoji(
         override val key: String,
         override val label: String,
         override val required: Boolean = false,
@@ -455,12 +501,20 @@ enum class DurationUnit(val millis: Long, val label: String) {
 fun ConfigField.defaultValue(): String? = when (this) {
     is ConfigField.Text -> null
     is ConfigField.AppPackage -> null
+    // Deliberately null: a fresh identifier cannot come from a pure function
+    // called on every read — it would differ each time it was asked. The editor
+    // mints one when the component is added; see `defaultConfigFor`.
+    is ConfigField.GeneratedId -> null
     // Nothing to preselect: which rule is the whole question.
     is ConfigField.RuleRef -> null
     // Both pick something whose absence is itself a setting — the device's own
     // tone, any Bluetooth device — so there is nothing to preselect.
     is ConfigField.SoundUri -> null
     is ConfigField.BluetoothAddress -> null
+    // Same reasoning: a chosen icon is a choice, not a starting position, and a
+    // curated grid preselecting its first entry would look like someone picked
+    // it on purpose.
+    is ConfigField.Emoji -> null
     is ConfigField.Duration -> defaultMillis?.toString()
     // Both are "not set" until picked. A timestamp defaulted to now would be a
     // rule that quietly means "the moment you opened the editor", and a time of

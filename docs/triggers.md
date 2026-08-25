@@ -68,7 +68,7 @@ system settings reports nothing back to the app.
 | Device restarted / app updated | `device_restart` | `BOOT_COMPLETED`/`MY_PACKAGE_REPLACED`, via `BootEvents` | `RECEIVE_BOOT_COMPLETED` |
 | Sunrise / sunset | `solar` | calculated (NOAA), typed location | — |
 | Time of day *(condition only)* | `time_window` | the clock | — |
-| In an area *(condition only)* | `location_check` | one-shot position read | `ACCESS_FINE_LOCATION` |
+| Home-screen shortcut tapped | `shortcut` | tap on a pinned launcher shortcut | — |
 
 ### Conditions: the same triggers, asked instead of watched
 
@@ -90,7 +90,9 @@ Three ways a trigger reads its own level:
   `ACTION_SCREEN_ON` has no sticky form).
 - **A live read of something else's state.** The notification triggers ask the
   listener for what is posted now; `screen_content` walks the accessibility tree;
-  `solar` computes both of today's bounds and answers "is it light".
+  `solar` computes both of today's bounds and answers "is it light"; `location`
+  takes a single fresh position read instead of the continuous
+  `requestLocationUpdates` its edge role holds open.
 
 **Where the honest answer is null.** A trigger that cannot answer must say so
 rather than return false — see `docs/conditions.md`. Four cases found while
@@ -112,27 +114,32 @@ implementing, each a place where false would have been a lie:
   else in between, reads as "nothing foregrounded" — the same staleness trade a
   cached location fix makes.
 
-### Two conditions that are not triggers at all
+### The one condition that is not a trigger at all
 
-`time_window` and `location_check` have **no event stream**: their `events()` is
-empty and they can never start a rule. They exist because asking is cheap where
-watching is not.
+`time_window` has **no event stream**: its `events()` is empty and it can never
+start a rule. It exists because asking is cheap where watching is not, and
+because there is, today, no time *trigger* for it to be a passive form *of* — the
+`AlarmManager` scheduler that trigger would need is blocker 2, still unbuilt.
+Every other condition in this document rides on a component that also fires;
+`time_window` is the one component that is a condition and nothing else.
 
-`time_window` is the one that changes what is possible today. A time *trigger*
-needs `AlarmManager` — blocker 2, still unbuilt — while a time *condition* needs
-only the clock, so "when the doorbell rings, if it is between 22:00 and 07:00"
-works now. Boundaries are inclusive start, exclusive end, so adjacent windows
-abut exactly; a window whose start equals its end reads as "no restriction"
-rather than "never", which is a judgement call recorded on the function itself.
-The wraparound case is a pure function with eighteen tests, because 22:00–07:00
-is where this kind of code goes wrong.
+It is the one that changes what is possible today. A time *trigger* needs
+`AlarmManager`, while a time *condition* needs only the clock, so "when the
+doorbell rings, if it is between 22:00 and 07:00" works now. Boundaries are
+inclusive start, exclusive end, so adjacent windows abut exactly; a window whose
+start equals its end reads as "no restriction" rather than "never", which is a
+judgement call recorded on the function itself. The wraparound case is a pure
+function with eighteen tests, because 22:00–07:00 is where this kind of code
+goes wrong.
 
-`location_check` reads a position **once** — `getCurrentLocation` on API 30+, else
-`getLastKnownLocation` — instead of holding GPS open the way the location trigger
-must. It reuses that trigger's Haversine helper rather than duplicating the maths,
-and it answers null for every unreadable case: permission absent, no provider
-enabled, no fix returned. Its warning states both real costs, staleness and the
-post-reboot location denial.
+A condition for "in an area" used to sit here too, as `location_check` — a
+separate component that had an answer but no event stream, exactly like
+`time_window`. That was wrong for a reason `time_window` does not share: unlike
+time, an area already has a trigger (`location`), so the check did not need to
+be a standalone component at all — it needed to be that trigger's passive form.
+It has been folded in on that basis. What it costs to ask, rather than watch, is
+recorded once, in `docs/conditions.md`'s "Passive-only checks" section, rather
+than duplicated here next to a component it no longer is.
 
 ### Bluetooth disconnects can be debounced
 
@@ -204,6 +211,45 @@ rule would fire just for being enabled), and `ACTION_BATTERY_CHANGED` /
 `ACTION_CONFIGURATION_CHANGED` fire constantly for unrelated reasons (a rule
 would fire hundreds of times). New broadcast triggers get both for free by
 returning a `stateKey`.
+
+### A tap that can arrive before the engine exists
+
+`shortcut` is a home-screen launcher button: a custom label, an emoji icon chosen
+from a picker, and a tap fires the rule. The icon is deliberately an emoji rather
+than a URI or an image file — the same instinct behind the Test button and the
+paired-device picker elsewhere in the editor, that a setting a user cannot type
+correctly should be chosen, not typed. An emoji needs no storage permission,
+renders identically regardless of density or theme, and cannot go stale the way a
+path to a file the user later moves or deletes would.
+
+Two things about it are not obvious from "a button that fires a rule."
+
+**A trigger does not know which rule it belongs to.** Nothing in the `Trigger`
+interface exposes a rule id, so the shortcut cannot address itself by one. It
+carries a generated id in its own config instead — created once, when the trigger
+is added to a rule, and baked into the launcher shortcut — so a tap can be routed
+back to the trigger that owns it. The rule's *name* was the obvious alternative
+and was rejected on sight: a name is editable text, and a shortcut addressed by
+name would silently misfire, or stop firing, the moment someone renamed the rule
+it belongs to.
+
+**Tapping the shortcut can start the process the engine runs in**, which means the
+tap can arrive before any trigger exists to hear it — the same problem
+`device_restart` has with `BOOT_COMPLETED`, above. The fix is the same shape: the
+activity the tap lands on records that it happened, rather than trying to listen
+for it, and the trigger reads that record when it starts collecting a few
+milliseconds later in the same process. This is the second trigger built on that
+shape, which makes it worth naming as a pattern rather than a one-off: any future
+trigger for an event that can precede the engine's own existence belongs on a
+record read at collection time, not on a listener that assumes the engine is
+already running to hear it.
+
+It has **no passive form, and cannot grow one** — for the same reason `ui_click`
+cannot. A tap, like a click, is inherently an instant: there is nothing to ask
+"is it currently tapped" between taps. `docs/conditions.md`'s capability matrix
+lists `shortcut` alongside `ui_click`, `sms_received`, `interval` and
+`device_restart` as having none, and it can therefore occupy only the first,
+edge slot of a gate, never a condition slot.
 
 ---
 
@@ -332,7 +378,7 @@ the elapsed-time callback.
 | App came to foreground | `app_foreground` | Usage access |
 | Call incoming/outgoing/answered/ended/missed | `call_state` | `READ_PHONE_STATE`, API 31+ |
 | SMS received | `sms_received` | `RECEIVE_SMS`, Play-restricted |
-| Entered/left an area | `location` | `ACCESS_FINE_LOCATION` |
+| Entered/left an area *(and, as a condition, currently in it)* | `location` | `ACCESS_FINE_LOCATION` |
 | Work profile available/unavailable | `work_profile` | — |
 | Auto-sync changed | `auto_sync` | — |
 | Clipboard changed | `clipboard_changed` | Platform-restricted |

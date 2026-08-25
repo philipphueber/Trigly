@@ -20,6 +20,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.Rule
+import app.phueber.trigly.core.checks
 
 /**
  * Stateless by design: it takes the rules and reports actions back out. That is
@@ -214,12 +215,36 @@ private fun RequirementCell(
     }
 }
 
-/** Display names now that factories declare them, rather than raw type strings. */
+/**
+ * The one line that says what a rule does, in display names rather than type
+ * strings.
+ *
+ * **It must describe the whole gate.** It used to read `rule.trigger` — the first
+ * edge — and say nothing about conditions, which was accurate only while a rule
+ * could have exactly one trigger and no conditions. Once gates arrived, the list
+ * could state something the rule does not do: a rule fired by two triggers looked
+ * like it had one, and a rule gated on "only at night" looked unconditional. This
+ * list is where someone checks what a rule does without opening it, so a summary
+ * that misdescribes is worse than one that is merely terse.
+ *
+ * Conditions are counted, not named. Naming them would run to a paragraph for a
+ * nested tree, and the count is what answers the question this line is asked —
+ * "is there more to this than the trigger?" The editor shows the rest.
+ */
 private fun summarise(rule: Rule, describeComponent: (String) -> String): String {
+    val triggers = rule.gate.triggers.joinToString(" or ") { describeComponent(it.type) }
+
+    val conditions = rule.gate.conditions?.checks()?.size ?: 0
+    val gate = when (conditions) {
+        0 -> triggers
+        1 -> "$triggers + 1 condition"
+        else -> "$triggers + $conditions conditions"
+    }
+
     val actions = if (rule.actions.isEmpty()) {
         "nothing"
     } else {
         rule.actions.joinToString { describeComponent(it.type) }
     }
-    return "${describeComponent(rule.trigger.type)} → $actions"
+    return "$gate → $actions"
 }

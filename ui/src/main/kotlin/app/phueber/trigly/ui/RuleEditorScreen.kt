@@ -69,8 +69,8 @@ fun RuleEditorScreen(
      * test this module does not own) still calls this composable with only the
      * pre-gate parameter set, and it is not this change's place to make that
      * stop compiling. A caller that omits them gets a "When" section that
-     * cannot grow past one trigger and an "Only if" section that cannot be
-     * added to — inert, not broken.
+     * cannot grow past one trigger and no way to add a further slot beneath
+     * it — inert, not broken.
      */
     conditionOptions: List<ComponentDescriptor> = emptyList(),
     descriptorFor: (Slot, String) -> ComponentDescriptor?,
@@ -114,6 +114,12 @@ fun RuleEditorScreen(
      * reaching for, and which the activity re-evaluates when it resumes.
      */
     isRequirementSatisfied: (ComponentRequirement) -> Boolean = { false },
+    /**
+     * Asks the launcher to pin a home-screen button for a shortcut trigger.
+     * Takes the trigger's whole config because the id, the name and the icon all
+     * live there, and the screen has no business picking them apart.
+     */
+    onPinShortcut: (Map<String, String>) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var picking by remember { mutableStateOf<Picking?>(null) }
@@ -274,15 +280,38 @@ fun RuleEditorScreen(
                     // a single edge must look exactly as it did before several
                     // were possible, and that includes not gaining a Remove
                     // button it never had.
-                    val footer: (@Composable () -> Unit)? = if (draft.triggers.size > 1) {
+                    // A shortcut trigger is the one kind that cannot fire until
+                    // the user does something outside Trigly: a launcher button
+                    // has to exist. So it gets an affordance to create one, and
+                    // without it the rule saves, looks healthy, and never fires
+                    // — the failure this app tries hardest not to have.
+                    //
+                    // Keyed on the trigger declaring a shortcut id rather than on
+                    // its type string, so this stays one line of "does this
+                    // component need pinning" rather than the editor learning the
+                    // name of a trigger. Still a special case, and the honest
+                    // generic answer would be for a factory to declare setup
+                    // actions the editor offers — worth doing if a second
+                    // component ever needs one.
+                    val pinnable = trigger.config.containsKey(SHORTCUT_ID_KEY)
+                    val movable = draft.triggers.size > 1
+
+                    val footer: (@Composable () -> Unit)? = if (movable || pinnable) {
                         {
-                            if (index > 0) {
+                            if (pinnable) {
+                                BlockTextButton("Add to home screen") {
+                                    onPinShortcut(trigger.config)
+                                }
+                            }
+                            if (movable && index > 0) {
                                 BlockTextButton("Up") { onMoveTrigger(index, index - 1) }
                             }
-                            if (index < draft.triggers.lastIndex) {
+                            if (movable && index < draft.triggers.lastIndex) {
                                 BlockTextButton("Down") { onMoveTrigger(index, index + 1) }
                             }
-                            BlockTextButton("Remove") { onRemoveTrigger(index) }
+                            if (movable) {
+                                BlockTextButton("Remove") { onRemoveTrigger(index) }
+                            }
                         }
                     } else {
                         null
@@ -418,14 +447,14 @@ fun RuleEditorScreen(
         )
 
         is Picking.NewCondition -> ComponentPickerDialog(
-            title = "Add a condition",
+            title = "Add trigger",
             options = conditionOptions,
             onPick = { picking = null; onAddConditionCheck(target.path, it) },
             onDismiss = { picking = null },
         )
 
         is Picking.ConditionType -> ComponentPickerDialog(
-            title = "Change condition",
+            title = "Change trigger",
             options = conditionOptions,
             onPick = { picking = null; onChangeConditionType(target.path, it) },
             onDismiss = { picking = null },
@@ -693,3 +722,15 @@ private val stringListSaver: Saver<SnapshotStateList<String>, Any> = listSaver(
     save = { it.toList() },
     restore = { it.toMutableStateList() },
 )
+
+
+/**
+ * The config key a shortcut trigger stores its generated id under.
+ *
+ * Duplicated from `ShortcutTrigger` rather than imported, because `:ui` must not
+ * depend on a particular trigger existing — the same reason a `Rule` stores a
+ * type string instead of a class. If it ever drifts, the button simply stops
+ * appearing, which is visible; importing would make `:ui` know about `:triggers`
+ * internals, which is not.
+ */
+private const val SHORTCUT_ID_KEY = "shortcutId"

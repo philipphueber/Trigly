@@ -147,6 +147,11 @@ class ConfigSchemaContractTest {
                 is ConfigField.Decimal ->
                     (field.default ?: field.min ?: 1.0).toString()
 
+                // Any opaque value: the editor mints a real one, and a factory
+                // must accept whatever it finds rather than validating a shape
+                // it did not choose.
+                is ConfigField.GeneratedId -> "generated-sample-id"
+
                 is ConfigField.AppPackage -> context.packageName
 
                 // Any id: this exercises the accepting path, and the action's
@@ -162,6 +167,10 @@ class ConfigSchemaContractTest {
 
                 // The shape the picker produces and the trigger stores.
                 is ConfigField.BluetoothAddress -> "00:11:22:33:44:55"
+
+                // One entry off the curated grid, exercising the same accepting
+                // path a picked value would.
+                is ConfigField.Emoji -> "🔔"
 
                 // Stored in milliseconds whatever unit the editor showed.
                 is ConfigField.Duration ->

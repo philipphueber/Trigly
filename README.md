@@ -68,11 +68,32 @@ interface is wrong — fix the interface. Actions follow the same four steps in
 
 Early. Implemented: the engine and the **foreground service** that keeps it
 alive, the plugin seams, the requirement model and the
-permission flow around it, **28 triggers**, **19 actions**, a rules list screen
+permission flow around it, **33 triggers**, **20 actions**, a rules list screen
 that explains why a rule cannot fire, and a **rule editor** — pick a trigger and
 actions from grouped pickers, fill in a form generated from each component's
 declared config schema, and save. Rules persist in a local database and survive
 process death.
+
+A rule is no longer just one trigger and a flat list of actions. Its trigger
+side is a **gate**: one or more edges that start it, and an optional tree of
+**conditions** — AND/OR groups of the same triggers, asked instead of watched —
+that must also hold for the actions to run. Most triggers can answer both ways;
+a single component appears once in the picker and the slot decides which
+question is being asked of it, so "when the doorbell rings, if it is dark and I
+am at home" is one gate rather than a separate feature bolted beside triggers.
+`docs/conditions.md` is the design note for this. Time-of-day is the one
+genuinely passive-only check, because there is no time trigger yet for it to be
+a form of; "in an area" briefly existed as a second, standalone component before
+being folded into the `location` trigger as its passive form, which is what the
+"appears once" rule above actually means.
+
+A **notification inspector** screen shows what a notification actually looks
+like from inside the app — package, title versus text, flags, and each button's
+real label — because a notification rule is otherwise written against values
+nobody can see, and a typo there fails silently. The same principle produced the
+button-capture picker: a notification action button is chosen by tapping it on
+a live notification rather than counted by position, since a position shifts
+under a rule that keeps working right up until it doesn't.
 
 The pickers list only what the phone can actually run: a trigger needing an API
 this Android version does not have, or hardware the device lacks, is not offered
@@ -107,14 +128,14 @@ with someone else.
 
 Triggers cover device state (battery, power, radios, screen, headset, theme,
 orientation, location), apps and settings (install, foreground, work profile,
-auto-sync), and the permission-gated ones (notifications, Do Not Disturb,
-accessibility, calls, SMS, clipboard).
+auto-sync), a home-screen shortcut you tap yourself, and the permission-gated
+ones (notifications, Do Not Disturb, accessibility, calls, SMS, clipboard).
 
 Actions cover notifying (notification, toast, speech, vibration), opening
 (website, app), handing off to another app for the user to confirm (email, SMS,
 alarm, calendar), device state (volume, ringer, clipboard, Do Not Disturb),
-other apps' notifications (dismiss, press a button), and HTTP requests for
-webhooks and home automation.
+other apps' notifications (dismiss, press a button), turning one of your own
+rules on or off, and HTTP requests for webhooks and home automation.
 
 `docs/triggers.md` and `docs/actions.md` catalogue every trigger and action with
 its Android API, required permission and known pitfalls — including the ones
@@ -126,14 +147,25 @@ anywhere: events are matched on the device and discarded. Both services are iner
 until you enable them in system settings, and nothing needs them unless you build
 a rule that does.
 
-Not yet implemented, and each has a `TODO` at the relevant place in the code:
+Not yet implemented, and known limits stated plainly rather than left for a user
+to discover — each of the former has a `TODO` at the relevant place in the code:
 
-- **Real scheduling.** The interval trigger uses a coroutine delay, which does
-  not survive Doze. Time-of-day, sunrise/sunset and calendar triggers wait on it.
-  Now the largest gap, and the next thing worth building.
+- **Real scheduling.** There is no scheduler. The interval trigger uses a
+  coroutine delay, which does not survive Doze, and the sunrise/sunset trigger
+  inherits the same weakness while it waits on this. Time-of-day and calendar
+  triggers cannot exist at all without it. Now the largest gap, and the next
+  thing worth building.
 - **Geofencing and activity recognition.** Would require Google Play Services;
   left out on purpose so the app works on de-Googled devices. The `location`
   trigger uses the platform API instead.
-- **Conditions, variables and loops.** A rule is a trigger plus a flat list of
-  actions. Anything more is an execution model, and the largest design decision
-  still open; see the design note in `docs/actions.md`.
+- **Variables and loops.** Conditions shipped — see above — but a rule still
+  cannot carry state between firings or repeat an action a computed number of
+  times. That remains an open execution-model question; see the design note in
+  `docs/actions.md`.
+- **Location goes silent after a reboot.** A service started at boot is denied
+  location access for the rest of its life on current Android, which is a
+  platform restriction Trigly cannot route around. The `location` trigger, and
+  the same component's passive form when it is used as a condition, both read
+  nothing in a rule that has not run since the device last restarted — and there
+  is no warning for it, because the app has no way to notice a denial it never
+  gets a chance to check.
