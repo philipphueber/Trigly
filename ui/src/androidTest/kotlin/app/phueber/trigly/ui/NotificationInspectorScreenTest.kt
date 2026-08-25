@@ -142,7 +142,7 @@ class NotificationInspectorScreenTest {
     fun no_access_is_reported_as_a_permission_problem() {
         show(emptyList(), connected = false)
 
-        composeRule.onNodeWithText("Trigly cannot read notifications yet", substring = true)
+        composeRule.onNodeWithText("Trigly cannot read notifications without access", substring = true)
             .assertIsDisplayed()
     }
 

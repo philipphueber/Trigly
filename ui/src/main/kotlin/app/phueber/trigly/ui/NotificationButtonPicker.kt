@@ -130,6 +130,11 @@ fun NotificationButtonPicker(
  * hunting for the Reply they can see on screen; saying it needs text they cannot
  * supply explains the absence. The action refuses these too — this is the earlier
  * half of the same honesty.
+ *
+ * Such a row also renders disabled and refuses the tap, so "cannot be pressed"
+ * is learned before the dialog closes rather than at Save. That is presentation
+ * only, not validation — `create()` stays the one place that actually refuses
+ * the value, and it still would if this row were somehow picked.
  */
 private fun NotificationButton.asOption(
     notification: ActiveNotification,
@@ -142,6 +147,7 @@ private fun NotificationButton.asOption(
         notification.title?.let { append(" · $it") }
         if (takesText) append(" · needs typed text, cannot be pressed")
     },
+    enabled = !takesText,
 )
 
 /**

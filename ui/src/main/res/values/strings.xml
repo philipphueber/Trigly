@@ -2,11 +2,20 @@
 <resources>
     <string name="app_name">Trigly</string>
     <string name="rules_title">Rules</string>
-    <string name="rules_empty">No rules yet. Tap “NEW RULE” to make one.</string>
+    <!--
+      Deliberately doesn't quote the new-rule button's rendered text (it used to
+      say Tap "NEW RULE" to make one, a literal copy of what rules_new looks like
+      once BlockButton uppercases it). That copy had no mechanism to follow
+      rules_new if its wording ever changed, so it would have gone stale
+      silently. Point at the button by position instead of by label.
+    -->
+    <string name="rules_empty">No rules yet. Add one below to get started.</string>
     <string name="rules_new">New rule</string>
     <string name="rules_import">Import</string>
-    <!-- A diagnostic, not a feature: opens the notification inspector. -->
-    <string name="rules_inspect">Inspect</string>
+    <!-- A diagnostic, not a feature: opens the notification inspector. Named
+         for what the screen shows, not the act of looking, so it reads as an
+         entry point rather than an admission that something needs checking. -->
+    <string name="rules_inspect">What Trigly sees</string>
     <string name="rules_export_all">Export all</string>
     <string name="rules_share">Share</string>
     <string name="requirement_grant">Grant</string>

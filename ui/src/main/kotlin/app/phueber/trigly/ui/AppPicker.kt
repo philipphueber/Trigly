@@ -114,7 +114,11 @@ fun AppPackageField(
             blankMeaning != null -> blankMeaning
             else -> "Choose an app"
         },
-        secondary = packageName,
+        // Only shown when it says something the label doesn't already: an
+        // unresolved package falls back to itself for the label too (see
+        // `labelFor`), and echoing the identical string twice is worse than
+        // omitting the second line. Mirrors `BluetoothAddressField`'s guard.
+        secondary = packageName?.takeIf { apps.labelFor(it) != it },
         leading = packageName?.let { { AppIcon(it, size = 28) } },
         onClick = { picking = true },
     )

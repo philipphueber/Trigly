@@ -41,7 +41,16 @@ private fun regexColors(): RegexColors = RegexColors(
     charClass = MaterialTheme.colorScheme.tertiary,
     quantifier = MaterialTheme.extra.caution,
     group = MaterialTheme.colorScheme.secondary,
-    anchor = MaterialTheme.colorScheme.error,
+    // Not colorScheme.error: an anchor is not a broken pattern, and sharing
+    // red with "PATTERN DOES NOT COMPILE" (PatternTester.kt) made a merely
+    // anchored pattern look like a failing one. extra.caution instead — the
+    // same role quantifier already uses, deliberately: like a quantifier, an
+    // anchor is a valid token that quietly changes what the rest of the
+    // pattern means (^/$ are zero-width, so it's easy to write one that
+    // "matches" without matching any of the text you meant), which is exactly
+    // the "this works, but you should know something" case caution exists
+    // for. colorScheme.error stays reserved for the compile failure alone.
+    anchor = MaterialTheme.extra.caution,
 )
 
 /**

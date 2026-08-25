@@ -81,7 +81,13 @@ fun DurationField(
                 if (typed.isEmpty()) {
                     onValueChange(null)
                 } else {
-                    typed.toDoubleOrNull()?.let { amount ->
+                    // Decimal keyboards show a comma as the decimal key on many
+                    // non-English locales, but toDoubleOrNull() only ever accepts a
+                    // period. Left alone, that comma keystroke is silently dropped —
+                    // the field is controlled, so a rejected value never even shows
+                    // in the box. Normalize before parsing; do not "simplify" this
+                    // away, it is the whole fix.
+                    typed.replace(',', '.').toDoubleOrNull()?.let { amount ->
                         val millis = (amount * unit.millis).toLong()
                         onValueChange(
                             (field.maxMillis?.let(millis::coerceAtMost) ?: millis).toString()
@@ -162,7 +168,10 @@ fun TimestampField(
                 modifier = Modifier.weight(1f),
             )
             PickerValueBox(
-                label = "TIME",
+                // Through fieldLabel like the date box above: date and time are one
+                // stored moment, so marking only one half required would lie about
+                // the other.
+                label = fieldLabel("Time", field.required),
                 primary = if (stored != null) formatTime(calendar) else "—",
                 secondary = null,
                 onClick = { pickingTime = true },

@@ -59,7 +59,10 @@ fun CoordinatesField(
                 onValueChange = { onChange(it, longitude) },
             )
             CoordinateBox(
-                label = "LONGITUDE",
+                // Routed through fieldLabel like the latitude box: latitude and
+                // longitude are one answer, so the asterisk (or its absence) has
+                // to agree on both halves, not just the one that carries field.label.
+                label = fieldLabel("Longitude", field.required),
                 value = longitude,
                 modifier = Modifier.weight(1f).padding(start = 8.dp),
                 onValueChange = { onChange(latitude, it) },
@@ -129,8 +132,13 @@ private suspend fun readLastKnownLocation(context: Context): CoordinateRead =
             Manifest.permission.ACCESS_FINE_LOCATION,
         ) == PackageManager.PERMISSION_GRANTED
         if (!granted) {
+            // Not "below": a component can render this field with no requirements
+            // section at all (SolarTrigger needs no location permission, and even
+            // one that does declare it hides the row once granted), so the fix has
+            // to be findable from a phrase alone, not a pointer to a control that
+            // may not be on screen.
             return@withContext CoordinateRead.Failed(
-                "Grant the location permission below, then try again."
+                "Grant Trigly's location permission in system settings, then try again."
             )
         }
 

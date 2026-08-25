@@ -70,7 +70,7 @@ class RulesScreenTest {
     fun the_notification_inspector_is_reachable_from_an_empty_list() {
         composeRule.setContent { Screen(emptyList()) }
 
-        composeRule.onNodeWithText("INSPECT").performClick()
+        composeRule.onNodeWithText("WHAT TRIGLY SEES").performClick()
 
         assertEquals(1, inspectTaps)
     }
@@ -87,7 +87,7 @@ class RulesScreenTest {
     fun empty_list_invites_creating_a_rule() {
         composeRule.setContent { Screen(emptyList()) }
 
-        composeRule.onNodeWithText("No rules yet. Tap “NEW RULE” to make one.").assertIsDisplayed()
+        composeRule.onNodeWithText("No rules yet. Add one below to get started.").assertIsDisplayed()
         // Export is pointless with nothing to export, so it is not offered.
         composeRule.onNodeWithText("EXPORT ALL").assertDoesNotExist()
     }
@@ -199,7 +199,7 @@ class RulesScreenTest {
             )
         }
 
-        composeRule.onNodeWithText("Needs Android API 31 or newer").assertIsDisplayed()
+        composeRule.onNodeWithText("Needs Android 12 (API 31) or newer").assertIsDisplayed()
         composeRule.onNodeWithText("GRANT").assertDoesNotExist()
     }
 }

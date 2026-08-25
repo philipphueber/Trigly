@@ -21,6 +21,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
 /**
@@ -43,6 +46,15 @@ data class PickerOption(
     val value: String,
     val primary: String,
     val secondary: String? = null,
+    // Presentation only, and off by default so every existing call site is
+    // unaffected. A disabled option still renders — hiding it would leave
+    // someone hunting for a choice they can see elsewhere in the app (a
+    // notification button that is visibly there but needs typed text it
+    // cannot supply here) — it just cannot be picked, and reads that way.
+    // `create()` stays the one place that actually refuses a bad value; this
+    // is what lets the picker say so before the dialog closes rather than
+    // only after, at Save.
+    val enabled: Boolean = true,
 )
 
 /**
@@ -118,6 +130,7 @@ fun ValuePickerDialog(
                             PickerRow(
                                 primary = candidate.primary,
                                 secondary = candidate.secondary,
+                                enabled = candidate.enabled,
                             ) { onPick(candidate.value) }
                             BlockDivider()
                         }
@@ -137,6 +150,7 @@ fun ValuePickerDialog(
                         PickerRow(
                             primary = option.primary,
                             secondary = option.secondary,
+                            enabled = option.enabled,
                             icon = leading?.let { { it(option) } },
                         ) { onPick(option.value) }
                         BlockDivider()
@@ -151,14 +165,31 @@ fun ValuePickerDialog(
 private fun PickerRow(
     primary: String,
     secondary: String?,
+    enabled: Boolean = true,
     icon: (@Composable () -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 12.dp),
+            // Two-line rows (primary + secondary) already clear 48dp on their
+            // own; this only pads out the short ones — the clear row, "No
+            // button chosen," a sound with no secondary text — which
+            // otherwise land around 38-40dp, under Android's touch-target
+            // minimum.
+            .heightIn(min = 48.dp)
+            .clickable(enabled = enabled, onClick = onClick)
+            // `clickable(enabled = false)` already reports disabled to the
+            // accessibility tree on its own, but that is easy to lose sight of
+            // from here, so it is spelled out rather than left implicit.
+            .semantics { if (!enabled) disabled() }
+            .padding(horizontal = 8.dp, vertical = 12.dp)
+            // Material's own disabled-content alpha, applied to the whole row
+            // rather than to one Text inside it: an option that cannot be
+            // picked — a notification button that needs typed text nobody can
+            // supply here — should read as unavailable everywhere it appears,
+            // icon included, not just in its label.
+            .alpha(if (enabled) 1f else 0.38f),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         icon?.invoke()

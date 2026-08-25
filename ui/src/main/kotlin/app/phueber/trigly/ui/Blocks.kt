@@ -43,10 +43,12 @@ import androidx.compose.ui.graphics.addOutline
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
@@ -472,25 +474,87 @@ fun CaveatBadge(
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Box(
-        modifier = modifier
-            .size(22.dp)
-            .clip(BlockShape)
-            .border(BlockBorder, MaterialTheme.extra.caution, BlockShape)
-            .toggleable(value = shown, role = Role.Button, onValueChange = { onToggle() })
-            .semantics { contentDescription = CAVEAT_DESCRIPTION },
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = "!",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.extra.caution,
-        )
+    // Two sizes, deliberately not one. The glyph stays 22dp — the class doc
+    // above explains why that figure is load-bearing, sitting inline in a
+    // 28-item picker row and a block header alike — while the *touch* target
+    // grows to 48dp, Android's accessibility minimum: this is the sole route
+    // to a component's caveat prose, so a target well under half the minimum
+    // is the actual bug. [OverflowingTouchTarget] is what lets the two numbers
+    // differ without a fight — it reports 22dp to whatever this sits inside,
+    // so no row reflows, and lets the real, bigger touch target overhang that
+    // reported footprint instead of claiming space of its own. Don't collapse
+    // this back to a single `.size()`: that either reintroduces the
+    // accessibility gap this exists to fix, or reflows every dense list and
+    // header that carries a caveat.
+    OverflowingTouchTarget(visualSize = 22.dp, touchSize = 48.dp, modifier = modifier) {
+        Box(
+            modifier = Modifier
+                .toggleable(value = shown, role = Role.Button, onValueChange = { onToggle() })
+                .semantics { contentDescription = CAVEAT_DESCRIPTION },
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(22.dp)
+                    .clip(BlockShape)
+                    .border(BlockBorder, MaterialTheme.extra.caution, BlockShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "!",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.extra.caution,
+                )
+            }
+        }
     }
 }
 
 /** Read by the accessibility layer and by the instrumented test. */
 internal const val CAVEAT_DESCRIPTION = "Has a caveat"
+
+/**
+ * Wraps a single child so it reports [visualSize] to whatever it sits inside,
+ * while the child is actually measured and placed at [touchSize] — centred on,
+ * and overhanging, that smaller reported footprint.
+ *
+ * Exists for [CaveatBadge]. Android's touch-target minimum (48dp) is more than
+ * double the badge's 22dp glyph, and the glyph's size is load-bearing — it sits
+ * inline in a 28-item component picker and a block header, both laid out
+ * around that figure. Reserving 48dp of real layout space instead — the way
+ * `Modifier.minimumInteractiveComponentSize()` or Material's own `IconButton`
+ * do — would grow every row that carries a caveat: in the picker, a ~48dp row
+ * would become a ~76dp one for two thirds of the triggers, which is exactly
+ * the "wall" density problem the caveat badge was built to avoid in the first
+ * place (see "Warnings are not errors" in the architecture doc). Compose does
+ * not clip a child's hit-testing to its parent's *reported* size unless
+ * something says to, so the real, bigger, genuinely-clickable box is given its
+ * own child layout node here and left to overhang the smaller footprint this
+ * reports upward, rather than claim it.
+ */
+@Composable
+private fun OverflowingTouchTarget(
+    visualSize: Dp,
+    touchSize: Dp,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Layout(content = content, modifier = modifier) { measurables, constraints ->
+        val touchPx = touchSize.roundToPx()
+        val visualPx = visualSize.roundToPx()
+        val placeable = measurables.single().measure(Constraints.fixed(touchPx, touchPx))
+        // Coerced rather than fixed at visualPx: a Row rarely constrains its
+        // cross-axis, but nothing here should assume that of every call site.
+        val width = visualPx.coerceIn(constraints.minWidth, constraints.maxWidth)
+        val height = visualPx.coerceIn(constraints.minHeight, constraints.maxHeight)
+        layout(width, height) {
+            // Centred on the reported box, which is smaller than the touch
+            // target being placed — the offset is negative on both axes, and
+            // that overhang is the entire point of this function.
+            placeable.placeRelative((width - touchPx) / 2, (height - touchPx) / 2)
+        }
+    }
+}
 
 /**
  * The strip at the bottom of a screen.
