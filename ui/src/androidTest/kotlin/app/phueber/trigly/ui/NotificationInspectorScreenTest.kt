@@ -1,13 +1,21 @@
 package app.phueber.trigly.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.phueber.trigly.core.ActiveNotification
 import app.phueber.trigly.core.NotificationButton
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule as JUnitRule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -162,5 +170,52 @@ class NotificationInspectorScreenTest {
 
         assertEquals(1, refreshes)
         assertEquals(1, backs)
+    }
+
+    /**
+     * The dialog host in `RuleEditorScreen` can hand this screen a viewport far
+     * shorter than a phone's own screen — several capture blocks, each several
+     * lines of monospaced fields. `assertIsDisplayed` on Back would pass either
+     * way: Compose calls a node "displayed" as long as it isn't zero-sized or
+     * fully clipped, which says nothing about whether it still sits above the
+     * viewport's own bottom edge. Measuring its actual position is the only way
+     * to catch a bottom bar that has been pushed past it — which is exactly how
+     * this shipped.
+     *
+     * This exercises the screen's own `Column`/`weight`/`LazyColumn` layout under
+     * a bounded, smaller-than-content viewport. It does not exercise the dialog
+     * host's window/inset handling in `RuleEditorScreen.kt` — that would need the
+     * real `Dialog` measured against a real device's system bars, which is
+     * outside what this file, or a JVM/emulator-only run, can see.
+     */
+    @Test
+    fun the_back_control_stays_inside_the_viewport_even_with_a_long_list() {
+        val viewportHeight = 480.dp
+        composeRule.setContent {
+            Box(Modifier.testTag("viewport").size(320.dp, viewportHeight)) {
+                NotificationInspectorScreen(
+                    notifications = (1..6).map {
+                        notification(
+                            key = "k$it",
+                            text = "A fairly long message body, long enough to wrap " +
+                                "across more than one line on a narrow screen",
+                        )
+                    },
+                    listenerConnected = true,
+                    onRefresh = {},
+                    onBack = {},
+                    describeApp = { it },
+                )
+            }
+        }
+
+        val viewportBottom = composeRule.onNodeWithTag("viewport").getBoundsInRoot().bottom
+        val backBottom = composeRule.onNodeWithText("BACK").getBoundsInRoot().bottom
+
+        assertTrue(
+            "Back's bottom edge ($backBottom) sits past the viewport's own bottom " +
+                "edge ($viewportBottom) — it has been pushed off screen.",
+            backBottom <= viewportBottom,
+        )
     }
 }

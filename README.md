@@ -106,25 +106,29 @@ Trigly is at an early stage of development. The app has these parts:
 Rules are stored in a local database. The database keeps a rule even if the
 app's process stops.
 
-A rule no longer has just one trigger and a flat list of actions. The
-trigger side of a rule is now called a **gate**. A gate has one or more
-triggers that can start the rule. A gate can also have an optional tree of
-**conditions**: groups of triggers joined with AND or OR. Trigly asks a
-condition instead of watching for it. All the conditions in the gate must
-also be true before Trigly runs the actions.
+A rule has one trigger. This trigger can be a single component, or it can
+be a **group** of components. A group joins its members with AND or OR. A
+group can hold another group inside it. This lets you build a rule like
+this: "the doorbell rings, and it is dark, and I am at home."
 
-Most triggers can work as a trigger or as a condition. Each component
-appears once in the picker; the slot you put it in decides which question
-Trigly asks. For this reason, "when the doorbell rings, if it is dark and I
-am at home" is one gate, not a separate feature next to triggers.
-`docs/conditions.md` has the design note for this.
+When one member of a group starts the rule, Trigly counts that member as
+true. Trigly then asks every other member for its current state. A
+condition is one of these state questions: a trigger, asked instead of
+watched. Trigly does not treat a condition as a separate kind of item.
 
-**Time of day** is the only check that works only as a condition, because
-there is no time trigger for it to be a passive form of. An earlier,
-separate component called "in an area" existed for a short time. Trigly
-then merged it into the `location` trigger, as that trigger's condition
-form. This merge is why each component now appears only once in the
-picker.
+Most triggers can answer a state question as well as start a rule. Each
+component still appears once in the picker. The place you put it in the
+group decides which question Trigly asks it. For this reason, "when the
+doorbell rings, if it is dark and I am at home" is one group of triggers,
+not a separate feature next to triggers. `docs/conditions.md` has the
+design note for this.
+
+**Time of day** is the only component that can answer a state question but
+cannot start a rule on its own, because there is no time trigger for it to
+attach to. An earlier, separate component called "in an area" existed for a
+short time. Trigly then merged it into the `location` trigger, as that
+trigger's state form. This merge is why each component now appears only
+once in the picker.
 
 A **notification inspector** screen shows what a notification looks like
 from inside the app: the package name, the title, the text, the flags, and
@@ -231,7 +235,7 @@ in the code:
 - **Location goes silent after a reboot.** On current Android, a service
   that starts at boot loses location access for the rest of its run. This
   is a platform restriction that Trigly cannot work around. This affects
-  the `location` trigger, and the same component's condition form: if a
+  the `location` trigger, and the same component's state form: if a
   rule has not run since the device last restarted, both forms read no
   location data, and Trigly gives no warning for this, because the app has
   no way to check for a denial that it never gets the chance to test.

@@ -28,6 +28,8 @@ data class ComponentDescriptor(
      * [requirements] are here.
      */
     val supportsCondition: Boolean = false,
+    /** Whether this component can start a rule at all — see `TriggerFactory.producesEvents`. */
+    val producesEvents: Boolean = true,
 )
 
 private fun ComponentFactory.describe() = ComponentDescriptor(
@@ -37,6 +39,7 @@ private fun ComponentFactory.describe() = ComponentDescriptor(
     requirements = requirements,
     configFields = configFields,
     supportsCondition = this is TriggerFactory && supportsCondition,
+    producesEvents = this !is TriggerFactory || producesEvents,
     warning = warning,
 )
 
@@ -86,6 +89,25 @@ class Registry(
     fun actionDescriptor(type: String): ComponentDescriptor? = actions[type]?.describe()
 
     /**
+     * Whether [type] can ever start a rule — the by-type-string form of
+     * [TriggerFactory.producesEvents], for feeding [TriggerNode.canStart]'s
+     * `hasEvents` parameter from the editor, which has only the type string a
+     * slot is considering, not a built factory.
+     *
+     * An unknown type answers false rather than throwing: a rule editor asks
+     * this about a type before anything has validated it, same as
+     * [triggerRequirements].
+     */
+    fun producesEvents(type: String): Boolean = triggers[type]?.producesEvents ?: false
+
+    /**
+     * Whether [type] can be asked for its current state — the by-type-string
+     * form of [TriggerFactory.supportsCondition], for [TriggerNode.canStart]
+     * and [TriggerNode.canHold]'s `hasState` parameter.
+     */
+    fun supportsCondition(type: String): Boolean = triggers[type]?.supportsCondition ?: false
+
+    /**
      * Display name for a stored type string, falling back to the raw type so a
      * rule referring to a component this build no longer has still renders as
      * something rather than blank.
@@ -97,22 +119,24 @@ class Registry(
      * Everything [rule] needs, deduplicated — what a "why isn't this firing?"
      * screen shows.
      *
-     * **The whole gate, not just the first edge.** This read `rule.trigger` while
-     * a rule could only have one; once gates arrived, a permission needed by a
-     * second trigger or by any condition became invisible, and the list would
-     * call such a rule firable when it was not. That is the exact failure the
-     * requirement model exists to prevent, so it is worth being explicit: every
-     * edge, every condition check, every action.
+     * **Every leaf of the trigger tree, not just the first one.** This read
+     * `rule.trigger` as a single [ComponentSpec] while a rule could only have
+     * one; once a rule's trigger became a tree that can hold several
+     * components — see [TriggerNode] — a permission needed by a second leaf,
+     * whether it is asked as an edge or only ever read as a state, became
+     * invisible, and the list would call such a rule firable when it was not.
+     * That is the exact failure the requirement model exists to prevent, so
+     * it is worth being explicit: every leaf, every action.
      *
      * Each component is asked what it needs *as configured* — see
      * [ComponentFactory.requirementsFor]. A rule that never uses a capability is
      * not blocked on it.
      */
     fun requirementsOf(rule: Rule): List<ComponentRequirement> {
-        val fromGate = rule.gate.triggers + rule.gate.conditions?.checks().orEmpty()
+        val fromTrigger = rule.trigger.leaves()
 
         return (
-            fromGate.flatMap { triggers[it.type]?.requirementsFor(it.config).orEmpty() } +
+            fromTrigger.flatMap { triggers[it.type]?.requirementsFor(it.config).orEmpty() } +
                 rule.actions.flatMap { actions[it.type]?.requirementsFor(it.config).orEmpty() }
             ).distinct()
     }

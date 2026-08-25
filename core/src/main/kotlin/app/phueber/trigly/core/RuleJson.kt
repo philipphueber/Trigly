@@ -17,7 +17,8 @@ import java.util.UUID
  *    of this project bends over backwards for. An explicit file the user owns is
  *    the only mechanism that always works, and it doubles as a way to share a
  *    rule with someone else.
- *  - **The `config` column** in the local database, via [encodeConfig].
+ *  - **The `config` column** in the local database, via [encodeConfig], and the
+ *    trigger-tree column, via [encodeNode].
  *
  * JSON via `org.json` rather than a serialization library: config maps are flat
  * `String` to `String`, `JSONObject` is in `android.jar`, and it handles the
@@ -28,6 +29,23 @@ import java.util.UUID
  * Import is the one place where a user hands this app a file written by something
  * else, possibly an older or newer version of itself, so "invalid" has to be a
  * sentence rather than a stack trace.
+ *
+ * ### Three formats, one file
+ *
+ * - **v1** (0.0.1–0.0.3): `"trigger"` holds a single component spec.
+ * - **v2** (0.0.4, alongside v1): `"triggers"` (a list) or `"trigger"` (one spec)
+ *   plus an optional `"conditions"` tree, whose nodes were
+ *   `{"node": "check"|"all"|"any", ...}`.
+ * - **v3** (this build): [Rule.trigger] is a single [TriggerNode], and `"trigger"`
+ *   holds it directly. A leaf is exactly a component spec — `{"type", "config"}`
+ *   — so it is byte-identical to what v1 wrote; a group is
+ *   `{"op": "all"|"any", "children": [...]}`. The reader tells them apart by
+ *   whether `"op"` is present, which is also why a leaf must never gain a
+ *   discriminator of its own.
+ *
+ * Every file a released version wrote must still import, forever. v2's
+ * `triggers` + `conditions` split is read by folding it into the equivalent
+ * [TriggerNode] tree — see [legacyTriggerNode].
  */
 object RuleJson {
 
@@ -36,20 +54,30 @@ object RuleJson {
      * is refused rather than half-read — losing a rule silently is worse than
      * failing to import.
      */
-    const val VERSION = 2
+    const val VERSION = 3
 
     /**
      * The version a rule set is *written* as, which is not always [VERSION].
      *
-     * Gates only need version 2 when a rule actually uses one — several edges, or
-     * conditions. A rule set of plain single-trigger rules is written as version 1
-     * in the version-1 shape, so an export stays importable by an older build for
-     * as long as it does not use the new features. Stamping 2 unconditionally
-     * would break that for no gain: the file would be identical apart from the
-     * number, and an old build would refuse it.
+     * A rule set of plain single-trigger rules is written as version 1 in the
+     * version-1 shape, so an export stays importable by an older build for as
+     * long as no rule in it uses a group. Any rule that does forces the whole
+     * file to version 3.
+     *
+     * This deliberately never writes version 2, even for a tree that a v2 file
+     * could have expressed (one level of edges, optionally ANDed with a
+     * condition tree). Detecting "is this [TriggerNode] shaped like the old
+     * edges-plus-conditions split" is real logic — a second grouping operator,
+     * ALL vs ANY at the top, nesting depth — and it is logic a v2-shaped tree
+     * built by hand or by re-import could get subtly wrong in a way that would
+     * only surface as a corrupted re-export. v2 shipped for exactly one release.
+     * The promise this codec has to keep is that it *reads* every file an old
+     * build wrote, not that a fresh export from today opens in a build from
+     * last week. So: v1 if it fits byte-for-byte, v3 otherwise, nothing in
+     * between.
      */
     private fun versionFor(rules: List<Rule>): Int =
-        if (rules.any { it.gate.hasSeveralTriggers || it.gate.conditions != null }) 2 else 1
+        if (rules.all { it.trigger is TriggerNode.One }) 1 else 3
 
     private const val KEY_VERSION = "version"
     private const val KEY_RULES = "rules"
@@ -60,10 +88,11 @@ object RuleJson {
     private const val KEY_TRIGGERS = "triggers"
     private const val KEY_CONDITIONS = "conditions"
     private const val KEY_NODE = "node"
+    private const val KEY_OP = "op"
     private const val KEY_CHILDREN = "children"
     private const val NODE_CHECK = "check"
-    private const val NODE_ALL = "all"
-    private const val NODE_ANY = "any"
+    private const val VAL_ALL = "all"
+    private const val VAL_ANY = "any"
     private const val KEY_ACTIONS = "actions"
     private const val KEY_TYPE = "type"
     private const val KEY_CONFIG = "config"
@@ -80,38 +109,23 @@ object RuleJson {
         .toString(2)
 
     /**
-     * A rule that uses no gate features is written in the old shape — a single
-     * `trigger` object and no `conditions` — so that a file of ordinary rules is
-     * byte-comparable with what previous versions produced and readable by them.
-     * Only a rule that needs the new shape gets it.
+     * A plain trigger (`One`, no group) writes as exactly the spec object v1
+     * wrote — no wrapper, no discriminator — which is what keeps an ordinary
+     * export byte-comparable with a pre-gate build's output. A [TriggerNode.Group]
+     * writes as `{"op", "children"}`; see [nodeToJson].
      */
     private fun ruleToJson(rule: Rule): JSONObject = JSONObject()
         .put(KEY_ID, rule.id)
         .put(KEY_NAME, rule.name)
         .put(KEY_ENABLED, rule.enabled)
-        .apply {
-            if (rule.gate.hasSeveralTriggers) {
-                put(KEY_TRIGGERS, JSONArray(rule.gate.triggers.map(::specToJson)))
-            } else {
-                put(KEY_TRIGGER, specToJson(rule.gate.triggers.first()))
-            }
-            rule.gate.conditions?.let { put(KEY_CONDITIONS, conditionsToJson(it)) }
-        }
+        .put(KEY_TRIGGER, nodeToJson(rule.trigger))
         .put(KEY_ACTIONS, JSONArray(rule.actions.map(::specToJson)))
 
-    private fun conditionsToJson(node: ConditionNode): JSONObject = when (node) {
-        is ConditionNode.Check -> JSONObject()
-            .put(KEY_NODE, NODE_CHECK)
-            .put(KEY_TYPE, node.spec.type)
-            .put(KEY_CONFIG, JSONObject(node.spec.config.toMap()))
-
-        is ConditionNode.All -> JSONObject()
-            .put(KEY_NODE, NODE_ALL)
-            .put(KEY_CHILDREN, JSONArray(node.children.map(::conditionsToJson)))
-
-        is ConditionNode.Any -> JSONObject()
-            .put(KEY_NODE, NODE_ANY)
-            .put(KEY_CHILDREN, JSONArray(node.children.map(::conditionsToJson)))
+    private fun nodeToJson(node: TriggerNode): JSONObject = when (node) {
+        is TriggerNode.One -> specToJson(node.spec)
+        is TriggerNode.Group -> JSONObject()
+            .put(KEY_OP, if (node.op == TriggerNode.Op.ALL) VAL_ALL else VAL_ANY)
+            .put(KEY_CHILDREN, JSONArray(node.children.map(::nodeToJson)))
     }
 
     private fun specToJson(spec: ComponentSpec): JSONObject = JSONObject()
@@ -143,22 +157,13 @@ object RuleJson {
         return (0 until array.length()).map { index ->
             val obj = array.optJSONObject(index)
                 ?: throw IllegalArgumentException("Rule ${index + 1} is not an object.")
-            ruleFromJson(obj, index + 1)
+            ruleFromJson(obj, index + 1, version)
         }
     }
 
-    private fun ruleFromJson(json: JSONObject, position: Int): Rule {
+    private fun ruleFromJson(json: JSONObject, position: Int, version: Int): Rule {
         val name = json.optString(KEY_NAME).takeIf { it.isNotBlank() }
             ?: throw IllegalArgumentException("Rule $position has no name.")
-
-        // Either shape: `triggers` for a first-level OR, `trigger` for the single
-        // edge every version before gates wrote. Both accepted for as long as
-        // files written by those versions exist, which is forever.
-        val triggersJson = json.optJSONArray(KEY_TRIGGERS)
-        val triggerJson = json.optJSONObject(KEY_TRIGGER)
-        if (triggersJson == null && triggerJson == null) {
-            throw IllegalArgumentException("Rule $position ('$name') has no trigger.")
-        }
 
         val actionsJson = json.optJSONArray(KEY_ACTIONS)
             ?: throw IllegalArgumentException("Rule $position ('$name') has no actions list.")
@@ -171,7 +176,55 @@ object RuleJson {
             specFromJson(obj, "action ${i + 1} of rule $position ('$name')")
         }
 
-        val triggers = when {
+        // v1 and v2 share a reader: v1 is simply the case where there is a
+        // single `trigger` spec and no `conditions`, which the same mapping
+        // handles without a special case.
+        val trigger = if (version <= 2) {
+            legacyTriggerNode(json, position, name)
+        } else {
+            val triggerJson = json.optJSONObject(KEY_TRIGGER)
+                ?: throw IllegalArgumentException("Rule $position ('$name') has no trigger.")
+            nodeFromJson(triggerJson, "the trigger of rule $position ('$name')")
+        }
+
+        return Rule(
+            // A missing id is tolerated — a hand-written or hand-edited file is a
+            // legitimate way to author rules, and the id carries no meaning.
+            id = json.optString(KEY_ID).takeIf { it.isNotBlank() } ?: newId(),
+            name = name,
+            trigger = trigger,
+            actions = actions,
+            // Absent means enabled: a rule someone chose to export is one they use.
+            enabled = json.optBoolean(KEY_ENABLED, true),
+        )
+    }
+
+    /**
+     * Folds the pre-gate two-part shape — a list of edges plus a separate
+     * condition tree — into the single [TriggerNode] it meant.
+     *
+     * This mapping *is* the definition of what the old shape meant, which is
+     * why it is tested against hand-written v2 documents rather than only a
+     * round trip: a round trip through this file's own encoder would never
+     * exercise the shape it is meant to translate.
+     *
+     * - The edges become `One(spec)` if there was exactly one, else
+     *   `Group(ANY, ones)` — the old model ran a rule when any edge fired.
+     * - Each condition node becomes `check` → `One`, `all` → `Group(ALL, …)`,
+     *   `any` → `Group(ANY, …)`.
+     * - If there were no conditions, the edges node is the whole trigger. If
+     *   there were, the trigger is `Group(ALL, [edgesNode, conditionsNode])` —
+     *   the old model required every condition to hold on top of an edge
+     *   firing, which is exactly ALL of the two halves.
+     */
+    private fun legacyTriggerNode(json: JSONObject, position: Int, name: String): TriggerNode {
+        val triggersJson = json.optJSONArray(KEY_TRIGGERS)
+        val triggerJson = json.optJSONObject(KEY_TRIGGER)
+        if (triggersJson == null && triggerJson == null) {
+            throw IllegalArgumentException("Rule $position ('$name') has no trigger.")
+        }
+
+        val edges = when {
             triggersJson != null -> (0 until triggersJson.length()).map { i ->
                 val obj = triggersJson.optJSONObject(i)
                     ?: throw IllegalArgumentException(
@@ -183,37 +236,34 @@ object RuleJson {
                 specFromJson(triggerJson!!, "the trigger of rule $position ('$name')")
             )
         }
-        require(triggers.isNotEmpty()) {
+        require(edges.isNotEmpty()) {
             "Rule $position ('$name') has an empty trigger list."
         }
 
-        return Rule(
-            // A missing id is tolerated — a hand-written or hand-edited file is a
-            // legitimate way to author rules, and the id carries no meaning.
-            id = json.optString(KEY_ID).takeIf { it.isNotBlank() } ?: newId(),
-            name = name,
-            gate = Gate(
-                triggers = triggers,
-                conditions = json.optJSONObject(KEY_CONDITIONS)?.let { obj ->
-                    conditionsFromJson(obj, "rule $position ('$name')")
-                },
-            ),
-            actions = actions,
-            // Absent means enabled: a rule someone chose to export is one they use.
-            enabled = json.optBoolean(KEY_ENABLED, true),
-        )
+        val edgesNode: TriggerNode = if (edges.size == 1) {
+            TriggerNode.One(edges.single())
+        } else {
+            TriggerNode.Group(TriggerNode.Op.ANY, edges.map(TriggerNode::One))
+        }
+
+        val conditionsNode = json.optJSONObject(KEY_CONDITIONS)?.let { obj ->
+            legacyConditionNode(obj, "rule $position ('$name')")
+        }
+
+        return conditionsNode?.let { TriggerNode.Group(TriggerNode.Op.ALL, listOf(edgesNode, it)) }
+            ?: edgesNode
     }
 
     /**
-     * Reads one condition node.
+     * Reads one v2 condition node into the [TriggerNode] it means.
      *
      * An unknown node kind is an error rather than a skip. Dropping a node would
-     * change what the rule *means* — losing an `All` branch makes a rule fire in
+     * change what the rule *means* — losing an `all` branch makes a rule fire in
      * cases its author excluded — and a rule that silently does more than it was
      * told is worse than an import that stops and says why.
      */
-    private fun conditionsFromJson(json: JSONObject, where: String): ConditionNode {
-        fun children(): List<ConditionNode> {
+    private fun legacyConditionNode(json: JSONObject, where: String): TriggerNode {
+        fun children(): List<TriggerNode> {
             val array = json.optJSONArray(KEY_CHILDREN)
                 ?: throw IllegalArgumentException("A group in $where has no children.")
             return (0 until array.length()).map { i ->
@@ -221,26 +271,68 @@ object RuleJson {
                     ?: throw IllegalArgumentException(
                         "Child ${i + 1} of a group in $where is not an object."
                     )
-                conditionsFromJson(obj, where)
+                legacyConditionNode(obj, where)
             }
         }
 
         return when (val node = json.optString(KEY_NODE)) {
-            NODE_CHECK -> ConditionNode.Check(specFromJson(json, "a condition of $where"))
-            NODE_ALL -> ConditionNode.All(children())
-            NODE_ANY -> ConditionNode.Any(children())
+            NODE_CHECK -> TriggerNode.One(specFromJson(json, "a condition of $where"))
+            VAL_ALL -> TriggerNode.Group(TriggerNode.Op.ALL, children())
+            VAL_ANY -> TriggerNode.Group(TriggerNode.Op.ANY, children())
             else -> throw IllegalArgumentException(
                 "Unknown condition kind '$node' in $where."
             )
         }
     }
 
-    /** The condition tree on its own, for the database column. */
-    fun encodeConditions(node: ConditionNode): String = conditionsToJson(node).toString()
+    /**
+     * Reads one v3 trigger node. A group has an `"op"` key; a leaf does not — see
+     * the class doc for why a leaf must never grow a discriminator that would
+     * make v1 files unreadable as leaves.
+     */
+    private fun nodeFromJson(json: JSONObject, where: String): TriggerNode {
+        if (!json.has(KEY_OP)) {
+            return TriggerNode.One(specFromJson(json, where))
+        }
+
+        val op = when (val opValue = json.optString(KEY_OP)) {
+            VAL_ALL -> TriggerNode.Op.ALL
+            VAL_ANY -> TriggerNode.Op.ANY
+            else -> throw IllegalArgumentException("Unknown group operator '$opValue' in $where.")
+        }
+        val childrenJson = json.optJSONArray(KEY_CHILDREN)
+            ?: throw IllegalArgumentException("A group in $where has no children.")
+        val children = (0 until childrenJson.length()).map { i ->
+            val obj = childrenJson.optJSONObject(i)
+                ?: throw IllegalArgumentException(
+                    "Child ${i + 1} of the group in $where is not an object."
+                )
+            nodeFromJson(obj, "child ${i + 1} of the group in $where")
+        }
+        // The guard the old `Gate` had at construction, kept at the boundary that
+        // still needs it. `TriggerNode` deliberately permits an empty group —
+        // "all of nothing" holding and "any of nothing" not holding are what the
+        // words mean, and a total model needs no special case. But an empty group
+        // arriving in a *file* is a rule that can never start, which is the
+        // failure this whole design exists to make impossible. Refusing the
+        // import names it; accepting it hands someone a rule that looks saved and
+        // does nothing.
+        require(children.isNotEmpty()) { "The group in $where has no triggers in it." }
+        return TriggerNode.Group(op, children)
+    }
+
+    /** The trigger tree on its own, for the database column. */
+    fun encodeNode(node: TriggerNode): String = nodeToJson(node).toString()
 
     /** @throws IllegalArgumentException on anything unreadable. */
-    fun decodeConditions(json: String): ConditionNode =
-        conditionsFromJson(JSONObject(json), "stored conditions")
+    fun decodeNode(json: String): TriggerNode {
+        val obj = try {
+            JSONObject(json)
+        } catch (malformed: JSONException) {
+            throw IllegalArgumentException("Stored trigger is not valid JSON.", malformed)
+        }
+        return nodeFromJson(obj, "the stored trigger")
+    }
 
     private fun specFromJson(json: JSONObject, where: String): ComponentSpec {
         val type = json.optString(KEY_TYPE).takeIf { it.isNotBlank() }

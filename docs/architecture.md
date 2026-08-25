@@ -73,20 +73,30 @@ other's logic, which is the property that matters.
 `Trigger` carries a second, defaulted capability — `currentlyHolds()` — so the
 same component can be *watched* as an edge or *asked* as a level. That is what
 lets a condition be a trigger rather than a second component family, and
-`TriggerFactory.supportsCondition` is how the editor knows which slots to offer a
-component in without instantiating one.
+`TriggerFactory.supportsCondition` — alongside `producesEvents`, its declared
+counterpart, false only for `time_window` — is how the editor knows what a
+component can be used for without instantiating one.
 
-`Gate` and `ConditionNode` in `:core` are the model: a first level of one or more
-edge triggers — an OR when there are several — plus an optional AND/OR tree of
-checks that must hold when one of them fires. Both are built and tested;
-neither is wired into `Rule`, storage, the engine or the editor yet. The full
-design, the capability matrix for all thirty-one triggers, and why a *passive*
-time check sidesteps the missing scheduler entirely, are in `docs/conditions.md`.
+`Rule.trigger` is a single `TriggerNode` — `core/Gate.kt` — either one
+component (`One`) or a group of them combined with `ALL`/`ANY` (`Group`), and a
+group can hold groups. This is the second design: the first modelled a rule's
+trigger side as `Gate(triggers, conditions)`, a required first-level OR of
+edges plus a separate optional tree of checks, rendered by the editor as a
+second region captioned "Must also be true." That was rejected — twice — for
+making a structural distinction between "trigger" and "condition" that nobody
+building a rule had asked for; a condition is not a different kind of node,
+it is the same node asked a different question depending on where it sits.
+`Gate` and `ConditionNode` are gone from the model. `TriggerNode`, storage, and
+the engine are built and wired; the editor is being migrated to match — see
+`docs/conditions.md`, which also carries the capability matrix for all
+thirty-one triggers and why a *passive* time check sidesteps the missing
+scheduler entirely.
 
-Two invariants from there that constrain anything touching this: an unknown state
-never holds — a check that cannot answer must not be read as denial *or* as
-satisfaction — and the gate's shape is what keeps edges and levels apart, so the
-editor needs no rules about which component may go where.
+Two invariants from there that constrain anything touching this: an unknown
+state never holds — a check that cannot answer must not be read as denial *or*
+as satisfaction — and edges-versus-levels is now a property of a leaf,
+computed by `TriggerNode.canStart`/`canHold`, rather than a property of a slot
+a two-part shape used to guarantee by construction.
 
 ### Requirements
 
@@ -300,10 +310,15 @@ cannot be.
 
 Two things stay with the screen. The Test button doubles as Stop while an action
 is running, and only the screen knows which action that is — so the tool declares
-*that there is a test*, and the label and handler are passed in. And the
-condition slots render tools through a composable lambda handed to `GateEditor`,
-so a notification condition gets the same Inspect button its trigger form has
-without that file learning what a tool is.
+*that there is a test*, and the label and handler are passed in. And a
+component nested anywhere in the trigger tree — asked as a condition rather
+than watched as the edge — renders its tools the same way, through a
+composable lambda passed down to whatever draws that level of the tree, so a
+notification component gets the same Inspect button wherever in the tree it
+sits, without the tree-rendering code learning what a tool is. (The trigger
+tree's own editor code is under active revision as this is written, so this
+paragraph is deliberately not naming a composable — verify against the
+current code rather than against a name here.)
 
 An instrumented contract test holds the notification half of this: any component
 declaring `SpecialAccessKind.NOTIFICATION_LISTENER` must offer

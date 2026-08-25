@@ -66,7 +66,26 @@ fun ComponentPickerDialog(
         }
     }
 
-    val grouped = remember(matches) { matches.groupBy { it.category }.toSortedMap() }
+    // Alphabetical, except that "Groups" is pinned to the top.
+    //
+    // It was sorted with the rest until a test could not find it: with 33
+    // triggers in eight categories, a "Groups" heading lands between "Device
+    // state" and "Notifications", far enough down that the lazy list had not even
+    // composed it. Someone looking for "combine two triggers" has no reason to
+    // look under G, and the two rows in there are structure rather than another
+    // pair of things that can happen — so they go where structure belongs, above
+    // the catalogue.
+    //
+    // Pinned by name rather than by a flag on the descriptor: the picker already
+    // groups by a plain string, and one special case here is cheaper than a field
+    // every component has to carry to say "no, I am not that".
+    val grouped = remember(matches) {
+        matches
+            .groupBy { it.category }
+            .toSortedMap(
+                compareBy<String> { if (it == GROUP_CATEGORY) 0 else 1 }.thenBy { it }
+            )
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,

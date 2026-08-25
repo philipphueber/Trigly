@@ -11,6 +11,7 @@ import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ComponentSpec
 import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.SpecialAccessKind
+import app.phueber.trigly.core.TriggerNode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule as JUnitRule
@@ -42,6 +43,12 @@ class RulesScreenTest {
         when (type) {
             "interval" -> "Every so often"
             "post_notification" -> "Show a notification"
+            "bluetooth_connected" -> "Bluetooth connected"
+            "charger_plugged" -> "Charger in"
+            "headset_plugged" -> "Headset in"
+            "wifi_connected" -> "Wi-Fi connected"
+            "screen_on" -> "Screen turned on"
+            "airplane_mode" -> "Airplane mode enabled"
             else -> type
         }
     }
@@ -81,6 +88,92 @@ class RulesScreenTest {
 
         composeRule.onNodeWithText("PING EVERY MINUTE").assertIsDisplayed()
         composeRule.onNodeWithText("EVERY SO OFTEN → SHOW A NOTIFICATION").assertIsDisplayed()
+    }
+
+    /**
+     * A group is parenthesised and its operator spelled out, so "all of" and
+     * "any of" read differently rather than both collapsing into the same list
+     * the pre-tree summary used to produce.
+     */
+    @Test
+    fun a_grouped_trigger_is_parenthesised_with_its_operator() {
+        val rule = sampleRule.copy(
+            trigger = TriggerNode.Group(
+                TriggerNode.Op.ALL,
+                listOf(
+                    TriggerNode.One(ComponentSpec("bluetooth_connected")),
+                    TriggerNode.One(ComponentSpec("interval")),
+                ),
+            ),
+        )
+        composeRule.setContent { Screen(listOf(RuleStatus(rule, unmet = emptyList()))) }
+
+        composeRule
+            .onNodeWithText("(BLUETOOTH CONNECTED AND EVERY SO OFTEN) → SHOW A NOTIFICATION")
+            .assertIsDisplayed()
+    }
+
+    /** Nesting reads as nesting: a sub-group keeps its own parentheses and operator. */
+    @Test
+    fun a_nested_group_shows_both_operators() {
+        val rule = sampleRule.copy(
+            trigger = TriggerNode.Group(
+                TriggerNode.Op.ALL,
+                listOf(
+                    TriggerNode.One(ComponentSpec("bluetooth_connected")),
+                    TriggerNode.Group(
+                        TriggerNode.Op.ANY,
+                        listOf(
+                            TriggerNode.One(ComponentSpec("charger_plugged")),
+                            TriggerNode.One(ComponentSpec("headset_plugged")),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        composeRule.setContent { Screen(listOf(RuleStatus(rule, unmet = emptyList()))) }
+
+        composeRule
+            .onNodeWithText("(BLUETOOTH CONNECTED AND (CHARGER IN OR HEADSET IN)) → SHOW A NOTIFICATION")
+            .assertIsDisplayed()
+    }
+
+    /**
+     * The rule this guards against: a summary that reads as simpler than the rule
+     * actually is. A tree long enough to truncate must still say how many
+     * triggers it holds, so cutting the text short never understates the count.
+     */
+    @Test
+    fun a_long_tree_truncates_but_still_states_its_true_trigger_count() {
+        val rule = sampleRule.copy(
+            trigger = TriggerNode.Group(
+                TriggerNode.Op.ALL,
+                listOf(
+                    TriggerNode.One(ComponentSpec("bluetooth_connected")),
+                    TriggerNode.One(ComponentSpec("wifi_connected")),
+                    TriggerNode.One(ComponentSpec("charger_plugged")),
+                    TriggerNode.One(ComponentSpec("headset_plugged")),
+                    TriggerNode.One(ComponentSpec("screen_on")),
+                    TriggerNode.One(ComponentSpec("airplane_mode")),
+                ),
+            ),
+        )
+        composeRule.setContent { Screen(listOf(RuleStatus(rule, unmet = emptyList()))) }
+
+        // Six triggers went in; the summary must say six, not however many of
+        // their names happened to fit before the cut.
+        composeRule
+            .onNodeWithText("(6 TRIGGERS) → SHOW A NOTIFICATION", substring = true)
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("…", substring = true).assertIsDisplayed()
+        // The whole tree, spelled out, would not have needed truncating at all —
+        // if this is present the cut never happened and the test is not exercising it.
+        composeRule
+            .onNodeWithText(
+                "(BLUETOOTH CONNECTED AND WI-FI CONNECTED AND CHARGER IN AND HEADSET IN AND " +
+                    "SCREEN TURNED ON AND AIRPLANE MODE ENABLED) → SHOW A NOTIFICATION",
+            )
+            .assertDoesNotExist()
     }
 
     @Test
