@@ -138,8 +138,17 @@ object BluetoothEvents {
     const val DUPLICATE_WINDOW_MILLIS = 20_000L
 }
 
-/** Same action, same device, ignoring [BluetoothEvents.Sighting.atMillis]. */
+/**
+ * Same edge, same device, ignoring [BluetoothEvents.Sighting.atMillis].
+ *
+ * The device half is [isSameDevice], the rule the disconnect debounce already
+ * uses, rather than a field-by-field comparison. The difference shows up in the
+ * case that matters: a repeat broadcast does not have to carry the same fields
+ * as the first one. A device whose name the stack had not resolved yet reports
+ * the first sighting with an address and no name, and the repeat a few seconds
+ * later with both. Demanding that the names match too would call that a new
+ * connect, and the rule would run twice for one of them, which is the failure
+ * this filter exists to prevent rather than one to introduce.
+ */
 private fun BluetoothEvents.Sighting.isRepeatOf(other: BluetoothEvents.Sighting): Boolean =
-    action == other.action &&
-        address.equals(other.address, ignoreCase = true) &&
-        name == other.name
+    action == other.action && isSameDevice(address, name, other.address, other.name)

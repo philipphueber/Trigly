@@ -178,4 +178,31 @@ class BluetoothEventsTest {
             assertEquals(BluetoothEvents.Action.CONNECTED, sighting.action)
         }
     }
+
+    /**
+     * The case a field-by-field comparison got wrong. A repeat broadcast does
+     * not have to carry the same fields as the first: the stack may not have
+     * resolved the device's name when it sends the first one, and may have it a
+     * few seconds later. The address is the identity, so this is one connect
+     * reported twice, not two connects.
+     */
+    @Test
+    fun `a repeat that resolves the name late is still a repeat`() {
+        BluetoothEvents.record(
+            BluetoothEvents.Action.CONNECTED,
+            address = "AA:BB:CC:DD:EE:FF",
+            name = null,
+            atMillis = 1_000L,
+        )
+        BluetoothEvents.record(
+            BluetoothEvents.Action.CONNECTED,
+            address = "aa:bb:cc:dd:ee:ff",
+            name = "Car",
+            atMillis = 4_000L,
+        )
+
+        val pending = BluetoothEvents.pending(nowMillis = 4_100L)
+        assertEquals(1_000L, pending?.atMillis)
+        assertNull("the late name must not replace the first sighting", pending?.name)
+    }
 }

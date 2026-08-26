@@ -76,11 +76,17 @@ fun bluetoothDeviceMatches(
  *
  * Compared by address when both sightings report one, since a MAC is otherwise
  * unique; by name only when an address is missing on either side. When neither
- * survived — no `BLUETOOTH_CONNECT` permission, most commonly — this declines
- * rather than guesses: a coincidental match here would suppress a real
+ * survived, which means no `BLUETOOTH_CONNECT` permission in practice, this
+ * declines rather than guesses: a coincidental match here would suppress a real
  * disconnect, which is the failure the debounce exists to avoid, not to cause.
+ *
+ * `internal` rather than private because [BluetoothEvents] asks the same
+ * question of the same pair of fields when it decides whether a second
+ * broadcast describes the same device as the first. Two copies of an identity
+ * rule is how one of them ends up subtly different from the other, and this one
+ * is subtle: the two ends of a comparison do not always carry the same fields.
  */
-private fun isSameDevice(address1: String?, name1: String?, address2: String?, name2: String?): Boolean =
+internal fun isSameDevice(address1: String?, name1: String?, address2: String?, name2: String?): Boolean =
     when {
         address1 != null && address2 != null -> address1.equals(address2, ignoreCase = true)
         name1 != null && name2 != null -> name1 == name2
