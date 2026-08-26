@@ -80,4 +80,18 @@
       redo something they already did.
     -->
     <string name="requirement_check_settings">Check settings</string>
+
+    <!--
+      The app-wide battery optimisation notice on the rules screen. See
+      BatteryOptimizationNotice in RulesScreen.kt for why this is one notice
+      above the list rather than a row on each rule.
+
+      battery_optimization_body says three things and stops there: what can
+      happen, what this setting does about it, and what it does not do about
+      a force-stop. It must not read as "tap this and rules always run" -
+      that is a promise this setting cannot keep.
+    -->
+    <string name="battery_optimization_title">Android can stop Trigly</string>
+    <string name="battery_optimization_body">This can happen when the phone is idle. Then no rule runs. This setting is what stops it. It does not stop a force-stop. A force-stop from Settings always stops Trigly, even with this setting on.</string>
+    <string name="battery_optimization_action">Allow</string>
 </resources>
