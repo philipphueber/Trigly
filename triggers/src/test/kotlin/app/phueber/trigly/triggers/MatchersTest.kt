@@ -449,3 +449,100 @@ class LocationProviderOrderTest {
         assertEquals(listOf("network", "gps"), locationProviderOrder(30))
     }
 }
+
+/**
+ * Which location grant an area needs, and when an approximate one will do.
+ *
+ * The size of the area is the whole input. Since Android 12 the permission
+ * dialog asks Precise or Approximate as one question, so a rule about a town
+ * that demands precise location is asking for more than it uses.
+ */
+class LocationRequirementsTest {
+
+    private val fine = ComponentRequirement.RuntimePermission(
+        Manifest.permission.ACCESS_FINE_LOCATION
+    )
+    private val coarse = ComponentRequirement.RuntimePermission(
+        Manifest.permission.ACCESS_COARSE_LOCATION
+    )
+    private val background = ComponentRequirement.RuntimePermission(
+        Manifest.permission.ACCESS_BACKGROUND_LOCATION
+    )
+
+    @Test
+    fun `a small area needs the precise grant`() {
+        assertEquals(listOf(fine, background), locationRequirements(100.0, 31))
+        assertEquals(listOf(fine, background), locationRequirements(2_999.0, 31))
+    }
+
+    @Test
+    fun `an area of kilometres needs only the approximate grant`() {
+        assertEquals(listOf(coarse, background), locationRequirements(3_000.0, 31))
+        assertEquals(listOf(coarse, background), locationRequirements(20_000.0, 31))
+    }
+
+    /**
+     * Config is text, and a radius that will not parse arrives here as null. A
+     * component that cannot tell how big its area is must not conclude that any
+     * fix will do.
+     */
+    @Test
+    fun `an unreadable radius is treated as the strict case`() {
+        assertEquals(listOf(fine, background), locationRequirements(null, 31))
+    }
+
+    /** The background grant arrived in Android 10; below it the fine grant covers it. */
+    @Test
+    fun `before Android 10 the background grant is not asked for`() {
+        assertEquals(listOf(fine), locationRequirements(100.0, 28))
+        assertEquals(listOf(coarse), locationRequirements(5_000.0, 28))
+    }
+}
+
+/**
+ * Whether a fix decides the area it is asked about.
+ *
+ * The case this exists for: a network fix accurate to 1 km, asked whether the
+ * phone is inside a 200 m circle. Inside and outside are both consistent with
+ * that reading, and the plain comparison would still pick one and sound sure of
+ * it. Unattended actions are the wrong place for a coin toss, so the answer is
+ * "could not read" and the rule says so instead of running.
+ */
+class InsideAreaTest {
+
+    @Test
+    fun `a fix good enough for the area answers`() {
+        assertEquals(true, insideArea(distanceMeters = 50.0, radiusMeters = 200.0, accuracyMeters = 30f))
+        assertEquals(false, insideArea(distanceMeters = 500.0, radiusMeters = 200.0, accuracyMeters = 30f))
+    }
+
+    @Test
+    fun `a fix coarser than the area cannot answer`() {
+        assertNull(insideArea(distanceMeters = 50.0, radiusMeters = 200.0, accuracyMeters = 1_000f))
+        assertNull(insideArea(distanceMeters = 5_000.0, radiusMeters = 200.0, accuracyMeters = 1_000f))
+    }
+
+    /**
+     * Declines on the radius, not on the distance to the boundary. The tighter
+     * test would answer in the middle of an area and report a fault near its
+     * edge, which is one rule behaving as two.
+     */
+    @Test
+    fun `the edge of a well resolved area still answers`() {
+        assertEquals(true, insideArea(distanceMeters = 199.0, radiusMeters = 200.0, accuracyMeters = 150f))
+        assertEquals(false, insideArea(distanceMeters = 201.0, radiusMeters = 200.0, accuracyMeters = 150f))
+    }
+
+    /** Exactly on the boundary is inside, which is what the comparison always said. */
+    @Test
+    fun `the boundary counts as inside`() {
+        assertEquals(true, insideArea(distanceMeters = 200.0, radiusMeters = 200.0, accuracyMeters = 10f))
+    }
+
+    /** A provider that reports no accuracy has said nothing, so nothing is inferred. */
+    @Test
+    fun `a fix with no accuracy is used as it stands`() {
+        assertEquals(true, insideArea(distanceMeters = 50.0, radiusMeters = 200.0, accuracyMeters = null))
+        assertEquals(false, insideArea(distanceMeters = 500.0, radiusMeters = 200.0, accuracyMeters = null))
+    }
+}

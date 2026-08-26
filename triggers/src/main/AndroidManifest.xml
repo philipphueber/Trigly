@@ -26,9 +26,12 @@
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
     <!-- Location trigger. From API 31 the user can grant approximate location
-         instead of precise, so the platform requires both to be declared; the
-         GPS provider the trigger uses still needs the fine grant, which is what
-         the trigger declares as its requirement. -->
+         instead of precise, so the platform requires both to be declared, and
+         both are used: a location component asks for the approximate grant when
+         its radius is 3 km or more and for the precise grant below that. See
+         `locationRequirements`. Granting precise grants approximate with it, so
+         a rule asking for the smaller thing is satisfied by either answer to
+         the dialog. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
