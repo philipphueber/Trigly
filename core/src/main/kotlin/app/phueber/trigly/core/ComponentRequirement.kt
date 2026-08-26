@@ -31,14 +31,32 @@ enum class SpecialAccessKind(
      * so the URI is worth sending and not worth promising.
      */
     val packageScoped: Boolean = false,
+    /**
+     * Whether granting this kind starts a service that Android can silently
+     * drop without revoking the grant: the notification listener and the
+     * accessibility service. An app update, an OEM battery manager, or a low
+     * memory kill can unbind either one while the setting this class checks
+     * stays on, so "granted" and "live" are two different questions for these
+     * two kinds.
+     *
+     * False for the other three. Usage stats, Do Not Disturb access, and
+     * drawing over other apps are each read through their own live API on
+     * every call, so there is no separate service to lose track of and
+     * "granted" already means "live" for them.
+     *
+     * See [RequirementChecker.liveness] for what asks this.
+     */
+    val bindsAService: Boolean = false,
 ) {
     NOTIFICATION_LISTENER(
         settingsAction = "android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS",
         label = "Notification access",
+        bindsAService = true,
     ),
     ACCESSIBILITY_SERVICE(
         settingsAction = "android.settings.ACCESSIBILITY_SETTINGS",
         label = "Accessibility access",
+        bindsAService = true,
     ),
     USAGE_STATS(
         settingsAction = "android.settings.USAGE_ACCESS_SETTINGS",

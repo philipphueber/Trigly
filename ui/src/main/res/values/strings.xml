@@ -72,4 +72,12 @@
         <item quantity="one">Trigly watches %d rule</item>
         <item quantity="other">Trigly watches %d rules</item>
     </plurals>
+
+    <!--
+      The button next to a requirement that is granted but not live: see
+      RequirementChecker.grantedButNotLive. Named apart from requirement_grant
+      because the setting is already on, so "Grant" would ask the user to
+      redo something they already did.
+    -->
+    <string name="requirement_check_settings">Check settings</string>
 </resources>
