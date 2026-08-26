@@ -966,6 +966,42 @@ honesty depends on it: a force-stop from app settings, and an OEM battery
 manager that disregards the promise. The service raises the odds a long way; it
 does not make them one.
 
+**The odds are also something the app can now ask about, and raise.** The
+foreground service is the mechanism; the exemption from battery optimisation
+is a separate switch Android keeps per app, and until now Trigly never asked
+for it, checked it, or said anything about it on screen. That silence is
+exactly wrong on the phone where it matters: an app killed for sitting idle
+loses every rule and every diagnostic it holds, since both live in a process
+that no longer exists, and the user sees nothing running and nothing that
+explains why. `RulesScreen` now reads `PowerManager.isIgnoringBatteryOptimizations`
+and shows a notice, `BatteryOptimizationNotice`, until it answers true.
+
+It sits once above the whole rule list rather than inside `ComponentRequirement`,
+the model the "Requirements" section above this one builds: a requirement in
+that model is scoped to the trigger or action that declared it, and an unmet
+one explains why *that* component cannot fire. Battery optimisation is not
+scoped that way. It stops the process every enabled rule runs in, so a rule
+holding every permission it asks for is exactly as exposed as one holding
+none, and repeating the same sentence on each rule's card would not describe
+any one of them correctly.
+
+Two intents do the asking. `Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`,
+given a `package:` URI and the `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`
+permission, opens a one-tap system dialog. Google Play restricts that intent to
+an app whose core function needs to keep running in the background, which is a
+fair description of this engine and the reason `MainActivity` declares it
+deliberately rather than as a shortcut. `Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS`
+opens the settings list instead, needs no such permission, and is the fallback
+when the dialog does not resolve, the same defence `openSettings` already
+applies elsewhere: not every manufacturer ships every settings screen.
+
+Granting it does not touch the line above this one. A force-stop still empties
+Trigly's process whatever this setting says; the notice lowers the odds Android
+stops Trigly on its own and says nothing more than that, because promising more
+would be the same failure this section exists to prevent, stated by the app
+itself this time. `docs/todo.md` **R1** is the record of why no design inside
+this app changes that half of the picture.
+
 Two things it is worth knowing it does *not* fix. It is not a
 background-activity-start exemption (see `docs/actions.md`, where that mistake
 is easy to make), and on its own it is not a scheduler: a coroutine `delay`

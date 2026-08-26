@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -225,6 +226,11 @@ class MainActivity : ComponentActivity() {
         when (screen) {
             Screen.RuleList -> {
                 val statuses by listViewModel.statuses.collectAsStateWithLifecycle()
+                // Re-read on the same signal as every permission check below:
+                // granting this happens in a settings screen that reports
+                // nothing back, and grantEpoch is what makes onResume's
+                // refresh visible to this composable.
+                val ignoringBatteryOptimizations = remember(grantEpoch) { ignoringBatteryOptimizations() }
                 RulesScreen(
                     statuses = statuses,
                     onEnabledChange = listViewModel::setEnabled,
@@ -236,6 +242,8 @@ class MainActivity : ComponentActivity() {
                     onDuplicateRule = listViewModel::duplicate,
                     onImport = { openDocument.launch(arrayOf("application/json", "text/*")) },
                     describeComponent = container.registry::displayNameOf,
+                    ignoringBatteryOptimizations = ignoringBatteryOptimizations,
+                    onFixBatteryOptimization = ::requestIgnoreBatteryOptimizations,
                 )
             }
 
@@ -569,5 +577,56 @@ class MainActivity : ComponentActivity() {
                 Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             )
         }
+    }
+
+    /**
+     * Whether Android currently excuses Trigly from battery optimisation.
+     *
+     * `PowerManager` is the only honest source: nothing else on the platform
+     * answers this, and a flag this app set itself would only record whether
+     * someone was once sent to the settings screen, not what they did there
+     * or whether an OEM battery manager later took the exemption back.
+     *
+     * `?: true` is the fallback for the one system that has no
+     * `PowerManager`, which is not a real device. Falling back to "already
+     * excused" rather than "not excused" is deliberate: this class does not
+     * accuse the app of a fault it could not actually check for.
+     */
+    private fun ignoringBatteryOptimizations(): Boolean =
+        getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(packageName) ?: true
+
+    /**
+     * Sends someone to grant the battery optimisation exemption, direct
+     * dialog first.
+     *
+     * `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` opens a one-tap system
+     * dialog rather than a settings screen, and needs the
+     * `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` permission declared in the
+     * manifest. Google Play restricts that intent to an app whose core
+     * function needs to keep running in the background while the screen is
+     * off, which is a fair description of Trigly's engine: without the
+     * exemption Android can stop it while the phone is idle, and every rule
+     * stops with it. This is a declared, deliberate use of the intent for
+     * that reason, not a shortcut around Play's own review of it.
+     *
+     * Falls back to `ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS`, the list
+     * screen, when the dialog does not resolve, and to `ACTION_SETTINGS`
+     * when neither does. The same defence as [openSettings]: not every
+     * manufacturer ships every settings screen, and an unresolvable intent
+     * would crash the app rather than merely fail to help.
+     */
+    private fun requestIgnoreBatteryOptimizations() {
+        val direct = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+            .setData("package:$packageName".toUri())
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val list = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        val intent = when {
+            direct.resolveActivity(packageManager) != null -> direct
+            list.resolveActivity(packageManager) != null -> list
+            else -> Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        startActivity(intent)
     }
 }

@@ -59,6 +59,13 @@ fun RulesScreen(
     onDuplicateRule: (Rule) -> Unit = {},
     onImport: () -> Unit,
     describeComponent: (String) -> String,
+    /**
+     * Whether Android currently excuses Trigly from battery optimisation.
+     * See [BatteryOptimizationNotice] for why this is read once for the whole
+     * screen rather than folded into any one rule's requirements.
+     */
+    ignoringBatteryOptimizations: Boolean,
+    onFixBatteryOptimization: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Both are view state, not rule data: what someone is typing into the
@@ -85,6 +92,15 @@ fun RulesScreen(
                     )
                 }
             },
+        )
+
+        // Placed here, above search and above the list, because it is true of
+        // the whole screen rather than of any one rule on it. It shows for an
+        // empty rule list too: the point is to be found before the first rule
+        // is even added, not to wait for something to warn about.
+        BatteryOptimizationNotice(
+            ignoringBatteryOptimizations = ignoringBatteryOptimizations,
+            onFix = onFixBatteryOptimization,
         )
 
         // Same reasoning as Export All above: search is pointless with nothing
@@ -476,6 +492,81 @@ private fun LastFaultCell(
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = 2.dp),
             )
+        }
+    }
+}
+
+/**
+ * Whether Android is free to stop Trigly for sitting idle. States a fact
+ * about this device and this install of the app, never about one rule, which
+ * is why it is drawn once above the whole list rather than as a row inside
+ * [RequirementCell] or [RuleBlock].
+ *
+ * **Why not a requirement on a component.** [ComponentRequirement] describes
+ * what one trigger or action needs before it can fire, and an unmet one is
+ * scoped to the rule that has it. Battery optimisation is not scoped that
+ * way: it stops the process every enabled rule runs in, so folding it into
+ * [RequirementCell] would repeat the identical sentence on every enabled
+ * rule's card, and it would still describe none of those rules correctly,
+ * since the fault was never in any of them. One notice, read once, is the
+ * honest shape of a fact that is true of the screen and not of a card on it.
+ *
+ * **Why here on the screen.** Above the search field and the list, beside
+ * [BlockHeader]: the other things this screen states about itself rather
+ * than about a rule live in that same band. It is shown even with an empty
+ * rule list, on purpose. The point is to be seen before the first rule ever
+ * needs it to have been read, not to wait for a rule that would otherwise go
+ * quiet without an explanation.
+ *
+ * **Why it disappears once granted.** The same convention [RequirementCell]
+ * already uses: a row about a thing that is already true trains people to
+ * stop reading rows, and this one earns that trust or loses it exactly like
+ * every other requirement in this screen.
+ *
+ * **Why the caution colour, not the error colour.** [RequirementCell] takes
+ * the error colour because it names a rule that cannot fire *right now*.
+ * This notice is not that: Trigly can be running perfectly well the moment
+ * this is read, and the fault is a raised risk of being stopped later, once
+ * the phone goes idle, not a block standing in front of anything at this
+ * instant. That is exactly the "worth knowing, not a fault in front of you"
+ * case [LastFaultCell]'s KDoc describes for its own amber rows.
+ *
+ * **What it does not promise.** Granting this never survives a force-stop:
+ * a force-stop from Settings empties Trigly's process whatever this setting
+ * says, for reasons this screen has no control over (see `docs/todo.md`
+ * **R1**). The body text says so, because a notice that implies "fixed for
+ * good" once tapped would be a worse failure than the one it replaces: a
+ * false sense that the rules are now safe.
+ */
+@Composable
+private fun BatteryOptimizationNotice(
+    ignoringBatteryOptimizations: Boolean,
+    onFix: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (ignoringBatteryOptimizations) return
+
+    Box(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Surface(
+            color = MaterialTheme.extra.cautionContainer,
+            contentColor = MaterialTheme.extra.onCautionContainer,
+            shape = BlockShape,
+            modifier = Modifier.fillMaxWidth().hardShadow(BlockShape),
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = stringResource(R.string.battery_optimization_title).uppercase(),
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                Text(
+                    text = stringResource(R.string.battery_optimization_body),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                Row(modifier = Modifier.padding(top = 8.dp)) {
+                    BlockTextButton(stringResource(R.string.battery_optimization_action)) { onFix() }
+                }
+            }
         }
     }
 }

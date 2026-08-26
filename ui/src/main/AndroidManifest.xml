@@ -51,6 +51,16 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!--
+      Lets MainActivity open the one-tap dialog that excuses Trigly from
+      battery optimisation, instead of only the settings list. Google Play
+      restricts this intent to an app whose core function needs to keep
+      running in the background while the screen is off, which Trigly's
+      engine does: without the exemption Android can stop it while the phone
+      is idle, and every rule stops with it. This is a declared, deliberate
+      use for that reason. See MainActivity.requestIgnoreBatteryOptimizations.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:name=".TriglyApp"

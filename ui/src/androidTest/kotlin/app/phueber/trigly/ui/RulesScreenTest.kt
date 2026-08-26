@@ -47,6 +47,7 @@ class RulesScreenTest {
     private var newRuleTaps = 0
     private var importTaps = 0
     private val duplicated = mutableListOf<String>()
+    private var batteryFixTaps = 0
 
     /** Display names come from the factories, so the screen is handed a lookup. */
     private val describe: (String) -> String = { type ->
@@ -64,7 +65,13 @@ class RulesScreenTest {
     }
 
     @Composable
-    private fun Screen(statuses: List<RuleStatus>) {
+    private fun Screen(
+        statuses: List<RuleStatus>,
+        // Defaults to "already excused": every test above this one is about
+        // a rule, not about the device, and should not have to state a fact
+        // it does not care about to avoid tripping an unrelated notice.
+        ignoringBatteryOptimizations: Boolean = true,
+    ) {
         RulesScreen(
             statuses = statuses,
             onEnabledChange = { rule, enabled -> toggles += rule.id to enabled },
@@ -76,6 +83,8 @@ class RulesScreenTest {
             onDuplicateRule = { duplicated += it.id },
             onImport = { importTaps++ },
             describeComponent = describe,
+            ignoringBatteryOptimizations = ignoringBatteryOptimizations,
+            onFixBatteryOptimization = { batteryFixTaps++ },
         )
     }
 
@@ -556,6 +565,34 @@ class RulesScreenTest {
 
         composeRule.onNodeWithText("No rules match “zzz”.").assertIsDisplayed()
         composeRule.onNodeWithText("DRIVING MODE").assertDoesNotExist()
+    }
+
+    /**
+     * The one notice on this screen that is about the device, not about a
+     * rule. It has to show up with no rules at all, since the point is to be
+     * seen before a rule ever goes quiet for want of it, and it has to offer
+     * the fix rather than merely name the problem.
+     */
+    @Test
+    fun a_battery_restricted_device_sees_the_notice_and_can_act_on_it() {
+        composeRule.setContent { Screen(emptyList(), ignoringBatteryOptimizations = false) }
+
+        composeRule.onNodeWithText("ANDROID CAN STOP TRIGLY").assertIsDisplayed()
+        composeRule.onNodeWithText("ALLOW").performClick()
+
+        assertEquals(1, batteryFixTaps)
+    }
+
+    /**
+     * Pinned against the test above: a row about a thing that is already
+     * true trains people to stop reading rows, so this has to actually
+     * disappear once Trigly is excused, not merely start hidden.
+     */
+    @Test
+    fun an_excused_device_sees_no_notice() {
+        composeRule.setContent { Screen(emptyList(), ignoringBatteryOptimizations = true) }
+
+        composeRule.onNodeWithText("ANDROID CAN STOP TRIGLY").assertDoesNotExist()
     }
 }
 
