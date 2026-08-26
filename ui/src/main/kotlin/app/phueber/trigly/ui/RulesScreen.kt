@@ -416,6 +416,10 @@ private fun RuleBlock(
  * Only for an enabled rule, and [RulesViewModel] enforces that as well by not
  * filling the field for a disabled one. Two guards for one rule, because the
  * cost of getting it wrong is accusing a rule nobody asked to run.
+ *
+ * [RuleFault.Kind.UNDECIDED] reaches here only once the engine has already
+ * retried the component that could not answer and given up; a component that
+ * answers late is a rule working, not a report.
  */
 @Composable
 private fun LastFaultCell(

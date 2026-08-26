@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -248,6 +249,103 @@ class TriggerEngineTest {
         }
 
     /**
+     * The retry T3 adds. A component that misses once and then answers is the
+     * rule working, a little late, not a fault: nothing is reported, and the
+     * action still runs for the event that started the whole evaluation.
+     */
+    @Test
+    fun `a rule fires after a read that failed once and then answered`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val action = RecordingAction()
+            val suppressed = mutableListOf<List<String>>()
+            val engine = TriggerEngine(
+                registry = Registry(
+                    triggerFactories = listOf(
+                        FakeTriggerFactory(TRIGGER_TYPE, listOf(event(1L))),
+                        FlakyTriggerFactory(missesBeforeAnswering = 1, answer = true),
+                    ),
+                    actionFactories = listOf(SingleActionFactory(ACTION_TYPE, action)),
+                ),
+                scope = this,
+                onSuppressed = { _, _, unreadable -> suppressed += unreadable.map { it.type } },
+            )
+
+            engine.startRule(
+                Rule(
+                    id = "rule-1",
+                    name = "notification and area",
+                    trigger = TriggerNode.Group(
+                        TriggerNode.Op.ALL,
+                        listOf(
+                            TriggerNode.One(ComponentSpec(TRIGGER_TYPE)),
+                            TriggerNode.One(ComponentSpec(UNREADABLE_TYPE)),
+                        ),
+                    ),
+                    actions = listOf(ComponentSpec(ACTION_TYPE)),
+                ),
+            )
+
+            // One retry is all this needs: the first read misses, the engine
+            // waits out one retry delay, and the second read is the one that
+            // answers. Virtual time, not a real wait.
+            advanceTimeBy(UNREADABLE_RETRY_DELAY_MILLIS + 1)
+
+            assertEquals(listOf(1L), action.seen.map { it.firedAtMillis })
+            assertEquals(emptyList<List<String>>(), suppressed)
+
+            engine.stop()
+        }
+
+    /**
+     * The other half. A component that never answers, however many times the
+     * engine asks, ends the wait with one named fault rather than an event
+     * held open forever. The whole retry schedule elapses in virtual time
+     * here, which is the point of driving this engine with fakes at all.
+     */
+    @Test
+    fun `a rule reports a give-up after a read that never answered`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val action = RecordingAction()
+            val suppressed = mutableListOf<List<String>>()
+            val engine = TriggerEngine(
+                registry = Registry(
+                    triggerFactories = listOf(
+                        FakeTriggerFactory(TRIGGER_TYPE, listOf(event(1L))),
+                        UnreadableTriggerFactory(),
+                    ),
+                    actionFactories = listOf(SingleActionFactory(ACTION_TYPE, action)),
+                ),
+                scope = this,
+                onSuppressed = { _, _, unreadable -> suppressed += unreadable.map { it.type } },
+            )
+
+            engine.startRule(
+                Rule(
+                    id = "rule-1",
+                    name = "notification and area",
+                    trigger = TriggerNode.Group(
+                        TriggerNode.Op.ALL,
+                        listOf(
+                            TriggerNode.One(ComponentSpec(TRIGGER_TYPE)),
+                            TriggerNode.One(ComponentSpec(UNREADABLE_TYPE)),
+                        ),
+                    ),
+                    actions = listOf(ComponentSpec(ACTION_TYPE)),
+                ),
+            )
+
+            // The whole budget: the first read plus every retry, all of them
+            // missing.
+            advanceTimeBy(UNREADABLE_RETRIES * UNREADABLE_RETRY_DELAY_MILLIS + 1)
+
+            assertTrue(action.seen.isEmpty())
+            // Reported once, after the budget is spent, not once per miss.
+            assertEquals(listOf(listOf(UNREADABLE_TYPE)), suppressed)
+
+            engine.stop()
+        }
+
+    /**
      * `sync` and `runningRuleIds` are reached from two different threads in the
      * real app and must not corrupt each other.
      *
@@ -385,6 +483,32 @@ private class UnreadableTriggerFactory(private val answer: Boolean? = null) : Tr
     override fun create(config: Map<String, String>): Trigger = object : Trigger {
         override fun events(): Flow<TriggerEvent> = emptyFlow()
         override suspend fun currentlyHolds(): Boolean? = answer
+    }
+}
+
+/**
+ * A leaf that misses the first [missesBeforeAnswering] reads and then answers
+ * [answer] on every read after that.
+ *
+ * The shape of the failure the retry exists for: a read that comes back once
+ * it is asked again, not one that is broken forever. [UnreadableTriggerFactory]
+ * with a null answer is the other half, a component that never comes back.
+ */
+private class FlakyTriggerFactory(
+    private val missesBeforeAnswering: Int,
+    private val answer: Boolean,
+) : TriggerFactory {
+    override val type: String = UNREADABLE_TYPE
+    override val supportsCondition = true
+    override val producesEvents = false
+
+    override fun create(config: Map<String, String>): Trigger = object : Trigger {
+        var reads = 0
+        override fun events(): Flow<TriggerEvent> = emptyFlow()
+        override suspend fun currentlyHolds(): Boolean? {
+            reads++
+            return if (reads <= missesBeforeAnswering) null else answer
+        }
     }
 }
 

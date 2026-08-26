@@ -29,12 +29,12 @@
     <string name="rules_last_run_failed">Last run failed: %1$s</string>
     <!--
       The heading for a rule that fired and then ran nothing, because part of
-      its trigger could not say whether it held. Not "failed": nothing ran, so
-      there is no action to blame. The body names the components that could not
-      answer and says what that leaves unknown.
+      its trigger never said whether it held, even after Trigly asked again.
+      Not "failed": nothing ran, so there is no action to blame. The body names
+      the components that never answered and says what that leaves unknown.
     -->
     <string name="rules_last_run_undecided">Last run stopped</string>
-    <string name="rules_could_not_decide">Trigly could not read %1$s, so the rule did not run.</string>
+    <string name="rules_could_not_decide">Trigly asked %1$s more than once and got no answer, so the rule did not run.</string>
     <!--
       The heading for a rule that was never built, so nothing is watching for
       it. Not "failed" and not "stopped": both of those describe a run, and

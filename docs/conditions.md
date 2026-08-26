@@ -394,6 +394,37 @@ answer: unknown, not a definite no, because firing unattended actions on a
 guess is the worse failure. Cancellation is rethrown rather than swallowed,
 because a cancelled rule is not a rule whose trigger failed to hold.
 
+### A read that comes back unknown gets asked again, once, on a bound
+
+The rule above, that `null` does not hold, was right and stayed right. What
+was missing was a second chance for a read that misses only briefly: without
+one, a door event that arrives while a position read happens to be failing
+was dropped for good, and the door event never came back.
+
+`TriggerEngine.resolveHolds` holds the event and asks again: up to three extra
+tries, two seconds apart, four reads in total across six seconds at most. A
+leaf that answers on any of those tries is treated exactly like one that
+answered on the first: the rule fires, late, and nothing is reported, because
+a component that missed once and then answered is the rule working. A leaf
+that still cannot answer once the budget is spent is the other case, and it is
+reported once, through `onSuppressed`, as its own outcome rather than folded
+into the first miss.
+
+Six seconds and not longer, because a rule's actions are unattended and firing
+them late can be worse than not firing them at all. The retry rides out the
+failure this was written for, a read that misses for a second or two, and
+stops well short of holding an event open on the chance that a much longer
+outage clears. It is a bounded number of tries inside a coroutine that is
+already running, reacting to an event that already happened, not a wake-up
+across a Doze window; `docs/todo.md` T1 is the separate, larger problem of
+waking a process that has gone to sleep.
+
+The trap is the one this document already names for a stuck component: a
+permanent unknown reads exactly like a temporary one, on every single try,
+until the budget runs out. That is why the give-up at the end of the budget is
+unconditional and is always named as its own outcome. See "The third case" in
+`architecture.md` for how it reaches the screen.
+
 ## What implementing the underlying capability taught
 
 Four triggers turned out to have no honest level for at least one of their
