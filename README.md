@@ -18,11 +18,13 @@ Kotlin, and it uses Jetpack Compose for its UI.
 >
 > Four limits to know before you install:
 >
-> - **A wait can be late.** A rule that waits for a time or for the next sunrise
->   uses Android's alarm service, so it survives a sleeping phone. It is not
->   exact. Android sends an inexact alarm in its next maintenance window, so the
->   rule can be some minutes late, and it can be later when the phone is in deep
->   sleep.
+> - **A wait survives sleep, not a stop.** A rule that waits for a time or for
+>   the next sunrise uses Android's alarm service, so it survives a sleeping
+>   phone. It is not exact: Android sends an inexact alarm in its next
+>   maintenance window, so the rule can be some minutes late, and later still
+>   when the phone is in deep sleep. And the wait belongs to the running app, so
+>   if Android stops Trigly the wait goes with it, and that rule stays quiet
+>   until something starts Trigly again. See the limit below about an idle app.
 > - **Nothing tests the release build.** The tests cover the debug build. The
 >   release build shrinks and renames code, and no test exercises the result.
 > - **Some triggers need Trigly to be running.** Android can stop an app that

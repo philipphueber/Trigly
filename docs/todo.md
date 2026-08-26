@@ -93,6 +93,46 @@ breaks a reboot test: the two cannot go in one test without care.
 **Done when.** The test runs on two devices or API levels and its limits are
 written down.
 
+### T17 A wait does not survive the process, only the sleep
+
+**Evidence.** `AlarmManagerScheduler` uses the listener form of `setWindow`, so
+every wait is bound to an `OnAlarmListener` in this process. AOSP deletes such
+an alarm when the process dies. `AlarmManagerService.setImplLocked` calls
+`directReceiver.asBinder().linkToDeath(mListenerDeathRecipient, 0)`, and that
+recipient calls `removeLocked(null, listener, REMOVE_REASON_LISTENER_BINDER_DIED)`.
+
+So T1 fixed the sleeping phone and not the stopped app. An interval rule or a
+sun rule whose process is killed has no pending alarm at all, and nothing ever
+sets one again, because the thing that would set it is the collector that died
+with the process. The rule is then dead until something unrelated starts the
+app. On a device that stops idle apps, that is most of the time, which is the
+same failure the Bluetooth ingress was built to end and it is still open here.
+
+This is the sharp form of the distinction the whole project keeps meeting: a
+rule that exists in the database is not a rule that is being watched. The
+database survives the process. A listener alarm does not.
+
+**Do.** Give the scheduler a second path for a wait that must survive a kill: a
+`PendingIntent` alarm with a manifest receiver that starts the engine, which is
+what `BluetoothConnectionReceiver` already does for a broadcast. The listener
+form stays right for a wait inside a live reaction, such as a poll while the
+engine is already up, so this is a second method on the port and not a
+replacement.
+
+**Watch for.** The receiver must record which wait fired before it starts the
+engine, exactly as `BootEvents` and `BluetoothEvents` do, or the event is lost
+in the handoff. And a `PendingIntent` alarm needs an exemption to start a
+foreground service from the background, which a Bluetooth broadcast gets from
+the sender's temporary allowlist and an alarm does not, so check
+`ACTION_MY_PACKAGE_REPLACED`-style routes or accept that the engine starts as a
+plain service and promotes itself when it can. Settle that before writing code:
+it decides whether this is possible at all.
+
+**Done when.** An interval rule fires after the engine's process is killed
+without the user opening the app, on two devices or API levels. Until then, the
+README limit about a wait says that it survives sleep and not a stop, which is
+the honest version of the claim.
+
 ### T13 Bound the whole retry, not the gaps in it
 
 **Evidence.** T3's `resolveHolds` bounds the waits between tries at two seconds
