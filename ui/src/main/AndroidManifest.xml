@@ -94,12 +94,32 @@
           of a hope. excludeFromRecents and noHistory keep a tap from leaving
           behind a task entry or a back-stack entry for an activity nobody
           will ever see.
+
+          taskAffinity is empty, and that one attribute is the difference
+          between a shortcut that fires a rule and a shortcut that opens the
+          app. Without it this activity belongs to Trigly's own task, so a
+          launcher starting it finds that task, brings the whole thing forward,
+          and puts this activity on top. This activity records the tap and
+          finishes a millisecond later, and what it uncovers is MainActivity.
+          The shortcut therefore appears to open the app, but only when the app
+          has been used recently enough to still own a task, which is why it
+          reads as intermittent rather than as broken. An empty affinity gives
+          it a task of its own that shares nothing, so there is never a task to
+          bring forward.
+
+          Fixed here rather than with FLAG_ACTIVITY_NEW_TASK on the pinned
+          intent, for a reason that outweighs either: a shortcut carries the
+          intent it was pinned with, so an intent change would fix only
+          shortcuts pinned afterwards and leave every one already on a home
+          screen broken. The manifest is read at launch, so this repairs those
+          too.
         -->
         <activity
             android:name=".ShortcutTargetActivity"
             android:exported="true"
             android:excludeFromRecents="true"
             android:noHistory="true"
+            android:taskAffinity=""
             android:theme="@android:style/Theme.NoDisplay" />
 
         <!--
