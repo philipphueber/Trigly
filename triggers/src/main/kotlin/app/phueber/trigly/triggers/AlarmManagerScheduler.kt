@@ -190,13 +190,24 @@ class AlarmManagerScheduler(context: Context) : AlarmScheduler {
      * an implicit intent scoped to this app's own package with
      * [AlarmWakeEvents.ACTION_ALARM_WAKE]. It is implicit rather than naming
      * the receiver's class, because `:triggers` must not depend on `:ui`; see
-     * [AlarmWakeEvents]. Both alarms ask for the same instant and the same
-     * window, so on a device that stays awake and alive the two are
-     * expected to land close together; whichever fires first wins, and the
-     * `finally` block below always cancels the `PendingIntent` alarm once
-     * this call is done with it one way or another, so a live process is
-     * never asked twice for the one wait and no alarm is left pending for a
-     * wait that already happened.
+     * [AlarmWakeEvents].
+     *
+     * **It is a backstop, not a twin, and the offset is what makes it one.**
+     * Asked for the same instant as the listener alarm, both would fire on a
+     * live process, because they sit in the same window and the platform is
+     * free to deliver them in either order. The receiver would then broadcast
+     * and try to start the engine on every single tick of every durable wait,
+     * and that start is refused on any device that has not granted the battery
+     * exemption, so a rule waiting a minute at a time would fill the log with
+     * refusals and pay for a wake nobody needed. [backstopAtMillis] puts it
+     * past the first alarm's window instead. A live process always wins the
+     * race, and the `finally` below cancels the backstop unfired. A process
+     * that died cancels nothing, and the backstop fires one margin late.
+     *
+     * That margin is the price of the wake surviving at all, and it is small
+     * beside the drift a windowed alarm already carries. It is paid only after
+     * a kill, which is exactly when a wait that is late beats a wait that never
+     * comes back.
      */
     private suspend fun awaitAlarmDurably(
         manager: AlarmManager,
@@ -210,7 +221,12 @@ class AlarmManagerScheduler(context: Context) : AlarmScheduler {
             Intent(AlarmWakeEvents.ACTION_ALARM_WAKE).setPackage(appContext.packageName),
             PendingIntent.FLAG_IMMUTABLE,
         )
-        manager.setWindow(type, triggerAtMillis, windowLengthMillis, pendingIntent)
+        manager.setWindow(
+            type,
+            backstopAtMillis(triggerAtMillis, windowLengthMillis),
+            windowLengthMillis,
+            pendingIntent,
+        )
         try {
             awaitAlarm(manager, type, triggerAtMillis, windowLengthMillis)
         } finally {
@@ -237,6 +253,32 @@ class AlarmManagerScheduler(context: Context) : AlarmScheduler {
  */
 internal fun windowLengthMillis(durationMillis: Long): Long =
     (durationMillis / WINDOW_FRACTION).coerceIn(MIN_WINDOW_MILLIS, MAX_WINDOW_MILLIS)
+
+/**
+ * The gap between [nowMillis] and [atMillis], in milliseconds, never
+ * negative. An instant already in the past waits zero: the alarm is set for
+ * as soon as the platform can manage, not skipped and not thrown past.
+ */
+/**
+ * When the surviving alarm of a durable wait should ask to fire, given the
+ * instant and the window the in-process alarm asked for.
+ *
+ * Past the end of that window, plus [BACKSTOP_MARGIN_MILLIS]. The two alarms
+ * must not be able to fire in the same batch: see
+ * `AlarmManagerScheduler.awaitAlarmDurably` for what a live process pays every
+ * tick when they can.
+ */
+internal fun backstopAtMillis(triggerAtMillis: Long, windowLengthMillis: Long): Long =
+    triggerAtMillis + windowLengthMillis + BACKSTOP_MARGIN_MILLIS
+
+/**
+ * The gap between the end of the in-process alarm's window and the backstop.
+ *
+ * Half a minute. Long enough that the listener alarm has fired and cancelled
+ * the backstop on any process still alive to do it, and short enough that a
+ * wait resumed after a kill is late rather than lost.
+ */
+internal const val BACKSTOP_MARGIN_MILLIS = 30_000L
 
 /**
  * The gap between [nowMillis] and [atMillis], in milliseconds, never

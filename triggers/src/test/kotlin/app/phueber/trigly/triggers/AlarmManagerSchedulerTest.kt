@@ -1,6 +1,7 @@
 package app.phueber.trigly.triggers
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -49,5 +50,38 @@ class AlarmManagerSchedulerTest {
     @Test
     fun `durationUntil is zero for the instant that is now`() {
         assertEquals(0L, durationUntil(nowMillis = 10_000L, atMillis = 10_000L))
+    }
+
+    /**
+     * The backstop must not be able to share a batch with the in-process alarm.
+     *
+     * Two alarms asked for the same instant both fire on a live process, and the
+     * surviving one then broadcasts and tries to start the engine on every tick
+     * of every wait, refused on any device without the battery exemption. This
+     * is the arithmetic that keeps them apart, so it is worth a test of its own
+     * rather than a comment.
+     */
+    @Test
+    fun `the backstop asks for a time past the first alarm's window`() {
+        val window = windowLengthMillis(60_000L)
+
+        val backstop = backstopAtMillis(triggerAtMillis = 1_000_000L, windowLengthMillis = window)
+
+        assertTrue(
+            "the backstop must land after the window closes, was $backstop",
+            backstop > 1_000_000L + window,
+        )
+        assertEquals(1_000_000L + window + BACKSTOP_MARGIN_MILLIS, backstop)
+    }
+
+    /** The margin is the same whatever the wait, so a short wait cannot lose it. */
+    @Test
+    fun `a short wait keeps the whole margin`() {
+        val shortWindow = windowLengthMillis(1_000L)
+
+        assertEquals(
+            shortWindow + BACKSTOP_MARGIN_MILLIS,
+            backstopAtMillis(triggerAtMillis = 0L, windowLengthMillis = shortWindow),
+        )
     }
 }
