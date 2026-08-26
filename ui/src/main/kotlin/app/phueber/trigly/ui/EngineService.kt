@@ -275,23 +275,6 @@ class EngineService : Service() {
     }
 
     /**
-     * A rule that fired and then ran nothing, because part of its trigger could
-     * not say whether it held.
-     *
-     * **The hole this closes.** An ALL group asks every leaf it did not fire on
-     * for a state, and a leaf that cannot answer does not satisfy the group, on
-     * purpose: running unattended actions on a guess is the worse failure. But
-     * the rule was then dropped in silence, and on screen that is identical to
-     * the condition answering a plain no. "I am at home and it did not run"
-     * had no cause the app could name, and the area check reading no position
-     * in the background is exactly that case.
-     *
-     * Names the components rather than counting them, because the fix is
-     * specific to which one could not look, and a person reading this has to
-     * know where to go. The engine's own `Log.w` line stays the developer's
-     * copy; this one is the user's.
-     */
-    /**
      * A rule that is stored, enabled, and was never built.
      *
      * Most likely config from an import a newer build wrote, or a component this
@@ -316,6 +299,29 @@ class EngineService : Service() {
         )
     }
 
+    /**
+     * A rule that fired and then ran nothing, because part of its trigger never
+     * answered whether it held, even after the engine asked it again.
+     *
+     * **The hole this closes.** An ALL group asks every leaf it did not fire on
+     * for a state, and a leaf that cannot answer does not satisfy the group, on
+     * purpose: running unattended actions on a guess is the worse failure. That
+     * used to drop the rule in silence on the very first miss, and on screen
+     * that was identical to the condition answering a plain no. "I am at home
+     * and it did not run" had no cause the app could name, and the area check
+     * reading no position in the background is exactly that case.
+     *
+     * **It is only reached once the engine has already retried and given up.**
+     * `TriggerEngine.resolveHolds` asks again a bounded number of times before
+     * calling this, so a component that misses once and then answers never
+     * reaches here at all: that case is the rule working, a little late, and
+     * this method never hears about it.
+     *
+     * Names the components rather than counting them, because the fix is
+     * specific to which one could not look, and a person reading this has to
+     * know where to go. The engine's own `Log.w` line stays the developer's
+     * copy; this one is the user's.
+     */
     private fun reportSuppressed(
         rule: Rule,
         event: TriggerEvent,
@@ -327,7 +333,7 @@ class EngineService : Service() {
             .distinct()
             .joinToString(", ")
 
-        Log.w(TAG, "rule '${rule.name}' on ${event.triggerType}: no answer from $names")
+        Log.w(TAG, "rule '${rule.name}' on ${event.triggerType}: gave up waiting for an answer from $names")
         (application as TriglyApp).container.ruleFaults.couldNotDecide(
             rule.id,
             getString(R.string.rules_could_not_decide, names),

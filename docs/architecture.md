@@ -335,6 +335,19 @@ is a report about a run that already happened and a condition that may be gone.
 A disabled rule shows nothing, guarded in both the ViewModel and the cell,
 because accusing a rule nobody asked to run is worse than saying nothing.
 
+**`onSuppressed` is now the last resort, not the first response.** A read that
+comes back unknown was, for a while, reported the moment it happened, which
+meant a position read that missed for a second or two dropped its event for
+good and reported a fault for a state that had already resolved itself by the
+time anyone read the screen. `TriggerEngine.resolveHolds` asks again first, a
+bounded number of times over a few seconds, and only calls `onSuppressed` once
+that budget is spent. A leaf that answers on a later try never reaches
+`onSuppressed` at all: the rule fires, a little late, and nothing is reported,
+because a component that missed once and then answered is the rule working.
+`docs/conditions.md` carries the schedule and the reasons for its bound; the
+short version is that a rule's actions are unattended, and a late fire can be
+worse than no fire, so the retry is deliberately short rather than open-ended.
+
 #### The fourth case: a rule that never started
 
 `onStartFailure` was there from the beginning and went to logcat alone. It fires

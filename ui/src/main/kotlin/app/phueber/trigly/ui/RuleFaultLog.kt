@@ -58,13 +58,22 @@ class RuleFaultLog {
 
     /**
      * Records that [ruleId] fired and then ran nothing, because a component in
-     * its trigger tree could not say whether it held.
+     * its trigger tree never said whether it held, even after the engine asked
+     * it again.
      *
      * A rule whose action fails leaves a record; a rule dropped before any
      * action ran left none at all, so "my rule does nothing" still had a cause
      * the app could not name. The area check reading no position in the
      * background is exactly that case, and it is indistinguishable, on screen,
      * from being outside the area.
+     *
+     * **Called only once the engine has given up, never on the first miss.**
+     * `TriggerEngine.resolveHolds` retries a component that could not answer,
+     * on a bounded schedule, before this is reached at all. A component that
+     * answers on a later try never produces a call here: that is the rule
+     * working, later than usual, and not a fault worth a record. This is the
+     * outcome for the other case, the one `docs/conditions.md` warns reads
+     * exactly the same at the call site: a component that never answers.
      */
     fun couldNotDecide(ruleId: String, reason: String) {
         _faults.update { it + (ruleId to RuleFault(RuleFault.Kind.UNDECIDED, reason)) }

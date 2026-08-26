@@ -3,6 +3,7 @@ package app.phueber.trigly.core
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
@@ -22,11 +23,15 @@ import kotlinx.coroutines.launch
  *   unknown type, or config its factory refuses. Separate from [onOutcome]
  *   because nothing ran: there is no event and no [ActionResult] to report.
  * @param onSuppressed reports a rule whose trigger fired and whose actions were
- *   then not run, because a component in the tree could not answer whether it
- *   held. Carries the components that could not answer, never the ones that
- *   answered no. A rule held back by a condition that plainly said "no" is the
- *   rule working; a rule held back by one that could not look is a fault, and
- *   until this existed the two were the same silence. See [triggerHolds].
+ *   then not run, because a component in the tree never answered whether it
+ *   held, even after [resolveHolds] retried it. Carries the components that
+ *   could not answer, never the ones that answered no. A rule held back by a
+ *   condition that plainly said "no" is the rule working; a rule held back by
+ *   one that could not look, and still could not look after retrying, is a
+ *   fault, and until this existed the two were the same silence. Called once
+ *   per event, only after the retry budget is spent, never on the first miss:
+ *   a component that answers on the second or third try is the rule working
+ *   late, not a fault. See [resolveHolds].
  */
 class TriggerEngine(
     private val registry: Registry,
@@ -147,14 +152,15 @@ class TriggerEngine(
                 .map { (path, spec) -> triggersBySpec.getValue(spec).events().map { path to it } }
                 .merge()
                 .collect { (firedPath, event) ->
-                    val reader = StateReader(triggersBySpec)
-                    if (!triggerHolds(rule.trigger, firedPath, reader)) {
-                        // Only when something could not be read. A tree that
-                        // held back because a condition answered a clean "no" is
-                        // the rule doing its job, and reporting that would cry
-                        // wolf on every rule with a condition in it.
-                        if (reader.unreadable.isNotEmpty()) {
-                            onSuppressed(rule, event, reader.unreadable.toList())
+                    val resolved = resolveHolds(rule.trigger, firedPath, triggersBySpec)
+                    if (!resolved.held) {
+                        // Only when something never answered, even after
+                        // retrying. A tree that held back because a condition
+                        // answered a clean "no" is the rule doing its job, and
+                        // reporting that would cry wolf on every rule with a
+                        // condition in it.
+                        if (resolved.unreadable.isNotEmpty()) {
+                            onSuppressed(rule, event, resolved.unreadable)
                         }
                         return@collect
                     }
@@ -178,6 +184,80 @@ class TriggerEngine(
         firedPath: NodePath,
         reader: StateReader,
     ): Boolean = trigger.holds(firedPath, reader::read)
+
+    /**
+     * What one call to [resolveHolds] found: whether the tree held, and, if it
+     * did not, which leaves still could not answer on the last try.
+     */
+    private class ResolvedHolds(val held: Boolean, val unreadable: List<ComponentSpec>)
+
+    /**
+     * Evaluates [trigger] against [firedPath], and asks again if a leaf could
+     * not answer, before finally treating the event as one nobody could decide.
+     *
+     * **This is the retry T3 asks for.** Before it existed, one failed read
+     * dropped the event for good: a door opens, a position read misses for a
+     * second or two, and the rule never gets another chance at that event. That
+     * is the gap this closes. It does not change the conservative half beside
+     * it: an unknown state still does not hold, on any single try; see
+     * [TriggerNode.holds] and [StateReader.read].
+     *
+     * **The schedule: up to [UNREADABLE_RETRIES] extra tries, [UNREADABLE_RETRY_DELAY_MILLIS]
+     * apart.** Four reads in total, spread over six seconds at most. A leaf that
+     * answers on any of them is treated exactly like one that answered on the
+     * first: the rule fires and nothing is reported, because a component that
+     * missed once and then answered is the rule working, not a fault.
+     *
+     * **Why six seconds and not longer.** A rule's actions are unattended, and
+     * firing them late can be worse than not firing them at all: a door that
+     * has since been closed again does not want an "unlock" action arriving a
+     * minute after the event that asked for it. The retry exists to ride out a
+     * read that misses for a couple of seconds, which is the failure this item
+     * was written against, not to hold an event open indefinitely on the chance
+     * that a much longer outage clears. So the trade here favours giving up
+     * over holding on: past a few seconds with no answer, a late fire is judged
+     * more likely to be wrong than a dropped one.
+     *
+     * **Why a coroutine `delay` here is not the scheduler `docs/todo.md` T1
+     * asks for.** T1's waits stop because the process is asleep and nothing
+     * wakes it up again. This wait runs inside a job that is already alive,
+     * already reacting to an event that already happened; the process stays
+     * awake for the six seconds, the same as it stays awake while an action
+     * runs. A short delay inside a live reaction is not the failure a delay
+     * meant to sleep through a Doze window for minutes is.
+     *
+     * **What this does not do.** It holds one event, for one rule, for a few
+     * seconds; it does not queue events without bound and it does not persist
+     * anything. A process killed mid-wait loses the retry along with
+     * everything else the process was doing, which is no different from today.
+     * Whether the eventual give-up is itself worth persisting is `docs/todo.md`
+     * T8's question, not this one's.
+     *
+     * **The trap this is guarding against.** A permanent unknown reads exactly
+     * like a temporary one at the call site: both are a `null` from
+     * [StateReader.read], on every single try, indistinguishable until the
+     * budget runs out. That is why the give-up has to be unconditional once the
+     * tries are spent. Naming it as its own outcome, rather than letting it read
+     * as the rule quietly doing nothing, is then the caller's job; see
+     * [onSuppressed].
+     */
+    private suspend fun resolveHolds(
+        trigger: TriggerNode,
+        firedPath: NodePath,
+        triggersBySpec: Map<ComponentSpec, Trigger>,
+    ): ResolvedHolds {
+        var reader = StateReader(triggersBySpec)
+        var held = triggerHolds(trigger, firedPath, reader)
+
+        var retries = 0
+        while (!held && reader.unreadable.isNotEmpty() && retries < UNREADABLE_RETRIES) {
+            delay(UNREADABLE_RETRY_DELAY_MILLIS)
+            reader = StateReader(triggersBySpec)
+            held = triggerHolds(trigger, firedPath, reader)
+            retries++
+        }
+        return ResolvedHolds(held, reader.unreadable.toList())
+    }
 
     /**
      * Reads leaf states for one evaluation, and remembers which ones could not
@@ -254,3 +334,26 @@ class TriggerEngine(
         jobs.keys.toList().forEach(::stopRule)
     }
 }
+
+/**
+ * How many extra tries [TriggerEngine.resolveHolds] gets after a state read
+ * that could not answer, beyond the one it already made.
+ *
+ * Chosen together with [UNREADABLE_RETRY_DELAY_MILLIS]: see that constant, and
+ * [TriggerEngine.resolveHolds], for the trade this bound makes.
+ *
+ * `internal`, not `private`, so `TriggerEngineTest` can advance virtual time by
+ * exactly this much rather than by a magic number that quietly drifts from the
+ * real schedule.
+ */
+internal const val UNREADABLE_RETRIES = 3
+
+/**
+ * How long [TriggerEngine.resolveHolds] waits between one try and the next.
+ *
+ * Two seconds, three times, six seconds total: long enough to ride out the
+ * failure this exists for, a state read that misses for a second or two, and
+ * short enough that a rule whose actions are unattended is not left firing on
+ * a stale event. See [TriggerEngine.resolveHolds] for the full reasoning.
+ */
+internal const val UNREADABLE_RETRY_DELAY_MILLIS = 2_000L
