@@ -56,9 +56,19 @@ import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ComponentTool
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.NodePath
+import app.phueber.trigly.core.ScopedVariable
+import app.phueber.trigly.core.Substitution
 import app.phueber.trigly.core.TriggerNode
 import app.phueber.trigly.core.shownWith
 import app.phueber.trigly.core.companionKeys
+
+/**
+ * Which of a component's config keys accept a variable, and how each is
+ * escaped for the configuration it is asked about. See `Registry.substitutionsFor`
+ * and [RuleEditorScreen]'s `substitutionsFor` parameter, which this names for
+ * every signature that threads it through to [ConfigFieldEditor].
+ */
+internal typealias SubstitutionLookup = (String, Map<String, String>) -> Map<String, Substitution>
 
 /**
  * Create or edit one rule.
@@ -159,6 +169,23 @@ fun RuleEditorScreen(
      * or a test renders plain blocks.
      */
     toolsFor: (String, Map<String, String>) -> List<ComponentTool> = { _, _ -> emptyList() },
+    /**
+     * What this rule's trigger tree lets an action read. See
+     * `docs/variables.md`. Passed down to every [ComponentBlock] so its fields
+     * can offer a picker; empty by default, the same as [toolsFor], so a caller
+     * that has not wired this draws a screen with no picker and no preview
+     * rather than one that crashes for want of it.
+     */
+    availableVariables: List<ScopedVariable> = emptyList(),
+    /**
+     * Which of a component's config keys accept a variable, and how each is
+     * escaped *as it is configured right now*: `Registry.substitutionsFor`.
+     * Asked per block rather than read off [ComponentDescriptor], because the
+     * answer can depend on a sibling field: `http_request`'s body escapes
+     * differently once its content type is JSON, and only the registry knows
+     * that.
+     */
+    substitutionsFor: SubstitutionLookup = { _, _ -> emptyMap() },
     /** Live notifications for the inspector, shown over the editor rather than navigated to. */
     inspectorNotifications: () -> List<ActiveNotification> = { emptyList() },
     /** Whether the notification listener is bound — an empty list means two different things. */
@@ -366,6 +393,8 @@ fun RuleEditorScreen(
                         onToggleExpanded = ::toggle,
                         isCaveatShown = { key -> key in shownCaveats },
                         onToggleCaveat = ::toggleCaveat,
+                        availableVariables = availableVariables,
+                        substitutionsFor = substitutionsFor,
                         modifier = Modifier.padding(bottom = 12.dp),
                     )
                 }
@@ -382,6 +411,8 @@ fun RuleEditorScreen(
                             onConfigChange(Slot.ACTION, index, key, value)
                         },
                         onResolveRequirement = onResolveRequirement,
+                        availableVariables = availableVariables,
+                        substitutionsFor = substitutionsFor,
                         modifier = Modifier.padding(bottom = 12.dp),
                         footer = {
                             // Test is no longer written here: every action declares
@@ -774,12 +805,20 @@ internal fun ComponentBlock(
     isRequirementSatisfied: (ComponentRequirement) -> Boolean,
     modifier: Modifier = Modifier,
     footer: (@Composable () -> Unit)? = null,
+    /** See [RuleEditorScreen]'s parameter of the same name. */
+    availableVariables: List<ScopedVariable> = emptyList(),
+    /** See [RuleEditorScreen]'s parameter of the same name. */
+    substitutionsFor: SubstitutionLookup = { _, _ -> emptyMap() },
 ) {
     // Only what applies right now. A setting a sibling has made irrelevant is
     // not drawn at all, and a requirement already granted has nothing left to
     // say — see the fold's KDoc above.
     val fields = descriptor?.configFields.orEmpty().shownWith(config)
     val unmet = descriptor?.requirements.orEmpty().filterNot(isRequirementSatisfied)
+
+    // Asked once per block rather than once per field: the answer can depend
+    // on a sibling field, not on which field is being drawn.
+    val substitutions = chosenType?.let { substitutionsFor(it, config) }.orEmpty()
 
     val hasMiddle = descriptor != null && (fields.isNotEmpty() || unmet.isNotEmpty())
 
@@ -878,6 +917,8 @@ internal fun ComponentBlock(
                             companions = field.companionKeys()
                                 .associateWith { key -> config[key] },
                             onCompanionChange = onConfigChange,
+                            availableVariables = availableVariables,
+                            previewEncoding = substitutions[field.key] ?: field.substitution,
                         )
                     }
                 }

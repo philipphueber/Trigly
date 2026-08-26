@@ -1,8 +1,32 @@
 # Variables
 
-**Status: a plan. None of this is built.** `docs/actions.md` recorded variables
-as the largest design decision left after conditions. This file is that
-decision, in the same shape `docs/conditions.md` holds its own.
+**Status: phase 1 is built. Phases 2 and 3 are not.** `docs/actions.md`
+recorded variables as the largest design decision left after conditions. This
+file is that decision, in the shape `docs/conditions.md` holds its own, and it
+is kept as written so that what was weighed stays readable next to what was
+chosen.
+
+Four things came out differently from the plan below, each because building it
+showed something the plan could not:
+
+- **Encoding applies to an embedded reference only.** A field whose whole value
+  is one reference gets the raw value. Section 8 assumed one encoding per field
+  could serve every use, and it cannot: `{{app.endpoint}}` as an entire URL must
+  not come back percent-encoded, while the same reference inside a query string
+  must be. See `Template.isSingleReference`.
+- **There is no regular-expression encoding.** Section 8 listed one. Nothing in
+  phase 1 can reach it: the only pattern fields belong to triggers, a trigger's
+  config is read when it is built rather than per event, and a trigger cannot
+  read a variable out of its own event. It arrives with the field that needs it.
+- **The two recipient fields take a variable**, which the audit in section 5 did
+  not consider. "Text back whoever just texted me" is the most obvious rule the
+  feature makes possible.
+- **The firing time is offered twice**, as `{{event.time}}` for a person to read
+  and `{{event.timestamp}}` for a server. That is what let phase 1 ship with no
+  format language at all, which section 14 wanted and had no answer for.
+
+`app` is reserved and deliberately unresolved until phase 2, so that adding the
+store is not a breaking change for a rule saved in the meantime.
 
 The scope of the plan:
 
@@ -445,9 +469,32 @@ Database version 4 becomes 5, with `MIGRATION_4_5` creating the table and
 touching nothing else. `MigrationTest` covers it.
 
 The store lives in `:core`, which already owns Room. `set_variable` lives in
-`:actions` and gets the port injected by `:ui`. This is the path
-`NotificationController` already took, and `docs/actions.md` records it as the
-one the next such action should follow.
+`:actions` and gets the store injected by `:ui`.
+
+**The precedent is `RuleRepository`, not `NotificationController`.** This file
+said the latter before phase 1 was built, and that was wrong in a way that would
+have produced a worse store. `NotificationController` is a *port*: it exists
+because its implementation has to live in `:triggers`, next to the listener
+service, while its caller lives in `:actions`, and neither module can see the
+other. Its `Unavailable` default is a real and always-correct answer, because
+"notification access is off" is a true state of the device.
+
+A variable store has no such problem. Its Room implementation lives in `:core`,
+in the same module as the interface, exactly as `RoomRuleRepository` does. So it
+follows that shape: `VariableStore` beside `RuleRepository`, a working
+`InMemoryVariableStore` beside `InMemoryRuleRepository`, and `RoomVariableStore`
+beside `RoomRuleRepository`. The in-memory one is a *working* store and not a
+stub that refuses, because "this device has no variables" is not a real state,
+and a default that reported it would make every test that did not wire a store
+silently test nothing.
+
+**One landmine to clear first: `triglyDatabase(context)` is not memoized.** It
+builds a fresh `Room.databaseBuilder(...)` on every call, which is invisible
+today because `ruleRepository(context)` is its only caller and `AppContainer`
+calls that once. A second top-level factory beside it opens a second
+`TriglyDatabase` on the same file. Memoize it before adding the second caller.
+Nothing in that file currently shows a cached singleton to copy, so this is a
+gap rather than a pattern to follow.
 
 ### `set_variable`
 
@@ -462,7 +509,24 @@ guessing zero.
 
 `producesEvents = false`, `supportsCondition = true`. Fields: the name, a
 comparison (is set, is empty, equals, does not equal, contains, is above, is
-below), and a value.
+below), and a value. Built like `TimeWindowCheck`, which is the same shape: its
+own file, `events()` returning an empty flow, and the answer in
+`currentlyHolds()`.
+
+**That comparison vocabulary does not exist anywhere in the project yet.**
+`Threshold` models above and below with hysteresis, for a trigger that has to
+re-arm, and `TextFilter` models contains and regex. Neither is the set this
+needs, and no user-facing string for "is set" or "is empty" exists to match. So
+this is new vocabulary, and the two files are style precedent only: a small enum,
+a pure top-level function beside it, and a lenient `parse` that falls back rather
+than throwing on a value an older or newer build wrote.
+
+What is directly reusable is `ConfigField.Choice` for the comparison itself and
+`FieldCondition` for hiding the value field when the comparison is "is set" or
+"is empty". `play_alert` already hides "keep sounding for" that way, and the
+reasoning in `ConfigField.shownWhen` is about exactly this case: a field a
+sibling has made irrelevant should not be left on screen with a sentence
+explaining why it does nothing.
 
 The unknown rule from `docs/conditions.md` applies exactly. A name that is not
 in the store is a definite **false** for every comparison, and a definite
@@ -539,14 +603,17 @@ put them behind a flag on the trigger rather than in every event.
 
 ## 15. Phases
 
-**Phase 1: event scope, read-only.** `VariableSpec`, the declaration on the
-factories, the grammar and resolver in `:core`, the engine seam with the reuse
-rule, the `Substitution` declaration with all four encodings, the picker, the
-preview, save-time validation, and sample values in the Test button.
+**Phase 1: event scope, read-only. Built.** `VariableSpec`, the declaration on
+30 trigger factories, the grammar and resolver in `:core`, the engine seam with
+the reuse rule, the `Substitution` declaration with three encodings rather than
+four, the picker, the preview, save-time validation, and sample values in the
+Test button.
 
-Done when a rule posts a notification whose text contains the title of the
+Was done when a rule posts a notification whose text contains the title of the
 notification that triggered it, on a device, and a rule with no variables in it
-builds its actions exactly once as it does today.
+builds its actions exactly once as it does today. Both are now pinned by tests:
+`VariableSubstitutionOnDeviceTest` for the first, on two API levels, and
+`TriggerEngineTest` for the second, with a counting factory.
 
 **Phase 2: app scope.** The table, the migration, the port, `set_variable`, and
 `variable_check`.

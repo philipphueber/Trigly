@@ -12,10 +12,16 @@ import app.phueber.trigly.core.Registry
 import app.phueber.trigly.core.RequirementChecker
 import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.RuleRepository
+import app.phueber.trigly.core.SampleLookup
+import app.phueber.trigly.core.ScopedVariable
+import app.phueber.trigly.core.Substituted
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerNode
 import app.phueber.trigly.core.canStart
 import app.phueber.trigly.core.leaves
+import app.phueber.trigly.core.parseTemplate
+import app.phueber.trigly.core.substitute
+import app.phueber.trigly.core.variableProblems
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -79,6 +85,19 @@ class RuleEditorViewModel(
 
     val actionOptions: List<ComponentDescriptor>
         get() = registry.actionDescriptors.filter(checker::isAvailable)
+
+    /**
+     * What this draft's trigger tree, as currently built, lets an action read.
+     *
+     * Recomputed from the live draft rather than cached, so it tracks a trigger
+     * swap or a second leaf being added while the editor is open. Empty groups
+     * are ignored the same way [triggerOptionsFor] ignores them. A group the
+     * person has not filled in yet offers nothing to read, but it should not
+     * make the variables the *other* leaves already offer disappear from the
+     * picker while it sits there unfinished.
+     */
+    val availableVariables: List<ScopedVariable>
+        get() = registry.availableVariables(_state.value.draft.trigger?.toNodeIgnoringEmptyGroups())
 
     init {
         load()
@@ -424,13 +443,17 @@ class RuleEditorViewModel(
      * was to disable the whole rule; a test that cannot be stopped would be a
      * worse version of the same trap.
      *
-     * Two things it deliberately does not pretend. The event is synthetic and
-     * carries no payload, so an action that reads trigger payload sees nothing —
-     * fine today, and the thing to revisit when payload substitution lands. And a
-     * test runs while the app is on screen, which is exactly the condition under
-     * which the background-start restriction does *not* apply: an "open" action
-     * can pass here and still do nothing when the rule fires for real. The screen
-     * says so rather than letting a green result imply more than it means.
+     * Two things worth knowing about what this run means. Every substitutable
+     * field is resolved against [SampleLookup] before the action is built, using
+     * the same samples the picker shows, so a rule that reads
+     * `{{trigger.title}}` is tested with a realistic title rather than nothing.
+     * See `docs/variables.md` section 12. The screen states this on the result,
+     * because a green result that looked like real data would be worse than the
+     * old honest emptiness. And a test runs while the app is on screen, which is
+     * exactly the condition under which the background-start restriction does
+     * *not* apply: an "open" action can pass here and still do nothing when the
+     * rule fires for real. The screen says so rather than letting a green result
+     * imply more than it means.
      */
     fun testAction(index: Int) {
         // A second press on the running action is a stop button.
@@ -444,9 +467,36 @@ class RuleEditorViewModel(
         val spec = ComponentSpec(draft.type, draft.config)
         val name = registry.displayNameOf(spec.type)
 
+        // Every field the action's own schema marks as substitutable is filled
+        // in from samples before anything is built. A field that cannot resolve
+        // is reported as the test result rather than run with a hole in it. That
+        // is the same "refuse rather than run wrong" rule `Template.substitute`
+        // states for the engine itself.
+        val draftTrigger = _state.value.draft.trigger?.toNodeIgnoringEmptyGroups()
+        val lookup = SampleLookup(registry.availableVariables(draftTrigger))
+        val resolvedConfig = spec.config.toMutableMap()
+        var readsAVariable = false
+        for ((key, encoding) in registry.substitutionsFor(spec)) {
+            val raw = spec.config[key] ?: continue
+            val template = parseTemplate(raw)
+            // A field that holds no reference is left exactly as it was typed,
+            // and it is what decides whether the result mentions samples at all.
+            if (!template.hasReferences) continue
+            readsAVariable = true
+            when (val resolved = template.substitute(lookup, encoding)) {
+                is Substituted.Ok -> resolvedConfig[key] = resolved.value
+                is Substituted.Failed -> {
+                    val reason = "could not fill in a sample for '$key'. ${resolved.reason}"
+                    _state.update { it.copy(testing = null, testResult = "$name: $reason") }
+                    return
+                }
+            }
+        }
+        val resolvedSpec = spec.copy(config = resolvedConfig)
+
         // Built here rather than inside the coroutine so config the factory
         // refuses is reported as such, instead of as a failed run.
-        val action = runCatching { registry.createAction(spec) }.getOrElse { cause ->
+        val action = runCatching { registry.createAction(resolvedSpec) }.getOrElse { cause ->
             _state.update { it.copy(testing = null, testResult = describe(cause, name)) }
             return
         }
@@ -465,7 +515,14 @@ class RuleEditorViewModel(
                 // action, and saying which one is the useful part.
                 onFailure = { "$name threw ${it::class.simpleName}: ${it.message}" },
             )
-            _state.update { it.copy(testing = null, testResult = message) }
+            // Stated on every outcome of an action that reads one, not only on
+            // success: a failure or a thrown exception can still be read as
+            // "that is what would really happen", and the values it happened
+            // with were samples either way. Stated on nothing else, because an
+            // action with no variable in it did not use a sample, and a line
+            // saying otherwise on every test would train people to skip it.
+            val note = if (readsAVariable) " $SAMPLE_VALUES_NOTE" else ""
+            _state.update { it.copy(testing = null, testResult = "$message$note") }
         }
     }
 
@@ -511,11 +568,7 @@ class RuleEditorViewModel(
         leaves.forEachIndexed { index, spec ->
             runCatching { registry.createTrigger(spec) }
                 .exceptionOrNull()
-                ?.let {
-                    val name = registry.displayNameOf(spec.type)
-                    val label = if (leaves.size > 1) "$name (trigger ${index + 1})" else name
-                    return describe(it, label)
-                }
+                ?.let { return describe(it, triggerLabel(spec, index, leaves.size)) }
         }
 
         rule.actions.forEachIndexed { index, spec ->
@@ -525,8 +578,41 @@ class RuleEditorViewModel(
                     return describe(it, "${registry.displayNameOf(spec.type)} (action ${index + 1})")
                 }
         }
+
+        // Every `{{...}}` reference in the rule has to name a variable this
+        // rule actually offers. See `docs/variables.md` section 9. One check,
+        // asked of every component, trigger leaves and actions alike: which
+        // keys are substitutable is `registry.substitutionsFor`'s answer, not a
+        // list this loop keeps of its own, so a trigger that later declares a
+        // substitutable field is covered here without this changing. A
+        // reference to a value that is only sometimes present is not a problem
+        // in this check. That is what the picker's mark is for, not save-time
+        // validation.
+        val available = registry.availableVariables(rule.trigger)
+        leaves.forEachIndexed { index, spec ->
+            val label = triggerLabel(spec, index, leaves.size)
+            variableProblem(spec, available)?.let { return "$label: $it" }
+        }
+        rule.actions.forEachIndexed { index, spec ->
+            val label = "${registry.displayNameOf(spec.type)} (action ${index + 1})"
+            variableProblem(spec, available)?.let { return "$label: $it" }
+        }
+
         return null
     }
+
+    /** A trigger leaf's label for a validation message: plain when it is the
+     * rule's only trigger, numbered once a tree has more than one. */
+    private fun triggerLabel(spec: ComponentSpec, index: Int, leafCount: Int): String {
+        val name = registry.displayNameOf(spec.type)
+        return if (leafCount > 1) "$name (trigger ${index + 1})" else name
+    }
+
+    /** The first thing wrong with a reference in [spec]'s own fields, or null. */
+    private fun variableProblem(spec: ComponentSpec, available: List<ScopedVariable>): String? =
+        registry.substitutionsFor(spec).keys.firstNotNullOfOrNull { key ->
+            spec.config[key]?.let { value -> variableProblems(value, available).firstOrNull() }
+        }
 
     private fun describe(error: Throwable, componentName: String): String =
         "$componentName: ${error.message ?: error::class.simpleName}"
@@ -571,3 +657,11 @@ class RuleEditorViewModel(
         }
     }
 }
+
+/**
+ * Appended to the result of testing an action that reads a variable. Such a run
+ * fills the field in from [SampleLookup] rather than from a real event, and a
+ * result that did not say so would read as a report about the phone's actual
+ * state.
+ */
+private const val SAMPLE_VALUES_NOTE = "Any variable used a sample value, not a real one."

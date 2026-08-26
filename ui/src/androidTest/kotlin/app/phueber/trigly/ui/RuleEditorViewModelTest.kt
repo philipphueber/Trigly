@@ -63,9 +63,33 @@ class RuleEditorViewModelTest {
         Dispatchers.setMain(UnconfinedTestDispatcher())
     }
 
+    /**
+     * Waits for Main to be free before giving it back, rather than assuming it
+     * is.
+     *
+     * `resetMain` refuses while anything is still using the dispatcher, and a
+     * test action here is real work on a real device: `play_alert` is asked to
+     * run for a minute, and cancelling it does not finish it synchronously. A
+     * cancelled job can still resume on Main *after* the test body has returned
+     * its verdict, so a single attempt fails a test that had already passed, in
+     * whichever test happens to be last. That reads as flakiness and is a race
+     * in this teardown rather than in anything the app does.
+     *
+     * Bounded, and it rethrows when the wait is not enough. Being permanently
+     * unable to hand Main back is a leak, and a leak is worth failing on.
+     */
     @After
     fun tearDown() {
-        Dispatchers.resetMain()
+        val deadline = System.currentTimeMillis() + RESET_TIMEOUT_MILLIS
+        while (true) {
+            try {
+                Dispatchers.resetMain()
+                return
+            } catch (busy: IllegalStateException) {
+                if (System.currentTimeMillis() > deadline) throw busy
+                Thread.sleep(RESET_POLL_MILLIS)
+            }
+        }
     }
 
     private fun viewModel(
@@ -76,6 +100,12 @@ class RuleEditorViewModelTest {
     /** Unwraps a leaf, or null if [this] is a group or unchosen. */
     private val TriggerDraft?.leaf: ComponentDraft?
         get() = (this as? TriggerDraft.One)?.component
+
+    private companion object {
+        /** Long enough for a cancelled action to unwind, short enough to notice a leak. */
+        const val RESET_TIMEOUT_MILLIS = 5_000L
+        const val RESET_POLL_MILLIS = 20L
+    }
 
     @Test
     fun a_complete_rule_saves() = runTest {
@@ -201,6 +231,46 @@ class RuleEditorViewModelTest {
 
         // Whatever it settles on, it must not still claim to be running the first.
         assertTrue(editor.state.value.testing != 0)
+    }
+
+    /**
+     * `docs/variables.md` section 12: the Test button substitutes samples and
+     * says on screen that they are samples. `open_url` is the component that
+     * proves it: `bluetooth_connected` declares `address` with a fixed sample,
+     * and `OpenUrlAction.execute` echoes back whatever URL it was actually
+     * given inside its own failure message. The sample showing up there is
+     * proof the substitution reached the built action, not just the message
+     * this test could have produced on its own.
+     */
+    @Test
+    fun testing_an_action_that_reads_a_variable_uses_its_sample() = runTest {
+        val editor = viewModel()
+        editor.setName("Echo device address")
+        editor.chooseTrigger("bluetooth_connected")
+        editor.addAction("open_url")
+        editor.setConfigValue(Slot.ACTION, 0, "url", "{{trigger.address}}")
+
+        editor.testAction(0)
+
+        val result = editor.state.value.testResult
+        assertNotNull(result)
+        val address = "AA:BB:CC:DD:EE:FF"
+        assertTrue("expected the declared sample address in: $result", result!!.contains(address))
+        assertTrue("expected a sample-value note in: $result", result.contains("sample value"))
+    }
+
+    @Test
+    fun testing_an_action_with_a_variable_nobody_offers_is_reported_without_running() = runTest {
+        val editor = viewModel()
+        editor.addAction("open_url")
+        editor.setConfigValue(Slot.ACTION, 0, "url", "{{trigger.nope}}")
+
+        editor.testAction(0)
+
+        val result = editor.state.value.testResult
+        assertNotNull(result)
+        assertTrue("was: $result", result!!.contains("could not fill in a sample"))
+        assertEquals("nothing should be left running", null, editor.state.value.testing)
     }
 
     @Test
@@ -339,6 +409,52 @@ class RuleEditorViewModelTest {
         editor.save()
 
         assertTrue(editor.state.value.error!!.contains("action 2"))
+    }
+
+    /**
+     * `docs/variables.md` section 9: a well-formed reference to a name nobody
+     * declares is a save-time error, stated while the person is still looking
+     * at the rule rather than discovered from a rule that silently never does
+     * what it says.
+     */
+    @Test
+    fun a_save_is_refused_for_a_variable_nobody_offers() = runTest {
+        val repository = InMemoryRuleRepository()
+        val editor = viewModel(repository)
+        editor.setName("Echo")
+        editor.chooseTrigger("bluetooth_connected")
+        editor.addAction("toast")
+        editor.setConfigValue(Slot.ACTION, 0, "text", "{{trigger.nope}}")
+
+        editor.save()
+
+        val error = editor.state.value.error
+        assertNotNull("an unknown variable must refuse the save", error)
+        assertTrue("was: $error", error!!.contains("trigger.nope"))
+        assertTrue("nothing should be stored", repository.rules().first().isEmpty())
+    }
+
+    /**
+     * `docs/variables.md` section 9 and section 12: a reference to a value that
+     * is only *sometimes* present is a legitimate rule, not a save error. The
+     * picker's mark is where that risk is communicated, not a refusal here.
+     * `bluetooth_connected`'s `name` is declared `alwaysPresent = false`
+     * because a Bluetooth device with no advertised name is common.
+     */
+    @Test
+    fun a_reference_to_a_sometimes_present_value_saves() = runTest {
+        val repository = InMemoryRuleRepository()
+        val editor = viewModel(repository)
+        editor.setName("Echo device name")
+        editor.chooseTrigger("bluetooth_connected")
+        editor.addAction("toast")
+        editor.setConfigValue(Slot.ACTION, 0, "text", "Connected: {{trigger.name}}")
+
+        editor.save()
+
+        assertNull("a sometimes-empty reference is not a save error", editor.state.value.error)
+        assertTrue(editor.state.value.finished)
+        assertEquals(1, repository.rules().first().size)
     }
 
     @Test
