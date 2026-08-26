@@ -56,6 +56,16 @@ identifiers stay because T4, T8, T11 and R1 point at them.
   never checked. On a device whose manufacturer is aggressive about idle apps,
   that is the difference between an engine that survives the night and one that
   does not, and when it is killed every diagnostic dies with it.
+- **T17 A durable wait.** `waitForDurable` and `waitUntilDurable` arm a
+  `PendingIntent` alarm beside the listener one, and a manifest receiver records
+  the wake and starts the engine. The listener form stays for a poll inside a
+  live process. Two sourced findings came with it: only an *exact* alarm gets the
+  platform's own temporary allowlist for a foreground service start, per
+  `setImplLocked`, and an exact alarm needs an access Google reserves; but
+  `isAllowlistedForFgsStartLOSP` passes any uid on the device-idle allowlist, so
+  the battery exemption Trigly already asks for is what makes this work. On a
+  device without it the wake is refused and the rule stays quiet, which is the
+  same conditional the notice already states.
 - **T13 Bound the whole retry.** One budget of twenty seconds now covers the
   reads and the waits together, chosen above the longest legitimate single read
   so it cannot cut off a position read that was going to answer. A read the
@@ -98,46 +108,6 @@ breaks a reboot test: the two cannot go in one test without care.
 
 **Done when.** The test runs on two devices or API levels and its limits are
 written down.
-
-### T17 A wait does not survive the process, only the sleep
-
-**Evidence.** `AlarmManagerScheduler` uses the listener form of `setWindow`, so
-every wait is bound to an `OnAlarmListener` in this process. AOSP deletes such
-an alarm when the process dies. `AlarmManagerService.setImplLocked` calls
-`directReceiver.asBinder().linkToDeath(mListenerDeathRecipient, 0)`, and that
-recipient calls `removeLocked(null, listener, REMOVE_REASON_LISTENER_BINDER_DIED)`.
-
-So T1 fixed the sleeping phone and not the stopped app. An interval rule or a
-sun rule whose process is killed has no pending alarm at all, and nothing ever
-sets one again, because the thing that would set it is the collector that died
-with the process. The rule is then dead until something unrelated starts the
-app. On a device that stops idle apps, that is most of the time, which is the
-same failure the Bluetooth ingress was built to end and it is still open here.
-
-This is the sharp form of the distinction the whole project keeps meeting: a
-rule that exists in the database is not a rule that is being watched. The
-database survives the process. A listener alarm does not.
-
-**Do.** Give the scheduler a second path for a wait that must survive a kill: a
-`PendingIntent` alarm with a manifest receiver that starts the engine, which is
-what `BluetoothConnectionReceiver` already does for a broadcast. The listener
-form stays right for a wait inside a live reaction, such as a poll while the
-engine is already up, so this is a second method on the port and not a
-replacement.
-
-**Watch for.** The receiver must record which wait fired before it starts the
-engine, exactly as `BootEvents` and `BluetoothEvents` do, or the event is lost
-in the handoff. And a `PendingIntent` alarm needs an exemption to start a
-foreground service from the background, which a Bluetooth broadcast gets from
-the sender's temporary allowlist and an alarm does not, so check
-`ACTION_MY_PACKAGE_REPLACED`-style routes or accept that the engine starts as a
-plain service and promotes itself when it can. Settle that before writing code:
-it decides whether this is possible at all.
-
-**Done when.** An interval rule fires after the engine's process is killed
-without the user opening the app, on two devices or API levels. Until then, the
-README limit about a wait says that it survives sleep and not a stop, which is
-the honest version of the claim.
 
 ### T14 Decide whether a wait must survive deep Doze
 
