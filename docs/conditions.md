@@ -258,7 +258,7 @@ should not have existed.
 The fix is the one this document already applies to `solar` and
 `notification_posted`: one `location` component, and the state role is its
 passive form, not a second component. The location **trigger**, used as an edge,
-holds an active `requestLocationUpdates(GPS_PROVIDER, …)` for as long as the rule
+holds an active `requestLocationUpdates(…)` for as long as the rule
 is enabled, which is why its warning calls it expensive. The same component,
 asked for its **state**, holds nothing open. It reads a position once:
 
@@ -296,6 +296,49 @@ show a dialog for that grant.
 rule dropped by a component that could not answer, through `onSuppressed`, and
 the rule list says so. A component answering a clean "no" is not reported: that
 is the rule working. See "The third case" in `architecture.md`.
+
+**Then the report showed that permission was only half of it.** With the grant
+in place and the row gone, a rule still said "Trigly could not read Is in an
+area". The read asked one provider: the first of `[GPS, NETWORK]` that was
+switched on. GPS is switched on, so GPS is what got asked, and GPS is the one
+provider that cannot answer from inside a building. The position was sitting in
+the network provider, unread.
+
+So the order is now fused, then network, then GPS, and a provider that answers
+nothing is passed over rather than ending the read. GPS goes last on purpose:
+this is an order of preference for getting an answer, not for accuracy, and the
+question the component exists for is "am I at home". The cost is a coarser fix,
+which the component's warning now states, and the whole read is capped at 15
+seconds because it runs inside a gate with the rule's actions waiting behind it.
+
+The watching half had the same assumption written in as a constant and now picks
+its one provider the same way. Indoors it saw nothing at all before, and on a
+phone with GPS switched off it saw nothing either, because a request on a
+disabled provider is accepted and then quiet.
+
+**How exact the fix has to be is a property of the area, not of the component.**
+Since Android 12 the permission dialog offers Precise and Approximate as two
+answers to one question, and a rule about a town that demands precise location
+is asking for more than it uses. So the declared requirement follows the radius:
+approximate from 3 km up, precise below it, and an unreadable radius reads as
+the strict case. Android documents approximate location as accurate to about
+three square kilometres, a circle of error a little under a kilometre in radius,
+which 3 km clears with room to spare. Granting precise grants approximate with
+it, so a rule that asks for the smaller thing is satisfied by either answer.
+
+This is the use `requirementsFor` exists for, and it is worth stating next to
+the `bluetooth_connected` mistake in `architecture.md`, which used the same hook
+wrongly. Both location grants deliver the same reads through the same providers,
+so what varies is how exact the answer is. A permission that decides whether the
+platform talks to the app at all cannot vary by configuration.
+
+**And a fix too coarse to resolve the area answers nothing, rather than
+guessing.** A reading accurate to a kilometre, asked whether the phone is inside
+a 200 m circle, is consistent with both answers; the comparison alone would pick
+one and sound certain. `insideArea` returns null there, which the engine already
+reports as a component that could not read. Declined on the radius rather than on
+the distance to the boundary: the tighter test would answer in the middle of an
+area and report a fault near its edge, which is one rule behaving as two.
 
 ## Storage
 

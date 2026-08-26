@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+        The test posts its own notification, so it needs the runtime permission
+        from API 33. Declared here and granted from the test through UiAutomation,
+        so the test carries its own setup instead of depending on a grant that a
+        previous run left behind.
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+</manifest>

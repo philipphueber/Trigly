@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 import kotlin.math.asin
 import kotlin.math.cos
@@ -48,15 +49,131 @@ private const val EARTH_RADIUS_METERS = 6_371_000.0
  * covers the background, so asking for it there would show a row the user could
  * never satisfy. `minSdk` is 26, so the test is real and not decoration.
  */
-private val LOCATION_REQUIREMENTS: List<ComponentRequirement> = buildList {
-    add(ComponentRequirement.RuntimePermission(Manifest.permission.ACCESS_FINE_LOCATION))
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        add(ComponentRequirement.RuntimePermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION))
+/**
+ * The radius from which the approximate grant is enough.
+ *
+ * Android documents approximate location as accurate to within about three
+ * square kilometres, which is a circle of error a little under a kilometre
+ * across the radius. Three kilometres is comfortably outside that: the band
+ * where an approximate fix cannot tell inside from outside is then a small
+ * fraction of the area rather than most of it.
+ *
+ * Below this the precise grant is the honest requirement. Above it, asking for
+ * precise location buys the rule nothing and costs the person the choice
+ * Android put in front of them, which is a bad trade for a component whose own
+ * help text says a radius under 100 m answers wrongly anyway.
+ */
+private const val COARSE_ENOUGH_RADIUS_METERS = 3_000.0
+
+/**
+ * What a location component needs, given the size of the area it is asked about.
+ *
+ * The precision half is a real choice and not a formality. Since Android 12 the
+ * permission dialog offers "Precise" and "Approximate" as two answers to one
+ * question, so a rule that asks for precise location when an approximate fix
+ * would decide the same question is asking for more than it uses. A rule about a
+ * town needs to know which town. A rule about a driveway needs to know where in
+ * the street.
+ *
+ * A missing or unreadable radius reads as the strict case. Config arrives as
+ * text and a component that cannot tell how big its area is must not conclude
+ * that any old fix will do.
+ *
+ * This is the use `requirementsFor` exists for, and it is worth naming the
+ * difference from the mistake `bluetooth_connected` made with the same hook:
+ * both grants here deliver the same position reads through the same providers,
+ * so what varies is only how exact the answer is. A permission that gates
+ * whether the platform talks to the app at all can never vary by configuration.
+ */
+fun locationRequirements(radiusMeters: Double?, apiLevel: Int): List<ComponentRequirement> =
+    buildList {
+        val coarseIsEnough = radiusMeters != null && radiusMeters >= COARSE_ENOUGH_RADIUS_METERS
+        add(
+            ComponentRequirement.RuntimePermission(
+                if (coarseIsEnough) {
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                } else {
+                    Manifest.permission.ACCESS_FINE_LOCATION
+                }
+            )
+        )
+        if (apiLevel >= Build.VERSION_CODES.Q) {
+            add(ComponentRequirement.RuntimePermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION))
+        }
     }
+
+/**
+ * Whether a fix this far from the centre is inside the area, or null when the
+ * fix is too coarse for the question to have an answer.
+ *
+ * [accuracyMeters] is the radius of the platform's own uncertainty about where
+ * the phone is. When that is wider than the area being asked about, "inside" and
+ * "outside" are both consistent with the reading, and the comparison alone would
+ * pick one of them and sound certain. A rule that runs unattended actions is the
+ * wrong place for that: null travels up to the engine as "could not answer", the
+ * rule is held back, and the rules list says which component could not read.
+ *
+ * Wider than the *radius* rather than wider than the distance to the boundary,
+ * deliberately. The tighter test would decline near the edge and answer in the
+ * middle, which sounds better and means a rule that fires in some parts of its
+ * own area and reports a fault in others. This one declines when the fix could
+ * not resolve the area at all, which is a property of the pair and not of where
+ * the phone happens to be standing.
+ */
+fun insideArea(distanceMeters: Double, radiusMeters: Double, accuracyMeters: Float?): Boolean? =
+    if (accuracyMeters != null && accuracyMeters > radiusMeters) null else distanceMeters <= radiusMeters
+
+/**
+ * Which providers to ask, in the order to ask them, on a device at [apiLevel].
+ *
+ * Not an order of preference for accuracy. It is an order of preference for
+ * *an answer at all*, and GPS is last for that reason. GPS is the most accurate
+ * provider on the phone and the one that cannot see the sky from indoors, which
+ * is where a phone spends most of its life and where the question this component
+ * exists for, "am I at home", gets asked. The fused provider is the platform's
+ * own best-available blend and answers from Wi-Fi and cell when GPS cannot;
+ * network answers the same way on a device that has no fused provider. So the
+ * cheap answers are asked for first and GPS is what is left to try, rather than
+ * the wall the read used to stop at.
+ *
+ * `FUSED_PROVIDER` is public API from API 31. Below that the name is not part of
+ * the platform, and `isProviderEnabled` rejects a provider it does not know, so
+ * the version decides whether it is in the list rather than a filter later on.
+ *
+ * Pure and separate from the trigger, because the order is the decision here and
+ * a `LocationManager` cannot be built in a JVM test.
+ */
+fun locationProviderOrder(apiLevel: Int): List<String> = buildList {
+    if (apiLevel >= Build.VERSION_CODES.S) add(LocationManager.FUSED_PROVIDER)
+    add(LocationManager.NETWORK_PROVIDER)
+    add(LocationManager.GPS_PROVIDER)
 }
 
-/** Tried in order; the fix is used from whichever of these is switched on. */
-private val CANDIDATE_PROVIDERS = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+private val CANDIDATE_PROVIDERS: List<String> = locationProviderOrder(Build.VERSION.SDK_INT)
+
+/**
+ * The fix's own uncertainty in metres, or null when it does not carry one.
+ *
+ * Null rather than a large default. A provider that reports no accuracy has told
+ * us nothing about how exact it is, and inventing a number would either decline
+ * every reading from that provider or accept every one of them; both are guesses
+ * dressed as a measurement. So the reading is used as it stands, which is what
+ * this code did before accuracy was consulted at all.
+ */
+private fun Location.accuracyOrNull(): Float? = if (hasAccuracy()) accuracy else null
+
+/**
+ * The ceiling on one position read, counted across every provider it tries.
+ *
+ * [LocationTrigger.currentlyHolds] runs inside a rule's gate with the rule's
+ * actions waiting behind it, so this cannot be open-ended. A fused or network
+ * read answers in well under a second whenever there is anything recent to give,
+ * and a cold GPS read can take most of a minute on its own; 15 seconds is enough
+ * for the first kind and deliberately not enough for the worst of the second.
+ * A rule delayed by a quarter of a minute is late. A rule delayed by a minute
+ * per event is broken.
+ */
+private const val POSITION_READ_BUDGET_MILLIS = 15_000L
 
 /**
  * Great-circle distance in metres.
@@ -138,9 +255,16 @@ class LocationTrigger(
 
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
-                val inside = distanceMeters(
-                    latitude, longitude, location.latitude, location.longitude
-                ) <= radiusMeters
+                // A fix too coarse to place the phone in or out of this area is
+                // dropped rather than turned into an edge. It is not a state
+                // this trigger has failed to notice; it is an update that says
+                // nothing about the question, and feeding it to the tracker
+                // would invent a crossing.
+                val inside = insideArea(
+                    distanceMeters(latitude, longitude, location.latitude, location.longitude),
+                    radiusMeters,
+                    location.accuracyOrNull(),
+                ) ?: return
 
                 val key = if (inside) INSIDE else OUTSIDE
                 if (!tracker.accept(key)) return
@@ -165,15 +289,32 @@ class LocationTrigger(
             override fun onProviderDisabled(provider: String) = Unit
         }
 
-        manager.requestLocationUpdates(
-            LocationManager.GPS_PROVIDER,
-            minIntervalMillis,
-            // Distance filter left to the trigger's own maths; the provider's
-            // filter would suppress the very update that crosses the boundary.
-            0f,
-            listener,
-            Looper.getMainLooper(),
-        )
+        // One provider, chosen by the same order and for the same reason as the
+        // checking half. See [locationProviderOrder]. This was `GPS_PROVIDER`,
+        // named directly: a watch on an area indoors then never saw an update,
+        // and a watch on a phone with GPS switched off never saw one either,
+        // because a request on a disabled provider is accepted and then silent.
+        //
+        // Falls back to the last candidate instead of giving up when nothing is
+        // enabled, which keeps the old behaviour for that case: registered and
+        // quiet, rather than a leaf that ends its flow and stays ended after the
+        // user switches location back on. The call is wrapped because a provider
+        // this device does not have is an argument the platform rejects.
+        val provider = CANDIDATE_PROVIDERS.firstOrNull {
+            runCatching { manager.isProviderEnabled(it) }.getOrDefault(false)
+        } ?: CANDIDATE_PROVIDERS.last()
+
+        runCatching {
+            manager.requestLocationUpdates(
+                provider,
+                minIntervalMillis,
+                // Distance filter left to the trigger's own maths; the provider's
+                // filter would suppress the very update that crosses the boundary.
+                0f,
+                listener,
+                Looper.getMainLooper(),
+            )
+        }
 
         awaitClose { manager.removeUpdates(listener) }
     }
@@ -197,24 +338,77 @@ class LocationTrigger(
      */
     @SuppressLint("MissingPermission") // ACCESS_FINE_LOCATION is declared as a requirement.
     override suspend fun currentlyHolds(): Boolean? {
-        val granted = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.ACCESS_FINE_LOCATION,
-        ) == PackageManager.PERMISSION_GRANTED
-        if (!granted) return null
+        if (!hasPositionAccess()) return null
 
         val manager = context.getSystemService(LocationManager::class.java) ?: return null
-        val provider = CANDIDATE_PROVIDERS.firstOrNull { manager.isProviderEnabled(it) } ?: return null
+        val location = readPosition(manager) ?: return null
 
-        val location = runCatching { readOnce(manager, provider) }.getOrNull() ?: return null
-
-        val inside = distanceMeters(latitude, longitude, location.latitude, location.longitude) <= radiusMeters
+        val inside = insideArea(
+            distanceMeters(latitude, longitude, location.latitude, location.longitude),
+            radiusMeters,
+            location.accuracyOrNull(),
+        ) ?: return null
         return inside == onEnter
     }
 
+    /**
+     * Whether this app may read a position exact enough for this area.
+     *
+     * Asked of the same rule the factory declares through [locationRequirements],
+     * so the row a person is shown and the check that gives up are the same
+     * decision. The check used to name `ACCESS_FINE_LOCATION` alone, which read
+     * "I cannot look" for anyone who answered the dialog with Approximate, even
+     * for an area kilometres across that an approximate fix decides perfectly
+     * well.
+     *
+     * Granting precise location grants the approximate permission with it, so
+     * the coarse test below is satisfied by either answer to the dialog and
+     * there is no need to ask for both.
+     */
+    private fun hasPositionAccess(): Boolean =
+        locationRequirements(radiusMeters, Build.VERSION.SDK_INT)
+            .filterIsInstance<ComponentRequirement.RuntimePermission>()
+            .any { requirement ->
+                requirement.permission != Manifest.permission.ACCESS_BACKGROUND_LOCATION &&
+                    ContextCompat.checkSelfPermission(context, requirement.permission) ==
+                    PackageManager.PERMISSION_GRANTED
+            }
+
+    /**
+     * The first position any provider will give, or null when none of them will.
+     *
+     * The fallback is the whole point. This used to take the first *enabled*
+     * provider and read that one only, which on a phone with GPS switched on
+     * meant GPS and nothing else: indoors that read comes back empty, the
+     * component answered "I cannot look", and the rule was held back while the
+     * position sat unread in the network provider. Enabled is not the same
+     * property as able to answer, and only one of the two is worth branching on.
+     *
+     * A provider that answers nothing is passed over rather than treated as a
+     * refusal, and so is one this device does not have: `isProviderEnabled`
+     * rejects an unknown name, which is a fact about the phone and not about
+     * where its owner is standing.
+     *
+     * Bounded as a whole rather than per provider, so that adding a provider to
+     * [locationProviderOrder] can never lengthen the wait a rule pays. Running
+     * out of [POSITION_READ_BUDGET_MILLIS] reads as null, the same as nobody
+     * answering, because for the rule waiting behind it those are one outcome.
+     */
     // Suppressed on the helpers too, not only on the caller: the permission is
     // checked once at the top of `currentlyHolds` and null returned without it,
     // but lint cannot follow that across a function boundary.
+    @SuppressLint("MissingPermission")
+    private suspend fun readPosition(manager: LocationManager): Location? =
+        withTimeoutOrNull(POSITION_READ_BUDGET_MILLIS) {
+            CANDIDATE_PROVIDERS.firstNotNullOfOrNull { provider ->
+                if (runCatching { manager.isProviderEnabled(provider) }.getOrDefault(false)) {
+                    runCatching { readOnce(manager, provider) }.getOrNull()
+                } else {
+                    null
+                }
+            }
+        }
+
     @SuppressLint("MissingPermission")
     private suspend fun readOnce(manager: LocationManager, provider: String): Location? =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -290,6 +484,10 @@ class LocationTriggerFactory(private val context: Context) : TriggerFactory {
             required = true,
             min = 1.0,
             unit = "m",
+            help = "How far from the point counts as arriving. A phone's " +
+                "position is not exact, so a radius under 100 m fires wrongly " +
+                "more often. From 3 km, approximate location is enough and " +
+                "Trigly asks only for that.",
         ),
         stateChoice("Fires when you", "entered", "arrive", "exited", "leave"),
         ConfigField.Duration(
@@ -341,7 +539,16 @@ class LocationTriggerFactory(private val context: Context) : TriggerFactory {
             "Trigly no position while the app is in the background, and this " +
             "component cannot fire or hold."
 
-    override val requirements = LOCATION_REQUIREMENTS
+    override val requirements = locationRequirements(radiusMeters = null, Build.VERSION.SDK_INT)
+
+    // The radius decides how exact a fix has to be, so it decides which grant
+    // this asks for. See [locationRequirements]; `requirements` above is the
+    // strict answer, for a caller that has no configuration to read.
+    override fun requirementsFor(config: Map<String, String>): List<ComponentRequirement> =
+        locationRequirements(
+            radiusMeters = config[LocationTrigger.CONFIG_RADIUS_METERS]?.toDoubleOrNull(),
+            apiLevel = Build.VERSION.SDK_INT,
+        )
 
     override fun create(config: Map<String, String>): Trigger {
         fun requiredDouble(key: String): Double {
@@ -425,7 +632,9 @@ class LocationCheckTriggerFactory(private val context: Context) : TriggerFactory
             required = true,
             unit = "m",
             help = "How close counts as being there. A phone's position is not " +
-                "exact, so a radius under 100 m answers wrongly more often.",
+                "exact, so a radius under 100 m answers wrongly more often. " +
+                "From 3 km, approximate location is enough and Trigly asks " +
+                "only for that.",
         ),
         // Same key and same stored words as the watching factory, so switching a
         // block between the two keeps the answer the person already gave.
@@ -446,14 +655,25 @@ class LocationCheckTriggerFactory(private val context: Context) : TriggerFactory
      */
     override val warning: String =
         "This takes a single location fix when another trigger starts the rule. " +
-            "It watches nothing, so it costs little battery. The fix can be " +
-            "minutes old. An old fix works for \"am I at home\" and fails for " +
-            "\"am I in the driveway\". Set location to \"Allow all the time\". " +
+            "It watches nothing, so it costs little battery. Trigly asks the " +
+            "cheapest source that can answer, which is usually Wi-Fi or the " +
+            "mobile network and not GPS. The fix can be minutes old and it can " +
+            "be some hundred metres out. An old or coarse fix works for \"am I " +
+            "at home\" and fails for \"am I in the driveway\". Set location to \"Allow all the time\". " +
             "With any other setting, Android gives Trigly no position while the " +
             "app is in the background. This component then cannot answer, and a " +
             "rule that asks it does not run."
 
-    override val requirements = LOCATION_REQUIREMENTS
+    override val requirements = locationRequirements(radiusMeters = null, Build.VERSION.SDK_INT)
+
+    // The radius decides how exact a fix has to be, so it decides which grant
+    // this asks for. See [locationRequirements]; `requirements` above is the
+    // strict answer, for a caller that has no configuration to read.
+    override fun requirementsFor(config: Map<String, String>): List<ComponentRequirement> =
+        locationRequirements(
+            radiusMeters = config[LocationTrigger.CONFIG_RADIUS_METERS]?.toDoubleOrNull(),
+            apiLevel = Build.VERSION.SDK_INT,
+        )
 
     override fun create(config: Map<String, String>): Trigger {
         fun requiredDouble(key: String): Double {

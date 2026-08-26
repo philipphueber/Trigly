@@ -1,7 +1,9 @@
 package app.phueber.trigly.triggers
 
+import android.Manifest
 import android.app.NotificationManager
 import android.view.accessibility.AccessibilityEvent
+import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.TextFilter
 import app.phueber.trigly.core.TextMatchMode
 import app.phueber.trigly.triggers.accessibility.UiEvent
@@ -384,85 +386,163 @@ class BluetoothIdentifyByTest {
 /**
  * When a Bluetooth rule needs the connect permission.
  *
- * The rule the list depends on. Demand it when the rule cannot work without it,
- * stay quiet when it can, and never demand it for a filter the engine has
- * stopped reading.
+ * The rule the list depends on, and it is a question about the Android version
+ * only. It used to be a question about the configuration as well: the permission
+ * was declared for a rule narrowed to one device and withheld from an "any
+ * device" rule, because an unnarrowed rule was thought to match the raw ACL
+ * broadcast and need nothing. The platform does not deliver that broadcast to a
+ * receiver without the permission, whatever the receiver planned to do with it,
+ * so the unnarrowed rule could not fire and the list said it needed nothing.
  */
-class BluetoothNarrowsByDeviceTest {
+class BluetoothConnectRequirementsTest {
 
-    private val address = "AA:BB:CC:DD:EE:FF"
-    private val byAddress = BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY to
-        BluetoothConnectionTrigger.IDENTIFY_BY_ADDRESS
-    private val byName = BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY to
-        BluetoothConnectionTrigger.IDENTIFY_BY_NAME
+    private val connect = ComponentRequirement.RuntimePermission(
+        Manifest.permission.BLUETOOTH_CONNECT
+    )
 
     @Test
-    fun `an any-device rule narrows nothing`() {
-        assertFalse(bluetoothNarrowsByDevice(emptyMap()))
-    }
-
-    @Test
-    fun `an address narrows`() {
-        assertTrue(
-            bluetoothNarrowsByDevice(
-                mapOf(byAddress, BluetoothConnectionTrigger.CONFIG_ADDRESS to address)
-            )
-        )
-    }
-
-    @Test
-    fun `a name narrows`() {
-        assertTrue(
-            bluetoothNarrowsByDevice(
-                mapOf(byName, BluetoothConnectionTrigger.CONFIG_NAME to "headset")
-            )
-        )
+    fun `from Android 12 the permission is required`() {
+        assertEquals(listOf(connect), bluetoothConnectRequirements(31))
+        assertEquals(listOf(connect), bluetoothConnectRequirements(36))
     }
 
     /**
-     * The case the raw-key version got wrong. The rule matches by name, the name
-     * is empty, and an address left over from an earlier edit is not read by
-     * anything. Nothing is narrowed, so nothing is required.
+     * Below API 31 the sender attaches the legacy install-time permission, so
+     * there is nothing to grant. Declaring it there would show a row with a
+     * button that cannot open a dialog, because the platform has no such
+     * permission to ask about.
      */
     @Test
-    fun `an ignored leftover address does not narrow`() {
-        assertFalse(
-            bluetoothNarrowsByDevice(
-                mapOf(byName, BluetoothConnectionTrigger.CONFIG_ADDRESS to address)
-            )
-        )
+    fun `below Android 12 nothing is required`() {
+        assertEquals(emptyList<ComponentRequirement>(), bluetoothConnectRequirements(30))
+        assertEquals(emptyList<ComponentRequirement>(), bluetoothConnectRequirements(26))
+    }
+}
+
+/**
+ * Which providers an area check asks, and in which order.
+ *
+ * A constant with a decision inside it, so the decision is pinned rather than
+ * left to whoever edits the list next. GPS last is the fix: the previous order
+ * put it first, the read stopped at the first *enabled* provider, and a phone
+ * indoors with GPS switched on therefore asked the one provider that cannot
+ * answer indoors and gave up.
+ */
+class LocationProviderOrderTest {
+
+    @Test
+    fun `GPS is asked last on every version`() {
+        assertEquals("gps", locationProviderOrder(26).last())
+        assertEquals("gps", locationProviderOrder(30).last())
+        assertEquals("gps", locationProviderOrder(31).last())
+        assertEquals("gps", locationProviderOrder(36).last())
     }
 
-    /** And the same from the other direction. */
     @Test
-    fun `an ignored leftover name does not narrow`() {
-        assertFalse(
-            bluetoothNarrowsByDevice(
-                mapOf(byAddress, BluetoothConnectionTrigger.CONFIG_NAME to "headset")
-            )
-        )
+    fun `from Android 12 the fused provider is asked first`() {
+        assertEquals(listOf("fused", "network", "gps"), locationProviderOrder(31))
+    }
+
+    /** The name is not part of the platform below API 31, and asking for it throws. */
+    @Test
+    fun `below Android 12 the fused provider is not asked for`() {
+        assertEquals(listOf("network", "gps"), locationProviderOrder(30))
+    }
+}
+
+/**
+ * Which location grant an area needs, and when an approximate one will do.
+ *
+ * The size of the area is the whole input. Since Android 12 the permission
+ * dialog asks Precise or Approximate as one question, so a rule about a town
+ * that demands precise location is asking for more than it uses.
+ */
+class LocationRequirementsTest {
+
+    private val fine = ComponentRequirement.RuntimePermission(
+        Manifest.permission.ACCESS_FINE_LOCATION
+    )
+    private val coarse = ComponentRequirement.RuntimePermission(
+        Manifest.permission.ACCESS_COARSE_LOCATION
+    )
+    private val background = ComponentRequirement.RuntimePermission(
+        Manifest.permission.ACCESS_BACKGROUND_LOCATION
+    )
+
+    @Test
+    fun `a small area needs the precise grant`() {
+        assertEquals(listOf(fine, background), locationRequirements(100.0, 31))
+        assertEquals(listOf(fine, background), locationRequirements(2_999.0, 31))
+    }
+
+    @Test
+    fun `an area of kilometres needs only the approximate grant`() {
+        assertEquals(listOf(coarse, background), locationRequirements(3_000.0, 31))
+        assertEquals(listOf(coarse, background), locationRequirements(20_000.0, 31))
     }
 
     /**
-     * A rule saved before the choice existed reads both keys, so either one
-     * narrows it.
+     * Config is text, and a radius that will not parse arrives here as null. A
+     * component that cannot tell how big its area is must not conclude that any
+     * fix will do.
      */
     @Test
-    fun `with no choice stored either key narrows`() {
-        assertTrue(
-            bluetoothNarrowsByDevice(mapOf(BluetoothConnectionTrigger.CONFIG_ADDRESS to address))
-        )
-        assertTrue(
-            bluetoothNarrowsByDevice(mapOf(BluetoothConnectionTrigger.CONFIG_NAME to "headset"))
-        )
+    fun `an unreadable radius is treated as the strict case`() {
+        assertEquals(listOf(fine, background), locationRequirements(null, 31))
+    }
+
+    /** The background grant arrived in Android 10; below it the fine grant covers it. */
+    @Test
+    fun `before Android 10 the background grant is not asked for`() {
+        assertEquals(listOf(fine), locationRequirements(100.0, 28))
+        assertEquals(listOf(coarse), locationRequirements(5_000.0, 28))
+    }
+}
+
+/**
+ * Whether a fix decides the area it is asked about.
+ *
+ * The case this exists for: a network fix accurate to 1 km, asked whether the
+ * phone is inside a 200 m circle. Inside and outside are both consistent with
+ * that reading, and the plain comparison would still pick one and sound sure of
+ * it. Unattended actions are the wrong place for a coin toss, so the answer is
+ * "could not read" and the rule says so instead of running.
+ */
+class InsideAreaTest {
+
+    @Test
+    fun `a fix good enough for the area answers`() {
+        assertEquals(true, insideArea(distanceMeters = 50.0, radiusMeters = 200.0, accuracyMeters = 30f))
+        assertEquals(false, insideArea(distanceMeters = 500.0, radiusMeters = 200.0, accuracyMeters = 30f))
     }
 
     @Test
-    fun `an empty value does not narrow`() {
-        assertFalse(
-            bluetoothNarrowsByDevice(
-                mapOf(byAddress, BluetoothConnectionTrigger.CONFIG_ADDRESS to "")
-            )
-        )
+    fun `a fix coarser than the area cannot answer`() {
+        assertNull(insideArea(distanceMeters = 50.0, radiusMeters = 200.0, accuracyMeters = 1_000f))
+        assertNull(insideArea(distanceMeters = 5_000.0, radiusMeters = 200.0, accuracyMeters = 1_000f))
+    }
+
+    /**
+     * Declines on the radius, not on the distance to the boundary. The tighter
+     * test would answer in the middle of an area and report a fault near its
+     * edge, which is one rule behaving as two.
+     */
+    @Test
+    fun `the edge of a well resolved area still answers`() {
+        assertEquals(true, insideArea(distanceMeters = 199.0, radiusMeters = 200.0, accuracyMeters = 150f))
+        assertEquals(false, insideArea(distanceMeters = 201.0, radiusMeters = 200.0, accuracyMeters = 150f))
+    }
+
+    /** Exactly on the boundary is inside, which is what the comparison always said. */
+    @Test
+    fun `the boundary counts as inside`() {
+        assertEquals(true, insideArea(distanceMeters = 200.0, radiusMeters = 200.0, accuracyMeters = 10f))
+    }
+
+    /** A provider that reports no accuracy has said nothing, so nothing is inferred. */
+    @Test
+    fun `a fix with no accuracy is used as it stands`() {
+        assertEquals(true, insideArea(distanceMeters = 50.0, radiusMeters = 200.0, accuracyMeters = null))
+        assertEquals(false, insideArea(distanceMeters = 500.0, radiusMeters = 200.0, accuracyMeters = null))
     }
 }

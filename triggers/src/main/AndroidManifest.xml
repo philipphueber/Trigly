@@ -8,8 +8,12 @@
       The manifest merger folds these into the app manifest.
 
       BLUETOOTH_CONNECT is a runtime permission from API 31; reading
-      BluetoothDevice.address without it throws, and ACTION_STATE_CHANGED is not
-      delivered. The legacy BLUETOOTH permission covers API 30 and below.
+      BluetoothDevice.address without it throws, and neither ACTION_STATE_CHANGED
+      nor ACTION_ACL_CONNECTED/_DISCONNECTED is delivered without it, because the
+      Bluetooth stack sends all three with this permission named as the receiver
+      permission. Without the grant a Bluetooth rule does not receive a degraded
+      event; it receives nothing. The legacy BLUETOOTH permission covers API 30
+      and below, is install-time, and needs no grant.
     -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission
@@ -22,9 +26,12 @@
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
     <!-- Location trigger. From API 31 the user can grant approximate location
-         instead of precise, so the platform requires both to be declared; the
-         GPS provider the trigger uses still needs the fine grant, which is what
-         the trigger declares as its requirement. -->
+         instead of precise, so the platform requires both to be declared, and
+         both are used: a location component asks for the approximate grant when
+         its radius is 3 km or more and for the precise grant below that. See
+         `locationRequirements`. Granting precise grants approximate with it, so
+         a rule asking for the smaller thing is satisfied by either answer to
+         the dialog. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 

@@ -140,14 +140,21 @@ interface ComponentFactory {
      * Defaults to [requirements], so a component whose needs do not vary says
      * nothing extra. Overriding it is how a component stops demanding access it
      * will not use: `play_alert` needs notification access only when asked to
-     * stop early, and `bluetooth_connected` needs the Bluetooth permission only
-     * when it has been narrowed to a particular device.
+     * stop early.
      *
      * This exists because the alternative was showing a Grant button for a
      * permission the rule as written never touches — and, worse, marking a rule
      * "cannot fire" when it could. A requirement that is sometimes irrelevant
      * teaches people to ignore requirements, which is the opposite of what the
      * model is for.
+     *
+     * The trap is the other direction, and `bluetooth_connected` fell into it:
+     * overriding this needs a *proven* claim that the capability is unused, not
+     * a plausible one. A permission that gates the delivery of a broadcast, and
+     * not merely a field the receiver reads out of it, is needed by every
+     * configuration however little the rule asks of the event. Getting that
+     * backwards produces the worse half of the same failure: a rule that cannot
+     * fire and a list that says nothing is missing.
      */
     fun requirementsFor(config: Map<String, String>): List<ComponentRequirement> = requirements
 
