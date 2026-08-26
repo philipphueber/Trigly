@@ -272,6 +272,7 @@ class MainActivity : ComponentActivity() {
                 repository = container.ruleRepository,
                 registry = container.registry,
                 checker = container.requirementChecker,
+                variableStore = container.variableStore,
                 ruleId = ruleId,
             ),
         )

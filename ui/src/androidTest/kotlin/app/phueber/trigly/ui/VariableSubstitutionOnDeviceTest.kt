@@ -12,6 +12,7 @@ import app.phueber.trigly.actions.PostNotificationAction
 import app.phueber.trigly.actions.actionFactories
 import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.ComponentSpec
+import app.phueber.trigly.core.InMemoryVariableStore
 import app.phueber.trigly.core.Registry
 import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.Trigger
@@ -146,6 +147,7 @@ class VariableSubstitutionOnDeviceTest {
 
         val engine = TriggerEngine(
             registry = registry,
+            store = InMemoryVariableStore(),
             scope = scope,
             onOutcome = { _, _, _, result -> outcomes.trySend(result) },
         )

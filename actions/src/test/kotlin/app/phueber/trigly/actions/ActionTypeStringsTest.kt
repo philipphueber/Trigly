@@ -56,6 +56,7 @@ class ActionTypeStringsTest {
 
         // Trigly's own rules
         "set_rule_enabled" to SetRuleEnabledAction.TYPE,
+        "set_variable" to SetVariableAction.TYPE,
 
         // Device state
         "set_volume" to SetVolumeAction.TYPE,
@@ -90,6 +91,6 @@ class ActionTypeStringsTest {
         // A guard that only checks equality would pass on an empty list too.
         // This pins the count so deleting a line reads as a failure, not as
         // one fewer thing to maintain.
-        assertEquals(20, pinned.size)
+        assertEquals(21, pinned.size)
     }
 }

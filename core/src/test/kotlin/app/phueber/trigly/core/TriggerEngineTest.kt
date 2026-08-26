@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -88,7 +89,7 @@ class TriggerEngineTest {
     @Test
     fun `sync stops a rule that was disabled or deleted`() =
         runTest(UnconfinedTestDispatcher()) {
-            val engine = TriggerEngine(idleRegistry(CountingTriggerFactory()), this)
+            val engine = TriggerEngine(idleRegistry(CountingTriggerFactory()), InMemoryVariableStore(), this)
 
             engine.sync(listOf(idleRule("a"), idleRule("b")))
             assertEquals(setOf("a", "b"), engine.runningRuleIds)
@@ -112,7 +113,7 @@ class TriggerEngineTest {
     fun `sync leaves an unchanged rule running rather than rebuilding it`() =
         runTest(UnconfinedTestDispatcher()) {
             val factory = CountingTriggerFactory()
-            val engine = TriggerEngine(idleRegistry(factory), this)
+            val engine = TriggerEngine(idleRegistry(factory), InMemoryVariableStore(), this)
 
             engine.sync(listOf(idleRule("a")))
             engine.sync(listOf(idleRule("a"), idleRule("b")))
@@ -128,7 +129,7 @@ class TriggerEngineTest {
     fun `sync rebuilds a rule whose configuration changed`() =
         runTest(UnconfinedTestDispatcher()) {
             val factory = CountingTriggerFactory()
-            val engine = TriggerEngine(idleRegistry(factory), this)
+            val engine = TriggerEngine(idleRegistry(factory), InMemoryVariableStore(), this)
 
             engine.sync(listOf(idleRule("a", mapOf("level" to "20"))))
             engine.sync(listOf(idleRule("a", mapOf("level" to "30"))))
@@ -145,6 +146,7 @@ class TriggerEngineTest {
             val failed = mutableListOf<String>()
             val engine = TriggerEngine(
                 registry = idleRegistry(CountingTriggerFactory()),
+                store = InMemoryVariableStore(),
                 scope = this,
                 onStartFailure = { rule, _ -> failed += rule.id },
             )
@@ -183,6 +185,7 @@ class TriggerEngineTest {
                     ),
                     actionFactories = listOf(SingleActionFactory(ACTION_TYPE, RecordingAction())),
                 ),
+                store = InMemoryVariableStore(),
                 scope = this,
                 onSuppressed = { _, _, unreadable -> suppressed += unreadable.map { it.type } },
             )
@@ -235,6 +238,7 @@ class TriggerEngineTest {
                     ),
                     actionFactories = listOf(SingleActionFactory(ACTION_TYPE, action)),
                 ),
+                store = InMemoryVariableStore(),
                 scope = this,
                 onSuppressed = { _, _, unreadable -> suppressed += unreadable.map { it.type } },
             )
@@ -283,6 +287,7 @@ class TriggerEngineTest {
                     ),
                     actionFactories = listOf(SingleActionFactory(ACTION_TYPE, RecordingAction())),
                 ),
+                store = InMemoryVariableStore(),
                 scope = this,
                 onSuppressed = { _, _, unreadable -> suppressed += unreadable.map { it.type } },
             )
@@ -325,6 +330,7 @@ class TriggerEngineTest {
                     ),
                     actionFactories = listOf(SingleActionFactory(ACTION_TYPE, action)),
                 ),
+                store = InMemoryVariableStore(),
                 scope = this,
                 onSuppressed = { _, _, unreadable -> suppressed += unreadable.map { it.type } },
             )
@@ -374,6 +380,7 @@ class TriggerEngineTest {
                     ),
                     actionFactories = listOf(SingleActionFactory(ACTION_TYPE, action)),
                 ),
+                store = InMemoryVariableStore(),
                 scope = this,
                 onSuppressed = { _, _, unreadable -> suppressed += unreadable.map { it.type } },
             )
@@ -423,7 +430,7 @@ class TriggerEngineTest {
     @Test
     fun `sync and runningRuleIds are safe to call from two threads`() {
         val scope = CoroutineScope(Dispatchers.Default)
-        val engine = TriggerEngine(idleRegistry(CountingTriggerFactory()), scope)
+        val engine = TriggerEngine(idleRegistry(CountingTriggerFactory()), InMemoryVariableStore(), scope)
         val failures = java.util.concurrent.CopyOnWriteArrayList<Throwable>()
 
         // Alternating sets, so every round both starts and stops something and
@@ -472,6 +479,7 @@ class TriggerEngineTest {
                     triggerFactories = listOf(FakeTriggerFactory(TRIGGER_TYPE, emissions)),
                     actionFactories = listOf(factory),
                 ),
+                store = InMemoryVariableStore(),
                 scope = this,
             )
 
@@ -507,6 +515,7 @@ class TriggerEngineTest {
                     triggerFactories = listOf(FakeTriggerFactory(TRIGGER_TYPE, emissions)),
                     actionFactories = listOf(factory),
                 ),
+                store = InMemoryVariableStore(),
                 scope = this,
             )
             val config = mapOf("text" to "Battery: {{trigger.level}}%")
@@ -546,6 +555,7 @@ class TriggerEngineTest {
                     triggerFactories = listOf(FakeTriggerFactory(TRIGGER_TYPE, emissions)),
                     actionFactories = listOf(factory),
                 ),
+                store = InMemoryVariableStore(),
                 scope = this,
             )
             val config = mapOf("text" to "Battery: {{trigger.level}}%")
@@ -565,6 +575,174 @@ class TriggerEngineTest {
             engine.stop()
         }
 
+    // --- app scope: the store read TriggerEngine.ActionSlot does per action ---------
+
+    @Test
+    fun `an action reading an app variable gets the value from the store`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val fields = listOf(
+                ConfigField.Text(key = "text", label = "Text", substitution = Substitution.TEXT),
+            )
+            val factory = CountingActionFactory(ACTION_TYPE, fields)
+            val store = InMemoryVariableStore(mapOf("trip_count" to "5"))
+            val engine = TriggerEngine(
+                registry = Registry(
+                    triggerFactories = listOf(FakeTriggerFactory(TRIGGER_TYPE, listOf(event(1)))),
+                    actionFactories = listOf(factory),
+                ),
+                store = store,
+                scope = this,
+            )
+            val config = mapOf("text" to "Trips: {{app.trip_count}}")
+
+            engine.startRule(
+                Rule(
+                    id = "rule-1",
+                    name = "reads app scope",
+                    trigger = ComponentSpec(TRIGGER_TYPE),
+                    actions = listOf(ComponentSpec(ACTION_TYPE, config)),
+                )
+            )
+
+            assertEquals(
+                listOf("Trips: {{app.trip_count}}", "Trips: 5"),
+                factory.builtWith.map { it.getValue("text") },
+            )
+            engine.stop()
+        }
+
+    @Test
+    fun `an app-scope action is rebuilt only when the stored value actually changes`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val fields = listOf(
+                ConfigField.Text(key = "text", label = "Text", substitution = Substitution.TEXT),
+            )
+            val factory = CountingActionFactory(ACTION_TYPE, fields)
+            val store = InMemoryVariableStore(mapOf("trip_count" to "5"))
+            // Controllable rather than a fixed list, and drained with
+            // advanceUntilIdle after each event, so the store can be changed
+            // between two events with the guarantee that the first event's
+            // action has actually finished reading it. `TriggerEngine`
+            // collects every leaf's events through a `merge()`, which buffers,
+            // so firing all three events up front (as a scripted cold flow
+            // would) races the store write against event processing instead
+            // of ordering the two, and that race is exactly what a `flow {}`
+            // producer emitting ahead of a buffered `merge()` consumer loses.
+            val trigger = ControllableTriggerFactory(TRIGGER_TYPE)
+            val engine = TriggerEngine(
+                registry = Registry(
+                    triggerFactories = listOf(trigger),
+                    actionFactories = listOf(factory),
+                ),
+                store = store,
+                scope = this,
+            )
+            val config = mapOf("text" to "Trips: {{app.trip_count}}")
+
+            engine.startRule(
+                Rule(
+                    id = "rule-1",
+                    name = "app scope reuse",
+                    trigger = ComponentSpec(TRIGGER_TYPE),
+                    actions = listOf(ComponentSpec(ACTION_TYPE, config)),
+                )
+            )
+
+            trigger.events.emit(event(1))
+            advanceUntilIdle()
+            trigger.events.emit(event(2)) // Store unchanged: must reuse the first rebuild.
+            advanceUntilIdle()
+            store.set("trip_count", "6")
+            trigger.events.emit(event(3)) // Store changed: must rebuild again.
+            advanceUntilIdle()
+
+            // Start (raw config), event 1 (first real read, differs from raw:
+            // rebuild), event 2 (same value: reused, no third entry here),
+            // event 3 (value changed: rebuild). Three builds, not four.
+            assertEquals(
+                listOf("Trips: {{app.trip_count}}", "Trips: 5", "Trips: 6"),
+                factory.builtWith.map { it.getValue("text") },
+            )
+            assertEquals(3, factory.buildCount)
+            engine.stop()
+        }
+
+    @Test
+    fun `an action that names no app variable never reads the store`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val fields = listOf(
+                ConfigField.Text(key = "text", label = "Text", substitution = Substitution.TEXT),
+            )
+            val factory = CountingActionFactory(ACTION_TYPE, fields)
+            val store = CountingVariableStore()
+            val emissions = listOf(
+                TriggerEvent(TRIGGER_TYPE, 1L, mapOf("level" to "10")),
+                TriggerEvent(TRIGGER_TYPE, 2L, mapOf("level" to "20")),
+            )
+            val engine = TriggerEngine(
+                registry = Registry(
+                    triggerFactories = listOf(FakeTriggerFactory(TRIGGER_TYPE, emissions)),
+                    actionFactories = listOf(factory),
+                ),
+                store = store,
+                scope = this,
+            )
+            // A trigger-scope reference only. This is the promise that keeps
+            // existing rules free: naming no app variable must cost nothing.
+            val config = mapOf("text" to "Battery: {{trigger.level}}%")
+
+            engine.startRule(
+                Rule(
+                    id = "rule-1",
+                    name = "no app scope",
+                    trigger = ComponentSpec(TRIGGER_TYPE),
+                    actions = listOf(ComponentSpec(ACTION_TYPE, config)),
+                )
+            )
+
+            assertEquals(3, factory.buildCount)
+            assertEquals(0, store.getCalls)
+            engine.stop()
+        }
+
+    @Test
+    fun `a later action sees a variable an earlier action wrote in the same run`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val store = InMemoryVariableStore()
+            val fields = listOf(
+                ConfigField.Text(key = "text", label = "Text", substitution = Substitution.TEXT),
+            )
+            val readFactory = CountingActionFactory("read-action", fields)
+            val writeFactory = WritingActionFactory("write-action", store, "trip_count", "1")
+            val engine = TriggerEngine(
+                registry = Registry(
+                    triggerFactories = listOf(FakeTriggerFactory(TRIGGER_TYPE, listOf(event(1)))),
+                    actionFactories = listOf(writeFactory, readFactory),
+                ),
+                store = store,
+                scope = this,
+            )
+
+            engine.startRule(
+                Rule(
+                    id = "rule-1",
+                    name = "write then read",
+                    trigger = ComponentSpec(TRIGGER_TYPE),
+                    actions = listOf(
+                        ComponentSpec("write-action"),
+                        ComponentSpec("read-action", mapOf("text" to "Trips: {{app.trip_count}}")),
+                    ),
+                )
+            )
+
+            // A snapshot taken once for the whole event, before either action
+            // ran, would have shown the read action nothing here. Reading
+            // immediately before each action runs is what lets the second
+            // action see what the first one, running just before it, wrote.
+            assertEquals("Trips: 1", readFactory.builtWith.last().getValue("text"))
+            engine.stop()
+        }
+
     @Test
     fun `a field that cannot be resolved fails through onOutcome and the action does not run`() =
         runTest(UnconfinedTestDispatcher()) {
@@ -579,6 +757,7 @@ class TriggerEngineTest {
                     triggerFactories = listOf(FakeTriggerFactory(TRIGGER_TYPE, listOf(event(1)))),
                     actionFactories = listOf(actionFactory),
                 ),
+                store = InMemoryVariableStore(),
                 scope = this,
                 onOutcome = { _, _, _, result -> outcomes += result },
             )
@@ -609,6 +788,7 @@ class TriggerEngineTest {
                     triggerFactories = listOf(FakeTriggerFactory(TRIGGER_TYPE, listOf(event(1)))),
                     actionFactories = emptyList(),
                 ),
+                store = InMemoryVariableStore(),
                 scope = this,
                 onStartFailure = { rule, _ -> failed += rule.id },
             )
@@ -667,6 +847,7 @@ private fun harness(
     val outcomes = mutableListOf<ActionResult>()
     val engine = TriggerEngine(
         registry = registry,
+        store = InMemoryVariableStore(),
         scope = scope,
         onOutcome = { _, _, _, result -> outcomes += result },
     )
@@ -774,6 +955,69 @@ private class FakeTriggerFactory(
 ) : TriggerFactory {
     override fun create(config: Map<String, String>): Trigger = object : Trigger {
         override fun events(): Flow<TriggerEvent> = emissions.asFlow()
+    }
+}
+
+/**
+ * A trigger whose events are fired one at a time by the test, through
+ * [events], rather than replayed from a fixed list.
+ *
+ * What a test needs to act *between* two events, such as changing the store,
+ * with the guarantee that the first event's actions have actually finished
+ * first. [FakeTriggerFactory]'s fixed list cannot express that ordering:
+ * `TriggerEngine` collects every leaf's events through a `merge()`, which
+ * buffers, so a source flow that emits several values up front races ahead of
+ * the engine rather than waiting on it. Emitting one event and draining the
+ * test scheduler with `advanceUntilIdle()` before emitting the next is what
+ * actually orders "the engine is done with this event" before "act on the
+ * effects of that event".
+ */
+private class ControllableTriggerFactory(override val type: String) : TriggerFactory {
+    val events = MutableSharedFlow<TriggerEvent>()
+    override fun create(config: Map<String, String>): Trigger = object : Trigger {
+        override fun events(): Flow<TriggerEvent> = events
+    }
+}
+
+/**
+ * Wraps a [VariableStore] and counts calls to [get], so a test can prove an
+ * action never touched the store rather than merely observing it behaved as
+ * if it had not. A plain [InMemoryVariableStore] cannot say that of itself.
+ */
+private class CountingVariableStore(
+    private val delegate: VariableStore = InMemoryVariableStore(),
+) : VariableStore {
+    var getCalls = 0
+        private set
+
+    override fun all() = delegate.all()
+
+    override suspend fun get(name: String): String? {
+        getCalls++
+        return delegate.get(name)
+    }
+
+    override suspend fun set(name: String, value: String) = delegate.set(name, value)
+
+    override suspend fun remove(name: String) = delegate.remove(name)
+}
+
+/**
+ * An action that writes one fixed value to [store] when it runs, standing in
+ * for `set_variable`. What proves a later action in the same rule sees a
+ * value an earlier one just wrote.
+ */
+private class WritingActionFactory(
+    override val type: String,
+    private val store: VariableStore,
+    private val name: String,
+    private val value: String,
+) : ActionFactory {
+    override fun create(config: Map<String, String>): Action = object : Action {
+        override suspend fun execute(event: TriggerEvent): ActionResult {
+            store.set(name, value)
+            return ActionResult.Success
+        }
     }
 }
 

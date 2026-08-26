@@ -3,9 +3,11 @@ package app.phueber.trigly.actions
 import android.content.Context
 import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.InMemoryRuleRepository
+import app.phueber.trigly.core.InMemoryVariableStore
 import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.RuleRepository
 import app.phueber.trigly.core.UiController
+import app.phueber.trigly.core.VariableStore
 
 /**
  * Every action type this module provides.
@@ -38,6 +40,13 @@ fun actionFactories(
      * on nothing.
      */
     rules: RuleRepository = InMemoryRuleRepository(),
+    /**
+     * Where this device's app-scoped variables live. Defaults to a working
+     * in-memory store rather than a refusing stub, unlike [notifications] and
+     * [ui]: see [VariableStore] for why "this device has no variables" is not a
+     * real state.
+     */
+    variables: VariableStore = InMemoryVariableStore(),
 ): List<ActionFactory> = listOf(
     // Tell the user something
     PostNotificationActionFactory(context),
@@ -59,6 +68,7 @@ fun actionFactories(
 
     // Trigly's own rules
     SetRuleEnabledActionFactory(rules),
+    SetVariableActionFactory(variables),
 
     // Device state
     SetVolumeActionFactory(context),

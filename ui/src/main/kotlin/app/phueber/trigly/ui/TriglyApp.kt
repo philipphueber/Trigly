@@ -9,7 +9,9 @@ import app.phueber.trigly.core.Registry
 import app.phueber.trigly.core.RequirementChecker
 import app.phueber.trigly.core.RuleRepository
 import app.phueber.trigly.core.UiController
+import app.phueber.trigly.core.VariableStore
 import app.phueber.trigly.core.storage.ruleRepository
+import app.phueber.trigly.core.storage.variableStore
 import app.phueber.trigly.triggers.AlarmManagerScheduler
 import app.phueber.trigly.triggers.accessibility.ServiceUiController
 import app.phueber.trigly.triggers.notification.ListenerNotificationController
@@ -127,9 +129,21 @@ class AppContainer(context: Context) {
      */
     val ruleRepository: RuleRepository = ruleRepository(context)
 
+    /**
+     * App-scope variable storage. Declared **before** [registry] for the same
+     * reason [ruleRepository] is: property initialisers run in declaration
+     * order, and the registry hands this to both factory lists below. Below
+     * the registry it would still be null when they read it, and a default
+     * store nobody writes to is exactly the silent-empty-variable failure
+     * `TriggerEngine`'s required `store` parameter exists to catch.
+     */
+    val variableStore: VariableStore = variableStore(context)
+
     val registry: Registry = Registry(
-        triggerFactories = triggerFactories(context, scheduler),
-        actionFactories = actionFactories(context, notifications, ui, ruleRepository),
+        triggerFactories = triggerFactories(context, scheduler, variableStore),
+        actionFactories = actionFactories(
+            context, notifications, ui, ruleRepository, variableStore,
+        ),
     )
 
     val requirementChecker: RequirementChecker = RequirementChecker(context)

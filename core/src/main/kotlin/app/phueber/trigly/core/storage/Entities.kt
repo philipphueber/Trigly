@@ -102,6 +102,23 @@ data class ComponentEntity(
     val configJson: String,
 )
 
+/**
+ * One app-scope variable. See `VariableStore` in the parent package.
+ *
+ * [updatedAtMillis] is not decoration. A store with no history at all cannot
+ * answer "when did this last change", which is the first question anyone
+ * debugging a rule asks about a counter or a cooldown that is not behaving.
+ * There is nowhere else to keep that answer: the value itself is just the
+ * current string, and the write that produced it is not otherwise logged
+ * anywhere durable.
+ */
+@Entity(tableName = "variables")
+data class VariableEntity(
+    @PrimaryKey val name: String,
+    val value: String,
+    val updatedAtMillis: Long,
+)
+
 /** A rule with its components, as Room returns it from a single query. */
 data class RuleWithComponents(
     @Embedded val rule: RuleEntity,

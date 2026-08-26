@@ -95,11 +95,16 @@ internal fun VariablePickerDialog(
  * scopes get the plain words a person would use; a type-qualified scope is a
  * trigger's own type string, which is the honest label for "only when this
  * exact leaf is the one that fired". See `docs/variables.md` section 3.
+ *
+ * App scope gets its own sentence rather than falling through to the raw
+ * word "app": what sets it apart from the other three is that it persists
+ * and that any rule, not only this one, can read or write it.
  */
 private fun scopeHeading(scope: String): String = when (scope) {
     VariableScope.TRIGGER -> "The trigger that fired"
     VariableScope.EVENT -> "This run"
     VariableScope.RULE -> "This rule"
+    VariableScope.APP -> "Saved, and shared with every rule"
     else -> scope.replace('_', ' ')
 }
 

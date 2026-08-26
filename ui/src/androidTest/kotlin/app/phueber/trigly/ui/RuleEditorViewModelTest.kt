@@ -7,6 +7,7 @@ import android.os.Build
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ComponentSpec
 import app.phueber.trigly.core.InMemoryRuleRepository
+import app.phueber.trigly.core.InMemoryVariableStore
 import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.Registry
 import app.phueber.trigly.core.RequirementChecker
@@ -15,6 +16,8 @@ import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
 import app.phueber.trigly.core.TriggerNode
+import app.phueber.trigly.core.VariableScope
+import app.phueber.trigly.core.VariableStore
 import app.phueber.trigly.triggers.AlarmManagerScheduler
 import app.phueber.trigly.triggers.triggerFactories
 import kotlinx.coroutines.Dispatchers
@@ -94,8 +97,11 @@ class RuleEditorViewModelTest {
 
     private fun viewModel(
         repository: InMemoryRuleRepository = InMemoryRuleRepository(),
+        variableStore: VariableStore = InMemoryVariableStore(),
         ruleId: String? = null,
-    ) = RuleEditorViewModel(repository, registry, RequirementChecker(context), ruleId)
+    ) = RuleEditorViewModel(
+        repository, registry, RequirementChecker(context), variableStore, ruleId,
+    )
 
     /** Unwraps a leaf, or null if [this] is a group or unchosen. */
     private val TriggerDraft?.leaf: ComponentDraft?
@@ -455,6 +461,71 @@ class RuleEditorViewModelTest {
         assertNull("a sometimes-empty reference is not a save error", editor.state.value.error)
         assertTrue(editor.state.value.finished)
         assertEquals(1, repository.rules().first().size)
+    }
+
+    /**
+     * Phase 2: what `VariableStore.scoped()` holds has to reach the picker,
+     * not only the trigger tree's own declarations. Collected into state in
+     * [RuleEditorViewModel]'s `init`, under the same `UnconfinedTestDispatcher`
+     * every other test here relies on to have already run by the time this
+     * reads `availableVariables`.
+     */
+    @Test
+    fun a_stored_app_variable_appears_in_available_variables() = runTest {
+        val editor = viewModel(variableStore = InMemoryVariableStore(mapOf("trip_count" to "3")))
+
+        val found = editor.availableVariables.singleOrNull {
+            it.scope == VariableScope.APP && it.spec.key == "trip_count"
+        }
+
+        assertNotNull("the store's variable should be offered", found)
+        assertEquals("3", found!!.spec.sample)
+    }
+
+    /**
+     * `docs/variables.md` section 9: an app-scope reference is accepted on
+     * sight, unlike `trigger.*`, because the rule that reads
+     * `{{app.trip_count}}` is very often saved before the rule that first sets
+     * it. This is the invariant most likely to be broken later by someone
+     * tightening validation to "every reference must resolve against
+     * something that exists right now" without noticing app scope is the one
+     * place that rule is wrong.
+     */
+    @Test
+    fun a_save_is_allowed_for_an_app_variable_the_store_has_never_written() = runTest {
+        val repository = InMemoryRuleRepository()
+        val editor = viewModel(repository, variableStore = InMemoryVariableStore())
+        editor.setName("Reads before anything writes")
+        editor.chooseTrigger("screen_state")
+        editor.setTriggerConfigValue(emptyList(), "state", "on")
+        editor.addAction("toast")
+        editor.setConfigValue(Slot.ACTION, 0, "text", "{{app.not_yet_written}}")
+
+        editor.save()
+
+        assertNull("an app-scope reference is never a save error", editor.state.value.error)
+        assertEquals(1, repository.rules().first().size)
+    }
+
+    /**
+     * The same proof [testing_an_action_that_reads_a_variable_uses_its_sample]
+     * gives for trigger scope, for app scope: `VariableStore.scoped()` samples
+     * a variable with its own real value, "unlike a trigger's payload, this
+     * one is known right now" — so a test run reads the value actually in the
+     * store, not a placeholder.
+     */
+    @Test
+    fun testing_an_action_that_reads_an_app_variable_uses_its_stored_value() = runTest {
+        val editor = viewModel(variableStore = InMemoryVariableStore(mapOf("endpoint" to "trip-9")))
+        editor.addAction("open_url")
+        editor.setConfigValue(Slot.ACTION, 0, "url", "{{app.endpoint}}")
+
+        editor.testAction(0)
+
+        val result = editor.state.value.testResult
+        assertNotNull(result)
+        assertTrue("expected the stored value in: $result", result!!.contains("trip-9"))
+        assertTrue("expected a sample-value note in: $result", result.contains("sample value"))
     }
 
     @Test
@@ -1007,6 +1078,7 @@ class RuleEditorViewModelTest {
                 actionFactories = emptyList(),
             ),
             RequirementChecker(context),
+            InMemoryVariableStore(),
             null,
         )
 
@@ -1036,6 +1108,7 @@ class RuleEditorViewModelTest {
                 actionFactories = emptyList(),
             ),
             RequirementChecker(context),
+            InMemoryVariableStore(),
             null,
         )
 

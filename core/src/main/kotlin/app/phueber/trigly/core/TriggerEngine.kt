@@ -16,6 +16,11 @@ import kotlinx.coroutines.withTimeoutOrNull
  * test with fake triggers — see `TriggerEngineTest`. The owning service
  * supplies the [scope]; cancelling that scope stops everything.
  *
+ * @param store the app-scope variable store. Required, not defaulted: a
+ *   default here would mean a production assembly point that forgot to pass
+ *   the real store fails silently, with every `{{app.*}}` reference reading as
+ *   empty rather than the build failing to compile. See `ActionSlot` for where
+ *   this is read.
  * @param onOutcome observation hook for logging and for the UI's run history.
  *   Called once per action per event, on the collecting coroutine. Carries the
  *   action's type, because a rule with three actions produces three outcomes and
@@ -36,6 +41,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  */
 class TriggerEngine(
     private val registry: Registry,
+    private val store: VariableStore,
     private val scope: CoroutineScope,
     private val onOutcome: (
         rule: Rule,
@@ -146,7 +152,7 @@ class TriggerEngine(
             .associateWith(registry::createTrigger)
         // Paired with the spec they were built from, so an outcome can say which
         // action it belongs to. The instance alone does not know its own type.
-        val actions = rule.actions.map { spec -> ActionSlot(spec, registry) }
+        val actions = rule.actions.map { spec -> ActionSlot(spec, registry, store) }
 
         val job = scope.launch {
             leafPaths
@@ -216,8 +222,24 @@ class TriggerEngine(
      * where [onStartFailure] reports it, rather than at the first event where it
      * would read as a failed run. One wasted construction per templated action,
      * once, in exchange for that.
+     *
+     * **The app-scope store is read once per action, immediately before that
+     * action runs, never once for the whole event.** A rule's actions run in
+     * sequence, and one of them can be `set_variable`, writing a value a later
+     * one reads. A snapshot taken once before the first action would show a
+     * later action the value from before the write, and "actions run in
+     * order" is how anybody reads a list of actions. So [fill] fetches only
+     * the store, and only the names this action's own templates reference,
+     * on every call. An action whose templates name no app variable never
+     * touches the store at all: [appVariableNames] is computed once, here,
+     * and an empty set is the fast path that keeps the cost on the rules that
+     * actually use app scope.
      */
-    private class ActionSlot(private val spec: ComponentSpec, private val registry: Registry) {
+    private class ActionSlot(
+        private val spec: ComponentSpec,
+        private val registry: Registry,
+        private val store: VariableStore,
+    ) {
 
         val type: String get() = spec.type
 
@@ -235,6 +257,16 @@ class TriggerEngine(
                 if (template.hasReferences) key to (template to encoding) else null
             }.toMap()
 
+        /**
+         * The app-scope names this action's templates reference, so [fill]
+         * knows without re-parsing on every event whether it needs the store
+         * at all.
+         */
+        private val appVariableNames: Set<String> = templates.values
+            .flatMap { (template, _) -> template.references }
+            .filter { it.scope == VariableScope.APP }
+            .mapTo(mutableSetOf()) { it.name }
+
         private var builtFrom: Map<String, String> = spec.config
 
         private var instance: Action = registry.createAction(spec)
@@ -245,10 +277,22 @@ class TriggerEngine(
             data class Refused(val reason: String) : Filled
         }
 
-        fun fill(rule: Rule, event: TriggerEvent): Filled {
+        suspend fun fill(rule: Rule, event: TriggerEvent): Filled {
             if (templates.isEmpty()) return Filled.Ready(instance)
 
-            val lookup = EventLookup(rule, event)
+            // Only the names this action actually needs, read right now: see
+            // the class KDoc for why "right now" and not "once for the event".
+            val appVariables: Map<String, String> = if (appVariableNames.isEmpty()) {
+                emptyMap()
+            } else {
+                buildMap {
+                    for (name in appVariableNames) {
+                        store.get(name)?.let { put(name, it) }
+                    }
+                }
+            }
+
+            val lookup = EventLookup(rule, event, appVariables = appVariables)
             val resolved = builtFrom.toMutableMap()
             for ((key, form) in templates) {
                 val (template, encoding) = form

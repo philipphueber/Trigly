@@ -38,7 +38,10 @@ import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.NodePath
 import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.Registry
+import app.phueber.trigly.core.ScopedVariable
 import app.phueber.trigly.core.TriggerNode
+import app.phueber.trigly.core.VariableScope
+import app.phueber.trigly.core.VariableSpec
 import app.phueber.trigly.triggers.AlarmManagerScheduler
 import app.phueber.trigly.triggers.triggerFactories
 import org.junit.Assert.assertEquals
@@ -94,6 +97,17 @@ class RuleEditorScreenTest {
         // What a real caller would draw from the saved rules — empty by default,
         // so a test that says nothing about folders still gets a working field.
         existingFolders: List<String> = emptyList(),
+        // What this rule can offer a `{{variable}}` reference — empty by
+        // default, the same reason [ConfigFieldEditor]'s own default is: a
+        // test that says nothing about variables gets a field with no picker
+        // and no preview, same as before this parameter existed.
+        availableVariables: List<ScopedVariable> = emptyList(),
+        // Overridable, unlike the other recorders above, because the one test
+        // that picks a variable needs the inserted reference to actually reach
+        // the field it was inserted into, not merely be recorded — the same
+        // reason [onMoveAction] is overridable and the others are not.
+        onConfigChange: (Slot, Int, String, String?) -> Unit =
+            { slot, _, key, value -> configChanges += Triple(slot, key, value) },
     ) {
         RuleEditorScreen(
             state = state,
@@ -127,7 +141,8 @@ class RuleEditorScreenTest {
             onChangeActionType = { _, _ -> },
             onRemoveAction = {},
             onMoveAction = onMoveAction,
-            onConfigChange = { slot, _, key, value -> configChanges += Triple(slot, key, value) },
+            onConfigChange = onConfigChange,
+            availableVariables = availableVariables,
             onTestAction = { tested += it },
             onSave = { saves++ },
             onDelete = {},
@@ -1369,5 +1384,54 @@ class RuleEditorScreenTest {
         // Down, the last only Up — two of each, never three.
         composeRule.onAllNodesWithContentDescription("Move up").assertCountEquals(2)
         composeRule.onAllNodesWithContentDescription("Move down").assertCountEquals(2)
+    }
+
+    /**
+     * Phase 2's addition to the picker: app scope, offered alongside the trigger
+     * tree's own declarations rather than replacing them. `RuleEditorViewModel`
+     * is what stitches `VariableStore.scoped()` into `availableVariables`; this
+     * screen only draws the list it is handed, so a plain `ScopedVariable`
+     * stands in for the store here.
+     *
+     * A real `remember`ed config, not a recorded intent, because picking a
+     * variable has to be judged by what lands in the field, not merely by
+     * which callback fired — the same reasoning [moving_an_action_down_swaps_its_running_order]
+     * gives for holding its own state.
+     */
+    @Test
+    fun the_picker_offers_a_stored_app_variable_and_inserts_its_reference() {
+        val appVariable = ScopedVariable(
+            VariableScope.APP,
+            VariableSpec(
+                key = "trip_count",
+                label = "trip_count",
+                sample = "3",
+                alwaysPresent = false,
+            ),
+        )
+
+        composeRule.setContent {
+            var config by remember { mutableStateOf(mapOf<String, String>()) }
+            Editor(
+                state = EditorState(
+                    RuleDraft(
+                        id = null,
+                        name = "Uses app scope",
+                        actions = listOf(ComponentDraft("toast", config)),
+                    ),
+                ),
+                availableVariables = listOf(appVariable),
+                onConfigChange = { _, _, key, value ->
+                    config = if (value == null) config - key else config + (key to value)
+                },
+            )
+        }
+
+        composeRule.onNodeWithText("INSERT VARIABLE").performScrollTo().performClick()
+        composeRule.onNodeWithText("SAVED, AND SHARED WITH EVERY RULE").assertIsDisplayed()
+
+        composeRule.onNodeWithText("trip_count").performClick()
+
+        composeRule.onNodeWithText("{{app.trip_count}}").assertIsDisplayed()
     }
 }

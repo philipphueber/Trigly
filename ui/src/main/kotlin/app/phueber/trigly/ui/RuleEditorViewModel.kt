@@ -17,9 +17,11 @@ import app.phueber.trigly.core.ScopedVariable
 import app.phueber.trigly.core.Substituted
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerNode
+import app.phueber.trigly.core.VariableStore
 import app.phueber.trigly.core.canStart
 import app.phueber.trigly.core.leaves
 import app.phueber.trigly.core.parseTemplate
+import app.phueber.trigly.core.scoped
 import app.phueber.trigly.core.substitute
 import app.phueber.trigly.core.variableProblems
 import kotlinx.coroutines.Job
@@ -50,12 +52,28 @@ data class EditorState(
     val testing: Int? = null,
     /** What the last test run reported. Replaced by the next one. */
     val testResult: String? = null,
+    /**
+     * App scope, as of the store's last emission. See
+     * [RuleEditorViewModel.availableVariables] for why this lives in the
+     * state rather than being read from the store on every access: the store
+     * hands out a `Flow`, and this is where that flow is collected into
+     * something a plain getter can read.
+     *
+     * Carried forward by [RuleEditorViewModel.load] across a reset, rather
+     * than defaulting to empty here, because [load] replaces the whole state
+     * for a reason that has nothing to do with app scope: opening a
+     * different rule, or throwing an unsaved draft away. Losing what the
+     * store already reported would make the picker forget every app
+     * variable until the store happened to emit again.
+     */
+    val appVariables: List<ScopedVariable> = emptyList(),
 )
 
 class RuleEditorViewModel(
     private val repository: RuleRepository,
     private val registry: Registry,
     val checker: RequirementChecker,
+    private val variableStore: VariableStore,
     private val ruleId: String?,
 ) : ViewModel() {
 
@@ -87,20 +105,41 @@ class RuleEditorViewModel(
         get() = registry.actionDescriptors.filter(checker::isAvailable)
 
     /**
-     * What this draft's trigger tree, as currently built, lets an action read.
+     * What this draft's trigger tree, as currently built, lets an action read,
+     * plus whatever app scope currently holds.
      *
-     * Recomputed from the live draft rather than cached, so it tracks a trigger
-     * swap or a second leaf being added while the editor is open. Empty groups
-     * are ignored the same way [triggerOptionsFor] ignores them. A group the
-     * person has not filled in yet offers nothing to read, but it should not
-     * make the variables the *other* leaves already offer disappear from the
-     * picker while it sits there unfinished.
+     * The trigger half is recomputed from the live draft rather than cached, so
+     * it tracks a trigger swap or a second leaf being added while the editor is
+     * open. Empty groups are ignored the same way [triggerOptionsFor] ignores
+     * them. A group the person has not filled in yet offers nothing to read,
+     * but it should not make the variables the *other* leaves already offer
+     * disappear from the picker while it sits there unfinished.
+     *
+     * The app half is [EditorState.appVariables], already collected into state
+     * because [VariableStore.scoped] hands out a `Flow` and this is a plain
+     * getter. [VariableStore.scoped] marks every entry as sometimes-absent,
+     * which is honest: a variable exists only once some rule has written it,
+     * and a rule that reads one before that rule has run is the ordinary case,
+     * not an edge case. See `docs/variables.md` section 12.
      */
     val availableVariables: List<ScopedVariable>
-        get() = registry.availableVariables(_state.value.draft.trigger?.toNodeIgnoringEmptyGroups())
+        get() {
+            val state = _state.value
+            return registry.availableVariables(state.draft.trigger?.toNodeIgnoringEmptyGroups()) +
+                state.appVariables
+        }
 
     init {
         load()
+        // App scope is collected once, for the life of this ViewModel, rather
+        // than re-subscribed by [load]: opening a different rule or discarding
+        // a draft has nothing to do with what the store holds, and [load]
+        // carries the last emission forward for exactly that reason.
+        viewModelScope.launch {
+            variableStore.scoped().collect { scoped ->
+                _state.update { it.copy(appVariables = scoped) }
+            }
+        }
     }
 
     /**
@@ -108,7 +147,7 @@ class RuleEditorViewModel(
      * stored rule for an existing one.
      */
     private fun load() {
-        _state.value = EditorState(RuleDraft(id = ruleId))
+        _state.update { EditorState(RuleDraft(id = ruleId), appVariables = it.appVariables) }
 
         if (ruleId == null) return
         viewModelScope.launch {
@@ -121,7 +160,9 @@ class RuleEditorViewModel(
                 // a `shownWhen` condition can only read a stored value; without
                 // this the editor hides the filter that is deciding every match.
                 // See `ComponentFactory.normalise`.
-                _state.value = EditorState(registry.normalise(rule).toDraft())
+                _state.update {
+                    EditorState(registry.normalise(rule).toDraft(), appVariables = it.appVariables)
+                }
             }
         }
     }
@@ -472,8 +513,11 @@ class RuleEditorViewModel(
         // is reported as the test result rather than run with a hole in it. That
         // is the same "refuse rather than run wrong" rule `Template.substitute`
         // states for the engine itself.
-        val draftTrigger = _state.value.draft.trigger?.toNodeIgnoringEmptyGroups()
-        val lookup = SampleLookup(registry.availableVariables(draftTrigger))
+        // Includes app scope, the same as [availableVariables]: a test run
+        // that could not resolve `{{app.something}}` because this list forgot
+        // app scope would be the sample path silently narrower than the save
+        // path it is supposed to stand in for.
+        val lookup = SampleLookup(availableVariables)
         val resolvedConfig = spec.config.toMutableMap()
         var readsAVariable = false
         for ((key, encoding) in registry.substitutionsFor(spec)) {
@@ -651,9 +695,12 @@ class RuleEditorViewModel(
             repository: RuleRepository,
             registry: Registry,
             checker: RequirementChecker,
+            variableStore: VariableStore,
             ruleId: String?,
         ) = viewModelFactory {
-            initializer { RuleEditorViewModel(repository, registry, checker, ruleId) }
+            initializer {
+                RuleEditorViewModel(repository, registry, checker, variableStore, ruleId)
+            }
         }
     }
 }
