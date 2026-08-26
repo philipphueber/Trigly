@@ -4,6 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asFlow
@@ -206,6 +207,59 @@ class TriggerEngineTest {
             // so nothing is reported until every try has missed.
             advanceTimeBy(UNREADABLE_RETRIES * UNREADABLE_RETRY_DELAY_MILLIS + 1)
 
+            assertEquals(listOf(listOf(UNREADABLE_TYPE)), suppressed)
+
+            engine.stop()
+        }
+
+    /**
+     * A read that is slow rather than absent still ends inside the budget.
+     *
+     * The bound this pins is the whole evaluation, reads included. Before it,
+     * the waits between tries were bounded and the reads were not, so a leaf
+     * with a slow read could hold a rule for four times what the schedule
+     * suggested. The `location` component allows one position read fifteen
+     * seconds, which is what made that reachable rather than theoretical.
+     */
+    @Test
+    fun `a leaf whose read never finishes is given up on inside the budget`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val action = RecordingAction()
+            val suppressed = mutableListOf<List<String>>()
+            val engine = TriggerEngine(
+                registry = Registry(
+                    triggerFactories = listOf(
+                        FakeTriggerFactory(TRIGGER_TYPE, listOf(event(1L))),
+                        // Far longer than the budget, so it can only be cut off.
+                        SlowTriggerFactory(readMillis = UNREADABLE_TOTAL_BUDGET_MILLIS * 10),
+                    ),
+                    actionFactories = listOf(SingleActionFactory(ACTION_TYPE, action)),
+                ),
+                scope = this,
+                onSuppressed = { _, _, unreadable -> suppressed += unreadable.map { it.type } },
+            )
+
+            engine.startRule(
+                Rule(
+                    id = "rule-1",
+                    name = "slow condition",
+                    trigger = TriggerNode.Group(
+                        TriggerNode.Op.ALL,
+                        listOf(
+                            TriggerNode.One(ComponentSpec(TRIGGER_TYPE)),
+                            TriggerNode.One(ComponentSpec(UNREADABLE_TYPE)),
+                        ),
+                    ),
+                    actions = listOf(ComponentSpec(ACTION_TYPE)),
+                ),
+            )
+
+            advanceTimeBy(UNREADABLE_TOTAL_BUDGET_MILLIS + 1)
+
+            assertTrue("no action may run on a state nobody read", action.seen.isEmpty())
+            // Named, not merely counted. A read cancelled while it is still
+            // running never returns to report itself, so the reader has to mark
+            // the leaf before it asks.
             assertEquals(listOf(listOf(UNREADABLE_TYPE)), suppressed)
 
             engine.stop()
@@ -480,6 +534,32 @@ private const val UNREADABLE_TYPE = "cannot-answer"
  * notification condition with no bound listener. `false` is the same component
  * simply saying no, which is the control the second test needs.
  */
+/**
+ * A leaf whose read takes [readMillis] and then answers.
+ *
+ * The other way to fail, and the one a list of misses cannot express. Every
+ * other fake here answers instantly or not at all, so none of them can run the
+ * evaluation's budget out. This one can, which is the case
+ * [UNREADABLE_TOTAL_BUDGET_MILLIS] exists for: a read cancelled by the budget
+ * never returns to say it failed.
+ */
+private class SlowTriggerFactory(
+    private val readMillis: Long,
+    private val answer: Boolean = true,
+) : TriggerFactory {
+    override val type: String = UNREADABLE_TYPE
+    override val supportsCondition = true
+    override val producesEvents = false
+
+    override fun create(config: Map<String, String>): Trigger = object : Trigger {
+        override fun events(): Flow<TriggerEvent> = emptyFlow()
+        override suspend fun currentlyHolds(): Boolean {
+            delay(readMillis)
+            return answer
+        }
+    }
+}
+
 private class UnreadableTriggerFactory(private val answer: Boolean? = null) : TriggerFactory {
     override val type: String = UNREADABLE_TYPE
     override val supportsCondition = true

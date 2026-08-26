@@ -56,6 +56,12 @@ identifiers stay because T4, T8, T11 and R1 point at them.
   never checked. On a device whose manufacturer is aggressive about idle apps,
   that is the difference between an engine that survives the night and one that
   does not, and when it is killed every diagnostic dies with it.
+- **T13 Bound the whole retry.** One budget of twenty seconds now covers the
+  reads and the waits together, chosen above the longest legitimate single read
+  so it cannot cut off a position read that was going to answer. A read the
+  budget cancels is reported as a component that could not answer, which needed
+  `StateReader` to mark a leaf before asking it: a cancelled read never returns
+  to report itself.
 - **T5 Requirement liveness, as its own axis.** `Liveness` has three states, so
   "nobody has asked yet" cannot collapse into "dead", and the probe is an
   injected port that keeps `:core` away from `:triggers`. The rules list shows
@@ -132,24 +138,6 @@ it decides whether this is possible at all.
 without the user opening the app, on two devices or API levels. Until then, the
 README limit about a wait says that it survives sleep and not a stop, which is
 the honest version of the claim.
-
-### T13 Bound the whole retry, not the gaps in it
-
-**Evidence.** T3's `resolveHolds` bounds the waits between tries at two seconds
-each and says in its own KDoc that the trade favours giving up past a few
-seconds. It does not bound the reads. `location_check` has a 15 second read
-budget of its own, so an area check that never answers costs four reads plus six
-seconds of waiting, which is about a minute, and the rule's collector is blocked
-for all of it. The code and its stated intent disagree.
-
-**Do.** Bound the total time `resolveHolds` may spend, reads included, and
-report the give-up when that budget is spent whichever way it ran out. A read
-cancelled by the budget is a read that did not answer, which is the outcome the
-retry already has a name for.
-
-**Done when.** A leaf whose read takes longer than the budget reports the
-give-up inside the budget, and a `TriggerEngineTest` case pins the total rather
-than the number of tries.
 
 ### T14 Decide whether a wait must survive deep Doze
 

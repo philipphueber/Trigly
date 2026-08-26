@@ -7,6 +7,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Runs enabled [Rule]s: collects each rule's trigger and executes its actions.
@@ -203,12 +204,27 @@ class TriggerEngine(
      * [TriggerNode.holds] and [StateReader.read].
      *
      * **The schedule: up to [UNREADABLE_RETRIES] extra tries, [UNREADABLE_RETRY_DELAY_MILLIS]
-     * apart.** Four reads in total, spread over six seconds at most. A leaf that
+     * apart, inside [UNREADABLE_TOTAL_BUDGET_MILLIS] altogether.** A leaf that
      * answers on any of them is treated exactly like one that answered on the
      * first: the rule fires and nothing is reported, because a component that
      * missed once and then answered is the rule working, not a fault.
      *
-     * **Why six seconds and not longer.** A rule's actions are unattended, and
+     * **The budget counts the reads, not only the gaps between them.** An
+     * earlier version bounded the waiting and left the reading unbounded, which
+     * is not a bound at all: a leaf whose own read is slow can spend far longer
+     * than the schedule suggests, and the position read in the `location`
+     * component is allowed fifteen seconds by itself. Four of those plus the
+     * gaps is about a minute, with the rule's collector held for all of it,
+     * while this KDoc claimed six seconds. So the whole resolve now runs inside
+     * one budget and a read cancelled by it is reported as a leaf that did not
+     * answer, which is the outcome that already has a name here.
+     *
+     * [UNREADABLE_TOTAL_BUDGET_MILLIS] is set above the longest legitimate
+     * single read in the project rather than below it. A budget under fifteen
+     * seconds would cut off a position read that was going to succeed, and
+     * turning a slow answer into no answer is not what this is for.
+     *
+     * **Why seconds and not longer.** A rule's actions are unattended, and
      * firing them late can be worse than not firing them at all: a door that
      * has since been closed again does not want an "unlock" action arriving a
      * minute after the event that asked for it. The retry exists to ride out a
@@ -246,17 +262,21 @@ class TriggerEngine(
         firedPath: NodePath,
         triggersBySpec: Map<ComponentSpec, Trigger>,
     ): ResolvedHolds {
-        var reader = StateReader(triggersBySpec)
-        var held = triggerHolds(trigger, firedPath, reader)
+        val reader = StateReader(triggersBySpec)
 
-        var retries = 0
-        while (!held && reader.unreadable.isNotEmpty() && retries < UNREADABLE_RETRIES) {
-            delay(UNREADABLE_RETRY_DELAY_MILLIS)
-            reader = StateReader(triggersBySpec)
-            held = triggerHolds(trigger, firedPath, reader)
-            retries++
-        }
-        return ResolvedHolds(held, reader.unreadable.toList())
+        val held = withTimeoutOrNull(UNREADABLE_TOTAL_BUDGET_MILLIS) {
+            var holds = triggerHolds(trigger, firedPath, reader)
+
+            var retries = 0
+            while (!holds && reader.unreadable.isNotEmpty() && retries < UNREADABLE_RETRIES) {
+                delay(UNREADABLE_RETRY_DELAY_MILLIS)
+                holds = triggerHolds(trigger, firedPath, reader)
+                retries++
+            }
+            holds
+        } ?: false
+
+        return ResolvedHolds(held, reader.unreadable)
     }
 
     /**
@@ -275,7 +295,23 @@ class TriggerEngine(
      */
     private class StateReader(private val triggersBySpec: Map<ComponentSpec, Trigger>) {
 
-        val unreadable = mutableListOf<ComponentSpec>()
+        /**
+         * The latest answer from each leaf this evaluation has asked, where a
+         * null value means "asked, and did not answer".
+         *
+         * A map rather than a list of failures, and one reader for the whole
+         * resolve rather than one per try, because of two cases a list of
+         * failures cannot express. A leaf that could not answer on one try and
+         * answered on the next must stop counting as unreadable, which an
+         * append-only list cannot undo. And a read still in flight when the
+         * budget expires never returns at all: [read] marks the leaf before it
+         * asks, so a cancelled read leaves the mark behind and is reported as
+         * what it is, a leaf that did not answer.
+         */
+        private val answers = mutableMapOf<ComponentSpec, Boolean?>()
+
+        val unreadable: List<ComponentSpec>
+            get() = answers.filterValues { it == null }.keys.toList()
 
         /**
          * A state read that throws is treated as unknown rather than as a
@@ -291,6 +327,11 @@ class TriggerEngine(
          * silent third meaning of null.
          */
         suspend fun read(spec: ComponentSpec): Boolean? {
+            // Marked before the read, not after it. A read cancelled by the
+            // budget throws from inside `currentlyHolds` and never comes back
+            // here, so a mark written afterwards would be lost and the leaf
+            // that ran the clock out would go unnamed.
+            answers[spec] = null
             val answer = try {
                 triggersBySpec[spec]?.currentlyHolds()
             } catch (cancellation: CancellationException) {
@@ -298,7 +339,7 @@ class TriggerEngine(
             } catch (t: Throwable) {
                 null
             }
-            if (answer == null) unreadable += spec
+            answers[spec] = answer
             return answer
         }
     }
@@ -357,3 +398,15 @@ internal const val UNREADABLE_RETRIES = 3
  * a stale event. See [TriggerEngine.resolveHolds] for the full reasoning.
  */
 internal const val UNREADABLE_RETRY_DELAY_MILLIS = 2_000L
+
+/**
+ * The ceiling on one whole evaluation in [TriggerEngine.resolveHolds], the
+ * reads included and not only the waits between them.
+ *
+ * Twenty seconds, which is above the fifteen the `location` component allows
+ * one position read and below the minute that four such reads plus the gaps
+ * would otherwise take. The rule's collector is held for this long in the worst
+ * case, so it bounds how late one event can make a rule, and it is deliberately
+ * not tight enough to interrupt a slow read that was going to answer.
+ */
+internal const val UNREADABLE_TOTAL_BUDGET_MILLIS = 20_000L

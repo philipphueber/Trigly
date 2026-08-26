@@ -298,6 +298,15 @@ the rule list says so. A component answering a clean "no" is not reported: that
 is the rule working. See "The third case" in `architecture.md`, and "The fourth
 case" beside it for the rule that was never built at all.
 
+**The retry has one budget, and it counts the reads.** An earlier version of it
+bounded the waits between tries and left the reads unbounded, which is not a
+bound: this component is allowed fifteen seconds for one position read, and four
+of those plus the gaps is about a minute with the rule's collector held for all
+of it. The whole evaluation now runs inside twenty seconds, chosen above the
+longest legitimate single read rather than below it, so the budget never cuts
+off a read that was going to answer. A read the budget does cancel is reported
+as a component that could not answer, which it is.
+
 **Then the report showed that permission was only half of it.** With the grant
 in place and the row gone, a rule still said "Trigly could not read Is in an
 area". The read asked one provider: the first of `[GPS, NETWORK]` that was
