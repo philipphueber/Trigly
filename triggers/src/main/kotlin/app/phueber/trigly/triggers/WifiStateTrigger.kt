@@ -5,6 +5,8 @@ import android.content.Intent
 import android.net.wifi.WifiManager
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.core.VariableKind
+import app.phueber.trigly.core.VariableSpec
 
 /**
  * Fires when the Wi-Fi radio is enabled or disabled.
@@ -77,6 +79,16 @@ class WifiStateTriggerFactory(private val context: Context) : TriggerFactory {
     )
 
     override val supportsCondition = true
+
+    override val variables = listOf(
+        VariableSpec(
+            key = WifiStateTrigger.PAYLOAD_STATE,
+            label = "State",
+            kind = VariableKind.STATE,
+            sample = WifiStateTrigger.ENABLED,
+            help = "One of '${WifiStateTrigger.ENABLED}' or '${WifiStateTrigger.DISABLED}'.",
+        ),
+    )
 
     override fun create(config: Map<String, String>): Trigger = WifiStateTrigger(
         context = context,

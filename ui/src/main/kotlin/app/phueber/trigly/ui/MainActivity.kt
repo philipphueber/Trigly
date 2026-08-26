@@ -383,6 +383,15 @@ class MainActivity : ComponentActivity() {
             toolsFor = { type, config ->
                 container.registry.toolsFor(ComponentSpec(type, config))
             },
+            // What this rule's trigger tree lets an action read, and how each
+            // component's fields are escaped as configured right now. See
+            // `docs/variables.md`. `editor.availableVariables` reads the live
+            // draft, so it is recomputed on every recomposition `state`
+            // triggers, the same as `state` itself.
+            availableVariables = editor.availableVariables,
+            substitutionsFor = { type, config ->
+                container.registry.substitutionsFor(ComponentSpec(type, config))
+            },
             // The inspector opens over the editor instead of navigating to it, so
             // consulting what a notification actually contains cannot cost a
             // half-written rule. Read through lambdas rather than passed as a

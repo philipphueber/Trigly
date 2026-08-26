@@ -9,6 +9,7 @@ import app.phueber.trigly.core.Action
 import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.Substitution
 import app.phueber.trigly.core.TriggerEvent
 
 /**
@@ -56,8 +57,18 @@ class ComposeEmailActionFactory(private val context: Context) : ActionFactory {
     override val category = ActionCategory.HAND_OFF
 
     override val configFields = listOf(
-        ConfigField.Text(ComposeEmailAction.CONFIG_TO, "To", required = true),
-        ConfigField.Text(ComposeEmailAction.CONFIG_SUBJECT, "Subject"),
+        ConfigField.Text(
+            key = ComposeEmailAction.CONFIG_TO,
+            label = "To",
+            required = true,
+            help = RECIPIENT_SUBSTITUTION_HELP,
+            substitution = Substitution.TEXT,
+        ),
+        ConfigField.Text(
+            key = ComposeEmailAction.CONFIG_SUBJECT,
+            label = "Subject",
+            substitution = Substitution.TEXT,
+        ),
         messageText(ComposeEmailAction.CONFIG_BODY, "Body", required = false),
     )
 
@@ -104,7 +115,13 @@ class ComposeSmsActionFactory(private val context: Context) : ActionFactory {
     override val category = ActionCategory.HAND_OFF
 
     override val configFields = listOf(
-        ConfigField.Text(ComposeSmsAction.CONFIG_TO, "To", required = true),
+        ConfigField.Text(
+            key = ComposeSmsAction.CONFIG_TO,
+            label = "To",
+            required = true,
+            help = RECIPIENT_SUBSTITUTION_HELP,
+            substitution = Substitution.TEXT,
+        ),
         messageText(ComposeSmsAction.CONFIG_BODY, "Message", required = false),
     )
 
@@ -168,7 +185,11 @@ class SetAlarmActionFactory(private val context: Context) : ActionFactory {
             required = true,
             minuteKey = SetAlarmAction.CONFIG_MINUTE,
         ),
-        ConfigField.Text(SetAlarmAction.CONFIG_LABEL, "Label"),
+        ConfigField.Text(
+            key = SetAlarmAction.CONFIG_LABEL,
+            label = "Label",
+            substitution = Substitution.TEXT,
+        ),
     )
 
     override val requirements = ACTIVITY_START_REQUIREMENTS
@@ -230,7 +251,12 @@ class AddCalendarEventActionFactory(private val context: Context) : ActionFactor
     override val category = ActionCategory.HAND_OFF
 
     override val configFields = listOf(
-        ConfigField.Text(AddCalendarEventAction.CONFIG_TITLE, "Title", required = true),
+        ConfigField.Text(
+            key = AddCalendarEventAction.CONFIG_TITLE,
+            label = "Title",
+            required = true,
+            substitution = Substitution.TEXT,
+        ),
         ConfigField.Timestamp(
             key = AddCalendarEventAction.CONFIG_BEGIN_MILLIS,
             label = "Starts at",

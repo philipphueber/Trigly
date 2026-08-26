@@ -17,12 +17,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.ScopedVariable
+import app.phueber.trigly.core.SampleLookup
+import app.phueber.trigly.core.Substituted
+import app.phueber.trigly.core.Substitution
 import app.phueber.trigly.core.TextMatchMode
+import app.phueber.trigly.core.parseTemplate
 import app.phueber.trigly.core.regexErrorOrNull
+import app.phueber.trigly.core.substitute
 
 /**
  * Renders one declared [ConfigField] and reports edits back out.
@@ -56,18 +64,41 @@ fun ConfigFieldEditor(
      */
     companions: Map<String, String?> = emptyMap(),
     onCompanionChange: (key: String, value: String?) -> Unit = { _, _ -> },
+    /**
+     * What this rule can offer a `{{variable}}` reference. See
+     * `docs/variables.md` section 12. Read only by [ConfigField.Text], and only
+     * once its own [ConfigField.Text.substitution] says it accepts one at all;
+     * every other kind ignores this.
+     *
+     * Defaulted to empty, the same reason [companions] is: a caller that has no
+     * variables to offer, or predates this feature, draws exactly what it always
+     * has, with no picker and no preview.
+     */
+    availableVariables: List<ScopedVariable> = emptyList(),
+    /**
+     * How a substituted value is escaped for the preview shown under the field.
+     *
+     * This is *not* [ConfigField.substitution] restated: the declaration says
+     * whether a field accepts a reference at all, which is what decides whether
+     * a picker is drawn. This is the engine's own answer for the field as it is
+     * *configured right now*: `ComponentFactory.substitutionsFor`. That matters
+     * because `http_request`'s body escapes differently once its content type is JSON,
+     * and a preview using the declared encoding instead would show the wrong
+     * thing for exactly the field this whole feature most needs to get right.
+     * Defaults to the declaration, for a caller that has not looked this up.
+     */
+    previewEncoding: Substitution = field.substitution,
 ) {
     Column(modifier = modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         when (field) {
             is ConfigField.Choice -> ChoiceField(field, value, onValueChange)
             is ConfigField.Flag -> FlagField(field, value, onValueChange)
 
-            is ConfigField.Text -> TextField(
-                label = fieldLabel(field.label, field.required),
+            is ConfigField.Text -> SubstitutableTextField(
+                field = field,
                 value = value,
-                placeholder = field.placeholder,
-                keyboard = KeyboardType.Text,
-                multiline = field.multiline,
+                availableVariables = availableVariables,
+                previewEncoding = previewEncoding,
                 onValueChange = onValueChange,
             )
 
@@ -329,6 +360,132 @@ private fun TextField(
         keyboardOptions = KeyboardOptions(keyboardType = keyboard),
         modifier = Modifier.fillMaxWidth(),
     )
+}
+
+/**
+ * A [ConfigField.Text], with the picker and the preview `docs/variables.md`
+ * section 12 asks for, drawn only when the field's own declaration accepts a
+ * reference at all.
+ *
+ * A separate composable from the plain [TextField] above rather than a branch
+ * inside it, because a field that does not accept a variable has no use for
+ * either the cursor tracking below or [availableVariables], and should draw
+ * exactly what it always has.
+ *
+ * The box itself keeps the same shape [TextField] draws, label floated inside
+ * it and all: that is what a component's existing screen tests already find
+ * by that label text and type into. "Insert variable" and the preview sit
+ * underneath, alongside where the blank-meaning hint already lands, rather
+ * than disturbing the box a field's tests already know.
+ */
+@Composable
+private fun SubstitutableTextField(
+    field: ConfigField.Text,
+    value: String?,
+    availableVariables: List<ScopedVariable>,
+    previewEncoding: Substitution,
+    onValueChange: (String?) -> Unit,
+) {
+    val acceptsVariables = field.substitution != Substitution.NONE
+
+    // Tracked locally so a picked reference is inserted at the cursor rather
+    // than always appended. [value] stays the source of truth for the config;
+    // this only remembers where in it the cursor was.
+    var fieldValue by remember(field.key) { mutableStateOf(TextFieldValue(value.orEmpty())) }
+    if (fieldValue.text != value.orEmpty()) {
+        // The text moved for a reason other than typing here: this rule just
+        // loaded, or a fresh component was chosen for this block. There is no
+        // cursor from before worth keeping in that case.
+        fieldValue = TextFieldValue(value.orEmpty())
+    }
+
+    var picking by remember(field.key) { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            value = fieldValue,
+            onValueChange = {
+                fieldValue = it
+                // Empty is reported as null, the same convention the plain
+                // [TextField] above follows, so the key is dropped rather than
+                // stored as "".
+                onValueChange(it.text.ifEmpty { null })
+            },
+            label = {
+                Text(
+                    text = fieldLabel(field.label, field.required),
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            },
+            placeholder = field.placeholder?.let { { Text(it) } },
+            singleLine = !field.multiline,
+            minLines = if (field.multiline) 2 else 1,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        if (acceptsVariables) {
+            BlockTextButton("Insert variable", modifier = Modifier.padding(top = 4.dp)) {
+                picking = true
+            }
+            VariablePreview(
+                value = fieldValue.text,
+                available = availableVariables,
+                encoding = previewEncoding,
+            )
+        }
+    }
+
+    if (picking) {
+        VariablePickerDialog(
+            available = availableVariables,
+            onPick = { picked ->
+                val insertion = picked.reference
+                val selection = fieldValue.selection
+                val newText =
+                    fieldValue.text.replaceRange(selection.start, selection.end, insertion)
+                fieldValue = TextFieldValue(newText, TextRange(selection.start + insertion.length))
+                onValueChange(newText.ifEmpty { null })
+                picking = false
+            },
+            onDismiss = { picking = false },
+        )
+    }
+}
+
+/**
+ * The field's own value with every reference resolved against a sample, or the
+ * reason it could not be. Shown only once the value names a reference at all:
+ * a plain string has nothing to preview.
+ *
+ * Marked plainly as a sample, never as the value itself. `docs/variables.md`
+ * section 2 names the failure this exists to close: a preview that looked like
+ * real data would teach the wrong lesson about what the field actually sends.
+ */
+@Composable
+private fun VariablePreview(
+    value: String,
+    available: List<ScopedVariable>,
+    encoding: Substitution,
+) {
+    val template = parseTemplate(value)
+    if (!template.hasReferences) return
+
+    when (val resolved = template.substitute(SampleLookup(available), encoding)) {
+        is Substituted.Ok -> Text(
+            text = "Sample: ${resolved.value}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+
+        is Substituted.Failed -> Text(
+            text = resolved.reason,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
 }
 
 @Composable

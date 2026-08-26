@@ -30,6 +30,11 @@ data class ComponentDescriptor(
     val supportsCondition: Boolean = false,
     /** Whether this component can start a rule at all — see `TriggerFactory.producesEvents`. */
     val producesEvents: Boolean = true,
+    /**
+     * What this component's events carry, for a rule's actions to read — see
+     * [VariableSpec]. Empty for every action today.
+     */
+    val variables: List<VariableSpec> = emptyList(),
 )
 
 private fun ComponentFactory.describe() = ComponentDescriptor(
@@ -41,6 +46,7 @@ private fun ComponentFactory.describe() = ComponentDescriptor(
     supportsCondition = this is TriggerFactory && supportsCondition,
     producesEvents = this !is TriggerFactory || producesEvents,
     warning = warning,
+    variables = variables,
 )
 
 /**
@@ -106,6 +112,37 @@ class Registry(
      * and [TriggerNode.canHold]'s `hasState` parameter.
      */
     fun supportsCondition(type: String): Boolean = triggers[type]?.supportsCondition ?: false
+
+    /**
+     * What a component type's events carry — see [VariableSpec].
+     *
+     * By type string rather than by descriptor, because both callers have only
+     * that: [availableVariables] walks a trigger tree of stored specs, and the
+     * editor validates a draft. An unknown type answers empty rather than
+     * throwing, for the reason [triggerRequirements] does: this is asked about a
+     * type before anything has validated it.
+     */
+    fun variablesOf(type: String): List<VariableSpec> =
+        (triggers[type] ?: actions[type])?.variables.orEmpty()
+
+    /**
+     * Every variable a rule with this trigger tree can read. See
+     * [app.phueber.trigly.core.availableVariables], which this only supplies the
+     * declarations to.
+     */
+    fun availableVariables(trigger: TriggerNode?): List<ScopedVariable> =
+        availableVariables(trigger, ::variablesOf)
+
+    /**
+     * Which of this component's config keys accept a variable, and how each is
+     * escaped — see [ComponentFactory.substitutionsFor].
+     *
+     * Asked per spec rather than per type because the answer can depend on the
+     * configuration. An unknown type answers empty, which means the engine
+     * substitutes nothing into a component it cannot resolve anyway.
+     */
+    fun substitutionsFor(spec: ComponentSpec): Map<String, Substitution> =
+        (triggers[spec.type] ?: actions[spec.type])?.substitutionsFor(spec.config).orEmpty()
 
     /**
      * Display name for a stored type string, falling back to the raw type so a

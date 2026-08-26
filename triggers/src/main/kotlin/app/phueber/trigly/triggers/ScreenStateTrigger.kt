@@ -5,6 +5,8 @@ import android.content.Intent
 import android.os.PowerManager
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.core.VariableKind
+import app.phueber.trigly.core.VariableSpec
 
 /**
  * Fires when the screen turns on or off.
@@ -76,4 +78,14 @@ class ScreenStateTriggerFactory(private val context: Context) : TriggerFactory {
     )
 
     override val supportsCondition = true
+
+    override val variables = listOf(
+        VariableSpec(
+            key = ScreenStateTrigger.PAYLOAD_STATE,
+            label = "State",
+            kind = VariableKind.STATE,
+            sample = ScreenStateTrigger.ON,
+            help = "One of '${ScreenStateTrigger.ON}' or '${ScreenStateTrigger.OFF}'.",
+        ),
+    )
 }

@@ -11,6 +11,7 @@ import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.companionKeys
 import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.SpecialAccessKind
+import app.phueber.trigly.core.Substitution
 import app.phueber.trigly.core.TriggerFactory
 import app.phueber.trigly.triggers.AlarmManagerScheduler
 import app.phueber.trigly.triggers.triggerFactories
@@ -124,6 +125,62 @@ class ConfigSchemaContractTest {
         }
 
         assertTrue("duplicate config keys: $offenders", offenders.isEmpty())
+    }
+
+    /**
+     * Guards the picker's own contract, per `docs/variables.md` section 4: a
+     * blank label or sample is not caught by any factory's own `create()`, since
+     * a [app.phueber.trigly.core.VariableSpec] never reaches one. It is read
+     * only by the editor, so this test is the only place that would ever notice.
+     */
+    @Test
+    fun every_variable_spec_has_a_key_a_label_and_a_sample() {
+        val offenders = mutableListOf<String>()
+        factories.forEach { factory ->
+            factory.variables.forEach { spec ->
+                val prefix = "${factory.type}.${spec.key}"
+                if (spec.key.isBlank()) offenders += "${factory.type} declares a blank variable key"
+                if (spec.label.isBlank()) offenders += "$prefix has a blank label"
+                if (spec.sample.isBlank()) offenders += "$prefix has a blank sample"
+            }
+        }
+        assertTrue(offenders.joinToString("; "), offenders.isEmpty())
+    }
+
+    @Test
+    fun no_factory_declares_the_same_variable_key_twice() {
+        val offenders = factories.mapNotNull { factory ->
+            val duplicates = factory.variables
+                .groupingBy { it.key }
+                .eachCount()
+                .filterValues { it > 1 }
+                .keys
+            if (duplicates.isEmpty()) null else "${factory.type}: $duplicates"
+        }
+
+        assertTrue("duplicate variable keys: $offenders", offenders.isEmpty())
+    }
+
+    /**
+     * The editor draws a variable picker only on [ConfigField.Text]. See
+     * `ConfigFieldEditor`'s `SubstitutableTextField`. A number, a duration, a
+     * choice or any other kind declaring a [Substitution] would be a capability
+     * the engine can act on and the editor can never reach, which is exactly
+     * the silent gap this contract test exists to catch. Binding a typed field
+     * to a variable is a different mechanism: `docs/variables.md` section
+     * 6, P7. It is not built yet.
+     */
+    @Test
+    fun a_substitutable_field_is_always_a_text_field() {
+        val offenders = factories.flatMap { factory ->
+            factory.configFields
+                .filter { it.substitution != Substitution.NONE && it !is ConfigField.Text }
+                .map { "${factory.type}.${it.key}" }
+        }
+        assertTrue(
+            "these declare a substitution but are not a text field: $offenders",
+            offenders.isEmpty(),
+        )
     }
 
     @Test

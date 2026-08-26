@@ -13,6 +13,8 @@ import app.phueber.trigly.core.TextFilter
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.core.VariableKind
+import app.phueber.trigly.core.VariableSpec
 import app.phueber.trigly.triggers.parseTarget
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -158,6 +160,33 @@ class UiClickTriggerFactory : TriggerFactory {
     )
     override val requirements = ACCESSIBILITY_ACCESS
 
+    // UiEventTrigger owns PAYLOAD_PACKAGE/PAYLOAD_TEXT/PAYLOAD_CLASS: it is the
+    // shared body both accessibility triggers build their event from.
+    override val variables = listOf(
+        VariableSpec(
+            key = UiEventTrigger.PAYLOAD_PACKAGE,
+            label = "Package",
+            kind = VariableKind.PACKAGE,
+            sample = "com.example.app",
+            alwaysPresent = false,
+        ),
+        VariableSpec(
+            key = UiEventTrigger.PAYLOAD_TEXT,
+            label = "Text",
+            kind = VariableKind.TEXT,
+            sample = "Send",
+            alwaysPresent = false,
+        ),
+        VariableSpec(
+            key = UiEventTrigger.PAYLOAD_CLASS,
+            label = "Class",
+            kind = VariableKind.TEXT,
+            sample = "android.widget.Button",
+            help = "The Android view class of the tapped item.",
+            alwaysPresent = false,
+        ),
+    )
+
     override fun create(config: Map<String, String>): Trigger = UiEventTrigger(
         type = UiClickTrigger.TYPE,
         eventType = AccessibilityEvent.TYPE_VIEW_CLICKED,
@@ -204,6 +233,33 @@ class ScreenContentTriggerFactory : TriggerFactory {
         "This is the noisiest trigger in the app. A progress bar that changes " +
             "can produce a continuous stream of events. Always set a text filter."
     override val requirements = ACCESSIBILITY_ACCESS
+
+    // See UiClickTriggerFactory: UiEventTrigger is the shared body both
+    // accessibility triggers build their event from, and owns these constants.
+    override val variables = listOf(
+        VariableSpec(
+            key = UiEventTrigger.PAYLOAD_PACKAGE,
+            label = "Package",
+            kind = VariableKind.PACKAGE,
+            sample = "com.example.app",
+            alwaysPresent = false,
+        ),
+        VariableSpec(
+            key = UiEventTrigger.PAYLOAD_TEXT,
+            label = "Text",
+            kind = VariableKind.TEXT,
+            sample = "Delivery confirmed",
+            alwaysPresent = false,
+        ),
+        VariableSpec(
+            key = UiEventTrigger.PAYLOAD_CLASS,
+            label = "Class",
+            kind = VariableKind.TEXT,
+            sample = "android.widget.TextView",
+            help = "The Android view class of the changed content.",
+            alwaysPresent = false,
+        ),
+    )
 
     override fun create(config: Map<String, String>): Trigger = UiEventTrigger(
         type = ScreenContentTrigger.TYPE,
@@ -263,6 +319,17 @@ class KeyboardVisibilityTriggerFactory : TriggerFactory {
         "Android has no API for keyboard visibility. Trigly infers this state " +
             "instead. This method is not reliable on every keyboard and phone."
     override val requirements = ACCESSIBILITY_ACCESS
+
+    override val variables = listOf(
+        VariableSpec(
+            key = KeyboardVisibilityTrigger.PAYLOAD_STATE,
+            label = "State",
+            kind = VariableKind.STATE,
+            sample = KeyboardVisibilityTrigger.OPENED,
+            help = "One of '${KeyboardVisibilityTrigger.OPENED}' or " +
+                "'${KeyboardVisibilityTrigger.CLOSED}'.",
+        ),
+    )
 
     override fun create(config: Map<String, String>): Trigger = KeyboardVisibilityTrigger(
         onOpened = parseTarget(

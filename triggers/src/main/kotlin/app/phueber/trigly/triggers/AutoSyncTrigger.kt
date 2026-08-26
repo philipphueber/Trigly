@@ -4,6 +4,8 @@ import android.content.ContentResolver
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.core.VariableKind
+import app.phueber.trigly.core.VariableSpec
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -75,6 +77,16 @@ class AutoSyncTriggerFactory : TriggerFactory {
     )
 
     override val supportsCondition = true
+
+    override val variables = listOf(
+        VariableSpec(
+            key = AutoSyncTrigger.PAYLOAD_STATE,
+            label = "State",
+            kind = VariableKind.STATE,
+            sample = AutoSyncTrigger.ENABLED,
+            help = "One of '${AutoSyncTrigger.ENABLED}' or '${AutoSyncTrigger.DISABLED}'.",
+        ),
+    )
 
     override fun create(config: Map<String, String>): Trigger = AutoSyncTrigger(
         onEnabled = parseTarget(

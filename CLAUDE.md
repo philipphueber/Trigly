@@ -38,7 +38,7 @@ is not optional; only its frequency is. Report the counts.
                    ./gradlew :core:testDebugUnitTest --tests "*TriggerEngine*"
     build          ./gradlew assembleDebug
     lint           ./gradlew lint
-    instrumented   ./gradlew connectedDebugAndroidTest
+    instrumented   ./gradlew --no-parallel connectedDebugAndroidTest
                    ./gradlew :triggers:connectedDebugAndroidTest \
                      -Pandroid.testInstrumentationRunnerArguments.class=<fully.qualified.TestClass>
 
@@ -47,6 +47,19 @@ actually bites is "works on device X, breaks on device Y" — OEMs differ in how
 aggressively they apply battery optimization to background execution, and no
 JVM test can see that. The pre-merge gate means connected tests on at least two
 devices or API levels, not one emulator.
+
+**`--no-parallel` is load-bearing for the whole-project connected run.**
+`gradle.properties` sets `org.gradle.parallel=true`, so `:triggers` and `:ui`
+otherwise run their instrumented tasks at the same time on the same device. Two
+instrumentations then fight over `UiAutomation`, and one module's tests grant
+permissions the other module's tests are measuring: a location grant from
+`:triggers` makes `EngineService` claim the `location` foreground-service type,
+which the platform refuses to a background app, and the process dies mid-run.
+It surfaces as "Instrumentation run failed due to Process crashed" and a
+different failing test each time, which reads exactly like flakiness or like
+another session sharing the device. It is neither. Running one module's task at
+a time costs nothing: the two devices still run in parallel with each other,
+which is where the time goes.
 
 A new instrumented test is run TWICE back to back before it is trusted.
 On-device state leaks between runs — granted permissions, a registered

@@ -14,6 +14,8 @@ import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.core.VariableKind
+import app.phueber.trigly.core.VariableSpec
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -148,6 +150,19 @@ class CallStateTriggerFactory(private val context: Context) : TriggerFactory {
     )
 
     override val supportsCondition = true
+
+    // Not the caller's number: see the KDoc on CallStateTrigger for why that is
+    // never offered.
+    override val variables = listOf(
+        VariableSpec(
+            key = CallStateTrigger.PAYLOAD_EVENT,
+            label = "Call event",
+            kind = VariableKind.STATE,
+            sample = CallEvent.INCOMING.name.lowercase(),
+            help = "One of " +
+                CallEvent.entries.joinToString { "'${it.name.lowercase()}'" } + ".",
+        ),
+    )
 
     override fun create(config: Map<String, String>): Trigger =
         CallStateTrigger(context, CallEvent.parse(config[CallEvent.CONFIG_KEY]))

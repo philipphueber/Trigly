@@ -6,6 +6,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.core.VariableKind
+import app.phueber.trigly.core.VariableSpec
 
 /**
  * Fires when an app is installed or uninstalled.
@@ -134,6 +136,23 @@ class PackageChangeTriggerFactory(private val context: Context) : TriggerFactory
     )
 
     override val supportsCondition = true
+
+    override val variables = listOf(
+        VariableSpec(
+            key = PackageChangeTrigger.PAYLOAD_PACKAGE,
+            label = "Package",
+            kind = VariableKind.PACKAGE,
+            sample = "com.example.app",
+        ),
+        VariableSpec(
+            key = PackageChangeTrigger.PAYLOAD_STATE,
+            label = "State",
+            kind = VariableKind.STATE,
+            sample = PackageChangeTrigger.INSTALLED,
+            help = "One of '${PackageChangeTrigger.INSTALLED}' or " +
+                "'${PackageChangeTrigger.REMOVED}'.",
+        ),
+    )
 }
 
 /**
@@ -178,6 +197,17 @@ class WorkProfileTriggerFactory(private val context: Context) : TriggerFactory {
 
     override val configFields = listOf(
         stateChoice("Fires when the work profile becomes", "available", "available", "unavailable", "paused"),
+    )
+
+    override val variables = listOf(
+        VariableSpec(
+            key = WorkProfileTrigger.PAYLOAD_STATE,
+            label = "State",
+            kind = VariableKind.STATE,
+            sample = WorkProfileTrigger.AVAILABLE,
+            help = "One of '${WorkProfileTrigger.AVAILABLE}' or " +
+                "'${WorkProfileTrigger.UNAVAILABLE}'.",
+        ),
     )
 
     override fun create(config: Map<String, String>): Trigger = WorkProfileTrigger(

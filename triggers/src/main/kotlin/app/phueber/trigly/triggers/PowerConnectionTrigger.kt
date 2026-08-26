@@ -6,6 +6,8 @@ import android.content.IntentFilter
 import android.os.BatteryManager
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.core.VariableKind
+import app.phueber.trigly.core.VariableSpec
 
 /**
  * Fires when the charger is plugged in or unplugged.
@@ -72,4 +74,15 @@ class PowerConnectionTriggerFactory(private val context: Context) : TriggerFacto
     )
 
     override val supportsCondition = true
+
+    override val variables = listOf(
+        VariableSpec(
+            key = PowerConnectionTrigger.PAYLOAD_STATE,
+            label = "State",
+            kind = VariableKind.STATE,
+            sample = PowerConnectionTrigger.CONNECTED,
+            help = "One of '${PowerConnectionTrigger.CONNECTED}' or " +
+                "'${PowerConnectionTrigger.DISCONNECTED}'.",
+        ),
+    )
 }

@@ -7,6 +7,8 @@ import android.os.Build
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.core.VariableKind
+import app.phueber.trigly.core.VariableSpec
 
 /**
  * `ACTION_CONFIGURATION_CHANGED` fires for *any* configuration change — locale,
@@ -72,6 +74,16 @@ class DarkThemeTriggerFactory(private val context: Context) : TriggerFactory {
     override val requirements = listOf(ComponentRequirement.MinApiLevel(29))
 
     override val supportsCondition = true
+
+    override val variables = listOf(
+        VariableSpec(
+            key = DarkThemeTrigger.PAYLOAD_STATE,
+            label = "State",
+            kind = VariableKind.STATE,
+            sample = DarkThemeTrigger.DARK,
+            help = "One of '${DarkThemeTrigger.DARK}' or '${DarkThemeTrigger.LIGHT}'.",
+        ),
+    )
 
     override fun create(config: Map<String, String>): Trigger = DarkThemeTrigger(
         context = context,
@@ -139,6 +151,16 @@ class OrientationTriggerFactory(private val context: Context) : TriggerFactory {
     )
 
     override val supportsCondition = true
+
+    override val variables = listOf(
+        VariableSpec(
+            key = OrientationTrigger.PAYLOAD_STATE,
+            label = "State",
+            kind = VariableKind.STATE,
+            sample = OrientationTrigger.LANDSCAPE,
+            help = "One of '${OrientationTrigger.LANDSCAPE}' or '${OrientationTrigger.PORTRAIT}'.",
+        ),
+    )
 
     override fun create(config: Map<String, String>): Trigger = OrientationTrigger(
         context = context,

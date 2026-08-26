@@ -5,6 +5,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.core.VariableKind
+import app.phueber.trigly.core.VariableSpec
 
 /**
  * Fires when a wired headset is plugged in or unplugged.
@@ -89,4 +91,14 @@ class HeadsetPlugTriggerFactory(private val context: Context) : TriggerFactory {
     )
 
     override val supportsCondition = true
+
+    override val variables = listOf(
+        VariableSpec(
+            key = HeadsetPlugTrigger.PAYLOAD_STATE,
+            label = "State",
+            kind = VariableKind.STATE,
+            sample = HeadsetPlugTrigger.PLUGGED,
+            help = "One of '${HeadsetPlugTrigger.PLUGGED}' or '${HeadsetPlugTrigger.UNPLUGGED}'.",
+        ),
+    )
 }

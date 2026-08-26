@@ -10,6 +10,7 @@ import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.Substitution
 import app.phueber.trigly.core.TriggerEvent
 
 /**
@@ -82,6 +83,7 @@ class PostNotificationActionFactory(
             key = PostNotificationAction.CONFIG_TITLE,
             label = "Title",
             blankMeaning = "Defaults to \"Trigly\"",
+            substitution = Substitution.TEXT,
         ),
         messageText(PostNotificationAction.CONFIG_BODY, "Message", required = false),
     )

@@ -18,6 +18,8 @@ import app.phueber.trigly.core.TextFilter
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.core.VariableKind
+import app.phueber.trigly.core.VariableSpec
 import kotlin.coroutines.resume
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.awaitClose
@@ -787,6 +789,32 @@ class BluetoothConnectionTriggerFactory(
     // than one to build a feature on. A requirement that is always relevant is
     // also the one the list can afford to show.
     override val requirements = bluetoothConnectRequirements(Build.VERSION.SDK_INT)
+
+    override val variables = listOf(
+        VariableSpec(
+            key = BluetoothConnectionTrigger.PAYLOAD_ADDRESS,
+            label = "Address",
+            kind = VariableKind.ADDRESS,
+            sample = "AA:BB:CC:DD:EE:FF",
+            help = "The device's Bluetooth MAC address.",
+            alwaysPresent = false,
+        ),
+        VariableSpec(
+            key = BluetoothConnectionTrigger.PAYLOAD_NAME,
+            label = "Name",
+            kind = VariableKind.TEXT,
+            sample = "Pixel Buds",
+            alwaysPresent = false,
+        ),
+        VariableSpec(
+            key = BluetoothConnectionTrigger.PAYLOAD_STATE,
+            label = "State",
+            kind = VariableKind.STATE,
+            sample = BluetoothConnectionTrigger.CONNECTED,
+            help = "One of '${BluetoothConnectionTrigger.CONNECTED}' or " +
+                "'${BluetoothConnectionTrigger.DISCONNECTED}'.",
+        ),
+    )
 
     // Writes down the answer [bluetoothIdentifyBy] would have derived anyway, so
     // the editor draws the filter that actually matches rather than the schema

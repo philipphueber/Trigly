@@ -1,5 +1,6 @@
 package app.phueber.trigly.triggers
 
+import app.phueber.trigly.core.VariableScope
 import app.phueber.trigly.triggers.accessibility.KeyboardVisibilityTrigger
 import app.phueber.trigly.triggers.accessibility.ScreenContentTrigger
 import app.phueber.trigly.triggers.accessibility.UiClickTrigger
@@ -115,5 +116,24 @@ class TriggerTypeStringsTest {
         // This pins the count so deleting a line reads as a failure, not as
         // one fewer thing to maintain.
         assertEquals(34, pinned.size)
+    }
+
+    /**
+     * `VariableScope.reserved` names the four namespaces a `{{...}}` reference
+     * can use besides a trigger's own type string: `trigger`, `event`, `rule`
+     * and `app`. A trigger type equal to one of those would make every
+     * `{{name.key}}` reference to it unresolvable, because
+     * `EventLookup.value` cannot tell the reserved meaning from the trigger
+     * meaning. See `docs/variables.md`.
+     */
+    @Test
+    fun `no trigger type is a reserved variable namespace`() {
+        val collisions = pinned.filter { (released, _) -> released in VariableScope.reserved }
+        assertTrue(
+            "these trigger types collide with a reserved variable namespace " +
+                "(${VariableScope.reserved}) and must be renamed: " +
+                collisions.joinToString { (released, _) -> released },
+            collisions.isEmpty(),
+        )
     }
 }

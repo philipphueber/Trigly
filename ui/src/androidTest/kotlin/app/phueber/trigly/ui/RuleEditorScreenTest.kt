@@ -1313,8 +1313,17 @@ class RuleEditorScreenTest {
             )
         }
 
+        // Unclipped, and that is the whole reason this reads the way it does.
+        // `boundsInRoot` is clipped to what is on screen, so a heading scrolled
+        // past the bottom reports a top of zero rather than its real position,
+        // and a comparison of two tops then silently answers the wrong way
+        // round. Nothing about a block's height is fixed: this test passed for
+        // as long as two action blocks happened to fit, and broke the moment
+        // fields grew a control for inserting a variable. The unclipped bounds
+        // say where a node is whether or not it is visible, which is what a
+        // question about running order actually needs.
         fun topOf(text: String) =
-            composeRule.onNodeWithText(text).fetchSemanticsNode().boundsInRoot.top
+            composeRule.onNodeWithText(text).getUnclippedBoundsInRoot().top
 
         // Toast is first in the draft, so it must render above speak before
         // anything is pressed — the baseline the rest of this test moves from.

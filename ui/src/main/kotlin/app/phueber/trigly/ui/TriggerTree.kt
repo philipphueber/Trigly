@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import app.phueber.trigly.core.ComponentDescriptor
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.NodePath
+import app.phueber.trigly.core.ScopedVariable
 import app.phueber.trigly.core.TriggerNode
 
 /**
@@ -78,6 +79,10 @@ internal fun TriggerNodeBlock(
     onToggleExpanded: (String) -> Unit,
     isCaveatShown: (String) -> Boolean,
     onToggleCaveat: (String) -> Unit,
+    /** See [RuleEditorScreen]'s parameter of the same name. */
+    availableVariables: List<ScopedVariable> = emptyList(),
+    /** See [RuleEditorScreen]'s parameter of the same name. */
+    substitutionsFor: SubstitutionLookup = { _, _ -> emptyMap() },
     modifier: Modifier = Modifier,
 ) {
     when (node) {
@@ -121,6 +126,8 @@ internal fun TriggerNodeBlock(
                 caveatShown = isCaveatShown(key),
                 onToggleCaveat = { onToggleCaveat(key) },
                 isRequirementSatisfied = isRequirementSatisfied,
+                availableVariables = availableVariables,
+                substitutionsFor = substitutionsFor,
             )
         }
 
@@ -140,6 +147,8 @@ internal fun TriggerNodeBlock(
             onToggleExpanded = onToggleExpanded,
             isCaveatShown = isCaveatShown,
             onToggleCaveat = onToggleCaveat,
+            availableVariables = availableVariables,
+            substitutionsFor = substitutionsFor,
             modifier = modifier,
         )
     }
@@ -186,6 +195,10 @@ private fun TriggerGroupBlock(
     onToggleExpanded: (String) -> Unit,
     isCaveatShown: (String) -> Boolean,
     onToggleCaveat: (String) -> Unit,
+    /** See [RuleEditorScreen]'s parameter of the same name. */
+    availableVariables: List<ScopedVariable> = emptyList(),
+    /** See [RuleEditorScreen]'s parameter of the same name. */
+    substitutionsFor: SubstitutionLookup = { _, _ -> emptyMap() },
     modifier: Modifier = Modifier,
 ) {
     val key = triggerKey(path)
@@ -316,6 +329,8 @@ private fun TriggerGroupBlock(
                                 onToggleExpanded = onToggleExpanded,
                                 isCaveatShown = isCaveatShown,
                                 onToggleCaveat = onToggleCaveat,
+                                availableVariables = availableVariables,
+                                substitutionsFor = substitutionsFor,
                                 modifier = Modifier.padding(bottom = 12.dp),
                             )
                         }
