@@ -16,6 +16,15 @@ constrain day-to-day work:
   existing one.** If it does, the abstraction is wrong — fix the interface
   instead of special-casing the new type.
 
+## Open work
+
+`docs/todo.md` holds the reliability and correctness work that is known to be
+needed and is not built yet, in priority order, with a Rejected section that
+says which review findings are wrong and why. Read it before you propose an
+architectural change: the answer may already be in there, either as a numbered
+item or as a rejected one. `docs/triggers.md` holds the separate backlog of
+triggers that are not built yet.
+
 ## Testing
 
 While building or changing something, run only the tests that cover it — the
