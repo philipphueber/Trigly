@@ -63,7 +63,7 @@ system settings reports nothing back to the app.
 | Airplane mode | `airplane_mode` | `ACTION_AIRPLANE_MODE_CHANGED` | None |
 | Wi-Fi radio on/off | `wifi_state` | `WIFI_STATE_CHANGED_ACTION` | None |
 | Bluetooth radio on/off | `bluetooth_adapter_state` | `BluetoothAdapter.ACTION_STATE_CHANGED` | `BLUETOOTH_CONNECT` (API 31+) |
-| Bluetooth device connects/disconnects | `bluetooth_connected` | `ACTION_ACL_CONNECTED`/`_DISCONNECTED` | `BLUETOOTH_CONNECT` (API 31+) to receive the broadcast at all |
+| Bluetooth device connects/disconnects | `bluetooth_connected` | `ACTION_ACL_CONNECTED`/`_DISCONNECTED`, via `BluetoothEvents` | `BLUETOOTH_CONNECT` (API 31+) to receive the broadcast at all |
 | NFC on/off | `nfc_state` | `android.nfc.action.ADAPTER_STATE_CHANGED` | feature `android.hardware.nfc` |
 | GPS on/off | `gps_state` | `PROVIDERS_CHANGED_ACTION` | None (only *reading* a location needs permission) |
 | Screen on/off | `screen_state` | `ACTION_SCREEN_ON`/`_OFF` | None |
@@ -271,6 +271,61 @@ rule would fire just for being enabled), and `ACTION_BATTERY_CHANGED` /
 `ACTION_CONFIGURATION_CHANGED` fire constantly for unrelated reasons (a rule
 would fire hundreds of times). New broadcast triggers get both for free by
 returning a `stateKey`.
+
+### A connect that can arrive before the engine exists
+
+`bluetooth_connected` used to register its own receiver, live, on collection,
+the same way most broadcast triggers still do. That was wrong for this one
+broadcast. `ACTION_ACL_CONNECTED` and `ACTION_ACL_DISCONNECTED` are sent by
+the system whenever they happen, not only while Trigly is running, and the
+system routinely kills Trigly's process for sitting idle. A phone reconnecting
+to a paired device after a few idle hours is exactly the case where the
+process is gone, so a receiver that only exists during collection hears
+nothing, and nothing is ever reported. There is no crash and no log, because
+the process that would have written one does not exist.
+
+The fix is `BluetoothEvents`, and it takes the shape of `ShortcutEvents`
+rather than `BootEvents`. A boot broadcast is always cold: `BOOT_COMPLETED`
+starts the engine, so no trigger is ever collecting yet when it lands. A
+Bluetooth connect is not reliably cold or warm. The engine is commonly
+already running, in which case the trigger reading that device is already
+collecting and wants the sighting delivered live. The system can just as
+easily have killed the process, in which case the connect is what restarts
+it, and the sighting lands before any trigger exists to read it.
+`BluetoothConnectionReceiver`, a manifest receiver in `:ui`, records every
+sighting and starts the engine, in that order, without checking whether any
+rule cares first. `bluetooth_connected` then reads a pending sighting at
+collection start for the cold case, and a live bus for the warm one, guarded
+by a timestamp so the same sighting is never turned into two emissions.
+
+One thing this case needs that neither `BootEvents` nor `ShortcutEvents` do:
+some real Bluetooth accessories send the same edge for the same device twice,
+several seconds apart, as a platform quirk rather than a second event.
+`BluetoothEvents.record` drops a repeat like that before it reaches any
+trigger, once, rather than asking every trigger to notice it on its own.
+
+Starting the engine's foreground service from a manifest receiver is banned
+from Android 12 unless the app is exempt. This case is exempt, and not by
+accident: AOSP's Bluetooth stack puts the receiving app on a temporary
+allowlist for exactly this broadcast before sending it (`RemoteDevices`
+passes `TEMPORARY_ALLOW_LIST_TYPE_FOREGROUND_SERVICE_ALLOWED` with reason
+`REASON_BLUETOOTH_BROADCAST` to the options on both ACL intents). The
+platform names this as an intended use, not a gap Trigly happens to fit
+through.
+
+Only the two ACL actions are worth a manifest receiver. They are
+`protected-broadcast` and marked to include background receivers, which is
+why the system still delivers them to a killed app; the profile-level
+broadcasts (`BluetoothA2dp`/`BluetoothHeadset` `ACTION_CONNECTION_STATE_CHANGED`)
+have neither property, so a manifest receiver for those would simply never
+fire. `CompanionDeviceManager.startObservingDevicePresence` is a second,
+unbuilt ingress for device presence rather than the raw link, delivered to a
+bound service instead of a broadcast.
+
+What this does not fix: a user's force-stop puts the package in the stopped
+state, and broadcasts skip a stopped package until something starts it again.
+`BluetoothConnectionReceiver` is no exception. `docs/todo.md`'s R1 records the
+same limit for every other wake-up path in this app; nothing here changes it.
 
 ### A tap that can arrive before the engine exists
 
