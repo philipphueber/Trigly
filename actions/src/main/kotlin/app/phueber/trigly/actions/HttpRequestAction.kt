@@ -6,6 +6,7 @@ import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.DurationUnit
 import app.phueber.trigly.core.ComponentRequirement
+import app.phueber.trigly.core.Substitution
 import app.phueber.trigly.core.TriggerEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -15,6 +16,16 @@ import java.net.URL
 
 /** 2xx is success; everything else is a failure the rule log should show. */
 fun isSuccessfulStatus(code: Int): Boolean = code in 200..299
+
+/**
+ * Whether [contentType] is a form of JSON, for choosing how a variable
+ * substituted into the body is escaped.
+ *
+ * A prefix match rather than an exact one: a real content type often carries a
+ * parameter, as in `application/json; charset=utf-8`, and that is still JSON.
+ */
+fun isJsonContentType(contentType: String): Boolean =
+    contentType.trim().startsWith("application/json", ignoreCase = true)
 
 /**
  * Sends an HTTP request — the escape hatch that lets rules reach webhooks and
@@ -103,7 +114,9 @@ class HttpRequestActionFactory : ActionFactory {
             label = "URL",
             required = true,
             placeholder = "https://example.com/hook",
-            help = "This action allows https only. A webhook URL usually carries a token.",
+            help = "This action allows https only. A webhook URL usually carries a " +
+                "token. $URL_SUBSTITUTION_HELP",
+            substitution = Substitution.URL,
         ),
         ConfigField.Choice(
             key = HttpRequestAction.CONFIG_METHOD,
@@ -113,7 +126,13 @@ class HttpRequestActionFactory : ActionFactory {
             required = false,
             default = HttpRequestAction.DEFAULT_METHOD,
         ),
-        messageText(HttpRequestAction.CONFIG_BODY, "Body", required = false),
+        messageText(
+            key = HttpRequestAction.CONFIG_BODY,
+            label = "Body",
+            required = false,
+            help = "A variable used here is escaped for JSON when the content type " +
+                "is JSON, and inserted as plain text otherwise.",
+        ),
         ConfigField.Text(
             key = HttpRequestAction.CONFIG_CONTENT_TYPE,
             label = "Content type",
@@ -130,6 +149,29 @@ class HttpRequestActionFactory : ActionFactory {
     override val requirements = listOf(
         ComponentRequirement.RuntimePermission("android.permission.INTERNET"),
     )
+
+    /**
+     * The body's escaping depends on the content type, which a sibling field
+     * carries. See [ConfigField.substitution] and `docs/variables.md` section 8.
+     *
+     * [HttpRequestAction.CONFIG_CONTENT_TYPE] is resolved with the exact
+     * null-coalescing [create] uses for the same key, on purpose: the editor
+     * calling this to render a picker and the engine calling it to escape a
+     * value must land on the same content type, or one of them is wrong about
+     * what the request actually sends. A notification title with a quotation
+     * mark inserted raw into a JSON body is the quiet failure this whole field
+     * exists to prevent: the server answers 400 and nothing on screen says why.
+     */
+    override fun substitutionsFor(config: Map<String, String>): Map<String, Substitution> {
+        val effectiveContentType = config[HttpRequestAction.CONFIG_CONTENT_TYPE]
+            ?: HttpRequestAction.DEFAULT_CONTENT_TYPE
+        val bodySubstitution = if (isJsonContentType(effectiveContentType)) {
+            Substitution.JSON_STRING
+        } else {
+            Substitution.TEXT
+        }
+        return super.substitutionsFor(config) + (HttpRequestAction.CONFIG_BODY to bodySubstitution)
+    }
 
     override fun create(config: Map<String, String>): Action {
         val method = (config[HttpRequestAction.CONFIG_METHOD]

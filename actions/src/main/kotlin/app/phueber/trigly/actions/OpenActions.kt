@@ -7,6 +7,7 @@ import app.phueber.trigly.core.Action
 import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.Substitution
 import app.phueber.trigly.core.TriggerEvent
 
 /**
@@ -57,7 +58,8 @@ class OpenUrlActionFactory(private val context: Context) : ActionFactory {
             label = "Address",
             required = true,
             placeholder = "https://example.com",
-            help = "This action opens only http and https addresses.",
+            help = "This action opens only http and https addresses. $URL_SUBSTITUTION_HELP",
+            substitution = Substitution.URL,
         ),
     )
 
