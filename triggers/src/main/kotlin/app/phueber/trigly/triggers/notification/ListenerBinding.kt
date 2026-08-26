@@ -3,10 +3,11 @@ package app.phueber.trigly.triggers.notification
 import android.content.ComponentName
 import android.content.Context
 import android.service.notification.NotificationListenerService
+import app.phueber.trigly.core.AlarmScheduler
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.RequirementChecker
 import app.phueber.trigly.core.SpecialAccessKind
-import kotlinx.coroutines.delay
+import app.phueber.trigly.triggers.AlarmManagerScheduler
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 
@@ -53,13 +54,21 @@ const val BIND_RETRY_MILLIS = 5 * 60_000L
  *
  * `collectLatest` is what makes the shape right: the retry loop below is
  * cancelled the instant a binding arrives, so the normal path costs one
- * cancelled `delay` and nothing else.
+ * cancelled wait and nothing else.
  *
  * **What it cannot see.** If the service is destroyed without
  * `onListenerDisconnected` being delivered, [connected] stays true and this
  * waits for a change that never comes. Nothing observable distinguishes that
  * from a healthy binding, short of a binder call on a timer, which would cost
  * every user battery to catch a case the platform is not documented to produce.
+ *
+ * **The grace period and the retry both now go through [scheduler], not a
+ * plain coroutine `delay`.** This is the repair path for a dead listener, so
+ * it must not itself be asleep in Doze while the process it is trying to fix
+ * stays alive; `docs/todo.md`'s T1 names this file as the case that is
+ * easiest to miss. What this still cannot do is run in a process the system
+ * has already killed, or one the user has force-stopped; see that document's
+ * R1.
  *
  * Suspends forever. The caller's scope is the stop button.
  *
@@ -73,16 +82,17 @@ suspend fun keepListenerBound(
     connected: StateFlow<Boolean>,
     isAccessGranted: () -> Boolean,
     requestRebind: () -> Unit,
+    scheduler: AlarmScheduler,
     graceMillis: Long = BIND_GRACE_MILLIS,
     retryMillis: Long = BIND_RETRY_MILLIS,
 ) {
     connected.collectLatest { isConnected ->
         if (isConnected) return@collectLatest
 
-        delay(graceMillis)
+        scheduler.waitFor(graceMillis)
         while (true) {
             if (isAccessGranted()) requestRebind()
-            delay(retryMillis)
+            scheduler.waitFor(retryMillis)
         }
     }
 }
@@ -112,5 +122,9 @@ suspend fun keepNotificationListenerBound(context: Context) {
             // rule that needs the access already reports the requirement.
             runCatching { NotificationListenerService.requestRebind(component) }
         },
+        // Built here rather than threaded in, for the same reason `checker` is:
+        // the caller only has to decide when to run this, not what it takes to
+        // get a listener back.
+        scheduler = AlarmManagerScheduler(context),
     )
 }

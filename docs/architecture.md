@@ -968,8 +968,68 @@ does not make them one.
 
 Two things it is worth knowing it does *not* fix. It is not a
 background-activity-start exemption (see `docs/actions.md`, where that mistake
-is easy to make), and it is not a scheduler: a coroutine `delay` inside a
-foreground service still stops in Doze.
+is easy to make), and on its own it is not a scheduler: a coroutine `delay`
+inside a foreground service still stops in Doze. The next section is that
+scheduler.
+
+### The scheduler port
+
+Five places in this codebase waited with a coroutine `delay`: `IntervalTrigger`,
+`SolarTrigger`, `AppForegroundTrigger`, `NotificationWatchdogTrigger`, and
+`keepListenerBound`, the repair path that asks the system for the notification
+listener back. A `delay` is counted by the process's own clock rather than
+asked of the system, so it can sleep through the whole wait once the device
+enters Doze. The last of the five is the case that is easy to miss: it is the
+repair for a dead notification listener, so a `delay` there meant the repair
+for a dead listener was itself asleep in Doze. `docs/todo.md` names this T1 and
+puts it first in the backlog for that reason.
+
+`AlarmScheduler`, in `:core`, is the fix. `:core` may not depend on any Android
+type, so the port is kept to the two shapes every one of the five callers
+needs: `waitFor(durationMillis)`, a repeating wait counted from now, and
+`waitUntil(atMillis)`, a wait until one wall-clock instant. Neither method
+takes a separate cancel parameter. Every caller reaches the port from inside
+its own coroutine, and cancelling that coroutine is the cancel; the
+implementation's job is to release whatever it asked the system for when that
+happens, not to offer a second way to stop. The shape is deliberately small,
+for the same reason `NotificationController` and `UiController` are: a small
+port is one a fake in a JVM test can implement in two lines, which is how all
+five callers are tested without a device.
+
+`AlarmManagerScheduler`, the implementation, lives in `:triggers` rather than
+`:ui`. The port exists for triggers to call, and `:triggers` is already the
+module that turns a system callback into a suspend function for them.
+`BroadcastTrigger` registers and unregisters a receiver on collection and
+cancellation, and this class registers and cancels an alarm the same way.
+`:ui` is the module that assembles the app: `TriglyApp`'s container builds one
+instance and hands it to `triggerFactories`, the same way it hands
+`notifications` and `ui` to the modules that need them, without needing to
+know how the wake-up itself works. `keepNotificationListenerBound` builds its
+own instance instead of taking one from the container, for the same reason it
+builds its own `RequirementChecker`: its only caller, `EngineService`, already
+takes just a `Context`, and that shape did not need to change for this.
+
+Every wait goes through `AlarmManager.setWindow` with an `OnAlarmListener`,
+never a `PendingIntent`. The listener form delivers straight into the calling
+process while it is alive, on a plain `Handler`, with no manifest entry and no
+exact-alarm permission. That is exactly the shape every caller needs, since all five
+wait inside a live coroutine and none needs to be woken in a process the
+system has already killed. `setExactAndAllowWhileIdle` is the API for a wait
+that must survive Doze *and* land on the minute, and it needs
+`SCHEDULE_EXACT_ALARM` from API 31, a permission Google reserves for
+alarm-clock-like apps at its `USE_EXACT_ALARM` tier. No caller in this
+codebase asks for that precision today, so that path is not built; the honest
+trade instead is drift of up to a few minutes, sized by how long the wait
+itself is, and every trigger that calls this port says so in its own warning
+text.
+
+**What this does not fix.** A user's force-stop puts the app in the stopped
+state, and the system cancels every alarm this class has pending. Nothing in
+this port, or in any implementation of it, gets that back. The limit
+described above for the foreground service stays true whatever wakes the app.
+`docs/todo.md`'s R1 records this explicitly, because the review that first
+asked for a scheduler also proposed it as a fix for force-stop, and it is not
+one.
 
 ### Services the system owns
 

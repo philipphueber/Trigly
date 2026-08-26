@@ -1,5 +1,6 @@
 package app.phueber.trigly.triggers.notification
 
+import app.phueber.trigly.core.AlarmScheduler
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ComponentTool
 import app.phueber.trigly.core.ConfigField
@@ -11,7 +12,6 @@ import app.phueber.trigly.core.SpecialAccessKind
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
@@ -39,12 +39,21 @@ import kotlinx.coroutines.flow.flow
  * from routine to unlikely: the process now has the strongest survival claim
  * Android offers. It is still not a guarantee. A force-stop ends both apps, and
  * so does an OEM battery manager that disregards the promise.
+ *
+ * **The poll interval itself now survives Doze.** [pollMillis] is waited out
+ * through [AlarmScheduler.waitFor], not a plain coroutine `delay`, so the
+ * check keeps running through Doze instead of only on whatever next wakes the
+ * CPU; `docs/todo.md`'s T1 is where that gap is recorded. This is a narrower
+ * fix than the paragraph above: it keeps a *live* watchdog checking on time.
+ * It does nothing for a watchdog whose process is already gone, which is the
+ * failure the paragraph above is about.
  */
 class NotificationWatchdogTrigger(
     private val packageName: String,
     private val requireOngoing: Boolean,
     private val absenceMillis: Long,
     private val pollMillis: Long,
+    private val scheduler: AlarmScheduler,
     private val now: () -> Long = System::currentTimeMillis,
 ) : Trigger {
 
@@ -70,7 +79,7 @@ class NotificationWatchdogTrigger(
                 )
             }
 
-            delay(pollMillis)
+            scheduler.waitFor(pollMillis)
         }
     }
 
@@ -120,7 +129,7 @@ class NotificationWatchdogTrigger(
     }
 }
 
-class NotificationWatchdogTriggerFactory : TriggerFactory {
+class NotificationWatchdogTriggerFactory(private val scheduler: AlarmScheduler) : TriggerFactory {
     override val type = NotificationWatchdogTrigger.TYPE
 
     override val displayName = "App's notification goes missing"
@@ -200,6 +209,7 @@ class NotificationWatchdogTriggerFactory : TriggerFactory {
                 ?.toBoolean() ?: true,
             absenceMillis = absence,
             pollMillis = poll,
+            scheduler = scheduler,
         )
     }
 }

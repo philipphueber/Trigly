@@ -6,6 +6,7 @@ import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.os.Build
 import android.os.Process
+import app.phueber.trigly.core.AlarmScheduler
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.SpecialAccessKind
 import app.phueber.trigly.core.ConfigField
@@ -13,7 +14,6 @@ import app.phueber.trigly.core.DurationUnit
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
@@ -27,6 +27,12 @@ import kotlinx.coroutines.flow.flow
  * instantly wants the accessibility service instead, at a much higher privacy
  * cost.
  *
+ * The wait between polls is [AlarmScheduler.waitFor], not a plain coroutine
+ * `delay`, so the poll keeps its promised interval through Doze instead of
+ * only running on whatever next wakes the CPU; `docs/todo.md`'s T1 covers why.
+ * It still stops if the user force-stops Trigly, which no scheduler design can
+ * change (see that document's R1).
+ *
  * The window advances to the end of each query rather than being recomputed
  * from "now", so an app launch that happens during a query is not lost between
  * two windows.
@@ -35,6 +41,7 @@ class AppForegroundTrigger(
     private val context: Context,
     private val packageName: String?,
     private val pollMillis: Long,
+    private val scheduler: AlarmScheduler,
     private val now: () -> Long = System::currentTimeMillis,
 ) : Trigger {
 
@@ -43,7 +50,7 @@ class AppForegroundTrigger(
         var windowStart = now()
 
         while (true) {
-            delay(pollMillis)
+            scheduler.waitFor(pollMillis)
 
             val windowEnd = now()
             val events = runCatching { usage.queryEvents(windowStart, windowEnd) }.getOrNull()
@@ -143,7 +150,10 @@ private fun Context.hasUsageAccess(): Boolean {
     return mode == AppOpsManager.MODE_ALLOWED
 }
 
-class AppForegroundTriggerFactory(private val context: Context) : TriggerFactory {
+class AppForegroundTriggerFactory(
+    private val context: Context,
+    private val scheduler: AlarmScheduler,
+) : TriggerFactory {
     override val type = AppForegroundTrigger.TYPE
 
     override val displayName = "App comes to the foreground"
@@ -175,5 +185,6 @@ class AppForegroundTriggerFactory(private val context: Context) : TriggerFactory
         packageName = config[AppForegroundTrigger.CONFIG_PACKAGE],
         pollMillis = config[AppForegroundTrigger.CONFIG_POLL_MILLIS]?.toLongOrNull()
             ?: AppForegroundTrigger.DEFAULT_POLL_MILLIS,
+        scheduler = scheduler,
     )
 }

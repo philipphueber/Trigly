@@ -1,10 +1,10 @@
 package app.phueber.trigly.triggers
 
+import app.phueber.trigly.core.AlarmScheduler
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import java.time.Instant
@@ -20,13 +20,14 @@ import java.time.ZoneId
  * [solarTime], pure and unit-tested, because "why did my rule fire at the wrong
  * time" is not a question anyone should have to debug on a device.
  *
- * **Scheduling is the honest weakness.** Like [IntervalTrigger], this waits with
- * a coroutine `delay`, so it only fires while the engine's process is alive and
- * not in Doze — a sunset hours away is exactly the sort of wait Doze interrupts.
- * The docs are clear that wall-clock accuracy needs `AlarmManager`, which the
- * project has not built yet; when it lands, this trigger's `events()` is the one
- * place that changes. Until then the warning below says so rather than implying a
- * precision this cannot deliver.
+ * **Scheduling used to be the honest weakness here, and now is not.** [events]
+ * waits with [AlarmScheduler.waitUntil], not a plain coroutine `delay`, so a
+ * sunset hours away survives Doze instead of only firing on whatever next
+ * wakes the CPU. `docs/todo.md`'s T1 is the record of the old gap and the fix;
+ * this is the one place in this class that changed. Drift of up to a few
+ * minutes is still expected, which the warning below says plainly, because a
+ * few kilometres of typed location already changes true sunrise by only
+ * seconds and this trigger was never promising more than that.
  *
  * Days with no sunrise or sunset — real, above the Arctic circle — are skipped
  * rather than approximated: the loop moves to the next day instead of inventing
@@ -37,6 +38,7 @@ class SolarTrigger(
     private val latitude: Double,
     private val longitude: Double,
     private val event: SolarEvent,
+    private val scheduler: AlarmScheduler,
     private val zone: ZoneId = ZoneId.systemDefault(),
     private val now: () -> Long = System::currentTimeMillis,
 ) : Trigger {
@@ -53,7 +55,7 @@ class SolarTrigger(
             // Computed from the scheduled instant, never from "now plus a day" —
             // the drift bug `docs/triggers.md` warns about for recurring time
             // triggers is exactly that mistake.
-            delay((fireAt - now()).coerceAtLeast(0))
+            scheduler.waitUntil(fireAt)
             emit(
                 TriggerEvent(
                     triggerType = TYPE,
@@ -63,7 +65,7 @@ class SolarTrigger(
             )
             // Past the emitted instant, so the same day cannot be scheduled twice
             // if the clock has not visibly advanced.
-            delay(1_000)
+            scheduler.waitFor(1_000)
         }
     }
 
@@ -156,7 +158,7 @@ class SolarTrigger(
     }
 }
 
-class SolarTriggerFactory : TriggerFactory {
+class SolarTriggerFactory(private val scheduler: AlarmScheduler) : TriggerFactory {
     override val type = SolarTrigger.TYPE
 
     override val displayName = "Sunrise or sunset"
@@ -184,9 +186,11 @@ class SolarTriggerFactory : TriggerFactory {
     )
 
     override val warning: String =
-        "This trigger waits inside Trigly's own process. It fires only while " +
-            "Trigly runs. The system can delay it when it suspends the app. Use " +
-            "this trigger for lights or volume. Do not use it as an alarm clock."
+        "This trigger needs Trigly running to fire. The fire time can drift by " +
+            "a few minutes, because this trigger does not use an exact alarm. " +
+            "Use it for lights or volume. Do not use it as an alarm clock. If " +
+            "you force stop Trigly, this trigger stops until you open the app " +
+            "again."
 
     override fun create(config: Map<String, String>): Trigger {
         fun coordinate(key: String): Double {
@@ -200,6 +204,7 @@ class SolarTriggerFactory : TriggerFactory {
             event = SolarEvent.parse(
                 config[SolarEvent.CONFIG_KEY] ?: SolarEvent.SUNRISE.configValue
             ),
+            scheduler = scheduler,
         )
     }
 
