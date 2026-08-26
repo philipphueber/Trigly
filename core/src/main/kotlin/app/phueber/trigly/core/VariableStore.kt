@@ -29,8 +29,19 @@ import kotlinx.coroutines.flow.update
  */
 interface VariableStore {
 
-    /** Every variable, as a live map. What the editor's picker lists. */
-    fun all(): Flow<Map<String, String>>
+    /**
+     * Every variable, with the moment each was last written.
+     *
+     * The only wholesale read, and it carries the timestamp even though most
+     * callers do not want it. The alternative was two reads, one with the time
+     * and one without, and the one without would have to be derived from the
+     * one with it or the two could disagree. Two spellings of the same fact is
+     * how a store ends up reporting a value from one and a time from the other.
+     *
+     * A caller that does not care when a value changed uses [all], which is
+     * derived from this rather than declared beside it.
+     */
+    fun history(): Flow<Map<String, VariableRecord>>
 
     /** One variable's value, or null when nothing of that name is stored. */
     suspend fun get(name: String): String?
@@ -50,19 +61,34 @@ interface VariableStore {
 }
 
 /**
+ * Every variable's current value, for a caller that does not care when it
+ * changed. Derived from [VariableStore.history] rather than declared beside it:
+ * see that method for why there is one read and not two.
+ */
+fun VariableStore.all(): Flow<Map<String, String>> =
+    history().map { records -> records.mapValues { (_, record) -> record.value } }
+
+/**
+ * One stored value, with the moment it was written. See [VariableStore.history].
+ */
+data class VariableRecord(val value: String, val updatedAtMillis: Long)
+
+/**
  * The store every test and every default gets. A real store, deliberately: see
  * [VariableStore].
  */
 class InMemoryVariableStore(initial: Map<String, String> = emptyMap()) : VariableStore {
 
-    private val state = MutableStateFlow(initial)
+    private val state = MutableStateFlow(
+        initial.mapValues { (_, value) -> VariableRecord(value, System.currentTimeMillis()) }
+    )
 
-    override fun all(): Flow<Map<String, String>> = state.asStateFlow()
+    override fun history(): Flow<Map<String, VariableRecord>> = state.asStateFlow()
 
-    override suspend fun get(name: String): String? = state.value[name]
+    override suspend fun get(name: String): String? = state.value[name]?.value
 
     override suspend fun set(name: String, value: String) {
-        state.update { it + (name to value) }
+        state.update { it + (name to VariableRecord(value, System.currentTimeMillis())) }
     }
 
     override suspend fun remove(name: String) {

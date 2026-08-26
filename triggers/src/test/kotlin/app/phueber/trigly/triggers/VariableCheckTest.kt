@@ -264,7 +264,7 @@ class VariableCheckTest {
     @Test
     fun `a store that fails to read answers null, not false`() = runTest {
         val failingStore = object : VariableStore {
-            override fun all() = error("not used by this test")
+            override fun history() = error("not used by this test")
             override suspend fun get(name: String): String? = error("the read failed")
             override suspend fun set(name: String, value: String) = error("not used by this test")
             override suspend fun remove(name: String) = error("not used by this test")
