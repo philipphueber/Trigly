@@ -43,6 +43,19 @@ identifiers stay because T4, T8, T11 and R1 point at them.
   two seconds apart. A leaf that answers on any of them fires the rule late and
   reports nothing. The give-up keeps the existing `UNDECIDED` outcome, because
   the first miss is no longer reported at all. See **T13**.
+- **The Bluetooth ingress.** A runtime receiver exists only while the engine's
+  process does, so a connect that arrived after the process was gone reached
+  nobody, and the fault log that would have said so died with it. A
+  manifest-declared receiver for the two ACL actions now carries the event, the
+  way `BootEvents` and `ShortcutEvents` already carry theirs. The stack puts the
+  receiving app on a temporary allowlist for the foreground service start, per
+  `Utils.getTempBroadcastOptions` in the Bluetooth module, so this is the
+  intended path and not a loophole. See **T15** for a route that is not a
+  broadcast at all.
+- **The battery optimisation notice.** The app never asked to be excused and
+  never checked. On a device whose manufacturer is aggressive about idle apps,
+  that is the difference between an engine that survives the night and one that
+  does not, and when it is killed every diagnostic dies with it.
 - **T5 Requirement liveness, as its own axis.** `Liveness` has three states, so
   "nobody has asked yet" cannot collapse into "dead", and the probe is an
   injected port that keeps `:core` away from `:triggers`. The rules list shows
@@ -118,6 +131,67 @@ and a poll does not.
 
 **Done when.** The choice is written down per caller, and any caller that keeps
 `setWindow` says in its own warning text how late it can be.
+
+### T15 A second ingress that is not a broadcast
+
+**Evidence.** A user's Bluetooth connect rule never fired because no process was
+alive to hold a runtime receiver. The manifest receiver fixes that, and it is
+still a broadcast, so it still depends on the broadcast pipe reaching this app.
+A survey of AOSP found nothing in the platform that would withhold the ACL
+broadcast from a live process holding the grant, which leaves a manufacturer's
+own battery layer as the remaining explanation, and that layer is not in AOSP
+and cannot be reasoned about from source.
+
+`CompanionDeviceManager.startObservingDevicePresence` with
+`CompanionDeviceService.onDevicePresenceEvent` is a different pipe entirely.
+`DevicePresenceEvent.EVENT_BT_CONNECTED` is documented in
+`CompanionDeviceManager.java` as firing when a classic device connects, it
+arrives through a **bound service** rather than a broadcast, and the permission
+it needs, `REQUEST_OBSERVE_COMPANION_DEVICE_PRESENCE`, is
+`protectionLevel="normal"`. The system binds the service, which is what revives
+the process, exactly as the notification listener already does.
+
+It also answers a question this project has open elsewhere. A companion
+association is a durable, system-tracked identity for one device, so a rule
+built on it does not care that an unpaired Bluetooth LE address rotates. That is
+**T7**'s subject and **R2**'s dead end approached from a different direction.
+
+**The cost is real.** An association needs the user to pick the device from a
+system dialog, once per device, and the device needs
+`FEATURE_COMPANION_DEVICE_SETUP`. So this is a second way to build a Bluetooth
+rule, not a replacement for the first.
+
+**Decide first.** Whether a trigger may ask for a one-time system dialog before
+it works at all. Nothing in this app does that today, and it is a different deal
+with the user than a permission row is.
+
+**Done when.** Either the route is built for a device the user associates, and
+the editor says plainly which of the two kinds of Bluetooth rule they are
+making, or the decision against it is written down here with the reason.
+
+### T16 Claim the connectedDevice service type when a rule needs it
+
+**Evidence.** The engine claims `specialUse`, and adds `location` when the grant
+allows it. Android 14 added `connectedDevice` for the case where a foreground
+service exists to talk to an external device, which is exactly what the engine
+is doing while it serves a Bluetooth rule. An app whose whole purpose is
+reacting to Bluetooth connects, and which was studied for the ingress work,
+declares its handoff service with that type.
+
+**Do.** Decide whether the type follows the rules that exist, the way `location`
+already does through `hasLocationGrant`, or whether `specialUse` is the honest
+answer for an engine that does many unrelated things at once. The type is
+claimed at runtime for a reason worth re-reading before touching this: from API
+34 `startForeground` throws for a type the app holds no permission for, and that
+is why `location` is conditional rather than declared.
+
+**Watch for.** `FOREGROUND_SERVICE_CONNECTED_DEVICE` is another Play review
+item, and the whole point of a typed service is that the type describes the
+work. Claiming every type that might apply would make the declaration
+meaningless.
+
+**Done when.** The choice is recorded, and any type the engine claims is one it
+can justify per rule rather than in general.
 
 ---
 
