@@ -47,6 +47,7 @@ class TriggerTypeStringsTest {
         "interval" to IntervalTrigger.TYPE,
         "solar" to SolarTrigger.TYPE,
         "time_window" to TimeWindowCheck.TYPE,
+        "variable_check" to VariableCheck.TYPE,
 
         // Power
         "battery_level" to BatteryLevelTrigger.TYPE,
@@ -115,7 +116,7 @@ class TriggerTypeStringsTest {
         // A guard that only checks equality would pass on an empty list too.
         // This pins the count so deleting a line reads as a failure, not as
         // one fewer thing to maintain.
-        assertEquals(34, pinned.size)
+        assertEquals(35, pinned.size)
     }
 
     /**

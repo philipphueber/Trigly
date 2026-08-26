@@ -2,7 +2,9 @@ package app.phueber.trigly.triggers
 
 import android.content.Context
 import app.phueber.trigly.core.AlarmScheduler
+import app.phueber.trigly.core.InMemoryVariableStore
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.core.VariableStore
 import app.phueber.trigly.triggers.accessibility.KeyboardVisibilityTriggerFactory
 import app.phueber.trigly.triggers.accessibility.ScreenContentTriggerFactory
 import app.phueber.trigly.triggers.accessibility.UiClickTriggerFactory
@@ -30,8 +32,18 @@ import app.phueber.trigly.triggers.notification.NotificationWatchdogTriggerFacto
  *   waits through instead of a plain coroutine `delay`, so its wait survives
  *   Doze. See `app.phueber.trigly.core.AlarmScheduler` and `docs/todo.md`'s
  *   T1.
+ * @param store where `variable_check` reads an app-scope variable from.
+ *   Defaulted, unlike [scheduler]: its Room-backed implementation lives in
+ *   `:core`, next to the interface, so a working [InMemoryVariableStore] is a
+ *   real and always-correct answer for a caller that has not wired one up,
+ *   the same way `actionFactories`' defaults are, and not the refusal
+ *   [scheduler] would need if it had one. See `VariableStore`'s KDoc.
  */
-fun triggerFactories(context: Context, scheduler: AlarmScheduler): List<TriggerFactory> = listOf(
+fun triggerFactories(
+    context: Context,
+    scheduler: AlarmScheduler,
+    store: VariableStore = InMemoryVariableStore(),
+): List<TriggerFactory> = listOf(
     // Time
     IntervalTriggerFactory(scheduler),
     SolarTriggerFactory(scheduler),
@@ -48,6 +60,11 @@ fun triggerFactories(context: Context, scheduler: AlarmScheduler): List<TriggerF
     // `location` rather than standing beside it, which is what "one component,
     // the slot decides the question" means.
     TimeWindowCheckFactory(),
+
+    // Condition only, for the same reason as `time_window` above: reading an
+    // app-scope variable is a level, never an edge. See `docs/variables.md`,
+    // section 10.
+    VariableCheckFactory(store),
 
     // Power
     BatteryLevelTriggerFactory(context),

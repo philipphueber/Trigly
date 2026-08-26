@@ -85,4 +85,5 @@ internal object Category {
     const val SCREEN = "Screen content"
     const val TELEPHONY = "Calls & messages"
     const val LOCATION = "Location"
+    const val VARIABLES = "Variables"
 }
