@@ -723,6 +723,96 @@ time it fires. And `VariableSpec.sample` is what finally gives the Test button
 something to work with: the test event used to carry no payload at all, so an
 action that read one saw nothing.
 
+#### App scope: a value that outlives the run
+
+Phase 2 of `docs/variables.md`. Event scope answers "what just happened".
+App scope answers "what happened before", which is what a counter, a "last seen
+at", or a cooldown needs, and it is the only way one rule can tell another rule
+anything beyond the existing `set_rule_enabled`.
+
+`VariableStore` is shaped after `RuleRepository` and deliberately **not** after
+`NotificationController`. That distinction was written down wrong in the plan
+first, so it is worth stating: `NotificationController` is a port, and it exists
+because its implementation has to live in `:triggers` beside the listener service
+while its caller lives in `:actions`. Its "unavailable" default is a true state
+of the device. A variable store has no such problem, because its Room
+implementation lives in `:core` beside the interface. So the default everywhere
+is a *working* `InMemoryVariableStore`, not one that refuses: "this device has no
+variables" is not a state a device can be in, and a refusing default would make
+every test that did not wire a store silently test nothing.
+
+`triglyDatabase(context)` had to be memoized before any of this. It built a fresh
+`Room.databaseBuilder` on every call, which was invisible while
+`ruleRepository(context)` was its only caller. A second factory beside it would
+have opened two databases on one file.
+
+**The read happens once per action, not once per event.** This is the part where
+the obvious implementation is wrong. A rule's actions run in sequence, and one of
+them can be a `set_variable` that a later one reads. A snapshot taken before the
+first action would show the later action a value the earlier action had already
+replaced, and "actions run in order" is how anyone reads a list of actions. So
+`ActionSlot` collects the app names its own templates reference, once, at start
+time, and reads exactly those immediately before that action runs. An action that
+references none reads nothing at all, which keeps the cost on the rules that use
+the feature. `VariableLookup` stays pure and non-suspending throughout, which is
+what that snapshot is for.
+
+`TriggerEngine` takes the store as a **required** constructor parameter. Around
+twenty-four test call sites had to be updated to pass one, and that was the
+cheaper half of the trade: a defaulted store would mean that a production
+assembly point which forgot to wire the real one would read every app variable as
+empty, silently, forever.
+
+**Writing: `set_variable`.** Three modes, set, clear and add. Add is what a
+counter needs, so it starts from zero for a name nothing has written yet, and it
+fails loudly on a stored value that is not a number rather than treating it as
+zero and discarding what was there. It works in `BigDecimal` rather than
+`Double`, so a total built from repeated fractional additions does not drift, and
+it strips trailing zeros so a whole-number counter reads as `5` and not `5.0`.
+
+**Reading as a condition: `variable_check`.** A component with no events, built
+like `TimeWindowCheck`, which needed **no engine change at all**: `TriggerNode`
+already combines a level with an edge, and `canStart` already knows that a
+check-only component cannot start a rule. That is the whole payoff of a condition
+being a trigger rather than a second component family.
+
+Three decisions in it are worth keeping:
+
+- Its value field does **not** accept a variable. A condition is asked without an
+  event, because `currentlyHolds()` is called about a leaf that did not fire, so
+  a `{{trigger.*}}` reference there would be empty exactly when it is used.
+- A name the store does not hold is a **definite** answer, not unknown. The store
+  knows the name is absent. `null` is reserved for a read that actually failed,
+  which is the only path to it, because `null` costs a retry and then a
+  suppressed rule.
+- An unrecognised comparison **refuses the build**. Absence reads as the declared
+  default, which is ordinary: a `Choice` declares one, the editor draws it, and
+  `normalise` writes it down. But a value this build does not know can only come
+  from a hand-edited file or an export from a newer build, and degrading it to
+  some other comparison would gate unattended actions on a question its author
+  never wrote. `HttpRequestAction` already refuses a method it does not know, for
+  the same reason.
+
+**A save may not require an app variable to exist.** `variableProblems` accepts
+an app reference on sight, and that has to stay true. App variables are written
+by rules, so the rule that reads `{{app.trip_count}}` is very often saved before
+the rule that first sets it, and refusing that would make the pair impossible to
+write in either order. There is no name left to check either: a name that arrived
+inside a parsed reference has already proved it can be read back, which is the
+only question `variableNameProblem` asks.
+
+That function is worth one more line. It validates a name by building the
+reference the name would need, parsing it, and checking that what comes back is
+the reference that was meant. A regular expression here would be a second
+spelling of the grammar, and it would drift the day the grammar gained a
+character: a name a person was allowed to store would become a name no field
+could read.
+
+**Not built, and visible as a gap.** Nothing shows the person what app variables
+exist or lets them set one by hand, so the picker offers nothing until some rule
+has written something. That is discoverability rather than correctness, and it is
+the obvious next piece.
+
 ### Rule storage and the portable format
 
 Rules are Room-backed. Two tables: `rules`, and one `components` table holding

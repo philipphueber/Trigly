@@ -1,6 +1,6 @@
 # Variables
 
-**Status: phase 1 is built. Phases 2 and 3 are not.** `docs/actions.md`
+**Status: phases 1 and 2 are built. Phase 3 is not.** `docs/actions.md`
 recorded variables as the largest design decision left after conditions. This
 file is that decision, in the shape `docs/conditions.md` holds its own, and it
 is kept as written so that what was weighed stays readable next to what was
@@ -615,11 +615,30 @@ builds its actions exactly once as it does today. Both are now pinned by tests:
 `VariableSubstitutionOnDeviceTest` for the first, on two API levels, and
 `TriggerEngineTest` for the second, with a counting factory.
 
-**Phase 2: app scope.** The table, the migration, the port, `set_variable`, and
-`variable_check`.
+**Phase 2: app scope. Built.** The table, the migration to database version 5,
+the store, `set_variable`, and `variable_check`.
 
-Done when a counter survives a process restart, and a rule with a
+Was done when a counter survives a process restart, and a rule with a
 `variable_check` in an `ALL` group does not run while the check is false.
+
+Four things came out differently from what this section assumed:
+
+- **The store is not a port.** It is shaped after `RuleRepository`, because its
+  implementation lives in `:core` beside the interface. Section 10 above says the
+  rest.
+- **The engine reads once per action, not once per event.** A rule can write a
+  variable in one action and read it in the next, and a per-event snapshot would
+  show the second action a value the first had already replaced.
+- **An unrecognised comparison refuses the rule** rather than falling back to a
+  lenient default. Section 10 says why that is the opposite call from
+  `TextMatchMode.parse`.
+- **A save never requires an app variable to exist.** The reader is usually
+  written before the writer.
+
+**Still missing, and it is the obvious next thing:** nothing lets a person see
+what app variables exist or set one by hand. Until a rule has written one, the
+picker has nothing to offer, so the feature is hard to find even though it works.
+That is a screen, not a correctness problem, and it is not in phase 3 below.
 
 **Phase 3: the fields a template cannot reach, and derived variables.**
 Whole-field binding per P7. Derived variables computed at resolution rather than

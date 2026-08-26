@@ -87,6 +87,7 @@ class EngineService : Service() {
 
         engine = TriggerEngine(
             registry = container.registry,
+            store = container.variableStore,
             scope = scope,
             onOutcome = ::report,
             onStartFailure = ::reportStartFailure,
