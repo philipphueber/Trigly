@@ -295,7 +295,8 @@ show a dialog for that grant.
 **And a state that cannot be read is no longer silent.** The engine reports a
 rule dropped by a component that could not answer, through `onSuppressed`, and
 the rule list says so. A component answering a clean "no" is not reported: that
-is the rule working. See "The third case" in `architecture.md`.
+is the rule working. See "The third case" in `architecture.md`, and "The fourth
+case" beside it for the rule that was never built at all.
 
 **Then the report showed that permission was only half of it.** With the grant
 in place and the row gone, a rule still said "Trigly could not read Is in an

@@ -385,13 +385,13 @@ private fun RuleBlock(
             }
 
             RequirementCell(status = status, onResolve = onResolve)
-            LastFailureCell(status = status, describeComponent = describeComponent)
+            LastFaultCell(status = status, describeComponent = describeComponent)
         }
     }
 }
 
 /**
- * What the rule's last failing action said.
+ * Why the rule last did nothing.
  *
  * The gap this closes: a rule whose trigger fired and whose action then failed
  * looked exactly like a rule whose trigger never fired. Both did nothing and
@@ -399,29 +399,46 @@ private fun RuleBlock(
  * read, so the one question people actually ask, "why did my rule do nothing",
  * had no answer on the device.
  *
- * Deliberately a different colour from [RequirementCell]. That cell is the error
+ * **The colour follows the tense, not the cell.** [RequirementCell] is the error
  * colour because it states a fault standing in the way right now: the rule
- * cannot run, and here is the permission to grant. This is a report about a run
- * that already happened, and the condition may well be gone. Amber is the
- * convention this design already uses for "worth knowing, not a fault in front
- * of you" on component caveats.
+ * cannot run, and here is the permission to grant. A report about a run that
+ * already happened is amber instead, the convention this design uses for "worth
+ * knowing, not a fault in front of you". Two of the three kinds here are that
+ * kind of report and the condition may well be gone by now.
+ *
+ * [RuleFault.Kind.COULD_NOT_START] is not. It says the rule was never built and
+ * nothing is watching for it, which is as present a fault as a missing
+ * permission and stays true until the rule is edited. So it takes the error
+ * colour, in this cell rather than in [RequirementCell], because there is no
+ * button to offer: what it needs is the rule fixed, and only its own message can
+ * say how.
  *
  * Only for an enabled rule, and [RulesViewModel] enforces that as well by not
  * filling the field for a disabled one. Two guards for one rule, because the
  * cost of getting it wrong is accusing a rule nobody asked to run.
  */
 @Composable
-private fun LastFailureCell(
+private fun LastFaultCell(
     status: RuleStatus,
     describeComponent: (String) -> String,
 ) {
-    val failure = status.lastFailure ?: return
+    val fault = status.lastFault ?: return
     if (!status.rule.enabled) return
+
+    val present = fault.kind == RuleFault.Kind.COULD_NOT_START
 
     BlockDivider()
     Surface(
-        color = MaterialTheme.extra.cautionContainer,
-        contentColor = MaterialTheme.extra.onCautionContainer,
+        color = if (present) {
+            MaterialTheme.colorScheme.errorContainer
+        } else {
+            MaterialTheme.extra.cautionContainer
+        },
+        contentColor = if (present) {
+            MaterialTheme.colorScheme.onErrorContainer
+        } else {
+            MaterialTheme.extra.onCautionContainer
+        },
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
@@ -429,25 +446,29 @@ private fun LastFailureCell(
                 .fillMaxWidth()
                 .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
         ) {
-            // Names the action, because a rule with three of them otherwise
-            // leaves the reader to guess which one this is about.
+            // One heading per kind, because they are three different claims and
+            // sharing a sentence between them would blame the wrong thing. An
+            // action failed. Or the rule fired and was dropped, so no action was
+            // reached and there is none to name. Or the rule was never built,
+            // which is not a run at all.
             //
-            // No action type means no action was reached: the rule fired and was
-            // then dropped because part of its trigger could not answer. That is
-            // a different sentence, not a missing word in this one. Calling it a
-            // failed run would blame an action that never ran.
+            // The action is named in the first case because a rule with three of
+            // them otherwise leaves the reader guessing which one this is about.
             Text(
-                text = (
-                    failure.actionType
-                        ?.let {
-                            stringResource(R.string.rules_last_run_failed, describeComponent(it))
-                        }
-                        ?: stringResource(R.string.rules_last_run_undecided)
-                    ).uppercase(),
+                text = when (fault.kind) {
+                    RuleFault.Kind.ACTION_FAILED -> stringResource(
+                        R.string.rules_last_run_failed,
+                        describeComponent(fault.actionType.orEmpty()),
+                    )
+
+                    RuleFault.Kind.UNDECIDED -> stringResource(R.string.rules_last_run_undecided)
+
+                    RuleFault.Kind.COULD_NOT_START -> stringResource(R.string.rules_never_started)
+                }.uppercase(),
                 style = MaterialTheme.typography.labelMedium,
             )
             Text(
-                text = failure.reason,
+                text = fault.reason,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = 2.dp),
             )

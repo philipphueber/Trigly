@@ -89,12 +89,7 @@ class EngineService : Service() {
             registry = container.registry,
             scope = scope,
             onOutcome = ::report,
-            onStartFailure = { rule, cause ->
-                // The rule is stored and enabled but cannot be built — most
-                // likely config from an import this build does not understand.
-                // Logged rather than swallowed; the other rules keep running.
-                Log.w(TAG, "rule '${rule.name}' could not be started", cause)
-            },
+            onStartFailure = ::reportStartFailure,
             onSuppressed = ::reportSuppressed,
         )
 
@@ -150,6 +145,12 @@ class EngineService : Service() {
         }
 
         engine.sync(rules)
+        // A rule the engine is running is not a rule that failed to start, so an
+        // edit that fixes the config clears the report here rather than leaving
+        // it up until a trigger fires, which may be days. Narrow by design: see
+        // RuleFaultLog.started.
+        val faults = (application as TriglyApp).container.ruleFaults
+        engine.runningRuleIds.forEach(faults::started)
         hasRules = true
         notifications.notify(NOTIFICATION_ID, notification(summary()))
     }
@@ -173,12 +174,12 @@ class EngineService : Service() {
      *
      * The log line stays: logcat is still where a developer looks, and it is the
      * only record that survives the process. What is new is that a failure also
-     * reaches the screen, through [AppContainer.actionFailures]. Until now a
+     * reaches the screen, through [AppContainer.ruleFaults]. Until now a
      * rule whose trigger fired and whose action failed was indistinguishable, to
      * the person using it, from a rule whose trigger never fired.
      *
      * A success clears the rule's record, which is what stops a fixed rule
-     * carrying an accusation from an hour ago. [ActionFailureLog.succeeded]
+     * carrying an accusation from an hour ago. [RuleFaultLog.succeeded]
      * clears only a record belonging to the same action, so one failing action
      * among several is not erased by the ones that work.
      */
@@ -188,7 +189,7 @@ class EngineService : Service() {
         actionType: String,
         result: ActionResult,
     ) {
-        val failures = (application as TriglyApp).container.actionFailures
+        val failures = (application as TriglyApp).container.ruleFaults
         when (result) {
             is ActionResult.Failure -> {
                 Log.w(TAG, "rule '${rule.name}' on ${event.triggerType}: ${result.reason}")
@@ -290,6 +291,31 @@ class EngineService : Service() {
      * know where to go. The engine's own `Log.w` line stays the developer's
      * copy; this one is the user's.
      */
+    /**
+     * A rule that is stored, enabled, and was never built.
+     *
+     * Most likely config from an import a newer build wrote, or a component this
+     * build does not have. Still logged, because a stack trace is the
+     * developer's copy, and now also written where the person can read it. This
+     * was the last way a rule could do nothing and say nothing, and it is the
+     * worst of the three, because the rule shows as on while nothing at all is
+     * watching for it.
+     *
+     * The message quotes what the failure said, and falls back to naming the
+     * exception type when it said nothing. That reads badly and it reads better
+     * than an empty sentence: a factory refusing config explains itself, and one
+     * that throws something unexpected at least says what.
+     */
+    private fun reportStartFailure(rule: Rule, cause: Throwable) {
+        Log.w(TAG, "rule '${rule.name}' could not be started", cause)
+
+        val said = cause.message?.takeIf { it.isNotBlank() } ?: cause::class.simpleName.orEmpty()
+        (application as TriglyApp).container.ruleFaults.couldNotStart(
+            rule.id,
+            getString(R.string.rules_could_not_start, said),
+        )
+    }
+
     private fun reportSuppressed(
         rule: Rule,
         event: TriggerEvent,
@@ -302,7 +328,7 @@ class EngineService : Service() {
             .joinToString(", ")
 
         Log.w(TAG, "rule '${rule.name}' on ${event.triggerType}: no answer from $names")
-        (application as TriglyApp).container.actionFailures.couldNotDecide(
+        (application as TriglyApp).container.ruleFaults.couldNotDecide(
             rule.id,
             getString(R.string.rules_could_not_decide, names),
         )

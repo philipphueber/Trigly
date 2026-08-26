@@ -35,6 +35,15 @@
     -->
     <string name="rules_last_run_undecided">Last run stopped</string>
     <string name="rules_could_not_decide">Trigly could not read %1$s, so the rule did not run.</string>
+    <!--
+      The heading for a rule that was never built, so nothing is watching for
+      it. Not "failed" and not "stopped": both of those describe a run, and
+      there was no run. The body quotes what the failure said, because the
+      cause is nearly always one named component or one bad setting, and the
+      person can only act on it if they are told which.
+    -->
+    <string name="rules_never_started">Rule not started</string>
+    <string name="rules_could_not_start">Trigly could not build this rule, so nothing is watching for it. %1$s</string>
     <string name="requirement_grant">Grant</string>
     <string name="rules_search_label">Search</string>
     <!--
