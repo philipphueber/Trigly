@@ -201,6 +201,11 @@ class TriggerEngineTest {
                 )
             )
 
+            // The report comes after the retry budget, not on the first miss.
+            // A component that answers on a later try is the rule working late,
+            // so nothing is reported until every try has missed.
+            advanceTimeBy(UNREADABLE_RETRIES * UNREADABLE_RETRY_DELAY_MILLIS + 1)
+
             assertEquals(listOf(listOf(UNREADABLE_TYPE)), suppressed)
 
             engine.stop()

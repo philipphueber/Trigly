@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -94,7 +95,7 @@ class GateEngineTest {
         }
 
     @Test
-    fun `a leaf that throws when asked does not hold, and does not take the rule down`() =
+    fun `a leaf that throws when asked is asked again, and does not take the rule down`() =
         runTest(UnconfinedTestDispatcher()) {
             var calls = 0
             val h = conditionHarness(
@@ -108,11 +109,15 @@ class GateEngineTest {
 
             h.engine.startRule(h.rule)
 
-            // The first event's check threw and so did not fire; the second
-            // event's check held and did. Both firing would mean the throw was
-            // never caught; neither firing would mean it took the rule's job
-            // down with it.
-            assertEquals(listOf(2L), h.action.seen.map { it.firedAtMillis })
+            // Both events fire, and the first one is the point. Its check threw,
+            // the engine asked again, and the second ask answered yes, so the
+            // rule ran late rather than losing the event. This test asserted
+            // `[2]` before the retry existed, when one throw dropped an event
+            // for good. Neither event firing would still mean the throw took the
+            // rule's job down with it, which is the other half it guards.
+            advanceTimeBy(UNREADABLE_RETRY_DELAY_MILLIS + 1)
+
+            assertEquals(listOf(1L, 2L), h.action.seen.map { it.firedAtMillis })
             assertTrue(h.engine.runningRuleIds.contains(h.rule.id))
         }
 
