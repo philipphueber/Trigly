@@ -47,6 +47,7 @@ class RulesScreenTest {
     private var newRuleTaps = 0
     private var importTaps = 0
     private var savedValuesTaps = 0
+    private var savedValueCount = 0
     private val duplicated = mutableListOf<String>()
     private var batteryFixTaps = 0
 
@@ -81,6 +82,7 @@ class RulesScreenTest {
             onEditRule = { edited += it },
             onExportAll = { exported += "all" },
             onSavedValues = { savedValuesTaps++ },
+            savedValueCount = savedValueCount,
             onExportRule = { exported += it.id },
             onDuplicateRule = { duplicated += it.id },
             onImport = { importTaps++ },
@@ -405,9 +407,50 @@ class RulesScreenTest {
     fun saved_values_is_offered_even_with_no_rules() {
         composeRule.setContent { Screen(emptyList()) }
 
-        composeRule.onNodeWithText("SAVED VALUES").performClick()
+        composeRule.onNodeWithText("SAVED VALUES").performScrollTo().performClick()
 
         assertEquals(1, savedValuesTaps)
+    }
+
+    /**
+     * The header holds two actions and cannot hold a third. `BlockHeader` gives
+     * the title the remaining width and lays actions after it, so a third one
+     * does not wrap or collapse, it runs off the edge of the screen. That is
+     * what shipped in 0.0.9: "Saved values" reached the edge with the list
+     * empty, and "Export all" was pushed off entirely once there were rules.
+     *
+     * So the header is asserted to hold what it can hold, and no more. This is
+     * a count rather than a layout measurement on purpose: measuring pixels
+     * here would be the same trap the reorder test fell into, where a bounds
+     * comparison silently answered the wrong way round once a block grew.
+     */
+    @Test
+    fun the_header_offers_only_import_and_export() {
+        composeRule.setContent { Screen(listOf(RuleStatus(sampleRule, unmet = emptyList()))) }
+
+        composeRule.onNodeWithText("IMPORT").assertExists()
+        composeRule.onNodeWithText("EXPORT ALL").assertExists()
+        // Present on the screen, but as a row in the list rather than up there.
+        composeRule.onNodeWithText("SAVED VALUES").performScrollTo().assertExists()
+    }
+
+    /** The row says whether anything is stored, which a header button never could. */
+    @Test
+    fun the_saved_values_row_says_how_many_are_stored() {
+        savedValueCount = 2
+        composeRule.setContent { Screen(emptyList()) }
+
+        composeRule.onNodeWithText("2 values, shared with every rule").assertExists()
+    }
+
+    @Test
+    fun the_saved_values_row_says_when_nothing_is_stored() {
+        savedValueCount = 0
+        composeRule.setContent { Screen(emptyList()) }
+
+        composeRule
+            .onNodeWithText("Nothing saved yet", substring = true)
+            .assertExists()
     }
 
     @Test

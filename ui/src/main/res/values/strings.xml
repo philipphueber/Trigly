@@ -26,6 +26,12 @@
       them.
     -->
     <string name="rules_saved_values">Saved values</string>
+    <!-- Under the row that opens the saved values screen. -->
+    <string name="saved_values_entry_empty">Nothing saved yet. A rule can store a value here for any rule to read.</string>
+    <plurals name="saved_values_entry_count">
+        <item quantity="one">%1$d value, shared with every rule</item>
+        <item quantity="other">%1$d values, shared with every rule</item>
+    </plurals>
     <string name="rules_share">Share</string>
     <string name="rules_duplicate">Duplicate</string>
     <!--

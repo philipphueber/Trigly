@@ -28,6 +28,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import app.phueber.trigly.core.ComponentRequirement
@@ -55,12 +56,20 @@ fun RulesScreen(
     onEditRule: (String) -> Unit,
     onExportAll: () -> Unit,
     /**
-     * Opens the saved values screen. Reached from this header rather than from
+     * Opens the saved values screen. Reached from this screen rather than from
      * the rule editor, because a saved value belongs to no rule: any rule can
      * read it and any rule can write it, which is the same reason "export all"
-     * lives here and "share" lives on a rule.
+     * is here and "share" is on a rule.
      */
     onSavedValues: () -> Unit,
+    /**
+     * How many saved values exist, for the row that opens them.
+     *
+     * A count rather than nothing, because it is what earns the row its place:
+     * it answers "is anything stored" without opening anything, and it is how a
+     * person notices that a rule wrote a value while they were not looking.
+     */
+    savedValueCount: Int,
     onExportRule: (Rule) -> Unit,
     /** Saves a copy of the rule. See [RulesViewModel.duplicate]. */
     onDuplicateRule: (Rule) -> Unit = {},
@@ -91,14 +100,6 @@ fun RulesScreen(
             title = stringResource(R.string.rules_title),
             actions = {
                 BlockTextButton(stringResource(R.string.rules_import), onClick = onImport)
-                // Shown whatever the rule list holds, unlike export. A saved
-                // value can exist with no rules at all, and somebody arriving
-                // before their first rule is exactly who needs to find out what
-                // saved values are.
-                BlockTextButton(
-                    text = stringResource(R.string.rules_saved_values),
-                    onClick = onSavedValues,
-                )
                 // Export is pointless with nothing to export.
                 if (statuses.isNotEmpty()) {
                     BlockTextButton(
@@ -117,6 +118,8 @@ fun RulesScreen(
             ignoringBatteryOptimizations = ignoringBatteryOptimizations,
             onFix = onFixBatteryOptimization,
         )
+
+        SavedValuesEntry(count = savedValueCount, onOpen = onSavedValues)
 
         // Same reasoning as Export All above: search is pointless with nothing
         // to search, so it is hidden rather than offered disabled.
@@ -581,6 +584,53 @@ private fun BatteryOptimizationNotice(
                 Row(modifier = Modifier.padding(top = 8.dp)) {
                     BlockTextButton(stringResource(R.string.battery_optimization_action)) { onFix() }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * The way in to the saved values screen.
+ *
+ * **It used to be a third button in the header, and that broke the header.**
+ * `BlockHeader` gives the title the remaining width and lays the actions after
+ * it, so a third action does not wrap or collapse, it runs off the edge of the
+ * screen. "Saved values" is a long label next to "Import" and "Export all", and
+ * on a phone it reached the edge with the rule list still empty. With rules
+ * present, "Export all" appeared as well and was pushed off entirely.
+ *
+ * A row rather than an overflow menu, because a menu would have hidden Import
+ * and Export all to make room for the newcomer, which is a worse trade than
+ * spending a little vertical space. The row also does what a header button
+ * could not: it says how many values are stored, so a person learns that a rule
+ * wrote one without opening anything.
+ *
+ * Placed beside [BatteryOptimizationNotice] for the reason stated there: both
+ * are true of the whole screen rather than of any rule on it. Unlike search and
+ * "Export all", it is shown with no rules at all, because somebody who has not
+ * built a rule yet is exactly who needs to find out that saved values exist.
+ */
+@Composable
+private fun SavedValuesEntry(count: Int, onOpen: () -> Unit, modifier: Modifier = Modifier) {
+    Box(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        BlockCard(onClick = onOpen) {
+            // No trailing chevron. A rule's own row is a tappable block with
+            // nothing on its right either, and this is the same kind of thing.
+            Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                Text(
+                    text = stringResource(R.string.rules_saved_values).uppercase(),
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                Text(
+                    text = if (count == 0) {
+                        stringResource(R.string.saved_values_entry_empty)
+                    } else {
+                        pluralStringResource(R.plurals.saved_values_entry_count, count, count)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
             }
         }
     }
