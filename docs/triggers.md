@@ -26,9 +26,16 @@ individual triggers, because each one otherwise gets a private workaround.
 engine in a foreground service with an ongoing notification, started by
 `TriglyApp` when any rule is enabled and by `BootReceiver` after a reboot or an
 app update, and stopped by itself when no rule is enabled. Runtime-registered
-receivers now stay registered, which is what every Tier 1 broadcast trigger
-depends on. It is not absolute: a force-stop or an aggressive OEM battery
-manager still ends the process. See `docs/architecture.md`.
+receivers stay registered while it runs, which is what most Tier 1 broadcast
+triggers depend on. It is not absolute: a force-stop or an aggressive OEM
+battery manager still ends the process, and a runtime receiver ends with it.
+
+That is why `bluetooth_connected` no longer uses one. Its ingress is a manifest
+receiver, so the event arrives whether or not this service is alive, and the
+event itself brings the service back. See "The Bluetooth ingress" below. Any
+other trigger whose event can happen while the phone is idle wants the same
+treatment, and can only have it if its broadcast allows a manifest receiver.
+See `docs/architecture.md`.
 
 **2. ~~No scheduler.~~** *Done.* `AlarmScheduler` in `:core` is the port; the
 five places that used to wait with a coroutine `delay` now wait through it, so

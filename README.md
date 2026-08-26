@@ -16,17 +16,25 @@ Kotlin, and it uses Jetpack Compose for its UI.
 > their own version number, and each release reads what the release before it
 > wrote.
 >
-> Three limits to know before you install:
+> Four limits to know before you install:
 >
-> - **There is no scheduler yet.** A rule that waits for a time of day, a day of
->   the week, or the next sunrise is not reliable, because the wait is a
->   coroutine and Android stops it in Doze. See "Cross-cutting blockers" in
->   `docs/triggers.md`.
+> - **A wait can be late.** A rule that waits for a time or for the next sunrise
+>   uses Android's alarm service, so it survives a sleeping phone. It is not
+>   exact. Android sends an inexact alarm in its next maintenance window, so the
+>   rule can be some minutes late, and it can be later when the phone is in deep
+>   sleep.
 > - **Nothing tests the release build.** The tests cover the debug build. The
 >   release build shrinks and renames code, and no test exercises the result.
-> - **An OEM can end the engine.** A force stop, or an aggressive battery
->   manager, ends the process that watches your triggers. Trigly says when a
->   rule cannot start, and it cannot say when the system has stopped it.
+> - **Some triggers need Trigly to be running.** Android can stop an app that
+>   sits idle. Android starts Trigly again for a Bluetooth connect, for a
+>   notification, for an accessibility event and after a restart of the phone, so
+>   a rule on one of those works from a stopped app. Every other trigger needs
+>   Trigly to be running at the moment of the event. The rules screen asks you to
+>   let Trigly run when Android is free to stop it. Please allow this. Trigly
+>   cannot tell you that the system stopped it, because the report stops with it.
+> - **A force stop stops everything.** If you stop Trigly in Settings, no rule
+>   runs until you open Trigly again. Android cancels the alarms and holds back
+>   the messages of an app that a person stopped. No setting changes this.
 >
 > Report anything that surprises you. A rule that does nothing and says nothing
 > is the failure this app is designed against, so it is the most useful thing
@@ -251,12 +259,18 @@ it does do. Trigly states each limit here so you do not have to discover it
 yourself. Each missing function has a `TODO` comment at the relevant place
 in the code:
 
-- **Real scheduling.** Trigly has no scheduler. The interval trigger uses a
-  coroutine delay, and this delay does not survive Doze mode. The
-  sunrise/sunset trigger uses the same method, so it has the same weakness,
-  until Trigly builds a real scheduler. Without a real scheduler, Trigly
-  cannot build a time-of-day trigger or a calendar trigger at all. This is
-  currently the largest gap, and the next feature worth building.
+- **An exact time.** Trigly uses Android's alarm service for every wait now, so
+  the interval trigger and the sunrise/sunset trigger survive Doze mode. Neither
+  is exact. Trigly asks for an inexact alarm, which Android sends in its next
+  maintenance window, and those windows grow further apart the longer the phone
+  sleeps. An exact alarm needs a separate permission that Android keeps for
+  alarm clock apps. A time-of-day trigger and a calendar trigger are now
+  possible, and they are not built yet.
+- **Android can stop Trigly.** Some manufacturers stop an app that sits idle,
+  and a stopped app watches nothing. Trigly asks to be excused from battery
+  optimisation, and the rules screen says when Android can still stop it. A
+  Bluetooth connect starts Trigly again on its own, because Android delivers
+  that event to an app that is not running. Most events do not work that way.
 - **Geofencing and activity recognition.** These functions need Google Play
   Services. Trigly leaves them out on purpose, so the app works on a
   de-Googled device. The `location` trigger uses the plain Android platform
@@ -272,3 +286,11 @@ in the code:
   state form read no location data, and cannot fire or hold. Trigly now
   reports this: the rule shows the requirement, and the button opens the
   settings page that grants it.
+
+  Two things about a position read changed with this. A large area needs only
+  approximate location: from a radius of 3 km, Trigly asks for "Approximate" and
+  not for "Precise", because an approximate fix answers that question correctly.
+  And Trigly asks the cheapest source that can answer, then the next one, and
+  GPS last. GPS is the most exact source and it cannot answer inside a building,
+  which is where the question is usually asked. The cost is a coarser position,
+  and a fix too coarse for the area gives no answer at all rather than a guess.
