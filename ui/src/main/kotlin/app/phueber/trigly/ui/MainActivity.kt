@@ -36,6 +36,7 @@ import app.phueber.trigly.core.ComponentSpec
 import app.phueber.trigly.core.ControllerLivenessProbe
 import app.phueber.trigly.core.SpecialAccessKind
 import app.phueber.trigly.core.Rule
+import app.phueber.trigly.core.variableNameProblem
 
 class MainActivity : ComponentActivity() {
 
@@ -241,6 +242,10 @@ class MainActivity : ComponentActivity() {
                     onExportRule = ::shareSingle,
                     onDuplicateRule = listViewModel::duplicate,
                     onImport = { openDocument.launch(arrayOf("application/json", "text/*")) },
+                    // Both entries are about the whole rule set, not one rule,
+                    // which is why "Saved values" sits beside "Export all" in
+                    // the header rather than on any one rule's own row.
+                    onSavedValues = { onNavigate(Screen.SavedValues) },
                     describeComponent = container.registry::displayNameOf,
                     ignoringBatteryOptimizations = ignoringBatteryOptimizations,
                     onFixBatteryOptimization = ::requestIgnoreBatteryOptimizations,
@@ -253,7 +258,43 @@ class MainActivity : ComponentActivity() {
                     onDone = { onNavigate(Screen.RuleList) },
                 )
             }
+
+            Screen.SavedValues -> {
+                SavedValuesHost(onDone = { onNavigate(Screen.RuleList) })
+            }
         }
+    }
+
+    /**
+     * A single instance for the life of the activity, the same shape as
+     * [listViewModel]: unlike the editor, there is no per-rule draft to key on,
+     * so one ViewModel is what every visit to this screen shares.
+     */
+    @androidx.compose.runtime.Composable
+    private fun SavedValuesHost(onDone: () -> Unit) {
+        val savedValues: SavedValuesViewModel = viewModel(
+            factory = SavedValuesViewModel.factory(
+                variableStore = container.variableStore,
+                ruleRepository = container.ruleRepository,
+                substitutionsFor = container.registry::substitutionsFor,
+            ),
+        )
+        val state by savedValues.state.collectAsStateWithLifecycle()
+
+        SavedValuesScreen(
+            values = state.values,
+            // One ViewModel method for both: an edit is an ordinary write, with
+            // no ceremony beyond what adding a value already gets. See
+            // `SavedValuesViewModel.setValue`.
+            onAddValue = savedValues::setValue,
+            onEditValue = savedValues::setValue,
+            onDeleteValue = savedValues::delete,
+            // A pure function, not routed through the ViewModel: it is
+            // synchronous and side-effect free already, so there is nothing to
+            // wait for and no reason to round-trip a keystroke through state.
+            nameProblem = ::variableNameProblem,
+            onBack = onDone,
+        )
     }
 
     /**

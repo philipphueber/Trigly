@@ -19,6 +19,13 @@
     <string name="rules_new">New rule</string>
     <string name="rules_import">Import</string>
     <string name="rules_export_all">Export all</string>
+    <!--
+      The editor's variable picker calls this group "Saved, and shared with
+      every rule". This is that same phrase, shortened to a header entry, so
+      the two places that talk about app-scope variables agree on what to call
+      them.
+    -->
+    <string name="rules_saved_values">Saved values</string>
     <string name="rules_share">Share</string>
     <string name="rules_duplicate">Duplicate</string>
     <!--
