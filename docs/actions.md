@@ -463,6 +463,14 @@ further if real rules demand it. The chosen design is narrower than either end:
 no variables, no control flow, and conditions reuse the trigger catalogue rather
 than introducing a second component family. See `docs/conditions.md`.
 
+**The variable half now has its own document too: `docs/variables.md`.** It
+plans the first of the two ends above and stops there: a variable is a named
+string, there is no value type and no control flow, every trigger declares the
+payload it already emits, and an action reads one through a template in a field
+that declares it accepts one. It also records the seven paths that were weighed
+for reading a variable in an action, and why three of them are not the
+mechanism.
+
 ---
 
 ## Tier 2: remaining
@@ -552,5 +560,6 @@ and far more realistic option for rejecting calls.
 2. `open_settings_panel`, replacing the toggles that are no longer possible.
 3. An overlay *popup* action: the permission is already asked for; what is
    missing is a window that draws something.
-4. Conditions and payload substitution, per the design note above.
+4. Conditions and payload substitution, per `docs/conditions.md` and
+   `docs/variables.md`.
 5. Accessibility actions and call roles, after the distribution decision.
