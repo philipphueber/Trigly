@@ -35,7 +35,9 @@ class ListenerBindingTest {
         val connected = MutableStateFlow(false)
         var asked = 0
 
-        val job = launch { keepListenerBound(connected, { true }, { asked++ }, grace, retry) }
+        val job = launch {
+            keepListenerBound(connected, { true }, { asked++ }, FakeAlarmScheduler(), grace, retry)
+        }
 
         advanceTimeBy(grace / 2)
         connected.value = true
@@ -50,7 +52,9 @@ class ListenerBindingTest {
         val connected = MutableStateFlow(false)
         var asked = 0
 
-        val job = launch { keepListenerBound(connected, { true }, { asked++ }, grace, retry) }
+        val job = launch {
+            keepListenerBound(connected, { true }, { asked++ }, FakeAlarmScheduler(), grace, retry)
+        }
 
         advanceTimeBy(grace / 2)
         assertEquals("asked before the grace period was up", 0, asked)
@@ -67,7 +71,9 @@ class ListenerBindingTest {
         val connected = MutableStateFlow(false)
         var asked = 0
 
-        val job = launch { keepListenerBound(connected, { true }, { asked++ }, grace, retry) }
+        val job = launch {
+            keepListenerBound(connected, { true }, { asked++ }, FakeAlarmScheduler(), grace, retry)
+        }
 
         advanceTimeBy(grace + retry * 3 + 1)
 
@@ -84,7 +90,9 @@ class ListenerBindingTest {
         val connected = MutableStateFlow(false)
         var asked = 0
 
-        val job = launch { keepListenerBound(connected, { true }, { asked++ }, grace, retry) }
+        val job = launch {
+            keepListenerBound(connected, { true }, { asked++ }, FakeAlarmScheduler(), grace, retry)
+        }
 
         advanceTimeBy(grace + 1)
         assertEquals(1, asked)
@@ -106,7 +114,9 @@ class ListenerBindingTest {
         val connected = MutableStateFlow(false)
         var asked = 0
 
-        val job = launch { keepListenerBound(connected, { false }, { asked++ }, grace, retry) }
+        val job = launch {
+            keepListenerBound(connected, { false }, { asked++ }, FakeAlarmScheduler(), grace, retry)
+        }
 
         advanceTimeBy(grace + retry * 5)
 
@@ -125,7 +135,9 @@ class ListenerBindingTest {
         var granted = false
         var asked = 0
 
-        val job = launch { keepListenerBound(connected, { granted }, { asked++ }, grace, retry) }
+        val job = launch {
+            keepListenerBound(connected, { granted }, { asked++ }, FakeAlarmScheduler(), grace, retry)
+        }
 
         advanceTimeBy(grace + retry)
         assertEquals(0, asked)

@@ -3,12 +3,14 @@ package app.phueber.trigly.ui
 import android.app.Application
 import android.content.Context
 import app.phueber.trigly.actions.actionFactories
+import app.phueber.trigly.core.AlarmScheduler
 import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.Registry
 import app.phueber.trigly.core.RequirementChecker
 import app.phueber.trigly.core.RuleRepository
 import app.phueber.trigly.core.UiController
 import app.phueber.trigly.core.storage.ruleRepository
+import app.phueber.trigly.triggers.AlarmManagerScheduler
 import app.phueber.trigly.triggers.accessibility.ServiceUiController
 import app.phueber.trigly.triggers.notification.ListenerNotificationController
 import app.phueber.trigly.triggers.triggerFactories
@@ -94,6 +96,17 @@ class AppContainer(context: Context) {
     val ui: UiController = ServiceUiController()
 
     /**
+     * The wake-up every wall-clock or poll-based trigger waits through
+     * instead of a plain coroutine `delay`, so the wait survives Doze. See
+     * `app.phueber.trigly.core.AlarmScheduler` and `docs/todo.md`'s T1.
+     *
+     * Wired here for the same reason [notifications] and [ui] are: this is
+     * the one place that can see both the port in `:core` and its Android
+     * implementation in `:triggers`.
+     */
+    val scheduler: AlarmScheduler = AlarmManagerScheduler(context)
+
+    /**
      * What an action said when it last failed, per rule.
      *
      * Lives here because it has two ends in different places: `EngineService`
@@ -115,7 +128,7 @@ class AppContainer(context: Context) {
     val ruleRepository: RuleRepository = ruleRepository(context)
 
     val registry: Registry = Registry(
-        triggerFactories = triggerFactories(context),
+        triggerFactories = triggerFactories(context, scheduler),
         actionFactories = actionFactories(context, notifications, ui, ruleRepository),
     )
 

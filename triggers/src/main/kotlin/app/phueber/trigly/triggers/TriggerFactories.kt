@@ -1,6 +1,7 @@
 package app.phueber.trigly.triggers
 
 import android.content.Context
+import app.phueber.trigly.core.AlarmScheduler
 import app.phueber.trigly.core.TriggerFactory
 import app.phueber.trigly.triggers.accessibility.KeyboardVisibilityTriggerFactory
 import app.phueber.trigly.triggers.accessibility.ScreenContentTriggerFactory
@@ -24,20 +25,26 @@ import app.phueber.trigly.triggers.notification.NotificationWatchdogTriggerFacto
  *
  * `docs/triggers.md` catalogues the triggers still to be built, each with its
  * API, permission and known pitfalls.
+ *
+ * @param scheduler the port every wall-clock or poll-based trigger below
+ *   waits through instead of a plain coroutine `delay`, so its wait survives
+ *   Doze. See `app.phueber.trigly.core.AlarmScheduler` and `docs/todo.md`'s
+ *   T1.
  */
-fun triggerFactories(context: Context): List<TriggerFactory> = listOf(
+fun triggerFactories(context: Context, scheduler: AlarmScheduler): List<TriggerFactory> = listOf(
     // Time
-    IntervalTriggerFactory(),
-    SolarTriggerFactory(),
+    IntervalTriggerFactory(scheduler),
+    SolarTriggerFactory(scheduler),
 
     // Condition only — no event stream, so it can never start a rule. It lives in
     // this list anyway because a condition *is* a trigger, asked rather than
     // watched; the editor decides which slots to offer it in from
     // `supportsCondition`. See `docs/conditions.md`.
     //
-    // It is the *exception*: there is no time trigger to fold it into, because the
-    // scheduler does not exist. Everything else that can be asked is a passive
-    // form of a trigger that already existed — the location check folded into
+    // It is the *exception*: there is no time trigger to fold it into, because
+    // nobody has built a time-of-day trigger yet, even though `scheduler` above
+    // could now back one. Everything else that can be asked is a passive form
+    // of a trigger that already existed — the location check folded into
     // `location` rather than standing beside it, which is what "one component,
     // the slot decides the question" means.
     TimeWindowCheckFactory(),
@@ -72,12 +79,12 @@ fun triggerFactories(context: Context): List<TriggerFactory> = listOf(
     PackageChangeTriggerFactory(context),
     WorkProfileTriggerFactory(context),
     AutoSyncTriggerFactory(),
-    AppForegroundTriggerFactory(context),
+    AppForegroundTriggerFactory(context, scheduler),
 
     // Notification access
     NotificationPostedTriggerFactory(),
     DndModeTriggerFactory(),
-    NotificationWatchdogTriggerFactory(),
+    NotificationWatchdogTriggerFactory(scheduler),
 
     // Accessibility access — the most invasive grant Trigly asks for
     UiClickTriggerFactory(),
