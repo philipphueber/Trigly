@@ -7,13 +7,19 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import app.phueber.trigly.core.ActionResult
+import app.phueber.trigly.core.ComponentSpec
 import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.TriggerEngine
 import app.phueber.trigly.core.TriggerEvent
+import app.phueber.trigly.triggers.notification.keepNotificationListenerBound
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -77,7 +83,7 @@ class EngineService : Service() {
         // us five seconds to become a foreground service, and missing that window
         // is a ForegroundServiceDidNotStartInTimeException, not a warning.
         createChannel()
-        startForeground(NOTIFICATION_ID, notification(getString(R.string.engine_starting)))
+        goForeground(notification(getString(R.string.engine_starting)))
 
         engine = TriggerEngine(
             registry = container.registry,
@@ -89,11 +95,19 @@ class EngineService : Service() {
                 // Logged rather than swallowed; the other rules keep running.
                 Log.w(TAG, "rule '${rule.name}' could not be started", cause)
             },
+            onSuppressed = ::reportSuppressed,
         )
 
         scope.launch {
             container.ruleRepository.rules().collect(::applyRules)
         }
+
+        // The notification listener can come back unbound, most reliably after
+        // an app update, and nothing tells this process that it did. The engine
+        // would then run every rule and report itself as watching while every
+        // notification rule was dead. Tied to the engine's scope because the
+        // binding matters exactly as long as there are rules to run.
+        scope.launch { keepNotificationListenerBound(this@EngineService) }
     }
 
     /**
@@ -108,7 +122,15 @@ class EngineService : Service() {
         // refused, so the grant arrives long after the only notify() call — and
         // without this the service would keep running invisibly until the next
         // rule edit.
-        if (hasRules) notifications.notify(NOTIFICATION_ID, notification(summary()))
+        //
+        // Through `startForeground` rather than `notify`, because this is also
+        // the only moment the service can re-claim its foreground types. The
+        // types are fixed when they are claimed, a location grant usually
+        // arrives long after `onCreate`, and `MainActivity` pokes the service
+        // after every grant. Without this the engine would keep running as
+        // `specialUse` alone until something restarted it, and the area check
+        // would keep failing after the user did exactly what was asked.
+        if (hasRules) goForeground(notification(summary()))
         return START_STICKY
     }
 
@@ -178,6 +200,115 @@ class EngineService : Service() {
     }
 
     /**
+     * Becomes a foreground service, or re-posts as one.
+     *
+     * **Why the version branch, and it is not belt-and-braces.** Below API 34
+     * the untyped call is the only safe one. It claims whatever the manifest
+     * declares, which is what this service did before location entered the
+     * picture and is still right there: nothing under 34 enforces a permission
+     * per type, so claiming `location` costs nothing when it is not granted and
+     * grants the position read when it is.
+     *
+     * Naming the types there would be actively wrong. `FOREGROUND_SERVICE_TYPE_SPECIAL_USE`
+     * arrived in API 34, so on an API 30 device it is a bit the platform does
+     * not know, the passed value is then not a subset of the declared types, and
+     * `startForeground` throws `IllegalArgumentException`. That is the engine
+     * failing to start at all, on every device below 34, to serve a check only
+     * devices above 34 perform. `minSdk` is 26 and one of the two gate devices
+     * is API 30, so this is a live path and not a hypothetical one.
+     *
+     * From API 34 the types must be named, because that is where claiming one
+     * the app has no permission for throws instead. See [foregroundTypes].
+     */
+    private fun goForeground(notification: Notification) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, foregroundTypes())
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+    }
+
+    /**
+     * Which foreground service types this instance claims.
+     *
+     * Only ever called from API 34 up; see [goForeground] for why naming types
+     * below that would break the service instead of protecting it.
+     *
+     * **Why this is computed and not simply read from the manifest.** The
+     * manifest declares `specialUse|location`, and the no-type `startForeground`
+     * claims everything declared. From API 34 that throws for a type the app
+     * holds no permission for, so an engine that claimed `location` on a device
+     * where the user never granted location would die at startup. Every rule
+     * would stop, to fix a location rule that person does not have.
+     *
+     * So `location` is claimed only when it can be. `specialUse` is always
+     * there, which keeps the service legal on its own terms whatever the
+     * location answer is.
+     *
+     * **What claiming it buys.** The fine-location grant alone is "while in
+     * use": a position read answers while an activity is on screen, and returns
+     * nothing when it is not. The engine is off screen almost always, which is
+     * why `location_check` inside an AND answered "I cannot look" and the rule
+     * was silently dropped. A foreground service of type `location` is what
+     * makes the engine count as in use for that read.
+     *
+     * It is half of the fix and not all of it. Since Android 12 a foreground
+     * service started while the app was in the background loses while-in-use
+     * access for the whole life of that instance, whatever type it claims, and
+     * `BOOT_COMPLETED` is such a start. `ACCESS_BACKGROUND_LOCATION` is the
+     * other half and is what survives a reboot; see the `:triggers` manifest.
+     */
+    private fun foregroundTypes(): Int {
+        var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+        if (hasLocationGrant()) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+        return types
+    }
+
+    /**
+     * Coarse counts, not only fine. The platform accepts either for the
+     * `location` service type, and refusing to claim the type on a coarse-only
+     * grant would deny a position to a rule the platform would have answered.
+     */
+    private fun hasLocationGrant(): Boolean = LOCATION_PERMISSIONS.any {
+        checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED
+    }
+
+    /**
+     * A rule that fired and then ran nothing, because part of its trigger could
+     * not say whether it held.
+     *
+     * **The hole this closes.** An ALL group asks every leaf it did not fire on
+     * for a state, and a leaf that cannot answer does not satisfy the group, on
+     * purpose: running unattended actions on a guess is the worse failure. But
+     * the rule was then dropped in silence, and on screen that is identical to
+     * the condition answering a plain no. "I am at home and it did not run"
+     * had no cause the app could name, and the area check reading no position
+     * in the background is exactly that case.
+     *
+     * Names the components rather than counting them, because the fix is
+     * specific to which one could not look, and a person reading this has to
+     * know where to go. The engine's own `Log.w` line stays the developer's
+     * copy; this one is the user's.
+     */
+    private fun reportSuppressed(
+        rule: Rule,
+        event: TriggerEvent,
+        unreadable: List<ComponentSpec>,
+    ) {
+        val registry = (application as TriglyApp).container.registry
+        val names = unreadable
+            .map { registry.displayNameOf(it.type) }
+            .distinct()
+            .joinToString(", ")
+
+        Log.w(TAG, "rule '${rule.name}' on ${event.triggerType}: no answer from $names")
+        (application as TriglyApp).container.actionFailures.couldNotDecide(
+            rule.id,
+            getString(R.string.rules_could_not_decide, names),
+        )
+    }
+
+    /**
      * `IMPORTANCE_LOW`: the notification has to exist, but it is a status line,
      * not news. Low keeps it silent and out of the heads-up area while leaving
      * it visible in the shade, which is the honest middle — importance `MIN`
@@ -219,6 +350,12 @@ class EngineService : Service() {
         private const val TAG = "Trigly"
         private const val CHANNEL_ID = "trigly_engine"
         private const val NOTIFICATION_ID = 1
+
+        /** Either of these satisfies the platform for the `location` type. */
+        private val LOCATION_PERMISSIONS = listOf(
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION,
+        )
 
         /**
          * Starts the engine, or does nothing if it is already running.

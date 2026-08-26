@@ -495,7 +495,11 @@ class MainActivity : ComponentActivity() {
     private fun resolve(requirement: ComponentRequirement) {
         when (requirement) {
             is ComponentRequirement.RuntimePermission ->
-                requestPermission.launch(requirement.permission)
+                if (needsSettingsToGrant(requirement.permission)) {
+                    openAppDetails()
+                } else {
+                    requestPermission.launch(requirement.permission)
+                }
 
             is ComponentRequirement.SpecialAccess ->
                 openSettings(requirement.kind)
@@ -503,6 +507,39 @@ class MainActivity : ComponentActivity() {
             // Not resolvable; the UI does not offer a button for these.
             else -> Unit
         }
+    }
+
+    /**
+     * Whether a runtime permission can only be granted in settings.
+     *
+     * True for exactly one permission, and the platform is what makes it a
+     * special case. From Android 11 `ACCESS_BACKGROUND_LOCATION` may not be
+     * asked for in a dialog: the request returns denied at once, no dialog is
+     * drawn, and nothing distinguishes that from the user saying no. A Grant
+     * button that quietly does nothing is worse than no button, so the tap goes
+     * to the screen that can actually grant it. On Android 10 the dialog does
+     * work and is the shorter road, which is why this is a version test and not
+     * a flat rule.
+     *
+     * Kept as a question about a permission rather than a branch inside
+     * [resolve], so the reason lives with the fact instead of in the caller.
+     */
+    private fun needsSettingsToGrant(permission: String): Boolean =
+        permission == Manifest.permission.ACCESS_BACKGROUND_LOCATION &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+
+    /**
+     * This app's own row in system settings, where "Allow all the time" lives.
+     *
+     * Always resolvable, unlike the screens [openSettings] handles: every
+     * Android build ships app details, so there is no fallback to write.
+     */
+    private fun openAppDetails() {
+        startActivity(
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                .setData("package:$packageName".toUri())
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
     }
 
     private fun openSettings(kind: SpecialAccessKind) {

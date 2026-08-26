@@ -27,6 +27,14 @@
       line, in the action's own words.
     -->
     <string name="rules_last_run_failed">Last run failed: %1$s</string>
+    <!--
+      The heading for a rule that fired and then ran nothing, because part of
+      its trigger could not say whether it held. Not "failed": nothing ran, so
+      there is no action to blame. The body names the components that could not
+      answer and says what that leaves unknown.
+    -->
+    <string name="rules_last_run_undecided">Last run stopped</string>
+    <string name="rules_could_not_decide">Trigly could not read %1$s, so the rule did not run.</string>
     <string name="requirement_grant">Grant</string>
     <string name="rules_search_label">Search</string>
     <!--

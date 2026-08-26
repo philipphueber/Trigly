@@ -299,6 +299,31 @@ cannot support. A rule that still fails will fail again and say so again.
 Persisting it would also mean a schema migration for something no rule depends
 on.
 
+#### The third case: a rule that never reached an action
+
+`onOutcome` covers a rule whose action failed. It cannot cover a rule that was
+dropped *before* any action ran, and that is a real case with its own cause: an
+`ALL` group asks every leaf it did not fire on for a state, and a leaf that
+cannot answer does not satisfy the group. Deliberately so, since running
+unattended actions on a guess is the worse failure. But the rule was then
+dropped in silence, and on screen that is identical to the condition answering a
+plain no. "I am at home and it did not run" had no cause the app could name.
+
+`TriggerEngine.onSuppressed` is that third hook. `StateReader` reads the leaf
+states for one evaluation and remembers which of them answered null, so the
+engine can tell a rule held back by a "no" from one held back by a component
+that could not look. Only the second is reported; reporting the first would
+accuse every rule with a condition in it each time the condition was simply
+false. `EngineService` names the components through `Registry.displayNameOf` and
+writes the sentence to the same `ActionFailureLog`, where an entry with no
+action type renders as "Last run stopped" rather than "Last run failed": nothing
+ran, so there is no action to blame. Any action later succeeding clears it,
+whichever action that was, because a rule that ran proves the record stale.
+
+The case that produced it is the area check reading no position in the
+background, which is fixed above. The hook stays because the shape is general:
+any condition that cannot answer now says so.
+
 **A success clears the record only for the same action.** Two actions, the first
 failing and the second working, is a rule doing half its job. An unguarded clear
 would erase the failure a moment after recording it and report the rule as
@@ -760,6 +785,29 @@ caps at six hours a day, which would stop the engine every evening. `specialUse`
 carries no timeout; its price is a subtype string that Google reviews before a
 Play release, which is a fair price for saying what the service actually is.
 
+**`location` is the second type, and it is a capability rather than a
+description.** The manifest declares `specialUse|location`, but the service
+claims the types at runtime through `ServiceCompat.startForeground` and adds
+`location` only when a location permission is held. That is not tidiness: from
+API 34 `startForeground` throws for a declared type the app has no permission
+for, so an engine that always claimed `location` would die at startup on any
+device where the user never granted location, stopping every rule to serve a
+location rule that person does not have.
+
+What claiming it buys is a position read that answers while the app is off
+screen. The fine-location grant alone is "while in use", which means a read
+answers while an activity is visible and returns nothing otherwise, and the
+engine is off screen almost always. Without the type, `location_check` inside an
+`ALL` group answered "I cannot look" every time, the group did not hold, and the
+rule was dropped with nothing recorded anywhere. The types are re-claimed in
+`onStartCommand` as well, because a grant usually arrives long after `onCreate`
+and `MainActivity` pokes the service after every grant.
+
+It is half the fix. Since Android 12 a foreground service started while the app
+was in the background loses while-in-use access for the whole life of that
+instance whatever type it claims, and `BOOT_COMPLETED` is such a start.
+`ACCESS_BACKGROUND_LOCATION` is the other half and is what survives a reboot.
+
 **Starting is the app's job; stopping is the service's.** `TriglyApp` collects
 the rule store and starts the service whenever any rule is enabled;
 `EngineService` stops itself when none is. Splitting it that way means neither
@@ -816,6 +864,44 @@ hundreds and losing stale UI events is better than losing the service.
 Each bus also exposes whether its service is connected. A trigger whose service
 is not bound is not quiet, it is broken, and that difference has to be
 expressible.
+
+#### Getting the notification listener back
+
+That connected flag has a second job, and it is the one that made the difference
+matter. The system owns the listener's lifetime and does not always give it
+back: a process killed by an OEM battery manager, and an app update most
+reliably of all, can leave the listener unbound while everything else recovers.
+`START_STICKY` returns `EngineService`, the engine starts every rule, the
+ongoing notification says it is watching, and `RequirementChecker` still reports
+notification access as granted, because the secure setting it reads is still
+set. Nothing is bound, so `NotificationEvents.posted` never emits and every
+notification rule is dead with three separate things claiming otherwise.
+
+There is no callback for this. `onListenerDisconnected` reaches the process that
+was told, and the process that would have been told is the one that died.
+`NotificationListenerService.requestRebind` is static for exactly that reason: a
+process holding no binding at all can still ask for one.
+
+`keepListenerBound` is the fallback, running for as long as the engine does. It
+watches the connected flag through `collectLatest`, waits out a grace period
+before asking, and asks again on a long interval while nothing binds. Three
+decisions in it:
+
+- **The grace period is not politeness.** A fresh process starts with nothing
+  bound and the system binds it moments later, so asking on sight would mean
+  asking on every app start, and `requestRebind` unbinds before it rebinds. The
+  normal path would pay a gap it did not need.
+- **`collectLatest`, so a binding cancels the retry loop** rather than leaving it
+  to notice on its next tick. The healthy case costs one cancelled `delay`.
+- **It watches the flag rather than calling from `onListenerDisconnected`.** That
+  callback covers only the case that was already recoverable. One mechanism with
+  one grace period covers both, and cannot make a disconnect-request-disconnect
+  loop.
+
+What it cannot see: a service destroyed without `onListenerDisconnected` being
+delivered leaves the flag reading true. Nothing observable separates that from a
+healthy binding without a binder call on a timer, which would spend every user's
+battery on a case the platform is not documented to produce.
 
 Actions reach those services the other way round, through a port in `:core` that
 `:triggers` implements over the live service, `NotificationController` for the

@@ -433,8 +433,8 @@ the elapsed-time callback.
 | App came to foreground | `app_foreground` | Usage access |
 | Call incoming/outgoing/answered/ended/missed | `call_state` | `READ_PHONE_STATE`, API 31+ |
 | SMS received | `sms_received` | `RECEIVE_SMS`, Play-restricted |
-| Entered/left an area *(and, as a condition, currently in it)* | `location` | `ACCESS_FINE_LOCATION` |
-| In an area, checked and never watched | `location_check` | `ACCESS_FINE_LOCATION` |
+| Entered/left an area *(and, as a condition, currently in it)* | `location` | `ACCESS_FINE_LOCATION`, plus `ACCESS_BACKGROUND_LOCATION` from API 29 |
+| In an area, checked and never watched | `location_check` | `ACCESS_FINE_LOCATION`, plus `ACCESS_BACKGROUND_LOCATION` from API 29 |
 | Work profile available/unavailable | `work_profile` | None |
 | Auto-sync changed | `auto_sync` | None |
 | Clipboard changed | `clipboard_changed` | Platform-restricted |
@@ -593,7 +593,10 @@ building this.**
 `FusedLocationProviderClient` and the Geofencing API from
 `play-services-location`, a Google Play services dependency, which matters if
 Trigly targets de-Googled devices. Needs `ACCESS_FINE_LOCATION` plus
-`ACCESS_BACKGROUND_LOCATION` (its own separate dialog, and a Play review form).
+`ACCESS_BACKGROUND_LOCATION`, which the app already holds for the platform
+location component. Note that from Android 11 the background grant has no
+dialog: a request returns denied at once, and only the app's settings page can
+grant it. It is also a Play review form.
 Geofences cap at 100 per app and are dropped on reboot, so re-register on boot.
 
 ### Clipboard changed
