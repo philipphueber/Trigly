@@ -113,13 +113,22 @@
           held; see `EngineService.foregroundTypes`.
 
           specialUse, and there is no honest alternative. The catalogue of
-          foreground service types describes what the service is *doing* —
-          playing media, syncing data, tracking a location — and general-purpose
+          foreground service types describes what the service is *doing*:
+          playing media, syncing data, tracking a location. General-purpose
           automation is none of them. dataSync is the tempting mislabel and is
           also the one Android 15 caps at six hours a day, which would stop the
           engine every evening. specialUse carries no timeout; the price is that
           Google reviews the subtype string below before a Play release, which
           is a fair price for saying what the service actually is.
+
+          The subtype string names the events that do *not* need this service,
+          and it has to. It used to say that Trigly's triggers reach only a live
+          process, full stop. That was true when it was written and it is not
+          true now: a Bluetooth connect reaches a manifest receiver and starts
+          the app, which is the whole reason that trigger works from an idle
+          phone. A justification that overstates its case is worth less than one
+          that states the exception, both to a reviewer and to the next person
+          who reads it here.
         -->
         <service
             android:name=".EngineService"
@@ -127,7 +136,7 @@
             android:foregroundServiceType="specialUse|location">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Runs the user's own automation rules. Trigly's triggers are system broadcasts and framework callbacks that are only delivered to a live process, so the rules the user enabled cannot fire unless the app keeps running." />
+                android:value="Runs the user's own automation rules. Most of Trigly's triggers are system broadcasts and framework callbacks that Android delivers only to a running process, such as a screen, power, radio or call state change. A rule on one of those cannot fire unless this service keeps the process alive. The few events that can start the app by themselves already do, through a manifest receiver or a service the system binds: a device restart, an app update, a shortcut tap, a Bluetooth device connecting or disconnecting, a notification, and an accessibility event. This service exists for the rest." />
         </service>
 
         <!--
