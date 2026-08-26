@@ -5,6 +5,8 @@ import android.content.Intent
 import android.location.LocationManager
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.core.VariableKind
+import app.phueber.trigly.core.VariableSpec
 
 /**
  * Fires when GPS (the device location toggle) is switched on or off.
@@ -63,6 +65,16 @@ class GpsProviderTriggerFactory(private val context: Context) : TriggerFactory {
     )
 
     override val supportsCondition = true
+
+    override val variables = listOf(
+        VariableSpec(
+            key = GpsProviderTrigger.PAYLOAD_STATE,
+            label = "State",
+            kind = VariableKind.STATE,
+            sample = GpsProviderTrigger.ENABLED,
+            help = "One of '${GpsProviderTrigger.ENABLED}' or '${GpsProviderTrigger.DISABLED}'.",
+        ),
+    )
 
     override fun create(config: Map<String, String>): Trigger = GpsProviderTrigger(
         context = context,

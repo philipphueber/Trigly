@@ -8,6 +8,8 @@ import app.phueber.trigly.core.TextFilter
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.core.VariableKind
+import app.phueber.trigly.core.VariableSpec
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -96,6 +98,15 @@ class ClipboardTriggerFactory(private val context: Context) : TriggerFactory {
                 "three cases. The app is in the foreground. The app is the " +
                 "default keyboard. The app is an accessibility service. Turn on " +
                 "Trigly's accessibility service, or this trigger will not fire."
+        ),
+    )
+
+    override val variables = listOf(
+        VariableSpec(
+            key = ClipboardTrigger.PAYLOAD_TEXT,
+            label = "Clipboard text",
+            kind = VariableKind.TEXT,
+            sample = "https://example.com",
         ),
     )
 

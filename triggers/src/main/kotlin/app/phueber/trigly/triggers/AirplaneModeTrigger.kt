@@ -5,6 +5,8 @@ import android.content.Intent
 import android.provider.Settings
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.core.VariableKind
+import app.phueber.trigly.core.VariableSpec
 
 /** Fires when airplane mode is switched on or off. */
 class AirplaneModeTrigger(
@@ -55,6 +57,16 @@ class AirplaneModeTriggerFactory(private val context: Context) : TriggerFactory 
     )
 
     override val supportsCondition = true
+
+    override val variables = listOf(
+        VariableSpec(
+            key = AirplaneModeTrigger.PAYLOAD_STATE,
+            label = "State",
+            kind = VariableKind.STATE,
+            sample = AirplaneModeTrigger.ENABLED,
+            help = "One of '${AirplaneModeTrigger.ENABLED}' or '${AirplaneModeTrigger.DISABLED}'.",
+        ),
+    )
 
     override fun create(config: Map<String, String>): Trigger = AirplaneModeTrigger(
         context = context,

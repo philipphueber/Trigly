@@ -9,6 +9,8 @@ import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.TextFilter
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.core.VariableKind
+import app.phueber.trigly.core.VariableSpec
 
 /** Pure, so the filter semantics are tested without a radio. */
 fun matchesSms(
@@ -96,6 +98,23 @@ class SmsReceivedTriggerFactory(private val context: Context) : TriggerFactory {
         ComponentRequirement.PolicyRestricted(
             "Google Play restricts SMS access to the device's default SMS app. " +
                 "This trigger cannot ship in a Play build."
+        ),
+    )
+
+    override val variables = listOf(
+        VariableSpec(
+            key = SmsReceivedTrigger.PAYLOAD_SENDER,
+            label = "Sender",
+            kind = VariableKind.TEXT,
+            sample = "+49 170 1234567",
+            help = "Absent when the platform does not report an originating address.",
+            alwaysPresent = false,
+        ),
+        VariableSpec(
+            key = SmsReceivedTrigger.PAYLOAD_BODY,
+            label = "Message",
+            kind = VariableKind.TEXT,
+            sample = "Your package has been delivered.",
         ),
     )
 

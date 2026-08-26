@@ -7,6 +7,8 @@ import android.os.BatteryManager
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.core.VariableKind
+import app.phueber.trigly.core.VariableSpec
 
 /**
  * `ACTION_BATTERY_CHANGED` is sticky and very chatty — it fires whenever any
@@ -106,6 +108,16 @@ class BatteryLevelTriggerFactory(private val context: Context) : TriggerFactory 
     )
 
     override val supportsCondition = true
+
+    override val variables = listOf(
+        VariableSpec(
+            key = BatteryLevelTrigger.PAYLOAD_LEVEL,
+            label = "Battery level",
+            kind = VariableKind.NUMBER,
+            sample = "87",
+            help = "A percentage, 0 to 100.",
+        ),
+    )
 }
 
 class BatteryTemperatureTrigger(
@@ -183,6 +195,16 @@ class BatteryTemperatureTriggerFactory(private val context: Context) : TriggerFa
     )
 
     override val supportsCondition = true
+
+    override val variables = listOf(
+        VariableSpec(
+            key = BatteryTemperatureTrigger.PAYLOAD_TEMPERATURE_C,
+            label = "Battery temperature",
+            kind = VariableKind.NUMBER,
+            sample = "31.5",
+            help = "Degrees Celsius.",
+        ),
+    )
 }
 
 /**
@@ -310,4 +332,14 @@ class ChargingTypeTriggerFactory(private val context: Context) : TriggerFactory 
     )
 
     override val supportsCondition = true
+
+    override val variables = listOf(
+        VariableSpec(
+            key = ChargingTypeTrigger.PAYLOAD_SOURCE,
+            label = "Charger type",
+            kind = VariableKind.STATE,
+            sample = ChargingSource.AC.configValue,
+            help = "One of ${ChargingSource.entries.joinToString { "'${it.configValue}'" }}.",
+        ),
+    )
 }

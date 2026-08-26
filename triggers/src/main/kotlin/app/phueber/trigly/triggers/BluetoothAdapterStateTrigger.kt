@@ -8,6 +8,8 @@ import android.content.Intent
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.core.VariableKind
+import app.phueber.trigly.core.VariableSpec
 
 /**
  * Fires when the Bluetooth radio is turned on or off.
@@ -72,6 +74,17 @@ class BluetoothAdapterStateTriggerFactory(private val context: Context) : Trigge
     )
 
     override val supportsCondition = true
+
+    override val variables = listOf(
+        VariableSpec(
+            key = BluetoothAdapterStateTrigger.PAYLOAD_STATE,
+            label = "State",
+            kind = VariableKind.STATE,
+            sample = BluetoothAdapterStateTrigger.ENABLED,
+            help = "One of '${BluetoothAdapterStateTrigger.ENABLED}' or " +
+                "'${BluetoothAdapterStateTrigger.DISABLED}'.",
+        ),
+    )
 
     override fun create(config: Map<String, String>): Trigger = BluetoothAdapterStateTrigger(
         context = context,

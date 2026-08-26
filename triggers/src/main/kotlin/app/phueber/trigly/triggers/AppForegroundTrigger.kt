@@ -14,6 +14,8 @@ import app.phueber.trigly.core.DurationUnit
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.core.VariableKind
+import app.phueber.trigly.core.VariableSpec
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
@@ -179,6 +181,15 @@ class AppForegroundTriggerFactory(
     )
 
     override val supportsCondition = true
+
+    override val variables = listOf(
+        VariableSpec(
+            key = AppForegroundTrigger.PAYLOAD_PACKAGE,
+            label = "Package",
+            kind = VariableKind.PACKAGE,
+            sample = "com.example.app",
+        ),
+    )
 
     override fun create(config: Map<String, String>): Trigger = AppForegroundTrigger(
         context = context,

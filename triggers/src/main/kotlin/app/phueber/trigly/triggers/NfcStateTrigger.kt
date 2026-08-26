@@ -7,6 +7,8 @@ import android.nfc.NfcAdapter
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.core.VariableKind
+import app.phueber.trigly.core.VariableSpec
 
 /**
  * Fires when NFC is turned on or off.
@@ -78,6 +80,16 @@ class NfcStateTriggerFactory(private val context: Context) : TriggerFactory {
     )
 
     override val supportsCondition = true
+
+    override val variables = listOf(
+        VariableSpec(
+            key = NfcStateTrigger.PAYLOAD_STATE,
+            label = "State",
+            kind = VariableKind.STATE,
+            sample = NfcStateTrigger.ENABLED,
+            help = "One of '${NfcStateTrigger.ENABLED}' or '${NfcStateTrigger.DISABLED}'.",
+        ),
+    )
 
     override fun create(config: Map<String, String>): Trigger = NfcStateTrigger(
         context = context,

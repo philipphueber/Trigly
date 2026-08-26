@@ -19,6 +19,8 @@ import app.phueber.trigly.core.DurationUnit
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.core.VariableKind
+import app.phueber.trigly.core.VariableSpec
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -549,6 +551,16 @@ class LocationTriggerFactory(private val context: Context) : TriggerFactory {
             radiusMeters = config[LocationTrigger.CONFIG_RADIUS_METERS]?.toDoubleOrNull(),
             apiLevel = Build.VERSION.SDK_INT,
         )
+
+    override val variables = listOf(
+        VariableSpec(
+            key = LocationTrigger.PAYLOAD_STATE,
+            label = "State",
+            kind = VariableKind.STATE,
+            sample = LocationTrigger.ENTERED,
+            help = "One of '${LocationTrigger.ENTERED}' or '${LocationTrigger.EXITED}'.",
+        ),
+    )
 
     override fun create(config: Map<String, String>): Trigger {
         fun requiredDouble(key: String): Double {

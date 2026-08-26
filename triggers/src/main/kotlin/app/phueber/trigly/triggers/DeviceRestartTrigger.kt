@@ -4,6 +4,8 @@ import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.core.VariableKind
+import app.phueber.trigly.core.VariableSpec
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
@@ -78,6 +80,16 @@ class DeviceRestartTriggerFactory : TriggerFactory {
             "exact instant the phone starts. Android decides the exact time. An " +
             "action that needs a location will not work in a rule that runs this " +
             "early. The phone may still need time to start."
+
+    override val variables = listOf(
+        VariableSpec(
+            key = DeviceRestartTrigger.PAYLOAD_REASON,
+            label = "Reason",
+            kind = VariableKind.STATE,
+            sample = BootReason.RESTART.configValue,
+            help = "One of ${BootReason.entries.joinToString { "'${it.configValue}'" }}.",
+        ),
+    )
 
     override fun create(config: Map<String, String>): Trigger = DeviceRestartTrigger(
         reason = when (config[DeviceRestartTrigger.CONFIG_REASON]) {

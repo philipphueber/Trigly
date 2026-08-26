@@ -12,6 +12,8 @@ import app.phueber.trigly.core.SpecialAccessKind
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.core.VariableKind
+import app.phueber.trigly.core.VariableSpec
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
@@ -184,6 +186,23 @@ class NotificationWatchdogTriggerFactory(private val scheduler: AlarmScheduler) 
     // from the rule list, where you would have to know it exists.
     override fun toolsFor(config: Map<String, String>): List<ComponentTool> =
         listOf(ComponentTool.InspectNotifications)
+
+    override val variables = listOf(
+        VariableSpec(
+            key = NotificationWatchdogTrigger.PAYLOAD_PACKAGE,
+            label = "Package",
+            kind = VariableKind.PACKAGE,
+            sample = "com.example.app",
+        ),
+        VariableSpec(
+            key = NotificationWatchdogTrigger.PAYLOAD_REASON,
+            label = "Reason",
+            kind = VariableKind.STATE,
+            sample = WatchdogAlert.DISAPPEARED.name.lowercase(),
+            help = "One of " +
+                WatchdogAlert.entries.joinToString { "'${it.name.lowercase()}'" } + ".",
+        ),
+    )
 
     override fun create(config: Map<String, String>): Trigger {
         val packageName = config[NotificationWatchdogTrigger.CONFIG_PACKAGE]

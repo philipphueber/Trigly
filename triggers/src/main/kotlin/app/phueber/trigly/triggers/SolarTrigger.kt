@@ -5,6 +5,8 @@ import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.core.VariableKind
+import app.phueber.trigly.core.VariableSpec
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import java.time.Instant
@@ -229,6 +231,16 @@ class SolarTriggerFactory(private val scheduler: AlarmScheduler) : TriggerFactor
             "Use it for lights or volume. Do not use it as an alarm clock. If " +
             "you force stop Trigly, this trigger stops until you open the app " +
             "again."
+
+    override val variables = listOf(
+        VariableSpec(
+            key = SolarTrigger.PAYLOAD_EVENT,
+            label = "Solar event",
+            kind = VariableKind.STATE,
+            sample = SolarEvent.SUNRISE.configValue,
+            help = "One of ${SolarEvent.entries.joinToString { "'${it.configValue}'" }}.",
+        ),
+    )
 
     override fun create(config: Map<String, String>): Trigger {
         fun coordinate(key: String): Double {
