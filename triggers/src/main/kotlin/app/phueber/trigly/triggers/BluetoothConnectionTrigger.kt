@@ -11,6 +11,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.os.Build
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import app.phueber.trigly.core.ComponentRequirement
@@ -300,7 +301,7 @@ class BluetoothConnectionTrigger(
     // suppressed the same way.
     @SuppressLint("MissingPermission")
     override suspend fun currentlyHolds(): Boolean? {
-        if (!context.hasBluetoothConnectPermission()) return null
+        if (!context.canReadBluetoothDevices()) return null
 
         val manager = context.getSystemService(BluetoothManager::class.java) ?: return null
         val adapter = manager.adapter ?: return null
@@ -394,13 +395,13 @@ class BluetoothConnectionTrigger(
      * requirement exists to explain on screen.
      *
      * The suppression is for lint's benefit, not a claim that the check is
-     * unnecessary: `hasBluetoothConnectPermission` is that check, and lint cannot
+     * unnecessary: `canReadBluetoothDevices` is that check, and lint cannot
      * follow it across a function boundary. `runCatching` stays as the second
      * line, for the OEM that throws anyway.
      */
     @Suppress("MissingPermission")
     private fun identify(device: BluetoothDevice?): Pair<String?, String?> {
-        if (!context.hasBluetoothConnectPermission()) return null to null
+        if (!context.canReadBluetoothDevices()) return null to null
         return runCatching { device?.address }.getOrNull() to
             runCatching { device?.name }.getOrNull()
     }
@@ -460,9 +461,51 @@ class BluetoothConnectionTrigger(
  */
 private const val PROFILE_PROXY_TIMEOUT_MILLIS = 1_500L
 
-private fun Context.hasBluetoothConnectPermission(): Boolean =
-    ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) ==
+/**
+ * Whether this app may read the address and the name of a Bluetooth device.
+ *
+ * Two eras, and the gate has to know which one it is in. From API 31 the reads
+ * need `BLUETOOTH_CONNECT`, a runtime grant, and throw without it. Before API 31
+ * they need the legacy `BLUETOOTH` permission, which is install-time and
+ * therefore always held; `BLUETOOTH_CONNECT` does not exist as a permission
+ * there at all, and `checkSelfPermission` on a name the platform never defined
+ * answers "denied" for ever.
+ *
+ * So a single unconditional check for `BLUETOOTH_CONNECT` refused to read a
+ * device on Android 11 and below, where the reads were legal the whole time.
+ * Every rule narrowed to a device then failed to match on those versions,
+ * silently, because a device this returns nothing for is a device no filter can
+ * accept. The version test is the fix, and it belongs here rather than at the
+ * two call sites, which both want the same answer to the same question.
+ */
+private fun Context.canReadBluetoothDevices(): Boolean =
+    Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+        ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) ==
         PackageManager.PERMISSION_GRANTED
+
+/**
+ * What `bluetooth_connected` needs on a device at [apiLevel].
+ *
+ * Pure, and separate from the factory, for the reason the filter helpers above
+ * are: the factory needs a `Context` and cannot be built in a JVM test, while
+ * getting this wrong is a rule that never fires and never says why.
+ *
+ * From API 31 the answer is `BLUETOOTH_CONNECT`, for **every** configuration.
+ * The permission does not merely decide whether an event can name its device;
+ * it decides whether the event arrives. `ACTION_ACL_CONNECTED` and
+ * `ACTION_ACL_DISCONNECTED` are sent with `BLUETOOTH_CONNECT` as the *receiver*
+ * permission, so a receiver that does not hold it is not sent them. Below API 31
+ * the sender attaches the legacy `BLUETOOTH` permission instead, which is
+ * install-time, so there is nothing for a person to grant and nothing to
+ * declare: a row with a button that cannot open a dialog, on a trigger that
+ * already works, is worse than no row.
+ */
+fun bluetoothConnectRequirements(apiLevel: Int): List<ComponentRequirement> =
+    if (apiLevel >= Build.VERSION_CODES.S) {
+        listOf(ComponentRequirement.RuntimePermission(Manifest.permission.BLUETOOTH_CONNECT))
+    } else {
+        emptyList()
+    }
 
 /**
  * The address this configuration matches on, or null for "any address".
@@ -501,29 +544,6 @@ fun bluetoothNameFilter(config: Map<String, String>): TextFilter =
             config[BluetoothConnectionTrigger.CONFIG_NAME_MODE],
         )
     }
-
-/**
- * Whether this configuration picks out particular devices, rather than matching
- * any connection.
- *
- * What the permission requirement turns on. An "any device" rule matches on the
- * raw ACL broadcast alone and needs nothing, because a match with no address and
- * no name filter is true whether or not the device could be identified. Once a
- * rule narrows, a device it cannot read is a device it cannot match, and the
- * permission starts to matter.
- *
- * Asked of the filters the config *matches on*, through
- * [bluetoothWantedAddress] and [bluetoothNameFilter], not of the keys it happens
- * to store. Those stopped being the same thing when
- * [BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY] became a runtime choice: a rule
- * identifying its device by address can carry a name from an earlier edit that
- * nothing reads any more, and reading the raw keys would demand a permission for
- * a filter that no longer applies. A requirement that does not matter teaches
- * people to ignore the ones that do.
- */
-fun bluetoothNarrowsByDevice(config: Map<String, String>): Boolean =
-    !bluetoothWantedAddress(config).isNullOrEmpty() ||
-        bluetoothNameFilter(config).pattern != null
 
 class BluetoothConnectionTriggerFactory(
     private val context: Context,
@@ -655,39 +675,19 @@ class BluetoothConnectionTriggerFactory(
         ),
     )
 
-    // The honest worst case: without it the trigger still fires, but events
-    // carry no device address or name, so a rule narrowed to a device can never
-    // match. Kept unconditional, rather than removed in favour of
-    // requirementsFor below, as the answer for any caller that reads
-    // `requirements` directly — the rules list is not that caller; see
-    // requirementsFor.
-    override val requirements = listOf(
-        ComponentRequirement.RuntimePermission(Manifest.permission.BLUETOOTH_CONNECT),
-    )
-
-    // The honest common case, for the rules list specifically: an "any device"
-    // rule matches on the raw ACL broadcast alone and needs nothing, because
-    // bluetoothDeviceMatches(null, TextFilter.Any, null, null) is true
-    // regardless of whether identify() could read an address or a name.
-    // Narrowing by CONFIG_ADDRESS or CONFIG_NAME is what turns a missing
-    // address or name from a missing detail into a missing match, and that is
-    // the point this permission actually starts to matter. Declaring it
-    // unconditionally would mark that unnarrowed rule "cannot fire" in the
-    // rules list when it fires perfectly well — and a requirement that is
-    // sometimes irrelevant teaches people to ignore requirements, which is the
-    // opposite of what the list is for.
+    // Unconditional, because the permission is not what lets this trigger name
+    // the device it heard about; it is what lets it hear anything. See
+    // [bluetoothConnectRequirements].
     //
-    // This is deliberately about the *edge* role only. Used as a condition, an
-    // unnarrowed "any device" check still needs this permission just to call
-    // getConnectedDevices/getProfileProxy at all — currentlyHolds returns null
-    // without it regardless of narrowing — and requirementsFor has no way to
-    // know which slot a given config ends up in, only what the config says. A
-    // rule that puts this unnarrowed in a condition slot without the permission
-    // will silently never hold rather than being flagged unfirable; that gap is
-    // real and is not fixed here, only left visible in this comment rather than
-    // hidden in a decision only this function's author was in a position to make.
-    override fun requirementsFor(config: Map<String, String>): List<ComponentRequirement> =
-        if (bluetoothNarrowsByDevice(config)) requirements else emptyList()
+    // This used to be declared through `requirementsFor` for a rule narrowed to
+    // a device and withheld from an "any device" rule, on the reasoning that an
+    // unnarrowed rule matches the raw ACL broadcast and so needs nothing. The
+    // reasoning was sound and the premise was false: there is no raw broadcast
+    // to match. That rule could not fire for anybody, and the list said it
+    // needed nothing, which is the failure this project exists to avoid rather
+    // than one to build a feature on. A requirement that is always relevant is
+    // also the one the list can afford to show.
+    override val requirements = bluetoothConnectRequirements(Build.VERSION.SDK_INT)
 
     override fun create(config: Map<String, String>): Trigger =
         BluetoothConnectionTrigger(

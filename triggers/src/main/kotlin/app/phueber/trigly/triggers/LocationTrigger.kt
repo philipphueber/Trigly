@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 import kotlin.math.asin
 import kotlin.math.cos
@@ -55,8 +56,46 @@ private val LOCATION_REQUIREMENTS: List<ComponentRequirement> = buildList {
     }
 }
 
-/** Tried in order; the fix is used from whichever of these is switched on. */
-private val CANDIDATE_PROVIDERS = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+/**
+ * Which providers to ask, in the order to ask them, on a device at [apiLevel].
+ *
+ * Not an order of preference for accuracy. It is an order of preference for
+ * *an answer at all*, and GPS is last for that reason. GPS is the most accurate
+ * provider on the phone and the one that cannot see the sky from indoors, which
+ * is where a phone spends most of its life and where the question this component
+ * exists for, "am I at home", gets asked. The fused provider is the platform's
+ * own best-available blend and answers from Wi-Fi and cell when GPS cannot;
+ * network answers the same way on a device that has no fused provider. So the
+ * cheap answers are asked for first and GPS is what is left to try, rather than
+ * the wall the read used to stop at.
+ *
+ * `FUSED_PROVIDER` is public API from API 31. Below that the name is not part of
+ * the platform, and `isProviderEnabled` rejects a provider it does not know, so
+ * the version decides whether it is in the list rather than a filter later on.
+ *
+ * Pure and separate from the trigger, because the order is the decision here and
+ * a `LocationManager` cannot be built in a JVM test.
+ */
+fun locationProviderOrder(apiLevel: Int): List<String> = buildList {
+    if (apiLevel >= Build.VERSION_CODES.S) add(LocationManager.FUSED_PROVIDER)
+    add(LocationManager.NETWORK_PROVIDER)
+    add(LocationManager.GPS_PROVIDER)
+}
+
+private val CANDIDATE_PROVIDERS: List<String> = locationProviderOrder(Build.VERSION.SDK_INT)
+
+/**
+ * The ceiling on one position read, counted across every provider it tries.
+ *
+ * [LocationTrigger.currentlyHolds] runs inside a rule's gate with the rule's
+ * actions waiting behind it, so this cannot be open-ended. A fused or network
+ * read answers in well under a second whenever there is anything recent to give,
+ * and a cold GPS read can take most of a minute on its own; 15 seconds is enough
+ * for the first kind and deliberately not enough for the worst of the second.
+ * A rule delayed by a quarter of a minute is late. A rule delayed by a minute
+ * per event is broken.
+ */
+private const val POSITION_READ_BUDGET_MILLIS = 15_000L
 
 /**
  * Great-circle distance in metres.
@@ -165,15 +204,32 @@ class LocationTrigger(
             override fun onProviderDisabled(provider: String) = Unit
         }
 
-        manager.requestLocationUpdates(
-            LocationManager.GPS_PROVIDER,
-            minIntervalMillis,
-            // Distance filter left to the trigger's own maths; the provider's
-            // filter would suppress the very update that crosses the boundary.
-            0f,
-            listener,
-            Looper.getMainLooper(),
-        )
+        // One provider, chosen by the same order and for the same reason as the
+        // checking half. See [locationProviderOrder]. This was `GPS_PROVIDER`,
+        // named directly: a watch on an area indoors then never saw an update,
+        // and a watch on a phone with GPS switched off never saw one either,
+        // because a request on a disabled provider is accepted and then silent.
+        //
+        // Falls back to the last candidate instead of giving up when nothing is
+        // enabled, which keeps the old behaviour for that case: registered and
+        // quiet, rather than a leaf that ends its flow and stays ended after the
+        // user switches location back on. The call is wrapped because a provider
+        // this device does not have is an argument the platform rejects.
+        val provider = CANDIDATE_PROVIDERS.firstOrNull {
+            runCatching { manager.isProviderEnabled(it) }.getOrDefault(false)
+        } ?: CANDIDATE_PROVIDERS.last()
+
+        runCatching {
+            manager.requestLocationUpdates(
+                provider,
+                minIntervalMillis,
+                // Distance filter left to the trigger's own maths; the provider's
+                // filter would suppress the very update that crosses the boundary.
+                0f,
+                listener,
+                Looper.getMainLooper(),
+            )
+        }
 
         awaitClose { manager.removeUpdates(listener) }
     }
@@ -204,17 +260,47 @@ class LocationTrigger(
         if (!granted) return null
 
         val manager = context.getSystemService(LocationManager::class.java) ?: return null
-        val provider = CANDIDATE_PROVIDERS.firstOrNull { manager.isProviderEnabled(it) } ?: return null
-
-        val location = runCatching { readOnce(manager, provider) }.getOrNull() ?: return null
+        val location = readPosition(manager) ?: return null
 
         val inside = distanceMeters(latitude, longitude, location.latitude, location.longitude) <= radiusMeters
         return inside == onEnter
     }
 
+    /**
+     * The first position any provider will give, or null when none of them will.
+     *
+     * The fallback is the whole point. This used to take the first *enabled*
+     * provider and read that one only, which on a phone with GPS switched on
+     * meant GPS and nothing else: indoors that read comes back empty, the
+     * component answered "I cannot look", and the rule was held back while the
+     * position sat unread in the network provider. Enabled is not the same
+     * property as able to answer, and only one of the two is worth branching on.
+     *
+     * A provider that answers nothing is passed over rather than treated as a
+     * refusal, and so is one this device does not have: `isProviderEnabled`
+     * rejects an unknown name, which is a fact about the phone and not about
+     * where its owner is standing.
+     *
+     * Bounded as a whole rather than per provider, so that adding a provider to
+     * [locationProviderOrder] can never lengthen the wait a rule pays. Running
+     * out of [POSITION_READ_BUDGET_MILLIS] reads as null, the same as nobody
+     * answering, because for the rule waiting behind it those are one outcome.
+     */
     // Suppressed on the helpers too, not only on the caller: the permission is
     // checked once at the top of `currentlyHolds` and null returned without it,
     // but lint cannot follow that across a function boundary.
+    @SuppressLint("MissingPermission")
+    private suspend fun readPosition(manager: LocationManager): Location? =
+        withTimeoutOrNull(POSITION_READ_BUDGET_MILLIS) {
+            CANDIDATE_PROVIDERS.firstNotNullOfOrNull { provider ->
+                if (runCatching { manager.isProviderEnabled(provider) }.getOrDefault(false)) {
+                    runCatching { readOnce(manager, provider) }.getOrNull()
+                } else {
+                    null
+                }
+            }
+        }
+
     @SuppressLint("MissingPermission")
     private suspend fun readOnce(manager: LocationManager, provider: String): Location? =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -446,9 +532,11 @@ class LocationCheckTriggerFactory(private val context: Context) : TriggerFactory
      */
     override val warning: String =
         "This takes a single location fix when another trigger starts the rule. " +
-            "It watches nothing, so it costs little battery. The fix can be " +
-            "minutes old. An old fix works for \"am I at home\" and fails for " +
-            "\"am I in the driveway\". Set location to \"Allow all the time\". " +
+            "It watches nothing, so it costs little battery. Trigly asks the " +
+            "cheapest source that can answer, which is usually Wi-Fi or the " +
+            "mobile network and not GPS. The fix can be minutes old and it can " +
+            "be some hundred metres out. An old or coarse fix works for \"am I " +
+            "at home\" and fails for \"am I in the driveway\". Set location to \"Allow all the time\". " +
             "With any other setting, Android gives Trigly no position while the " +
             "app is in the background. This component then cannot answer, and a " +
             "rule that asks it does not run."

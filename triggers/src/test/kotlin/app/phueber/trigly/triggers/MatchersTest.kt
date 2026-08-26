@@ -1,7 +1,9 @@
 package app.phueber.trigly.triggers
 
+import android.Manifest
 import android.app.NotificationManager
 import android.view.accessibility.AccessibilityEvent
+import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.TextFilter
 import app.phueber.trigly.core.TextMatchMode
 import app.phueber.trigly.triggers.accessibility.UiEvent
@@ -384,85 +386,66 @@ class BluetoothIdentifyByTest {
 /**
  * When a Bluetooth rule needs the connect permission.
  *
- * The rule the list depends on. Demand it when the rule cannot work without it,
- * stay quiet when it can, and never demand it for a filter the engine has
- * stopped reading.
+ * The rule the list depends on, and it is a question about the Android version
+ * only. It used to be a question about the configuration as well: the permission
+ * was declared for a rule narrowed to one device and withheld from an "any
+ * device" rule, because an unnarrowed rule was thought to match the raw ACL
+ * broadcast and need nothing. The platform does not deliver that broadcast to a
+ * receiver without the permission, whatever the receiver planned to do with it,
+ * so the unnarrowed rule could not fire and the list said it needed nothing.
  */
-class BluetoothNarrowsByDeviceTest {
+class BluetoothConnectRequirementsTest {
 
-    private val address = "AA:BB:CC:DD:EE:FF"
-    private val byAddress = BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY to
-        BluetoothConnectionTrigger.IDENTIFY_BY_ADDRESS
-    private val byName = BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY to
-        BluetoothConnectionTrigger.IDENTIFY_BY_NAME
+    private val connect = ComponentRequirement.RuntimePermission(
+        Manifest.permission.BLUETOOTH_CONNECT
+    )
 
     @Test
-    fun `an any-device rule narrows nothing`() {
-        assertFalse(bluetoothNarrowsByDevice(emptyMap()))
-    }
-
-    @Test
-    fun `an address narrows`() {
-        assertTrue(
-            bluetoothNarrowsByDevice(
-                mapOf(byAddress, BluetoothConnectionTrigger.CONFIG_ADDRESS to address)
-            )
-        )
-    }
-
-    @Test
-    fun `a name narrows`() {
-        assertTrue(
-            bluetoothNarrowsByDevice(
-                mapOf(byName, BluetoothConnectionTrigger.CONFIG_NAME to "headset")
-            )
-        )
+    fun `from Android 12 the permission is required`() {
+        assertEquals(listOf(connect), bluetoothConnectRequirements(31))
+        assertEquals(listOf(connect), bluetoothConnectRequirements(36))
     }
 
     /**
-     * The case the raw-key version got wrong. The rule matches by name, the name
-     * is empty, and an address left over from an earlier edit is not read by
-     * anything. Nothing is narrowed, so nothing is required.
+     * Below API 31 the sender attaches the legacy install-time permission, so
+     * there is nothing to grant. Declaring it there would show a row with a
+     * button that cannot open a dialog, because the platform has no such
+     * permission to ask about.
      */
     @Test
-    fun `an ignored leftover address does not narrow`() {
-        assertFalse(
-            bluetoothNarrowsByDevice(
-                mapOf(byName, BluetoothConnectionTrigger.CONFIG_ADDRESS to address)
-            )
-        )
+    fun `below Android 12 nothing is required`() {
+        assertEquals(emptyList<ComponentRequirement>(), bluetoothConnectRequirements(30))
+        assertEquals(emptyList<ComponentRequirement>(), bluetoothConnectRequirements(26))
     }
+}
 
-    /** And the same from the other direction. */
-    @Test
-    fun `an ignored leftover name does not narrow`() {
-        assertFalse(
-            bluetoothNarrowsByDevice(
-                mapOf(byAddress, BluetoothConnectionTrigger.CONFIG_NAME to "headset")
-            )
-        )
-    }
+/**
+ * Which providers an area check asks, and in which order.
+ *
+ * A constant with a decision inside it, so the decision is pinned rather than
+ * left to whoever edits the list next. GPS last is the fix: the previous order
+ * put it first, the read stopped at the first *enabled* provider, and a phone
+ * indoors with GPS switched on therefore asked the one provider that cannot
+ * answer indoors and gave up.
+ */
+class LocationProviderOrderTest {
 
-    /**
-     * A rule saved before the choice existed reads both keys, so either one
-     * narrows it.
-     */
     @Test
-    fun `with no choice stored either key narrows`() {
-        assertTrue(
-            bluetoothNarrowsByDevice(mapOf(BluetoothConnectionTrigger.CONFIG_ADDRESS to address))
-        )
-        assertTrue(
-            bluetoothNarrowsByDevice(mapOf(BluetoothConnectionTrigger.CONFIG_NAME to "headset"))
-        )
+    fun `GPS is asked last on every version`() {
+        assertEquals("gps", locationProviderOrder(26).last())
+        assertEquals("gps", locationProviderOrder(30).last())
+        assertEquals("gps", locationProviderOrder(31).last())
+        assertEquals("gps", locationProviderOrder(36).last())
     }
 
     @Test
-    fun `an empty value does not narrow`() {
-        assertFalse(
-            bluetoothNarrowsByDevice(
-                mapOf(byAddress, BluetoothConnectionTrigger.CONFIG_ADDRESS to "")
-            )
-        )
+    fun `from Android 12 the fused provider is asked first`() {
+        assertEquals(listOf("fused", "network", "gps"), locationProviderOrder(31))
+    }
+
+    /** The name is not part of the platform below API 31, and asking for it throws. */
+    @Test
+    fun `below Android 12 the fused provider is not asked for`() {
+        assertEquals(listOf("network", "gps"), locationProviderOrder(30))
     }
 }

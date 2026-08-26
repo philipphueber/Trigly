@@ -386,6 +386,19 @@ stateless screen has no business reaching for), and the activity bumps a counter
 on resume so returning from a settings screen re-evaluates it. Without that
 bump the row would linger after the grant and read as the grant having failed.
 
+**And a requirement withheld needs a proven claim, not a plausible one.**
+`requirementsFor` lets a component drop a requirement its configuration does not
+use, which is right for `play_alert`, whose early stop is the only thing that
+needs notification access. `bluetooth_connected` used it to drop
+`BLUETOOTH_CONNECT` from an "any device" rule, reasoning that such a rule reads
+neither the address nor the name and so matches the raw broadcast. There is no
+raw broadcast: the Bluetooth stack sends `ACTION_ACL_CONNECTED` with that
+permission named as the *receiver* permission, so a receiver without the grant
+is sent nothing. The rule could not fire for anybody and the list said nothing
+was missing, which is worse than the over-eager row the override exists to
+avoid. A permission that gates delivery belongs in `requirements`, unconditional
+except for the Android version that introduced it.
+
 `docs/triggers.md` catalogues every planned trigger against this model, plus
 the cross-cutting blockers (no foreground service, no scheduler) that gate
 whole groups of them.

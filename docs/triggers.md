@@ -56,7 +56,7 @@ system settings reports nothing back to the app.
 | Airplane mode | `airplane_mode` | `ACTION_AIRPLANE_MODE_CHANGED` | None |
 | Wi-Fi radio on/off | `wifi_state` | `WIFI_STATE_CHANGED_ACTION` | None |
 | Bluetooth radio on/off | `bluetooth_adapter_state` | `BluetoothAdapter.ACTION_STATE_CHANGED` | `BLUETOOTH_CONNECT` (API 31+) |
-| Bluetooth device connects/disconnects | `bluetooth_connected` | `ACTION_ACL_CONNECTED`/`_DISCONNECTED` | `BLUETOOTH_CONNECT` for the address and name |
+| Bluetooth device connects/disconnects | `bluetooth_connected` | `ACTION_ACL_CONNECTED`/`_DISCONNECTED` | `BLUETOOTH_CONNECT` (API 31+) to receive the broadcast at all |
 | NFC on/off | `nfc_state` | `android.nfc.action.ADAPTER_STATE_CHANGED` | feature `android.hardware.nfc` |
 | GPS on/off | `gps_state` | `PROVIDERS_CHANGED_ACTION` | None (only *reading* a location needs permission) |
 | Screen on/off | `screen_state` | `ACTION_SCREEN_ON`/`_OFF` | None |
