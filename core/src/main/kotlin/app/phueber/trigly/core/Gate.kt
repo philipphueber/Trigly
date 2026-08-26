@@ -92,6 +92,18 @@ fun TriggerNode.leafPaths(prefix: NodePath = emptyList()): List<Pair<NodePath, C
     }
 
 /**
+ * The same tree with [transform] applied to every component in it.
+ *
+ * Structure preserved, which is the point: a caller that wants to change what
+ * the leaves *hold* should not have to know how they are arranged. Used to fill
+ * in config an older build left out, per `ComponentFactory.normalise`.
+ */
+fun TriggerNode.mapSpecs(transform: (ComponentSpec) -> ComponentSpec): TriggerNode = when (this) {
+    is TriggerNode.One -> TriggerNode.One(transform(spec))
+    is TriggerNode.Group -> TriggerNode.Group(op, children.map { it.mapSpecs(transform) })
+}
+
+/**
  * Whether this tree is satisfied, given the leaf that just fired.
  *
  * [firedPath] is the leaf whose event started this evaluation. It counts as true

@@ -99,9 +99,9 @@ class AppContainer(context: Context) {
      * Lives here because it has two ends in different places: `EngineService`
      * writes it as rules run, and the rule list reads it to explain a rule that
      * fired and then did nothing. The service will not hand out the engine, so a
-     * sink both sides can see is the way they meet. See [ActionFailureLog].
+     * sink both sides can see is the way they meet. See [RuleFaultLog].
      */
-    val actionFailures: ActionFailureLog = ActionFailureLog()
+    val ruleFaults: RuleFaultLog = RuleFaultLog()
 
     /**
      * Durable storage. Rules are hand-built by the user, so losing them to a

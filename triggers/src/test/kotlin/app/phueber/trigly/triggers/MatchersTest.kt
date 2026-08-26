@@ -337,19 +337,131 @@ class BluetoothIdentifyByTest {
     }
 
     /**
-     * The legacy promise. A rule saved before the choice existed has no value for
-     * it, and both fields keep applying, ANDed, exactly as they did.
+     * The rule that could not fire, and the reason this resolution exists.
+     *
+     * No choice stored, an address, and a name left over from an earlier
+     * attempt. Both filters used to apply and be ANDed, so the rule matched only
+     * a device whose advertised name also contained that text, which is a
+     * condition nobody wrote on purpose. Meanwhile the editor drew the schema
+     * default, showed the paired-device picker and hid the name, so nothing on
+     * screen could say why the rule was silent.
+     *
+     * The address wins now. It identifies one device on its own.
      */
     @Test
-    fun `with no choice stored both filters still apply`() {
+    fun `with no choice stored the address wins over a leftover name`() {
         val c = mapOf(
+            BluetoothConnectionTrigger.CONFIG_ADDRESS to address,
+            BluetoothConnectionTrigger.CONFIG_NAME to "a name this device does not have",
+        )
+
+        assertEquals(
+            BluetoothConnectionTrigger.IDENTIFY_BY_ADDRESS,
+            bluetoothIdentifyBy(c),
+        )
+        assertEquals(address, bluetoothWantedAddress(c))
+        assertEquals(TextFilter.Any, bluetoothNameFilter(c))
+        assertTrue(
+            bluetoothDeviceMatches(
+                wantedAddress = bluetoothWantedAddress(c),
+                nameFilter = bluetoothNameFilter(c),
+                address = address,
+                name = "Whatever The Device Calls Itself",
+            )
+        )
+    }
+
+    /**
+     * The legacy promise, which is what the ANDed reading was really protecting:
+     * a rule that matched by name because its device was not paired goes on
+     * matching by name. Nothing else in the config points at an address, so
+     * there is nothing to weigh it against.
+     */
+    @Test
+    fun `with no choice stored a name alone still matches by name`() {
+        val c = mapOf(BluetoothConnectionTrigger.CONFIG_NAME to "headset")
+
+        assertEquals(BluetoothConnectionTrigger.IDENTIFY_BY_NAME, bluetoothIdentifyBy(c))
+        assertNull(bluetoothWantedAddress(c))
+        assertTrue(bluetoothNameFilter(c).matches("My Headset"))
+        assertFalse(bluetoothNameFilter(c).matches("Speaker"))
+    }
+
+    /** A blank address is not a stored address, so it does not outvote a name. */
+    @Test
+    fun `a blank address does not win`() {
+        val c = mapOf(
+            BluetoothConnectionTrigger.CONFIG_ADDRESS to "",
+            BluetoothConnectionTrigger.CONFIG_NAME to "headset",
+        )
+
+        assertEquals(BluetoothConnectionTrigger.IDENTIFY_BY_NAME, bluetoothIdentifyBy(c))
+        assertTrue(bluetoothNameFilter(c).matches("My Headset"))
+    }
+
+    /**
+     * A value the editor could not have written. It can only come from a
+     * hand-edited or imported file, and reading it as "apply both" is the
+     * behaviour being removed, so it is treated as absent.
+     */
+    @Test
+    fun `an unknown choice is resolved like an absent one`() {
+        val c = mapOf(
+            BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY to "whatever",
             BluetoothConnectionTrigger.CONFIG_ADDRESS to address,
             BluetoothConnectionTrigger.CONFIG_NAME to "headset",
         )
 
-        assertEquals(address, bluetoothWantedAddress(c))
-        assertTrue(bluetoothNameFilter(c).matches("My Headset"))
-        assertFalse(bluetoothNameFilter(c).matches("Speaker"))
+        assertEquals(BluetoothConnectionTrigger.IDENTIFY_BY_ADDRESS, bluetoothIdentifyBy(c))
+        assertEquals(TextFilter.Any, bluetoothNameFilter(c))
+    }
+
+    /**
+     * The invariant the resolution buys: one filter, never two. Whatever the
+     * config says, a name filter and an address filter are never both live, so
+     * no configuration can silently require both to agree.
+     */
+    @Test
+    fun `the two filters are never both live`() {
+        val configurations = listOf(
+            emptyMap(),
+            mapOf(BluetoothConnectionTrigger.CONFIG_ADDRESS to address),
+            mapOf(BluetoothConnectionTrigger.CONFIG_NAME to "headset"),
+            mapOf(
+                BluetoothConnectionTrigger.CONFIG_ADDRESS to address,
+                BluetoothConnectionTrigger.CONFIG_NAME to "headset",
+            ),
+            mapOf(
+                BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY to
+                    BluetoothConnectionTrigger.IDENTIFY_BY_NAME,
+                BluetoothConnectionTrigger.CONFIG_ADDRESS to address,
+                BluetoothConnectionTrigger.CONFIG_NAME to "headset",
+            ),
+        )
+
+        configurations.forEach { c ->
+            val bothLive = !bluetoothWantedAddress(c).isNullOrEmpty() &&
+                bluetoothNameFilter(c).pattern != null
+            assertFalse("both filters live for $c", bothLive)
+        }
+    }
+
+    /**
+     * What the editor is handed, so the form shows the filter that matches
+     * instead of the schema default. Idempotent, as the hook requires.
+     */
+    @Test
+    fun `normalising writes the derived choice down`() {
+        val legacy = mapOf(
+            BluetoothConnectionTrigger.CONFIG_NAME to "headset",
+        )
+
+        val once = bluetoothNormalise(legacy)
+        assertEquals(
+            BluetoothConnectionTrigger.IDENTIFY_BY_NAME,
+            once[BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY],
+        )
+        assertEquals(once, bluetoothNormalise(once))
     }
 
     @Test

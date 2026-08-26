@@ -114,7 +114,11 @@ class RulesScreenTest {
         val failed = RuleStatus(
             rule = sampleRule.copy(enabled = true),
             unmet = emptyList(),
-            lastFailure = ActionFailure("post_notification", "Notifications are disabled for this app."),
+            lastFault = RuleFault(
+                RuleFault.Kind.ACTION_FAILED,
+                "Notifications are disabled for this app.",
+                "post_notification",
+            ),
         )
 
         composeRule.setContent { Screen(listOf(failed)) }
@@ -144,13 +148,72 @@ class RulesScreenTest {
         val failed = RuleStatus(
             rule = sampleRule.copy(enabled = false),
             unmet = emptyList(),
-            lastFailure = ActionFailure("post_notification", "Notifications are disabled for this app."),
+            lastFault = RuleFault(
+                RuleFault.Kind.ACTION_FAILED,
+                "Notifications are disabled for this app.",
+                "post_notification",
+            ),
         )
 
         composeRule.setContent { Screen(listOf(failed)) }
 
         composeRule.onAllNodesWithText("Notifications are disabled for this app.")
             .assertCountEquals(0)
+    }
+
+    /**
+     * A rule that was never built says so, and says it differently.
+     *
+     * The last of the three silences, and the one that reads most like patience:
+     * the rule is stored, the switch says on, and nothing anywhere is watching
+     * for it. "Failed" and "stopped" both describe a run that happened, so
+     * neither sentence fits, and the heading is its own.
+     */
+    @Test
+    fun a_rule_that_could_not_be_built_says_nothing_is_watching() {
+        val never = RuleStatus(
+            rule = sampleRule.copy(enabled = true),
+            unmet = emptyList(),
+            lastFault = RuleFault(
+                RuleFault.Kind.COULD_NOT_START,
+                "Trigly could not build this rule, so nothing is watching for it. " +
+                    "No trigger factory for type 'from_the_future'.",
+            ),
+        )
+
+        composeRule.setContent { Screen(listOf(never)) }
+
+        composeRule.onNodeWithText("RULE NOT STARTED").performScrollTo().assertExists()
+        composeRule.onNodeWithText(
+            "Trigly could not build this rule, so nothing is watching for it. " +
+                "No trigger factory for type 'from_the_future'.",
+        ).assertExists()
+
+        // Not the sentence for either kind of run, because there was no run.
+        composeRule.onAllNodesWithText("LAST RUN FAILED: SHOW A NOTIFICATION")
+            .assertCountEquals(0)
+        composeRule.onAllNodesWithText("LAST RUN STOPPED").assertCountEquals(0)
+    }
+
+    /**
+     * A rule fired and dropped keeps the run heading, which is the case this
+     * pins against the one above: three kinds, three sentences, and no sharing.
+     */
+    @Test
+    fun a_rule_dropped_by_an_unreadable_condition_says_the_run_stopped() {
+        val stopped = RuleStatus(
+            rule = sampleRule.copy(enabled = true),
+            unmet = emptyList(),
+            lastFault = RuleFault(
+                RuleFault.Kind.UNDECIDED,
+                "Trigly could not read Is in an area, so the rule did not run.",
+            ),
+        )
+
+        composeRule.setContent { Screen(listOf(stopped)) }
+
+        composeRule.onNodeWithText("LAST RUN STOPPED").performScrollTo().assertExists()
+        composeRule.onAllNodesWithText("RULE NOT STARTED").assertCountEquals(0)
     }
 
     @Test

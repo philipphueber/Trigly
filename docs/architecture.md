@@ -280,7 +280,7 @@ The engine wrote the second one to logcat and stopped there, so answering "why
 did my rule do nothing" needed a cable. For an app whose argument is that a
 silent rule must explain itself, that was the hole in the middle of it.
 
-`ActionFailureLog` closes it. The engine's `onOutcome` hook already existed for
+`RuleFaultLog` closes it. The engine's `onOutcome` hook already existed for
 this ("for logging and for the UI's run history") and now carries the action's
 type as well, because a rule with three actions produces three outcomes and a
 reader that cannot tell them apart cannot say which one failed.
@@ -315,9 +315,9 @@ engine can tell a rule held back by a "no" from one held back by a component
 that could not look. Only the second is reported; reporting the first would
 accuse every rule with a condition in it each time the condition was simply
 false. `EngineService` names the components through `Registry.displayNameOf` and
-writes the sentence to the same `ActionFailureLog`, where an entry with no
-action type renders as "Last run stopped" rather than "Last run failed": nothing
-ran, so there is no action to blame. Any action later succeeding clears it,
+writes the sentence to the same `RuleFaultLog`, where the `UNDECIDED` kind
+renders as "Last run stopped" rather than "Last run failed": nothing ran, so
+there is no action to blame. Any action later succeeding clears it,
 whichever action that was, because a rule that ran proves the record stale.
 
 The case that produced it is the area check reading no position in the
@@ -335,6 +335,34 @@ is a report about a run that already happened and a condition that may be gone.
 A disabled rule shows nothing, guarded in both the ViewModel and the cell,
 because accusing a rule nobody asked to run is worse than saying nothing.
 
+#### The fourth case: a rule that never started
+
+`onStartFailure` was there from the beginning and went to logcat alone. It fires
+when resolving a rule's components throws: an unknown type from a file a newer
+build exported, or config a factory refuses. Nothing was ever registered, so
+there is no run to report and neither of the two sentences above fits.
+
+It is the worst of the four to leave silent, because the rule reads as healthy.
+It is stored, the switch says on, the summary line looks right, and no receiver
+exists anywhere. `RuleFaultLog.couldNotStart` records it and the list says "Rule
+not started" with what the failure said.
+
+This one is in the error colour, in the same cell. The colour follows the tense
+rather than the cell: a rule that was never built is a fault standing in the way
+right now, as present as a missing permission, and it stays true until the rule
+is edited. It is not in `RequirementCell` because there is no button to offer.
+What it needs is the rule fixed, and only its own message can say how.
+
+`RuleFaultLog.started` clears it, called for every rule the engine has running on
+every sync, so an edit that fixes the config clears the report at once instead of
+leaving it up until a trigger fires. Narrow on purpose: a failed action from an
+earlier run is still true, and a rule starting says nothing about it.
+
+The class was `ActionFailureLog` until this arrived. Two of its three kinds are
+now about something other than an action, so it is `RuleFaultLog` and holds
+`RuleFault`, which carries the kind explicitly rather than encoding it in a null
+action type.
+
 ### A hidden field must not decide the answer
 
 The Bluetooth trigger identifies a device by address or by name, and the choice
@@ -351,12 +379,29 @@ filter and the engine applied two.
 
 `identifyBy` is read at runtime now, by `bluetoothWantedAddress` and
 `bluetoothNameFilter`: `address` ignores any stored name, `name` ignores any
-stored address, and **absent** keeps ANDing both exactly as before. The absent
-case is what keeps the legacy promise, and a rule that has a value has it
-because a person saw the control and chose.
+stored address. Absent used to keep ANDing both, exactly as before the key
+existed, and that half-fix is what a real rule then died of.
+
+The key is seeded when a component is *chosen*, so a rule written before it
+existed has no value here and editing that rule never adds one. Every such rule
+kept the ANDed reading, invisibly: `bluetoothIdentifyBy` now resolves absence
+from what the rule stores instead. A stored address wins, because an address
+identifies one device on its own and a name beside it can only subtract; failing
+that a stored name wins, which is the legacy promise the AND was really
+protecting; failing both, "any device". Never two filters at once, which is the
+invariant a test pins directly.
+
+The other half is that the editor has to agree. A `shownWhen` condition can only
+read a stored value, so the form drew the schema default and hid the filter that
+was deciding every match. `ComponentFactory.normalise` is the hook for that: the
+editor asks the registry to fill in what an older build left out before it draws
+a rule, and saving writes the answer down for good. `:core` stays ignorant of
+which key any component grew.
 
 The general rule this is an instance of: a field the editor hides must not
-change what a rule does. Either it is shown, or it is inert.
+change what a rule does. Either it is shown, or it is inert. And a key added
+after rules were already being saved needs one place that decides what its
+absence means, or the editor and the engine will each decide differently.
 
 ### Requirements
 

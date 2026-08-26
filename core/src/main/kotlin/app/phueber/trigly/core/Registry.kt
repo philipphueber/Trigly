@@ -156,6 +156,25 @@ class Registry(
     fun toolsFor(spec: ComponentSpec): List<ComponentTool> =
         (triggers[spec.type] ?: actions[spec.type])?.toolsFor(spec.config).orEmpty()
 
+    /**
+     * The same spec with anything an older build left out filled in. See
+     * [ComponentFactory.normalise].
+     *
+     * An unknown type is returned untouched, for the reason [toolsFor] gives:
+     * a rule naming a component this build lacks is already drawn as
+     * unavailable, and throwing here would take the editor down with it.
+     */
+    fun normalise(spec: ComponentSpec): ComponentSpec {
+        val factory = triggers[spec.type] ?: actions[spec.type] ?: return spec
+        return spec.copy(config = factory.normalise(spec.config))
+    }
+
+    /** [normalise] applied to every component in a rule, trigger tree and actions alike. */
+    fun normalise(rule: Rule): Rule = rule.copy(
+        trigger = rule.trigger.mapSpecs(::normalise),
+        actions = rule.actions.map(::normalise),
+    )
+
     fun createTrigger(spec: ComponentSpec): Trigger {
         val factory = triggers[spec.type]
             ?: throw UnknownComponentException(

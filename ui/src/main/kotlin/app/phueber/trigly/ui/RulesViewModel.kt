@@ -26,12 +26,12 @@ data class RuleStatus(
     val unmet: List<ComponentRequirement>,
     /**
      * What this rule's last failing action said, if one failed since the engine
-     * started. See [ActionFailureLog] for why it does not outlive the engine.
+     * started. See [RuleFaultLog] for why it does not outlive the engine.
      *
      * Distinct from [unmet]: that is a reason the rule *cannot* run, known before
      * it ever tries. This is a report from a run that happened.
      */
-    val lastFailure: ActionFailure? = null,
+    val lastFault: RuleFault? = null,
 ) {
     val canFire: Boolean get() = unmet.isEmpty()
 }
@@ -42,9 +42,9 @@ class RulesViewModel(
     private val checker: RequirementChecker,
     /**
      * Read only, and defaulted so a test that does not care about failures needs
-     * to say nothing. The engine writes it; see [ActionFailureLog].
+     * to say nothing. The engine writes it; see [RuleFaultLog].
      */
-    private val actionFailures: ActionFailureLog = ActionFailureLog(),
+    private val ruleFaults: RuleFaultLog = RuleFaultLog(),
 ) : ViewModel() {
 
     /**
@@ -59,7 +59,7 @@ class RulesViewModel(
         combine(
             repository.rules(),
             refreshTick,
-            actionFailures.failures,
+            ruleFaults.faults,
         ) { rules, _, failures ->
             rules.map { rule ->
                 RuleStatus(
@@ -68,7 +68,7 @@ class RulesViewModel(
                     // Only for an enabled rule. A failure recorded before someone
                     // switched a rule off describes a run they have since stopped
                     // asking for, and reporting it would read as a live fault.
-                    lastFailure = if (rule.enabled) failures[rule.id] else null,
+                    lastFault = if (rule.enabled) failures[rule.id] else null,
                 )
             }
         }.stateIn(
@@ -127,7 +127,7 @@ class RulesViewModel(
     fun delete(ruleId: String) {
         // Forgotten as well as deleted: the log is keyed by rule id, and an id is
         // free to be reused by an import.
-        actionFailures.forget(ruleId)
+        ruleFaults.forget(ruleId)
         viewModelScope.launch { repository.delete(ruleId) }
     }
 
@@ -156,9 +156,9 @@ class RulesViewModel(
             repository: RuleRepository,
             registry: Registry,
             checker: RequirementChecker,
-            actionFailures: ActionFailureLog = ActionFailureLog(),
+            ruleFaults: RuleFaultLog = RuleFaultLog(),
         ) = viewModelFactory {
-            initializer { RulesViewModel(repository, registry, checker, actionFailures) }
+            initializer { RulesViewModel(repository, registry, checker, ruleFaults) }
         }
     }
 }
