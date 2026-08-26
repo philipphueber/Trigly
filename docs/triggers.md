@@ -30,13 +30,20 @@ receivers now stay registered, which is what every Tier 1 broadcast trigger
 depends on. It is not absolute: a force-stop or an aggressive OEM battery
 manager still ends the process. See `docs/architecture.md`.
 
-**2. No scheduler.** `IntervalTrigger` uses a coroutine `delay`, which stops in
-Doze and dies with the process. Wall-clock triggers need `AlarmManager`
-(`setExactAndAllowWhileIdle` for exact, `setWindow` for everything else).
-Exact alarms need `SCHEDULE_EXACT_ALARM` from API 31, and Google restricts
-`USE_EXACT_ALARM` to alarm-clock-like apps, so prefer inexact and design for
-a few minutes of drift. *Blocks:* time of day, day of week, sunrise/sunset,
-calendar, stopwatch.
+**2. ~~No scheduler.~~** *Done.* `AlarmScheduler` in `:core` is the port; the
+five places that used to wait with a coroutine `delay` now wait through it, so
+none of them stops in Doze the way a plain `delay` did. See
+`docs/architecture.md`'s scheduler section and `docs/todo.md`'s T1 for the
+record and R1 for what it does not fix (a force-stop).
+
+`AlarmManagerScheduler` in `:triggers` implements the port over `AlarmManager`,
+using `setWindow` for every caller, since none of today's callers asks for an
+exact time. `setExactAndAllowWhileIdle` needs `SCHEDULE_EXACT_ALARM` from API 31,
+which Google restricts to alarm-clock-like apps at the `USE_EXACT_ALARM` tier,
+so that path is deliberately not built until a caller actually needs it. Expect
+drift of up to a few minutes: this blocker is resolved for the callers that
+existed, not for wall-clock precision in general. Still *blocks*, because
+nobody has built them yet: time of day, day of week, calendar, stopwatch.
 
 **3. ~~No permission-request flow.~~** *Done.* `RequirementChecker` evaluates
 requirements against the device, the rules screen explains why an enabled rule
@@ -63,7 +70,7 @@ system settings reports nothing back to the app.
 | Headset plugged | `headset_plug` | `ACTION_HEADSET_PLUG` (sticky) | None |
 | Dark theme | `dark_theme` | `ACTION_CONFIGURATION_CHANGED` | API 29+ |
 | Orientation | `screen_orientation` | `ACTION_CONFIGURATION_CHANGED` | None |
-| Interval | `interval` | coroutine delay | None (see blocker 2) |
+| Interval | `interval` | `AlarmScheduler` (was a coroutine delay, see blocker 2) | None |
 | Charger type (USB/mains/wireless) | `charging_type` | `ACTION_BATTERY_CHANGED` → `EXTRA_PLUGGED` | None |
 | Device restarted / app updated | `device_restart` | `BOOT_COMPLETED`/`MY_PACKAGE_REPLACED`, via `BootEvents` | `RECEIVE_BOOT_COMPLETED` |
 | Sunrise / sunset | `solar` | calculated (NOAA), typed location | None |
@@ -169,10 +176,12 @@ fields.
 
 `time_window` has **no event stream**: its `events()` is empty and it can never
 start a rule. It exists because asking is cheap where watching is not, and
-because there is, today, no time *trigger* for it to be a passive form *of*: the
-`AlarmManager` scheduler that trigger would need is blocker 2, still unbuilt.
-Every other condition in this document rides on a component that also fires;
-`time_window` is the one component that is a condition and nothing else.
+because there is, today, no time *trigger* for it to be a passive form *of*.
+Blocker 2 is resolved and a time-of-day trigger could now be built on
+`AlarmScheduler`, but nobody has built it yet, so the gap this paragraph
+describes stands until that trigger exists. Every other condition in this
+document rides on a component that also fires; `time_window` is the one
+component that is a condition and nothing else.
 
 It is the one that changes what is possible today. A time *trigger* needs
 `AlarmManager`, while a time *condition* needs only the clock, so "when the
@@ -382,12 +391,14 @@ between deliveries. These should probably be off by default and carry a warning
 in the UI.
 
 ### Time of day / day of week
-`AlarmManager`, per blocker 2. Reschedule on boot, on time-zone change
-(`ACTION_TIMEZONE_CHANGED`), and after each firing. The recurring-alarm bug to
-avoid: computing the next occurrence from *now* rather than from the scheduled
-time, which makes the rule drift later on every fire.
+`AlarmScheduler` (blocker 2, now built) is what this needs, and it is ready to
+use. Reschedule on boot, on time-zone change (`ACTION_TIMEZONE_CHANGED`), and
+after each firing. The recurring-alarm bug to avoid: computing the next
+occurrence from *now* rather than from the scheduled time, which makes the
+rule drift later on every fire. `SolarTrigger` already gets this right and is
+the pattern to copy.
 
-### ~~Sunrise / sunset~~: done, with the scheduler caveat
+### ~~Sunrise / sunset~~: done, scheduler caveat resolved
 
 Built as `solar`, and the manual path is the one offered: the location is
 **typed**, so the trigger needs no permission at all: no location access, no
@@ -401,11 +412,12 @@ instead of a time on days when the sun genuinely does not rise or set, and it
 takes the zone explicitly so a rule about a place you are not standing in is
 still right.
 
-**It shares `interval`'s scheduling weakness and says so in its warning.** The
-wait is a coroutine `delay`, so it only fires while the engine's process is alive
-and not in Doze, and a sunset hours away is exactly the wait Doze interrupts.
-Blocker 2 is still the fix; when `AlarmManager` scheduling lands, this trigger's
-`events()` is the single place that changes.
+**It used to share `interval`'s scheduling weakness; it no longer does.** The
+wait is now `AlarmScheduler.waitUntil`, not a plain coroutine `delay`, so a
+sunset hours away survives Doze instead of only firing on whatever next wakes
+the CPU. `events()` was the single place that changed, as this section used to
+predict. Its warning still says drift of a few minutes is normal, because the
+fix is not exact-alarm precision.
 
 ### Calendar event
 Query `CalendarContract.Instances` with `READ_CALENDAR`. There is no "event
@@ -625,10 +637,11 @@ geofencing.
 ## Suggested order
 
 1. ~~Foreground service (blocker 1).~~ Done: `EngineService`.
-2. **Scheduler (blocker 2)**: now the top item, and it has grown a second
-   customer: `solar` is built but waits with a coroutine `delay`, so it inherits
-   `interval`'s Doze weakness until this lands. It still unlocks the remaining
-   time-based triggers at once.
+2. ~~Scheduler (blocker 2).~~ Done: `AlarmScheduler` in `:core`, over
+   `AlarmManager` in `:triggers`. `interval` and `solar` both wait through it
+   now, and so does the notification-listener rebind repair and the two other
+   poll loops; see `docs/todo.md`'s T1. It still unlocks the remaining
+   time-based triggers below: time of day, day of week, calendar, stopwatch.
 3. ~~Device restart.~~ Done: `device_restart`, via `BootEvents`.
 4. ~~USB vs AC.~~ Done: `charging_type`.
 5. Network callbacks (mobile data, Wi-Fi SSID), sensors, calendar.
