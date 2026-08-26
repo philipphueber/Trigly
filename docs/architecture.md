@@ -613,6 +613,26 @@ Room stays an implementation detail of `:core`. Storage is handed out as a
 `implementation`-scoped so it is not on `:ui`'s compile classpath at all. That
 enforces the boundary rather than merely asking for it.
 
+A `components` row's type string is where this format meets a limit nothing
+enforced before. `ComponentFactory.type` is read back out of both the
+database and an imported file. Renaming it breaks every rule that already
+names the old string, and it breaks the rule silently. Renaming the Kotlin
+constant that holds it still compiles and still passes the whole suite,
+because every place that reads the constant agrees with every other place
+that reads it. Nothing in the running app ever compares today's value
+against yesterday's.
+
+Two tests close that gap, one per half of the problem. `TriggerTypeStringsTest`
+in `:triggers` and `ActionTypeStringsTest` in `:actions` each hold the
+released type strings as literal text. A JVM test can then catch the string
+itself changing under its constant, with no Android context needed. Beside
+`ConfigSchemaContractTest` in `:ui`, `PinnedTypeStringsTest` holds the same
+released strings and checks that each one is still returned by
+`triggerFactories` or `actionFactories`. That catches the other failure: a
+factory dropped from the registry while its constant sits unused. Neither
+test stops a new type from being added. Both fail loudly if a released one
+changes value or disappears.
+
 ### Finding a rule: search and folders
 
 The list screen gained two things at once, and they are deliberately different
