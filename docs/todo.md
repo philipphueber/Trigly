@@ -9,8 +9,12 @@ points. Nine of them were correct. Three were not, and they are recorded in
 
 The trigger backlog is a different list. `docs/triggers.md` holds the triggers
 that are not built yet, each with its API and its known traps. This file holds
-the reliability and correctness work. The two agree on the order: the scheduler
-is first in both.
+the reliability and correctness work. The scheduler was first in both, and it
+has landed, so the trigger list is no longer blocked on it.
+
+**Landed** at the top holds what is done, as one line each. Two items in
+Priority 1, T13 and T14, were not in the review at all: they are consequences of
+what landed, and neither was visible from inside the item that caused it.
 
 Priority 1 is work that makes a rule fire when it should. Priority 2 is work
 that makes a rule explain itself. Priority 3 needs a decision before it needs
@@ -18,89 +22,36 @@ code.
 
 ---
 
+## Landed
+
+Kept as a list rather than as bodies, because this file holds what is left. The
+identifiers stay because T4, T8, T11 and R1 point at them.
+
+- **T1 The scheduler.** `AlarmScheduler` in `:core` is two suspend functions, a
+  wait for a duration and a wait until an instant, with cancellation as the only
+  cancel. `AlarmManagerScheduler` in `:triggers` implements it with `setWindow`
+  and an `OnAlarmListener`, so it needs no `PendingIntent`, no receiver and no
+  exact-alarm permission. All five waits moved onto it, the listener rebind
+  included. See **T14**: `setWindow` is still deferred by Doze, so this bounds
+  the lateness instead of removing it.
+- **T2 Pin the component type strings.** 34 trigger strings and 20 action
+  strings are held as literal text in JVM tests, and an instrumented test
+  asserts each is still registered. A rename fails the suite. An addition does
+  not, on purpose: forcing every new trigger to edit an existing test file is
+  the coupling the project forbids.
+- **T3 A bounded retry for a state nobody could read.** Up to three extra tries,
+  two seconds apart. A leaf that answers on any of them fires the rule late and
+  reports nothing. The give-up keeps the existing `UNDECIDED` outcome, because
+  the first miss is no longer reported at all. See **T13**.
+- **T5 Requirement liveness, as its own axis.** `Liveness` has three states, so
+  "nobody has asked yet" cannot collapse into "dead", and the probe is an
+  injected port that keeps `:core` away from `:triggers`. The rules list shows
+  granted-but-not-bound as its own row, with "Check settings" rather than a
+  "Grant" button for a setting that is already on.
+
+---
+
 ## Priority 1
-
-### T1 The scheduler
-
-**Evidence.** No file references `AlarmManager`, `WorkManager` or
-`JobScheduler`. Five places wait with a coroutine `delay`, and a coroutine
-`delay` stops in Doze:
-
-    IntervalTrigger.kt:33              delay(periodMillis)
-    SolarTrigger.kt:56                 delay(fireAt - now())
-    AppForegroundTrigger.kt:46         delay(pollMillis)
-    NotificationWatchdogTrigger.kt:73  delay(pollMillis)
-    ListenerBinding.kt:85              delay(retryMillis)
-
-`docs/triggers.md` calls this open blocker 2. `IntervalTrigger.kt:15` carries a
-`TODO(scheduling)`. `SolarTrigger.kt:23` calls it "the honest weakness".
-
-**The part that is easy to miss.** The last line in that list is not a time
-trigger. `keepListenerBound` is what recovers a notification listener that the
-system did not give back. It waits with `delay`. So the repair path for a dead
-listener is itself asleep in Doze. This is a reliability hole in the
-event-driven half of the app, which is the half that looks safe.
-
-**Do.** Add one scheduler port in `:core`, with an Android implementation over
-`AlarmManager`. Prefer `setWindow`. Use `setExactAndAllowWhileIdle` only where
-a user asked for an exact time. Exact alarms need `SCHEDULE_EXACT_ALARM` from
-API 31, and Google keeps `USE_EXACT_ALARM` for alarm-clock apps, so design for
-a few minutes of drift.
-
-Then move all five waits onto it. `SolarTrigger.events()` is the one place that
-trigger changes, as its own doc says.
-
-**Done when.** An interval rule and a solar rule both fire after a Doze window
-on two devices or API levels. A listener unbound by an app update rebinds after
-a Doze window.
-
-**What this does not fix.** See R1.
-
-### T2 Pin the component type strings
-
-**Evidence.** `ComponentFactory.type` says "Stable identifier, persisted in
-rules. Renaming it breaks saved rules." Nothing enforces that. A rename passes
-the whole suite and breaks every exported rule that names the old string.
-
-`RuleJson` handles the file shape well. It has a `version` key, it refuses a
-file from a newer format with a readable message, and it writes the version-1
-shape when the rules fit it, so an export stays importable by an older build.
-None of that helps if a type string moves under it.
-
-**Do.** Add a unit test that holds the released set of type strings as literal
-text and asserts that every released string is still registered. New strings
-may appear. Old strings may not leave.
-
-**Done when.** `./gradlew :core:testDebugUnitTest` fails if a type string is
-renamed. Half a day of work. Do this before T1, because it costs almost
-nothing and it guards everything else.
-
-### T3 A bounded retry for a state nobody could read
-
-**Evidence.** `TriggerEngine.StateReader.read` treats a state read that throws
-as `null`. `TriggerNode.holds` treats `null` as "does not hold". The engine
-then calls `onSuppressed` and does `return@collect`. There is no retry and no
-queue. The event is gone.
-
-The conservative half is deliberate and it is right. `docs/conditions.md:145`
-states the rule: an unknown state is not a satisfied one. Firing unattended
-actions on a state nobody could read is the worse of the two failures.
-
-The missing half is the retry. A door opens, the position read fails for two
-seconds, and the rule is dropped for good. The door event does not come back.
-
-**Do.** Hold the event and ask again, on a bounded schedule, for a bounded
-period. Give up after that and report a distinct outcome. Report the give-up
-separately from the first failure to answer.
-
-**Watch for.** The failure is not always short. `docs/conditions.md:108`
-already describes a component that "answers unknown, and the group fails
-forever with no message". A permanent unknown looks exactly like a temporary
-one at the call site, so the give-up rule is the part that carries the weight.
-
-**Done when.** `TriggerEngineTest` shows a rule that fires after a read that
-failed once and then answered, and a rule that reports a give-up after a read
-that never answered.
 
 ### T4 One reliability test on a device
 
@@ -129,29 +80,44 @@ breaks a reboot test: the two cannot go in one test without care.
 **Done when.** The test runs on two devices or API levels and its limits are
 written down.
 
-### T5 Requirement liveness, as its own axis
+### T13 Bound the whole retry, not the gaps in it
 
-**Evidence.** `ComponentRequirement` has five arms: `RuntimePermission`,
-`SpecialAccess`, `SystemFeature`, `MinApiLevel` and `PolicyRestricted`. That
-already covers a runtime grant, a settings grant, missing hardware, an API
-level and Play policy. The model is good.
+**Evidence.** T3's `resolveHolds` bounds the waits between tries at two seconds
+each and says in its own KDoc that the trade favours giving up past a few
+seconds. It does not bound the reads. `location_check` has a 15 second read
+budget of its own, so an area check that never answers costs four reads plus six
+seconds of waiting, which is about a minute, and the rule's collector is blocked
+for all of it. The code and its stated intent disagree.
 
-The gap is a sixth state that is not in it. `architecture.md:926` describes it:
-after an app update the notification listener can be unbound while
-`RequirementChecker` still reports notification access as granted, because the
-secure setting it reads is still set. The ongoing notification says the app is
-watching. Every notification rule is dead, and three separate things claim
-otherwise.
+**Do.** Bound the total time `resolveHolds` may spend, reads included, and
+report the give-up when that budget is spent whichever way it ran out. A read
+cancelled by the budget is a read that did not answer, which is the outcome the
+retry already has a name for.
 
-`keepListenerBound` patches the symptom from outside the requirement system.
-T1 says why that patch is not enough on its own.
+**Done when.** A leaf whose read takes longer than the budget reports the
+give-up inside the budget, and a `TriggerEngineTest` case pins the total rather
+than the number of tries.
 
-**Do.** Make "granted" and "live" two answers, not one. A component whose
-service is not bound must be able to say so through the same path that says a
-permission is missing.
+### T14 Decide whether a wait must survive deep Doze
 
-**Done when.** The rules screen tells the difference between "you never granted
-this" and "you granted it and nothing is bound".
+**Evidence.** T1 used `setWindow`, as T1 itself asked for, and
+`AlarmManagerScheduler`'s KDoc is honest about the cost: only the
+allow-while-idle family is exempt from Doze deferral, so a `setWindow` alarm
+waits for the platform's next maintenance window. In deep Doze those are hours
+apart, so an interval rule set to fifteen minutes fires every few hours.
+
+`setAndAllowWhileIdle` is the inexact member of that family and needs no
+permission at all. `SCHEDULE_EXACT_ALARM` is only for the exact one. The catch
+is a rate limit of about one firing every nine minutes per app, and no
+`OnAlarmListener` overload, so it needs a `PendingIntent` and a receiver.
+
+**Decide first.** Which rules are worth that. A poll every minute cannot beat
+the rate limit whatever API it uses, so the answer is probably per caller and
+not global: a solar rule and an interval rule of ten minutes or more want it,
+and a poll does not.
+
+**Done when.** The choice is written down per caller, and any caller that keeps
+`setWindow` says in its own warning text how late it can be.
 
 ---
 
@@ -285,8 +251,8 @@ config key means, which is the config half of the same compatibility problem.
 
 So `minimumAppVersion` would only move the message from first run to import
 time. That is worth something and it is not worth much. T2 is the strong half
-of this item and T2 is cheap. Do T2, then judge whether this field still earns
-its place.
+of this item, and T2 has landed. So this field now buys only the move of the
+message from first run to import time. Judge it on that alone.
 
 ### T12 Nothing tests the release build
 
