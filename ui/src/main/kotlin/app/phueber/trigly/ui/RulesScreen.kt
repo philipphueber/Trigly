@@ -520,6 +520,27 @@ private fun RequirementCell(
                     }
                 }
             }
+            // Granted, but not bound right now: a different fault from the
+            // ones above, so it gets its own rows rather than folding into
+            // `unmet` with the same "Grant" button that a settings screen
+            // would show as already on.
+            status.notLive.forEach { requirement ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 16.dp, top = 8.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = requirement.describeNotLive(),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f).padding(end = 8.dp),
+                    )
+                    BlockTextButton(stringResource(R.string.requirement_check_settings)) {
+                        onResolve(requirement)
+                    }
+                }
+            }
         }
     }
 }

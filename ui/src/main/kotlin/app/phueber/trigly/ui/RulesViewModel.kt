@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.phueber.trigly.core.ComponentRequirement
+import app.phueber.trigly.core.LivenessProbe
 import app.phueber.trigly.core.Registry
 import app.phueber.trigly.core.RequirementChecker
 import app.phueber.trigly.core.Rule
@@ -25,6 +26,15 @@ data class RuleStatus(
     val rule: Rule,
     val unmet: List<ComponentRequirement>,
     /**
+     * Requirements this rule has granted, but whose service is confirmed not
+     * bound right now. See [RequirementChecker.grantedButNotLive].
+     *
+     * Distinct from [unmet]: that list is what a settings screen has not yet
+     * granted. This is what a settings screen already shows as granted, and
+     * a "Grant" button would have nothing to offer.
+     */
+    val notLive: List<ComponentRequirement> = emptyList(),
+    /**
      * What this rule's last failing action said, if one failed since the engine
      * started. See [RuleFaultLog] for why it does not outlive the engine.
      *
@@ -33,7 +43,7 @@ data class RuleStatus(
      */
     val lastFault: RuleFault? = null,
 ) {
-    val canFire: Boolean get() = unmet.isEmpty()
+    val canFire: Boolean get() = unmet.isEmpty() && notLive.isEmpty()
 }
 
 class RulesViewModel(
@@ -45,6 +55,19 @@ class RulesViewModel(
      * to say nothing. The engine writes it; see [RuleFaultLog].
      */
     private val ruleFaults: RuleFaultLog = RuleFaultLog(),
+    /**
+     * How to ask whether the notification listener and the accessibility
+     * service are actually bound right now, for [RuleStatus.notLive].
+     *
+     * Defaults to [LivenessProbe.Unknown], the same way [ruleFaults] defaults
+     * to an empty log: a caller that does not have a real one, such as a test
+     * building this ViewModel around a rule with no special-access
+     * requirement, should not have to say so. [MainActivity] passes the real
+     * one, built from the same [app.phueber.trigly.core.NotificationController]
+     * and [app.phueber.trigly.core.UiController] the app already wires for its
+     * actions.
+     */
+    private val livenessProbe: LivenessProbe = LivenessProbe.Unknown,
 ) : ViewModel() {
 
     /**
@@ -65,6 +88,7 @@ class RulesViewModel(
                 RuleStatus(
                     rule = rule,
                     unmet = checker.unmet(rule, registry),
+                    notLive = checker.grantedButNotLive(rule, registry, livenessProbe),
                     // Only for an enabled rule. A failure recorded before someone
                     // switched a rule off describes a run they have since stopped
                     // asking for, and reporting it would read as a live fault.
@@ -157,8 +181,11 @@ class RulesViewModel(
             registry: Registry,
             checker: RequirementChecker,
             ruleFaults: RuleFaultLog = RuleFaultLog(),
+            livenessProbe: LivenessProbe = LivenessProbe.Unknown,
         ) = viewModelFactory {
-            initializer { RulesViewModel(repository, registry, checker, ruleFaults) }
+            initializer {
+                RulesViewModel(repository, registry, checker, ruleFaults, livenessProbe)
+            }
         }
     }
 }

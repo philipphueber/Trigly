@@ -32,6 +32,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.core.net.toUri
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ComponentSpec
+import app.phueber.trigly.core.ControllerLivenessProbe
 import app.phueber.trigly.core.SpecialAccessKind
 import app.phueber.trigly.core.Rule
 
@@ -57,6 +58,11 @@ class MainActivity : ComponentActivity() {
             registry = container.registry,
             checker = container.requirementChecker,
             ruleFaults = container.ruleFaults,
+            // Built from the same two ports the app already wires for actions
+            // to reach the notification listener and the accessibility
+            // service, rather than asking `:triggers` the same question a
+            // second way. See `ControllerLivenessProbe`.
+            livenessProbe = ControllerLivenessProbe(container.notifications, container.ui),
         )
     }
 

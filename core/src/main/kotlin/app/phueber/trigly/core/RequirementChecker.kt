@@ -8,6 +8,105 @@ import android.os.Build
 import android.provider.Settings
 
 /**
+ * Whether a granted [ComponentRequirement.SpecialAccess] requirement is
+ * actually live right now, as opposed to merely granted.
+ *
+ * Android lets the two drift apart for the two kinds backed by a bindable
+ * service (see [SpecialAccessKind.bindsAService]): the setting stays on
+ * across an app update or a process kill, but nothing rebinds the service on
+ * its own, so a rule can be enabled, granted, and dead all at once. This is
+ * the axis [RequirementChecker.isSatisfied] cannot see.
+ *
+ * Three states rather than two, because the honest answer is sometimes "I
+ * cannot tell":
+ *
+ *  - [LIVE] the service is bound right now, or this requirement has nothing
+ *    to bind in the first place.
+ *  - [NOT_LIVE] granted, but the service is confirmed not bound right now.
+ *  - [UNKNOWN] nobody has wired a real answer in for this call. Reported
+ *    exactly like [LIVE] would be for the purpose of blocking a rule, because
+ *    a requirement model only earns trust by never accusing a service of
+ *    being dead on silence rather than on evidence.
+ */
+enum class Liveness {
+    LIVE,
+    NOT_LIVE,
+    UNKNOWN,
+}
+
+/**
+ * Answers whether the service behind a [SpecialAccessKind] is bound right now.
+ *
+ * The fact itself lives outside `:core`: the notification listener and the
+ * accessibility service are both constructed by the framework in `:triggers`,
+ * and `:core` must not depend on that module. So this is a port in the same
+ * shape as [NotificationController] and [UiController], which already answer
+ * the identical question for their own callers through `isConnected`. `:ui` is
+ * the one place that can see both a probe implementation and
+ * [RequirementChecker], so wiring happens there.
+ */
+interface LivenessProbe {
+
+    /**
+     * Null when nobody has wired a real answer in yet. Never guessed at: a
+     * caller with nothing to go on must say so rather than assume the worst,
+     * which is what keeps [RequirementChecker.liveness] from reporting
+     * [Liveness.NOT_LIVE] on a service it never actually asked about.
+     */
+    fun isBound(kind: SpecialAccessKind): Boolean?
+
+    /** The safe default: no information, so nothing is ever reported dead. */
+    companion object Unknown : LivenessProbe {
+        override fun isBound(kind: SpecialAccessKind): Boolean? = null
+    }
+}
+
+/**
+ * A [LivenessProbe] built from the two controller ports the app already
+ * wires, rather than a third way of asking `:triggers` the same question.
+ *
+ * [NotificationController.isConnected] and [UiController.isConnected] already
+ * read the live state of the notification listener and the accessibility
+ * service, because the actions behind those ports need to know before calling
+ * into either one. This reuses that exact fact instead of adding a second path
+ * to it, which is also why it needs no dependency `:core` does not already
+ * have.
+ */
+class ControllerLivenessProbe(
+    private val notifications: NotificationController,
+    private val ui: UiController,
+) : LivenessProbe {
+    override fun isBound(kind: SpecialAccessKind): Boolean? = when (kind) {
+        SpecialAccessKind.NOTIFICATION_LISTENER -> notifications.isConnected
+        SpecialAccessKind.ACCESSIBILITY_SERVICE -> ui.isConnected
+        SpecialAccessKind.USAGE_STATS,
+        SpecialAccessKind.NOTIFICATION_POLICY,
+        SpecialAccessKind.OVERLAY,
+        -> null
+    }
+}
+
+/**
+ * The decision behind [RequirementChecker.liveness], pulled out as a pure
+ * function so it is unit-testable on the JVM without an Android `Context`.
+ * [RequirementChecker.isSatisfied] needs one; this does not, because whether
+ * the requirement is [granted] is passed in rather than read from the device.
+ *
+ * @param granted whether the requirement this [kind] backs is currently
+ *   satisfied, as [RequirementChecker.isSatisfied] would report it.
+ */
+fun livenessOf(kind: SpecialAccessKind, granted: Boolean, probe: LivenessProbe): Liveness {
+    if (!kind.bindsAService) return Liveness.LIVE
+    if (!granted) return Liveness.LIVE
+
+    return when (probe.isBound(kind)) {
+        true -> Liveness.LIVE
+        false -> Liveness.NOT_LIVE
+        null -> Liveness.UNKNOWN
+    }
+}
+
+/**
  * Whether a component's [ComponentRequirement]s are actually met on this device.
  *
  * The counterpart to declaring them: `ComponentRequirement` says what is needed,
@@ -95,6 +194,54 @@ class RequirementChecker(private val context: Context) {
     /** Everything standing between [rule] and firing. Empty means nothing is. */
     fun unmet(rule: Rule, registry: Registry): List<ComponentRequirement> =
         unmet(registry.requirementsOf(rule))
+
+    /**
+     * Whether [requirement] is live right now, given what [probe] can see.
+     *
+     * Only a granted [ComponentRequirement.SpecialAccess] whose kind
+     * [SpecialAccessKind.bindsAService] can ever come back [Liveness.NOT_LIVE].
+     * Everything else is reported [Liveness.LIVE], and deliberately so:
+     *
+     *  - A requirement that is not granted at all already has its own answer
+     *    through [isSatisfied] and [unmet]. Reporting it dead too would say
+     *    the same fact twice, once as "you never granted this" and once as
+     *    "granted, but not working", which is confusing rather than informative
+     *    and is exactly the double-accounting the two-answer model in
+     *    [Liveness] exists to avoid.
+     *  - A [SpecialAccessKind] with nothing to bind has no liveness question to
+     *    ask, so [probe] is never even called for it.
+     *  - [probe] defaults to [LivenessProbe.Unknown], and its null answer
+     *    passes straight through as [Liveness.LIVE] via [Liveness.UNKNOWN].
+     *    A caller that has not wired a real probe in gets silence, never an
+     *    accusation.
+     */
+    fun liveness(
+        requirement: ComponentRequirement,
+        probe: LivenessProbe = LivenessProbe.Unknown,
+    ): Liveness {
+        if (requirement !is ComponentRequirement.SpecialAccess) return Liveness.LIVE
+        return livenessOf(requirement.kind, isSatisfied(requirement), probe)
+    }
+
+    /**
+     * Requirements that are granted, but whose service [probe] confirms is not
+     * bound right now.
+     *
+     * The other half of [unmet]. That list is what a settings screen has not
+     * yet granted; this is what a settings screen already shows as granted and
+     * has nothing left to offer, because the fault is not the grant.
+     */
+    fun grantedButNotLive(
+        requirements: List<ComponentRequirement>,
+        probe: LivenessProbe = LivenessProbe.Unknown,
+    ): List<ComponentRequirement> = requirements.filter { liveness(it, probe) == Liveness.NOT_LIVE }
+
+    /** [grantedButNotLive], for every requirement [rule] actually needs. */
+    fun grantedButNotLive(
+        rule: Rule,
+        registry: Registry,
+        probe: LivenessProbe = LivenessProbe.Unknown,
+    ): List<ComponentRequirement> = grantedButNotLive(registry.requirementsOf(rule), probe)
 
     private fun hasEnabledComponent(secureSetting: String): Boolean =
         isPackageEnabledIn(

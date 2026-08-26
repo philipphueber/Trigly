@@ -79,3 +79,23 @@ fun ComponentRequirement.describe(): String = when (this) {
 val ComponentRequirement.isResolvable: Boolean
     get() = this is ComponentRequirement.RuntimePermission ||
         this is ComponentRequirement.SpecialAccess
+
+/**
+ * Human wording for a requirement that is granted but not live right now.
+ *
+ * [describe] says what to grant, which would be wrong here: the setting is
+ * already on. This says what is actually happening instead, so the rules
+ * screen never tells someone to do something they have already done.
+ *
+ * Only [ComponentRequirement.SpecialAccess] can ever be in this state, but the
+ * fallback below is not dead code paranoia so much as safety: if this is ever
+ * called on something else, showing the ordinary text is a much smaller
+ * mistake than a crash.
+ */
+fun ComponentRequirement.describeNotLive(): String = when (this) {
+    is ComponentRequirement.SpecialAccess ->
+        "${kind.label} is granted. Nothing is bound right now, so it does " +
+            "not work yet."
+
+    else -> describe()
+}

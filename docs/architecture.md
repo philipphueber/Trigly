@@ -448,6 +448,38 @@ except for the Android version that introduced it.
 the cross-cutting blockers (no foreground service, no scheduler) that gate
 whole groups of them.
 
+#### Granted is not the same question as live
+
+`RequirementChecker.isSatisfied` answers one question: did the user grant
+this. For the notification listener and the accessibility service, granted and
+working are not the same fact. Both are backed by a service the framework
+constructs and can drop without telling anyone who would notice, and the
+setting `isSatisfied` reads stays on regardless. See "Getting the notification
+listener back" for the failure this is about.
+
+`RequirementChecker.liveness` is the second axis, kept apart from `isSatisfied`
+rather than folded into it. It answers `LIVE`, `NOT_LIVE`, or `UNKNOWN`, and the
+third state is there on purpose: a service nobody has asked about yet must
+never be reported as dead, because a requirement model that accuses on silence
+instead of on evidence is one nobody can trust. `NOT_LIVE` only ever applies to
+a requirement that is already granted, so it can never double up with `unmet`
+and say the same rule is broken for two contradictory reasons.
+
+The fact this reads is `NotificationController.isConnected` and
+`UiController.isConnected`, the same two ports actions already use to reach
+these services from `:actions`. `ControllerLivenessProbe`, in `:core`, adapts
+them into the small `LivenessProbe` port `RequirementChecker.liveness` takes,
+so no new path into `:triggers` had to be opened for this: `:core` still does
+not depend on it, and `:ui` wires `ControllerLivenessProbe` in next to every
+other seam it already assembles. Every existing `RequirementChecker` caller
+that does not pass a probe gets `LivenessProbe.Unknown`, which answers nothing
+for every kind, so nothing about this is a behaviour change until something
+asks.
+
+The rules screen shows a granted-but-not-live requirement in its own row, with
+its own wording and its own button to the same settings screen: a "Grant"
+button next to something already on would read as broken UI, not as help.
+
 ### Config schema
 
 Config is stored as `Map<String, String>`. The engine is happy with that; a form
