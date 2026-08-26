@@ -7,7 +7,9 @@ import androidx.test.platform.app.InstrumentationRegistry
 import app.phueber.trigly.core.storage.MIGRATION_1_2
 import app.phueber.trigly.core.storage.MIGRATION_2_3
 import app.phueber.trigly.core.storage.MIGRATION_3_4
+import app.phueber.trigly.core.storage.MIGRATION_4_5
 import app.phueber.trigly.core.storage.RoomRuleRepository
+import app.phueber.trigly.core.storage.RoomVariableStore
 import app.phueber.trigly.core.storage.TRIGLY_MIGRATIONS
 import app.phueber.trigly.core.storage.TriglyDatabase
 import app.phueber.trigly.core.storage.toRuleOrNull
@@ -16,13 +18,14 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule as JUnitRule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Three migrations have ever shipped. Each must get right what Room cannot
+ * Four migrations have ever shipped. Each must get right what Room cannot
  * check for itself: that a database actually written by the *old* version — a
  * real user's rules, not a fixture built fresh at the new version — survives
  * the upgrade with its rows intact and its meaning preserved. A wrong
@@ -372,6 +375,100 @@ class MigrationTest {
 
             val reloaded = repository.rules().first().single()
             assertEquals("Car", reloaded.folder)
+        } finally {
+            database.close()
+        }
+    }
+
+    // --- 4 -> 5 -------------------------------------------------------------
+
+    @Test
+    fun migration_4_to_5_creates_the_variables_table_and_leaves_rules_alone() {
+        // A version-4 database built from the real schema, not from the
+        // current entities. This is what a phone that installed up to
+        // version 4 and never reinstalled actually has on disk. No such row
+        // has ever heard of an app variable, so the table has to appear empty
+        // rather than assume anything about what it should hold.
+        helper.createDatabase(TEST_DB, 4).apply {
+            execSQL(
+                "INSERT INTO rules (id, name, enabled, position, triggerJson) VALUES (?, ?, ?, ?, ?)",
+                arrayOf("r1", "Old rule", 1, 0, """{"type":"screen_state","config":{}}"""),
+            )
+            execSQL(
+                "INSERT INTO components (ruleId, role, ordinal, type, configJson) VALUES (?, ?, ?, ?, ?)",
+                arrayOf("r1", "ACTION", 0, "speak", "{}"),
+            )
+            close()
+        }
+
+        val migrated = helper.runMigrationsAndValidate(TEST_DB, 5, true, MIGRATION_4_5)
+
+        migrated.query("SELECT name FROM rules WHERE id = 'r1'").use { cursor ->
+            assertTrue("the old rule should still be there", cursor.moveToFirst())
+            assertEquals("Old rule", cursor.getString(0))
+        }
+        migrated.query("SELECT COUNT(*) FROM components WHERE ruleId = 'r1'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            // The migration creates a table; it does not touch an existing one.
+            assertEquals(1, cursor.getInt(0))
+        }
+        migrated.query("SELECT COUNT(*) FROM variables").use { cursor ->
+            assertTrue("the new table should exist and start empty", cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+        }
+    }
+
+    /**
+     * The real path, end to end: a version-4 database migrated to 5, then a
+     * variable is set, overwritten, and removed through the actual
+     * [RoomVariableStore] rather than through raw SQL. This proves the new
+     * table round-trips through the port `set_variable` and `variable_check`
+     * will use, not just through the migration's own `CREATE TABLE`. The
+     * pre-existing rule is read back too, to show the migration left it alone.
+     */
+    @Test
+    fun migration_4_to_5_lets_a_real_database_round_trip_a_variable() = runTest {
+        val dbName = "$TEST_DB-variables"
+
+        helper.createDatabase(dbName, 4).apply {
+            execSQL(
+                "INSERT INTO rules (id, name, enabled, position, triggerJson) VALUES (?, ?, ?, ?, ?)",
+                arrayOf("r1", "Old rule", 1, 0, """{"type":"screen_state","config":{}}"""),
+            )
+            execSQL(
+                "INSERT INTO components (ruleId, role, ordinal, type, configJson) VALUES (?, ?, ?, ?, ?)",
+                arrayOf("r1", "ACTION", 0, "speak", "{}"),
+            )
+            close()
+        }
+        // Validates the migrated schema against Room's exported version-5 JSON.
+        helper.runMigrationsAndValidate(dbName, 5, true, MIGRATION_4_5).close()
+
+        val database = Room.databaseBuilder(
+            InstrumentationRegistry.getInstrumentation().targetContext,
+            TriglyDatabase::class.java,
+            dbName,
+        ).addMigrations(*TRIGLY_MIGRATIONS).build()
+
+        try {
+            val store = RoomVariableStore(database.variables())
+
+            assertNull("nothing has been set yet", store.get("trip_count"))
+
+            store.set("trip_count", "3")
+            assertEquals("3", store.get("trip_count"))
+
+            store.set("trip_count", "4")
+            assertEquals("overwriting keeps the same name", "4", store.get("trip_count"))
+
+            store.remove("trip_count")
+            assertNull("removed reads back as null, not as an error", store.get("trip_count"))
+
+            // The migration touched only `variables`. The rule from before the
+            // upgrade is exactly as it was.
+            val rule = database.rules().findRule("r1")?.toRuleOrNull()
+            assertNotNull("a migrated row must still map to a valid rule", rule)
+            assertEquals("Old rule", rule!!.name)
         } finally {
             database.close()
         }
