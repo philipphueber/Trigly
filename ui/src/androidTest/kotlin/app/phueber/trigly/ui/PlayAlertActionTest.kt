@@ -1,12 +1,18 @@
 package app.phueber.trigly.ui
 
+import android.media.AudioAttributes
+import android.media.AudioManager
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import app.phueber.trigly.actions.AlertRoute
 import app.phueber.trigly.actions.AlertSound
 import app.phueber.trigly.actions.PlayAlertAction
+import app.phueber.trigly.actions.audioAttributes
+import app.phueber.trigly.actions.transientFocusRequest
 import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.TriggerEvent
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -73,5 +79,37 @@ class PlayAlertActionTest {
         val result = actionWithSound("content://app.phueber.trigly.absent/nothing").execute(event)
 
         assertTrue("expected a failure, got $result", result is ActionResult.Failure)
+    }
+
+    /**
+     * The attributes each route actually builds, on a device.
+     *
+     * `AudioAttributes.Builder` has no JVM implementation, so the unit test for
+     * `AlertRoute` can only assert the constants the enum carries. This asserts
+     * that the builder is wired to them, which is the part a typo would break
+     * while leaving every other test green: a sound with the wrong usage plays
+     * in the wrong place and reports success.
+     */
+    @Test
+    fun each_route_builds_the_attributes_it_declares() {
+        val alert = audioAttributes(AlertRoute.ALERT)
+        assertEquals(AudioAttributes.USAGE_ALARM, alert.usage)
+        assertEquals(AudioAttributes.CONTENT_TYPE_SONIFICATION, alert.contentType)
+
+        val music = audioAttributes(AlertRoute.MUSIC)
+        assertEquals(AudioAttributes.USAGE_MEDIA, music.usage)
+        assertEquals(AudioAttributes.CONTENT_TYPE_MUSIC, music.contentType)
+    }
+
+    /**
+     * The focus request the media route asks for. Transient and ducking: a short
+     * sound over music wants the music quieter for a moment, not paused and
+     * restarted, which is what a call does.
+     */
+    @Test
+    fun the_music_route_asks_for_ducking_focus() {
+        val request = transientFocusRequest(AlertRoute.MUSIC)
+
+        assertEquals(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK, request.focusGain)
     }
 }

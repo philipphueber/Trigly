@@ -371,7 +371,35 @@ through, which is the common default.
 
 Paired with the `notification_posted` trigger's `package` and `textContains`
 filters, this covers the "alert me loudly when a specific app or keyword shows
-up" job that dedicated apps like Alertify exist for.
+up" job.
+
+**And that same choice of stream is why it grew a route.** The alarm stream is
+the one Android keeps on the phone speaker on most devices, deliberately: an
+alarm you cannot hear because your headphones are in a bag is not an alarm. It is
+the wrong answer for the other half of what this action gets asked to do. A rule
+that plays a sound because the car connected wants the car to play it.
+
+So `route` chooses, `alert` stays the default, and an absent key means `alert`
+because that is what every rule saved before the key existed meant. `music` uses
+`USAGE_MEDIA`, follows the media volume and the connected output, and is not
+silenced by Do Not Disturb. It is also silent on a silenced phone, which is the
+trade stated in the field's own help rather than left for someone to discover.
+
+The media route asks for audio focus and the alarm route does not, and that
+asymmetry is not a detail. The platform ducks other audio for an alarm by
+policy. Nothing ducks for media, so a sound played on that route without asking
+for focus mixes underneath whatever is already playing and can be inaudible,
+which reads as a broken feature rather than a quiet one.
+`AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK`, not a full transient gain: a short chime
+over music wants the music quieter for a moment, and pausing it is what a phone
+call does.
+
+**One trap this does not solve.** A Bluetooth rule fires on the ACL connect, and
+the audio route is a separate, later event: an ACL link, an A2DP link and an HFP
+link are three different things. So a `music` sound fired the instant a car
+connects can still come out of the phone speaker, because the car is not the
+audio output yet. `docs/todo.md` T18 is the fix, waiting for the route rather
+than guessing at it.
 
 `open_app` has a caveat worth resolving: on API 30+, package visibility rules
 mean `getLaunchIntentForPackage` returns null for apps not declared in

@@ -109,6 +109,33 @@ breaks a reboot test: the two cannot go in one test without care.
 **Done when.** The test runs on two devices or API levels and its limits are
 written down.
 
+### T18 Wait for the audio route, do not guess at it
+
+**Evidence.** `play_alert` can now play on the media route, which is what a rule
+about a car wants. A Bluetooth rule fires on the ACL connect, and the audio
+route arrives later: an ACL link, an A2DP link and an HFP link are three
+separate events, established from AOSP while chasing the ingress bug. So the
+sound can play a second before the car becomes the output, and it comes out of
+the phone speaker instead. The rule looks like it worked and the person heard it
+in the wrong place, which is the quiet kind of wrong this project keeps hunting.
+
+**Do.** Let the action wait, briefly and with a bound, for the output it is
+asking for. `AudioManager.AudioDeviceCallback.onAudioDevicesAdded` reports a
+route appearing, and `AudioDeviceInfo.TYPE_BLUETOOTH_A2DP` is the one that
+matters for media. Neither needs a permission. A short wait is the whole fix: if
+the route never appears, play anyway rather than swallow the sound, because a
+sound in the wrong place still beats no sound from a rule the person built.
+
+**Watch for.** The bound has to be small. This runs inside an action, and the
+engine runs a rule's actions one at a time, so a long wait here delays
+everything behind it. Also `TYPE_BLUETOOTH_SCO` is a different event from
+`TYPE_BLUETOOTH_A2DP`: the first is call audio actually routed, which is later
+again and not what a media sound waits for.
+
+**Done when.** A rule that plays music on a Bluetooth connect is heard on the
+device that connected, on two devices or API levels, and a rule with no such
+device still plays without waiting the whole bound.
+
 ### T14 Decide whether a wait must survive deep Doze
 
 **Evidence.** T1 used `setWindow`, as T1 itself asked for, and

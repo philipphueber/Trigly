@@ -2,6 +2,8 @@ package app.phueber.trigly.actions
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.net.Uri
@@ -248,6 +250,77 @@ suspend fun awaitNotificationGone(
  * the rule mid-alert stops the sound. With [stopWhenGone] on there is a second,
  * far more natural stop: swiping away the notification that caused the alert.
  */
+/**
+ * Which audio route a sound takes, which decides far more than how loud it is.
+ *
+ * [ALERT] is the alarm stream, and it is what this action was built on. An
+ * average silenced phone still lets it through, and the platform's own policy
+ * makes an alarm audible over whatever else is playing. It is also, on most
+ * devices, the stream Android keeps on the phone speaker rather than sending to
+ * a connected Bluetooth device, because an alarm you cannot hear because your
+ * headphones are in a bag is not an alarm.
+ *
+ * [MUSIC] is the media route, and that last sentence is exactly why it exists.
+ * A rule that plays a sound because the car connected wants the car to play it.
+ * Media follows the connected output, and it follows the media volume, and Do
+ * Not Disturb does not silence it. A silent phone stays silent, which is the
+ * trade in the other direction: this route is for a sound that should arrive
+ * where the music is, not for one that must be heard whatever the phone is set
+ * to.
+ *
+ * [takesFocus] is the part that is not obvious and is not optional. The alarm
+ * stream needs no audio focus, because the platform ducks other audio for it.
+ * Media does not: a sound played on the media route without asking for focus
+ * simply mixes underneath whatever is already playing, at whatever the two
+ * volumes happen to be, and can be inaudible. So the media route asks for
+ * transient focus and gives it back, and the sound is heard rather than
+ * technically played.
+ */
+enum class AlertRoute(
+    val configValue: String,
+    val label: String,
+    val usage: Int,
+    val contentType: Int,
+    val takesFocus: Boolean,
+) {
+    ALERT(
+        configValue = "alert",
+        label = "An alert",
+        usage = AudioAttributes.USAGE_ALARM,
+        contentType = AudioAttributes.CONTENT_TYPE_SONIFICATION,
+        takesFocus = false,
+    ),
+
+    MUSIC(
+        configValue = "music",
+        label = "Music",
+        usage = AudioAttributes.USAGE_MEDIA,
+        contentType = AudioAttributes.CONTENT_TYPE_MUSIC,
+        takesFocus = true,
+    ),
+    ;
+
+    companion object {
+        const val CONFIG_KEY = "route"
+
+        /**
+         * Absent means [ALERT], because every rule saved before this key existed
+         * meant the alarm stream: it was the only thing this action could do.
+         * An unknown value is an error rather than a guess, for the reason
+         * [AlertPlayback.parse] gives.
+         */
+        fun parse(raw: String?): AlertRoute {
+            val value = raw?.trim().orEmpty()
+            if (value.isEmpty()) return ALERT
+            return entries.firstOrNull { it.configValue == value }
+                ?: error(
+                    "$CONFIG_KEY must be one of ${entries.joinToString { it.configValue }}, " +
+                        "was '$value'"
+                )
+        }
+    }
+}
+
 class PlayAlertAction(
     private val context: Context,
     private val sound: AlertSound,
@@ -257,6 +330,7 @@ class PlayAlertAction(
     private val playback: AlertPlayback = AlertPlayback.REPEAT,
     private val notifications: NotificationController = NotificationController.Unavailable,
     private val stopWhenGone: Boolean = false,
+    private val route: AlertRoute = AlertRoute.ALERT,
 ) : Action {
 
     override suspend fun execute(event: TriggerEvent): ActionResult {
@@ -280,16 +354,19 @@ class PlayAlertAction(
         val stop = alertStop(stopWhenGone, event, notifications.isConnected)
 
         val player = MediaPlayer()
+        val audio = context.getSystemService(AudioManager::class.java)
+        // Requested before the first note and given back in the `finally`, so a
+        // cancelled rule does not leave other audio ducked. Null for the alarm
+        // route, which needs no focus, and null if the service is missing, which
+        // is not a reason to refuse to play.
+        val focus = if (route.takesFocus) transientFocusRequest(route) else null
+        if (focus != null && audio != null) audio.requestAudioFocus(focus)
+
         return try {
             // prepare() reads the file, so it is I/O and must not run on the
             // caller's thread.
             withContext(Dispatchers.IO) {
-                player.setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build()
-                )
+                player.setAudioAttributes(audioAttributes(route))
                 player.setDataSource(context, uri)
                 player.isLooping = playback == AlertPlayback.REPEAT
                 player.setVolume(volumeGain, volumeGain)
@@ -324,6 +401,7 @@ class PlayAlertAction(
             // an actual stop button. stop() throws if the player never started.
             runCatching { player.stop() }
             player.release()
+            if (focus != null && audio != null) audio.abandonAudioFocusRequest(focus)
         }
     }
 
@@ -398,6 +476,24 @@ class PlayAlertActionFactory(
                 "phone. Trigly refuses a network sound. Otherwise an imported " +
                 "rule could call home every time it fires.",
         ),
+        // Above the "Play it" choice on purpose: where a sound comes out is a
+        // bigger decision than whether it repeats, and it changes what the
+        // volume slider below means.
+        ConfigField.Choice(
+            key = AlertRoute.CONFIG_KEY,
+            label = "Play it as",
+            options = AlertRoute.entries.map {
+                ConfigField.Option(it.configValue, it.label)
+            },
+            default = AlertRoute.ALERT.configValue,
+            help = "An alert uses the alarm volume. A silenced phone still plays " +
+                "it, and it usually comes out of the phone speaker even when a " +
+                "Bluetooth device is connected. Music uses the media volume and " +
+                "goes where the music goes, so a connected car or headphones " +
+                "plays it. A silenced phone plays no music. Choose music for a " +
+                "sound that belongs in the car, and an alert for a sound you " +
+                "must not miss.",
+        ),
         ConfigField.Choice(
             key = AlertPlayback.CONFIG_KEY,
             label = "Play it",
@@ -470,8 +566,40 @@ class PlayAlertActionFactory(
             volumeGain = alertVolumeGain(config[PlayAlertAction.CONFIG_VOLUME_PERCENT]),
             durationMillis = alertDurationMillis(config[PlayAlertAction.CONFIG_DURATION_MILLIS]),
             playback = AlertPlayback.parse(config[AlertPlayback.CONFIG_KEY]),
+            route = AlertRoute.parse(config[AlertRoute.CONFIG_KEY]),
             notifications = notifications,
             stopWhenGone = config[PlayAlertAction.CONFIG_STOP_WHEN_GONE]?.toBoolean() ?: false,
         )
     }
 }
+
+/**
+ * The attributes for [route]. Separate from the player so a test can read what
+ * a route asks for without a `MediaPlayer`.
+ *
+ * Public rather than internal, and the reason is where the test has to live.
+ * `AudioAttributes.Builder` has no JVM implementation, so the only place this
+ * can be exercised is an instrumented test, and the instrumented tests that need
+ * a whole assembled app live in `:ui`. That is the same reason
+ * `ConfigSchemaContractTest` sits there rather than beside the schema.
+ */
+fun audioAttributes(route: AlertRoute): AudioAttributes =
+    AudioAttributes.Builder()
+        .setUsage(route.usage)
+        .setContentType(route.contentType)
+        .build()
+
+/**
+ * The focus request for a route that needs one.
+ *
+ * `AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK` rather than a full transient gain: a
+ * short sound over the top of music wants the music quieter for a moment, not
+ * paused and restarted. Pausing is what a phone call does, and a rule playing a
+ * two second chime is not a phone call.
+ *
+ * Public for the reason [audioAttributes] is.
+ */
+fun transientFocusRequest(route: AlertRoute): AudioFocusRequest =
+    AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+        .setAudioAttributes(audioAttributes(route))
+        .build()
