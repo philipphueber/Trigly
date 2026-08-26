@@ -6,14 +6,10 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.content.ContextCompat
-import androidx.core.content.IntentCompat
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.DurationUnit
@@ -98,21 +94,29 @@ private fun isSameDevice(address1: String?, name1: String?, address2: String?, n
  * being empty means "no opinion", and both empty fires for any device. See
  * [bluetoothDeviceMatches] for why a name filter exists at all.
  *
- * [onConnect] chooses which of the two broadcasts to listen for, and only that
- * one is registered — the same shape as `power_connection`, whose two broadcasts
- * are likewise already edge-shaped: receiving one *is* the event, so there is no
- * state to deduplicate. When [onConnect] is false and [disconnectDebounceMillis]
- * is positive, the connect broadcast is registered too, but only to detect a
- * reconnect during the settle window — see [events].
+ * [onConnect] chooses which of the two edges this instance reports. This is
+ * the same shape as `power_connection`, whose two broadcasts are likewise
+ * already edge-shaped: seeing one *is* the event, so there is no state to
+ * deduplicate. When [onConnect] is false and [disconnectDebounceMillis] is
+ * positive, a connect is watched too, but only to detect a reconnect during
+ * the settle window. See [events].
  *
  * The [TYPE] string still says `bluetooth_connected` even though the trigger now
  * does both. It is persisted in every saved rule and in every exported file, so
  * renaming it to match would break the thing it identifies; a type string is an
  * identifier, not a description.
  *
- * The receiver is registered on collection and torn down in [awaitClose], so a
- * disabled rule leaves no receiver behind — that is the contract every [Trigger]
- * owes.
+ * **The broadcast no longer reaches this class directly.** A receiver
+ * registered here, as one used to be, only exists while [events] is being
+ * collected, and [events] is not being collected in a process the system has
+ * already killed. A device reconnecting after the phone sits idle for a while
+ * is exactly the case where that has happened. `ACTION_ACL_CONNECTED` and
+ * `ACTION_ACL_DISCONNECTED` are answered the way `BOOT_COMPLETED` and a
+ * shortcut tap already are: `BluetoothConnectionReceiver`, a manifest receiver
+ * in `:ui`, is the one thing the system can always reach, and [BluetoothEvents]
+ * is where it leaves word of what it saw. See [BluetoothEvents] for how one
+ * sighting still reaches this exactly once, whether the receiver is what just
+ * started this process or this trigger was already collecting when it arrived.
  */
 class BluetoothConnectionTrigger(
     private val context: Context,
@@ -121,6 +125,7 @@ class BluetoothConnectionTrigger(
     private val onConnect: Boolean = true,
     private val disconnectDebounceMillis: Long = 0L,
     private val now: () -> Long = System::currentTimeMillis,
+    private val windowMillis: Long = BluetoothEvents.DEFAULT_WINDOW_MILLIS,
 ) : Trigger {
 
     override fun events(): Flow<TriggerEvent> = callbackFlow {
@@ -144,6 +149,17 @@ class BluetoothConnectionTrigger(
         var pendingDisconnectAddress: String? = null
         var pendingDisconnectName: String? = null
 
+        // The timestamp of the sighting this collection has already turned into
+        // an emission or a state change, so a replay of that exact sighting is
+        // not turned into a second one. [BluetoothEvents.pending] can hand this
+        // collection a sighting at start-up, and [BluetoothEvents.sightings] can
+        // then redeliver that same sighting a moment later if this collection's
+        // subscription below was not yet active when it was first published.
+        // This is the same guard [ShortcutTrigger] keeps against [ShortcutEvents]
+        // and for the same reason. See [BluetoothEvents] for why nothing upstream
+        // of this already guarantees it.
+        var lastHandledAtMillis: Long? = null
+
         fun emit(address: String?, name: String?, state: String) {
             trySend(
                 TriggerEvent(
@@ -158,104 +174,106 @@ class BluetoothConnectionTrigger(
             )
         }
 
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(received: Context?, intent: Intent?) {
-                if (intent == null) return
-                val device = IntentCompat.getParcelableExtra(
-                    intent,
-                    BluetoothDevice.EXTRA_DEVICE,
-                    BluetoothDevice::class.java,
-                )
+        // What registering an IntentFilter for only the relevant action used to
+        // do, this now does at runtime: every sighting reaches every trigger
+        // instance through the one shared bus, whatever direction it fires in,
+        // so a sighting this instance does not care about has to be recognised
+        // and left alone rather than never delivered in the first place.
+        fun handle(sighting: BluetoothEvents.Sighting) {
+            val address = sighting.address
+            val name = sighting.name
 
-                val (address, name) = identify(device)
+            if (!bluetoothDeviceMatches(deviceAddress, nameFilter, address, name)) return
 
-                if (!bluetoothDeviceMatches(deviceAddress, nameFilter, address, name)) return
+            when (sighting.action) {
+                BluetoothEvents.Action.CONNECTED -> {
+                    if (onConnect) {
+                        // A connection that appears is real. There is nothing to
+                        // debounce on this side; a flicker of *missing* connects is
+                        // not a thing a broadcast can even observe.
+                        emit(address, name, CONNECTED)
+                    } else if (
+                        isSameDevice(pendingDisconnectAddress, pendingDisconnectName, address, name)
+                    ) {
+                        // Only meaningful once a disconnect debounce has set the
+                        // pending fields below; otherwise isSameDevice declines
+                        // (both sides null) and this is a no-op, matching the
+                        // registration this instance used to make on its own.
+                        // Reaching here with a match means the device that just
+                        // disconnected, specifically that one, not merely some
+                        // device the rule's filter would also accept, came back
+                        // before the settle window elapsed, so the disconnect we
+                        // were about to report never really happened.
+                        pendingDisconnect?.cancel()
+                        pendingDisconnect = null
+                        pendingDisconnectAddress = null
+                        pendingDisconnectName = null
+                    }
+                    // Any other connect, a different device, or one this trigger
+                    // cannot identify as the same, leaves the pending disconnect
+                    // running. [isSameDevice] declining rather than guessing is
+                    // what keeps that safe: a coincidental match here would
+                    // suppress a real disconnect.
+                }
 
-                when (intent.action) {
-                    BluetoothDevice.ACTION_ACL_CONNECTED -> {
-                        if (onConnect) {
-                            // A connection that appears is real — nothing to debounce
-                            // on this side, a flicker of *missing* connects is not a
-                            // thing a broadcast receiver can even observe.
-                            emit(address, name, CONNECTED)
-                        } else if (
-                            isSameDevice(pendingDisconnectAddress, pendingDisconnectName, address, name)
-                        ) {
-                            // The registration below only adds this broadcast when a
-                            // disconnect debounce is running, so reaching here means
-                            // the device that just disconnected — specifically that
-                            // one, not merely some device the rule's filter would
-                            // also accept — came back before the settle window
-                            // elapsed, so the disconnect we were about to report
-                            // never really happened.
-                            pendingDisconnect?.cancel()
+                BluetoothEvents.Action.DISCONNECTED -> {
+                    // A connect-direction instance never registered this action
+                    // through its own receiver before; it still must not act on
+                    // it now that every instance sees every sighting.
+                    if (onConnect) return
+
+                    if (disconnectDebounceMillis <= 0) {
+                        emit(address, name, DISCONNECTED)
+                    } else {
+                        pendingDisconnect?.cancel()
+                        pendingDisconnectAddress = address
+                        pendingDisconnectName = name
+                        pendingDisconnect = launch {
+                            delay(disconnectDebounceMillis)
+                            // null means the state could not be re-read (missing
+                            // permission, or a classic-profile device this API
+                            // cannot see at all; see currentlyHolds). Suppressing
+                            // a real disconnect because it could not be verified
+                            // is the worse failure, so anything but a confirmed
+                            // reconnect (== false) still emits.
+                            if (currentlyHolds() != false) {
+                                emit(address, name, DISCONNECTED)
+                            }
                             pendingDisconnect = null
                             pendingDisconnectAddress = null
                             pendingDisconnectName = null
-                        }
-                        // Any other connect — a different device, or one this
-                        // receiver cannot identify as the same — leaves the pending
-                        // disconnect running. [isSameDevice] declining rather than
-                        // guessing is what keeps that safe: a coincidental match
-                        // here would suppress a real disconnect.
-                    }
-
-                    BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
-                        if (disconnectDebounceMillis <= 0) {
-                            emit(address, name, DISCONNECTED)
-                        } else {
-                            pendingDisconnect?.cancel()
-                            pendingDisconnectAddress = address
-                            pendingDisconnectName = name
-                            pendingDisconnect = launch {
-                                delay(disconnectDebounceMillis)
-                                // null means the state could not be re-read (missing
-                                // permission, or a classic-profile device this API
-                                // cannot see at all — see currentlyHolds). Suppressing
-                                // a real disconnect because it could not be verified
-                                // is the worse failure, so anything but a confirmed
-                                // reconnect (== false) still emits.
-                                if (currentlyHolds() != false) {
-                                    emit(address, name, DISCONNECTED)
-                                }
-                                pendingDisconnect = null
-                                pendingDisconnectAddress = null
-                                pendingDisconnectName = null
-                            }
                         }
                     }
                 }
             }
         }
 
-        val filter = IntentFilter(
-            if (onConnect) {
-                BluetoothDevice.ACTION_ACL_CONNECTED
-            } else {
-                // ACTION_ACL_DISCONNECTED, not ACTION_ACL_DISCONNECT_REQUESTED:
-                // the latter fires when a disconnection is about to be
-                // attempted, which is not the same event and can be followed
-                // by the device staying connected.
-                BluetoothDevice.ACTION_ACL_DISCONNECTED
-            }
-        )
-        if (!onConnect && disconnectDebounceMillis > 0) {
-            // Only registered to notice a reconnect inside the settle window; it is
-            // never itself the event this trigger fires in this direction.
-            filter.addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
+        // Cold-start path: a sighting recorded before this flow started
+        // collecting, most likely because it is what started the process this
+        // flow is now collecting in. See [BluetoothEvents.pending].
+        BluetoothEvents.pending(now(), windowMillis)?.let { sighting ->
+            lastHandledAtMillis = sighting.atMillis
+            handle(sighting)
         }
 
-        ContextCompat.registerReceiver(
-            context,
-            receiver,
-            filter,
-            // A protected system broadcast, so nothing else can reach this receiver.
-            ContextCompat.RECEIVER_NOT_EXPORTED,
-        )
+        // Warm path: a sighting published while this flow is already
+        // collecting. [ServiceEventBus] does not replay, so this never
+        // re-delivers what [pending] above already consumed from a process
+        // that was not yet collecting when it happened. The guard exists for
+        // the narrower race where this subscription starts just late enough to
+        // still catch the live publish of the very sighting [pending] already
+        // read.
+        val subscription = launch {
+            BluetoothEvents.sightings.events.collect { sighting ->
+                if (sighting.atMillis == lastHandledAtMillis) return@collect
+                lastHandledAtMillis = sighting.atMillis
+                handle(sighting)
+            }
+        }
 
         awaitClose {
             pendingDisconnect?.cancel()
-            context.unregisterReceiver(receiver)
+            subscription.cancel()
         }
     }
 
@@ -385,26 +403,14 @@ class BluetoothConnectionTrigger(
     }
 
     /**
-     * The device's address and name, or nulls.
-     *
-     * Both getters need `BLUETOOTH_CONNECT` from API 31 and throw without it, so
-     * the permission is checked first — and the result is degraded to nulls
-     * rather than propagated, because an exception here would kill the engine's
-     * collector and take the rule with it. A rule narrowed to an address or a
-     * name then cannot match, which is exactly what the factory's declared
-     * requirement exists to explain on screen.
-     *
-     * The suppression is for lint's benefit, not a claim that the check is
-     * unnecessary: `canReadBluetoothDevices` is that check, and lint cannot
-     * follow it across a function boundary. `runCatching` stays as the second
-     * line, for the OEM that throws anyway.
+     * The device's address and name, or nulls. Delegates to [bluetoothIdentify],
+     * which [BluetoothConnectionReceiver] in `:ui` now also calls. That way a
+     * sighting's identity is resolved once, and every reader (this
+     * [currentlyHolds] poll, and every trigger reading [BluetoothEvents]) agrees
+     * on what it was.
      */
-    @Suppress("MissingPermission")
-    private fun identify(device: BluetoothDevice?): Pair<String?, String?> {
-        if (!context.canReadBluetoothDevices()) return null to null
-        return runCatching { device?.address }.getOrNull() to
-            runCatching { device?.name }.getOrNull()
-    }
+    private fun identify(device: BluetoothDevice?): Pair<String?, String?> =
+        bluetoothIdentify(context, device)
 
     companion object {
         const val TYPE = "bluetooth_connected"
@@ -483,6 +489,33 @@ private fun Context.canReadBluetoothDevices(): Boolean =
     Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
         ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) ==
         PackageManager.PERMISSION_GRANTED
+
+/**
+ * The address and name of a device from an ACL broadcast, or nulls.
+ *
+ * Both getters need `BLUETOOTH_CONNECT` from API 31 and throw without it, so
+ * the permission is checked first, and the result is degraded to nulls rather
+ * than propagated. `runCatching` stays as a second line for the OEM that
+ * throws anyway.
+ *
+ * Top-level and public, rather than a private method on
+ * [BluetoothConnectionTrigger], because `BluetoothConnectionReceiver` in `:ui`
+ * needs the same resolution: it is what records a sighting's identity in
+ * [BluetoothEvents] in the first place, and a sighting's identity has to be
+ * resolved exactly once for every trigger reading it to agree on what it was.
+ * [BluetoothConnectionTrigger.currentlyHolds] is the other caller, for the
+ * device lists it polls directly rather than through a sighting.
+ *
+ * The suppression is for lint's benefit, not a claim that the check is
+ * unnecessary: [canReadBluetoothDevices] is that check, and lint cannot follow
+ * it across a function boundary.
+ */
+@SuppressLint("MissingPermission")
+fun bluetoothIdentify(context: Context, device: BluetoothDevice?): Pair<String?, String?> {
+    if (!context.canReadBluetoothDevices()) return null to null
+    return runCatching { device?.address }.getOrNull() to
+        runCatching { device?.name }.getOrNull()
+}
 
 /**
  * What `bluetooth_connected` needs on a device at [apiLevel].

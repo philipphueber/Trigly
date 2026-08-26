@@ -1123,8 +1123,34 @@ rather than merely working: reading does not consume, so several rules on one
 trigger all fire; and the record is bounded by a freshness window, because it
 outlives its moment and a rule enabled hours later must not announce the morning's
 reboot. Nothing is persisted: "did *this* process start because of a boot" has a
-new answer in every process. Any future trigger for an event that precedes the
-engine belongs on this shape, not on a receiver.
+new answer in every process. Any future trigger for an event that always
+precedes the engine belongs on this shape, not on a receiver.
+
+**An event that might or might not precede the engine needs both a record and
+a bus.** `BootEvents` covers the case where the answer is always "before":
+`BOOT_COMPLETED` is what starts the engine, so a trigger is never collecting
+yet when it lands. `ShortcutEvents` and `BluetoothEvents` cover the case where
+the answer is "it depends." A shortcut tap and a Bluetooth connect can each
+land while the engine is already running as a foreground service, in which
+case the trigger asking about it is already collecting and needs the event
+delivered live; or the system can have killed the engine's process for
+sitting idle, in which case the very same tap or connect is what restarts it,
+and the event lands before any trigger exists to read it. Nothing available
+at the point of receiving either event says in advance which case applies.
+Both objects answer this the same way: a live `ServiceEventBus` for the
+already-collecting case, and a freshness-windowed pending record for the
+cold-start case, fed from the one call site (a trampoline activity for a tap,
+a manifest receiver for a connect) that does not have to work out which
+applies. The risk unique to this shape is that a pending record read at
+collection start and a live publish a moment later can describe the same
+event twice; `ShortcutTrigger` and `BluetoothConnectionTrigger` both guard
+against that by remembering the timestamp of the event each has already
+turned into an emission and skipping an exact repeat of it. `BluetoothEvents`
+adds a second, unrelated repeat to guard against: some Bluetooth accessories
+resend the same connect or disconnect for the same device several seconds
+later, which is a platform quirk rather than a second event, and that
+duplicate is dropped once, at the point the sighting is recorded, rather than
+detected separately by every trigger reading it.
 
 ## Look and feel
 

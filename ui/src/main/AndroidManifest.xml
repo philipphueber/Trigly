@@ -138,6 +138,25 @@
         </receiver>
 
         <!--
+          exported="true" for the same reason as BootReceiver above: the system
+          sends both actions from a different uid, and a non-exported receiver
+          only hears from its own app. Both are protected broadcasts, so
+          nothing else can reach this. See BluetoothConnectionReceiver's own
+          doc for why these two actions and no others, and for why starting
+          the engine from here is permitted rather than merely convenient.
+        -->
+        <receiver
+            android:name=".BluetoothConnectionReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.bluetooth.device.action.ACL_CONNECTED" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.bluetooth.device.action.ACL_DISCONNECTED" />
+            </intent-filter>
+        </receiver>
+
+        <!--
           Hands one rule's JSON to whichever app the person picks from the share
           sheet. Needed because a content URI is the only way to pass a file to
           another app without either of them holding a storage permission: the
