@@ -240,6 +240,46 @@ interface ComponentFactory {
      */
     val warning: String?
         get() = null
+
+    /**
+     * The contents this component puts in its events, for a rule's actions to
+     * read. See [VariableSpec] and `docs/variables.md`.
+     *
+     * Declared on the factory, consumed by the UI, and read by the engine when
+     * it resolves a field: the same pattern [configFields] follows. Defaulted to
+     * empty for the reason [TriggerFactory.supportsCondition] is defaulted, and
+     * it is the same reason both times: adding this must not mean editing every
+     * trigger in the project in one commit, and each one opts in on its own.
+     *
+     * Empty means "this component offers nothing to read", which is the honest
+     * answer for `interval`, whose event is only the fact that it happened, and
+     * for every action today. An action producing a variable is a real path and
+     * it is not this one; `docs/variables.md` says why the obvious candidate,
+     * an HTTP response body, needs its own decision first.
+     */
+    val variables: List<VariableSpec>
+        get() = emptyList()
+
+    /**
+     * Which of this component's config keys accept a variable, and how each
+     * substituted value is escaped, *given how it is configured*.
+     *
+     * Defaults to what the fields declare, so a component whose escaping does
+     * not vary says nothing extra. The relationship to
+     * [ConfigField.substitution] is exactly the one [requirementsFor] has to
+     * [requirements]: the field declaration is what the editor renders, and this
+     * is what the engine applies.
+     *
+     * Overriding it is for a field whose escaping depends on a sibling.
+     * `http_request` is the case that exists: the same body field needs JSON
+     * escaping when the content type is JSON and none when it is plain text, and
+     * getting that wrong is a webhook that answers 400 with nothing on screen to
+     * explain it.
+     */
+    fun substitutionsFor(config: Map<String, String>): Map<String, Substitution> =
+        configFields
+            .associate { it.key to it.substitution }
+            .filterValues { it != Substitution.NONE }
 }
 
 

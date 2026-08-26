@@ -46,6 +46,24 @@ sealed interface ConfigField {
     val shownWhen: FieldCondition?
         get() = null
 
+    /**
+     * Whether this field accepts `{{variable}}` references, and how a
+     * substituted value is escaped for where it lands. See [Substitution] and
+     * `docs/variables.md`.
+     *
+     * Declared per field rather than decided by the resolver, for the reason
+     * [Substitution] gives: the same value needs different treatment in a
+     * notification, in a URL and in a JSON body. Defaults to
+     * [Substitution.NONE], so a field accepts variables only when its author
+     * said it does, and `{{...}}` in any other field stays literal text.
+     *
+     * This is the *declaration*, which is what the editor renders a picker
+     * from. The engine asks [ComponentFactory.substitutionsFor] instead, which
+     * defaults to this and can narrow it by configuration.
+     */
+    val substitution: Substitution
+        get() = Substitution.NONE
+
     /** Free text. */
     data class Text(
         override val key: String,
@@ -64,6 +82,7 @@ sealed interface ConfigField {
          */
         val blankMeaning: String? = null,
         val multiline: Boolean = false,
+        override val substitution: Substitution = Substitution.NONE,
     ) : ConfigField
 
     /** A closed set of values. Covers both two-word toggles and wider enums. */

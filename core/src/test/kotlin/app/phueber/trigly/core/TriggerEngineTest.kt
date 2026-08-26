@@ -459,6 +459,177 @@ class TriggerEngineTest {
 
         assertEquals("concurrent access threw: $failures", emptyList<Throwable>(), failures)
     }
+
+    // --- the variable seam: ActionSlot, exercised through TriggerEngine -------------
+
+    @Test
+    fun `an action with no variables is built exactly once, however many events fire`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val factory = CountingActionFactory(ACTION_TYPE)
+            val emissions = listOf(event(1), event(2), event(3))
+            val engine = TriggerEngine(
+                registry = Registry(
+                    triggerFactories = listOf(FakeTriggerFactory(TRIGGER_TYPE, emissions)),
+                    actionFactories = listOf(factory),
+                ),
+                scope = this,
+            )
+
+            engine.startRule(
+                Rule(
+                    id = "rule-1",
+                    name = "plain",
+                    trigger = ComponentSpec(TRIGGER_TYPE),
+                    actions = listOf(ComponentSpec(ACTION_TYPE)),
+                )
+            )
+
+            // Built once at start, and never again. This is the compatibility
+            // promise the whole feature rests on: no existing rule pays for a
+            // feature it does not use.
+            assertEquals(1, factory.buildCount)
+            engine.stop()
+        }
+
+    @Test
+    fun `an action with a variable is rebuilt when the resolved value changes`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val fields = listOf(
+                ConfigField.Text(key = "text", label = "Text", substitution = Substitution.TEXT),
+            )
+            val factory = CountingActionFactory(ACTION_TYPE, fields)
+            val emissions = listOf(
+                TriggerEvent(TRIGGER_TYPE, 1L, mapOf("level" to "10")),
+                TriggerEvent(TRIGGER_TYPE, 2L, mapOf("level" to "20")),
+            )
+            val engine = TriggerEngine(
+                registry = Registry(
+                    triggerFactories = listOf(FakeTriggerFactory(TRIGGER_TYPE, emissions)),
+                    actionFactories = listOf(factory),
+                ),
+                scope = this,
+            )
+            val config = mapOf("text" to "Battery: {{trigger.level}}%")
+
+            engine.startRule(
+                Rule(
+                    id = "rule-1",
+                    name = "templated",
+                    trigger = ComponentSpec(TRIGGER_TYPE),
+                    actions = listOf(ComponentSpec(ACTION_TYPE, config)),
+                )
+            )
+
+            // One build at start from the raw config, plus one per event whose
+            // resolved value actually differs from the last build.
+            assertEquals(3, factory.buildCount)
+            assertEquals(
+                listOf("Battery: {{trigger.level}}%", "Battery: 10%", "Battery: 20%"),
+                factory.builtWith.map { it.getValue("text") },
+            )
+            engine.stop()
+        }
+
+    @Test
+    fun `an action with a variable is not rebuilt when the resolved value repeats`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val fields = listOf(
+                ConfigField.Text(key = "text", label = "Text", substitution = Substitution.TEXT),
+            )
+            val factory = CountingActionFactory(ACTION_TYPE, fields)
+            val emissions = listOf(
+                TriggerEvent(TRIGGER_TYPE, 1L, mapOf("level" to "10")),
+                TriggerEvent(TRIGGER_TYPE, 2L, mapOf("level" to "10")),
+            )
+            val engine = TriggerEngine(
+                registry = Registry(
+                    triggerFactories = listOf(FakeTriggerFactory(TRIGGER_TYPE, emissions)),
+                    actionFactories = listOf(factory),
+                ),
+                scope = this,
+            )
+            val config = mapOf("text" to "Battery: {{trigger.level}}%")
+
+            engine.startRule(
+                Rule(
+                    id = "rule-1",
+                    name = "templated",
+                    trigger = ComponentSpec(TRIGGER_TYPE),
+                    actions = listOf(ComponentSpec(ACTION_TYPE, config)),
+                )
+            )
+
+            // Start, then one rebuild for the first event. The second event
+            // resolves to the same text, so the live instance is reused.
+            assertEquals(2, factory.buildCount)
+            engine.stop()
+        }
+
+    @Test
+    fun `a field that cannot be resolved fails through onOutcome and the action does not run`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val fields = listOf(
+                ConfigField.Text(key = "text", label = "Text", substitution = Substitution.TEXT),
+            )
+            val action = RecordingAction()
+            val outcomes = mutableListOf<ActionResult>()
+            val actionFactory = TemplatedRecordingActionFactory(ACTION_TYPE, fields, action)
+            val engine = TriggerEngine(
+                registry = Registry(
+                    triggerFactories = listOf(FakeTriggerFactory(TRIGGER_TYPE, listOf(event(1)))),
+                    actionFactories = listOf(actionFactory),
+                ),
+                scope = this,
+                onOutcome = { _, _, _, result -> outcomes += result },
+            )
+            val config = mapOf("text" to "{{trigger.missing}}")
+
+            engine.startRule(
+                Rule(
+                    id = "rule-1",
+                    name = "unresolvable",
+                    trigger = ComponentSpec(TRIGGER_TYPE),
+                    actions = listOf(ComponentSpec(ACTION_TYPE, config)),
+                )
+            )
+
+            assertTrue(action.seen.isEmpty())
+            val failure = outcomes.single() as ActionResult.Failure
+            // Names the config key, not just "an action failed".
+            assertTrue(failure.reason.contains("text"))
+            engine.stop()
+        }
+
+    @Test
+    fun `a rule naming an unknown action type still fails at start`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val failed = mutableListOf<String>()
+            val engine = TriggerEngine(
+                registry = Registry(
+                    triggerFactories = listOf(FakeTriggerFactory(TRIGGER_TYPE, listOf(event(1)))),
+                    actionFactories = emptyList(),
+                ),
+                scope = this,
+                onStartFailure = { rule, _ -> failed += rule.id },
+            )
+
+            // The slot builds an instance from the raw config at start time,
+            // which is what keeps this failing inside startRule rather than
+            // regressing into a failed run at the first event.
+            engine.sync(
+                listOf(
+                    Rule(
+                        id = "rule-1",
+                        name = "bad action",
+                        trigger = ComponentSpec(TRIGGER_TYPE),
+                        actions = listOf(ComponentSpec("nope")),
+                    )
+                )
+            )
+
+            assertEquals(listOf("rule-1"), failed)
+            engine.stop()
+        }
 }
 
 /**
@@ -644,4 +815,43 @@ private class RecordingAction : Action {
 private class ThrowingAction : Action {
     override suspend fun execute(event: TriggerEvent): ActionResult =
         error("action blew up")
+}
+
+/**
+ * An action factory that counts how many times [create] is called, and what
+ * config each call was built from.
+ *
+ * The reuse rule is invisible unless something outside `ActionSlot` can see
+ * how often the factory is asked, since a plain fake returning one fixed
+ * instance cannot tell a fresh build from a reused one.
+ */
+private class CountingActionFactory(
+    override val type: String,
+    override val configFields: List<ConfigField> = emptyList(),
+) : ActionFactory {
+    var buildCount = 0
+        private set
+
+    val builtWith = mutableListOf<Map<String, String>>()
+
+    override fun create(config: Map<String, String>): Action {
+        buildCount++
+        builtWith += config
+        return object : Action {
+            override suspend fun execute(event: TriggerEvent): ActionResult = ActionResult.Success
+        }
+    }
+}
+
+/**
+ * An action factory that always hands back the same [RecordingAction],
+ * whatever config it is built with, so a test can tell whether the action ran
+ * at all rather than which instance ran.
+ */
+private class TemplatedRecordingActionFactory(
+    override val type: String,
+    override val configFields: List<ConfigField>,
+    private val action: RecordingAction,
+) : ActionFactory {
+    override fun create(config: Map<String, String>): Action = action
 }

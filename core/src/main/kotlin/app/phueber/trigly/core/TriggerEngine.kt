@@ -146,7 +146,7 @@ class TriggerEngine(
             .associateWith(registry::createTrigger)
         // Paired with the spec they were built from, so an outcome can say which
         // action it belongs to. The instance alone does not know its own type.
-        val actions = rule.actions.map { spec -> spec.type to registry.createAction(spec) }
+        val actions = rule.actions.map { spec -> ActionSlot(spec, registry) }
 
         val job = scope.launch {
             leafPaths
@@ -165,11 +165,122 @@ class TriggerEngine(
                         }
                         return@collect
                     }
-                    actions.forEach { (type, action) -> run(rule, type, action, event) }
+                    actions.forEach { slot ->
+                        when (val filled = slot.fill(rule, event)) {
+                            is ActionSlot.Filled.Ready ->
+                                run(rule, slot.type, filled.action, event)
+                            // A field that could not be filled in is reported
+                            // through the same hook a failed run uses, so it
+                            // reaches the rule's fault log as what it is: this
+                            // action did not do its job, and here is why.
+                            is ActionSlot.Filled.Refused -> onOutcome(
+                                rule,
+                                event,
+                                slot.type,
+                                ActionResult.Failure(filled.reason),
+                            )
+                        }
+                    }
                 }
         }
         jobs[rule.id] = Running(rule, job)
         Unit
+    }
+
+    /**
+     * One action of a running rule, and the seam where a variable becomes a
+     * value. See `docs/variables.md`.
+     *
+     * **Why the seam is here and not in `create()`.** An action is built once
+     * per rule start and reused for every event, so a field's value is captured
+     * in a constructor before any event exists: `HttpRequestAction` holds its
+     * URL as a string. And **not inside each action** either, because that puts
+     * the same code in twenty actions, and an action that forgets it is a rule
+     * that quietly ignores its own variables, which is the coupling `CLAUDE.md`
+     * calls the abstraction being wrong.
+     *
+     * **A rule with no variables behaves exactly as it did before this existed.**
+     * The instance is built once, here, and every event reuses it. That is not an
+     * optimisation, it is the compatibility promise: rebuilding a component
+     * needlessly is how this project has caused phantom firings before, and no
+     * existing rule should start paying for a feature it does not use.
+     *
+     * An action that *does* use one is rebuilt only when its resolved config
+     * differs from what the live instance was built from. So a rule whose
+     * variable resolves to the same value twice running also reuses the
+     * instance, and only a value that really changed costs a construction.
+     *
+     * The instance built at start time from the *raw* config is built even for an
+     * action that will be rebuilt on its first event. That is what keeps an
+     * unknown type, or config a factory refuses, failing inside [startRule]
+     * where [onStartFailure] reports it, rather than at the first event where it
+     * would read as a failed run. One wasted construction per templated action,
+     * once, in exchange for that.
+     */
+    private class ActionSlot(private val spec: ComponentSpec, private val registry: Registry) {
+
+        val type: String get() = spec.type
+
+        /**
+         * The config keys that hold a reference, with the escaping each needs.
+         *
+         * Parsed once at start time. A field with no reference in it is absent
+         * from here, which is what makes the fast path in [fill] free rather
+         * than merely cheap.
+         */
+        private val templates: Map<String, Pair<Template, Substitution>> =
+            registry.substitutionsFor(spec).mapNotNull { (key, encoding) ->
+                val stored = spec.config[key] ?: return@mapNotNull null
+                val template = parseTemplate(stored)
+                if (template.hasReferences) key to (template to encoding) else null
+            }.toMap()
+
+        private var builtFrom: Map<String, String> = spec.config
+
+        private var instance: Action = registry.createAction(spec)
+
+        /** The action to run for this event, or why there is none. */
+        sealed interface Filled {
+            data class Ready(val action: Action) : Filled
+            data class Refused(val reason: String) : Filled
+        }
+
+        fun fill(rule: Rule, event: TriggerEvent): Filled {
+            if (templates.isEmpty()) return Filled.Ready(instance)
+
+            val lookup = EventLookup(rule, event)
+            val resolved = builtFrom.toMutableMap()
+            for ((key, form) in templates) {
+                val (template, encoding) = form
+                when (val filled = template.substitute(lookup, encoding)) {
+                    is Substituted.Ok -> resolved[key] = filled.value
+                    is Substituted.Failed -> return Filled.Refused(
+                        "Trigly could not fill in the '$key' setting. ${filled.reason}"
+                    )
+                }
+            }
+
+            if (resolved == builtFrom) return Filled.Ready(instance)
+
+            // A factory can refuse a resolved value where it accepted the raw
+            // one: a variable carries whatever the platform put in it. That is
+            // this action failing rather than the rule failing to start, so it
+            // is reported the way a failed run is.
+            val rebuilt = try {
+                registry.createAction(spec.copy(config = resolved))
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (t: Throwable) {
+                return Filled.Refused(
+                    "Trigly filled in the settings for this action and then could not " +
+                        "build it. ${t.message}"
+                )
+            }
+
+            builtFrom = resolved
+            instance = rebuilt
+            return Filled.Ready(rebuilt)
+        }
     }
 
     /**
