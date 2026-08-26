@@ -46,6 +46,7 @@ class RulesScreenTest {
     private val exported = mutableListOf<String>()
     private var newRuleTaps = 0
     private var importTaps = 0
+    private var savedValuesTaps = 0
     private val duplicated = mutableListOf<String>()
     private var batteryFixTaps = 0
 
@@ -79,6 +80,7 @@ class RulesScreenTest {
             onNewRule = { newRuleTaps++ },
             onEditRule = { edited += it },
             onExportAll = { exported += "all" },
+            onSavedValues = { savedValuesTaps++ },
             onExportRule = { exported += it.id },
             onDuplicateRule = { duplicated += it.id },
             onImport = { importTaps++ },
@@ -387,6 +389,25 @@ class RulesScreenTest {
         composeRule.onNodeWithText("IMPORT").performClick()
 
         assertEquals(1, importTaps)
+    }
+
+    /**
+     * The way in to the saved values screen, and the reason it is tested at all:
+     * a saved value is written by a rule and read by any rule, so until this
+     * entry existed there was no way to find out that saved values are a thing.
+     * A working feature nobody can reach is the failure this whole screen is
+     * fixing, so the door to it is worth one test.
+     *
+     * Offered with no rules at all, unlike export. Somebody arriving before
+     * their first rule is exactly who needs to learn what a saved value is.
+     */
+    @Test
+    fun saved_values_is_offered_even_with_no_rules() {
+        composeRule.setContent { Screen(emptyList()) }
+
+        composeRule.onNodeWithText("SAVED VALUES").performClick()
+
+        assertEquals(1, savedValuesTaps)
     }
 
     @Test

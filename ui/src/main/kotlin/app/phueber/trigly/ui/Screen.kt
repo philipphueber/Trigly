@@ -20,6 +20,12 @@ sealed interface Screen {
 
     /** Null [ruleId] means a rule that does not exist yet. */
     data class RuleEditor(val ruleId: String?) : Screen
+
+    /**
+     * Every app-scope variable, reached from the rule list's header beside
+     * "Export all": both are about the whole rule set rather than one rule.
+     */
+    data object SavedValues : Screen
 }
 
 /**
@@ -29,15 +35,17 @@ sealed interface Screen {
  * Extracted because this is the part with a real decision in it, and because the
  * decision is the one thing here a JVM test can check. The rule it encodes:
  * **the rule list is the bottom of the stack.** Back from the list leaves the
- * app; the editor goes back to it.
+ * app; the editor and the saved-values screen both go back to it.
  */
 fun backTarget(screen: Screen): Screen? = when (screen) {
     Screen.RuleList -> null
     is Screen.RuleEditor -> Screen.RuleList
+    Screen.SavedValues -> Screen.RuleList
 }
 
 private const val LIST_TAG = "list"
 private const val EDITOR_TAG = "editor"
+private const val SAVED_VALUES_TAG = "saved_values"
 
 /**
  * Saves the destination across a configuration change.
@@ -57,11 +65,13 @@ val ScreenSaver: Saver<Screen, Any> = listSaver(
         when (screen) {
             Screen.RuleList -> listOf(LIST_TAG)
             is Screen.RuleEditor -> listOf(EDITOR_TAG, screen.ruleId.orEmpty())
+            Screen.SavedValues -> listOf(SAVED_VALUES_TAG)
         }
     },
     restore = { saved ->
         when (saved.firstOrNull()) {
             EDITOR_TAG -> Screen.RuleEditor(saved.getOrNull(1)?.takeIf { it.isNotEmpty() })
+            SAVED_VALUES_TAG -> Screen.SavedValues
             else -> Screen.RuleList
         }
     },

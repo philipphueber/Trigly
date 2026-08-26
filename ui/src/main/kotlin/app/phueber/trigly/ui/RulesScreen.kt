@@ -54,6 +54,13 @@ fun RulesScreen(
     onNewRule: () -> Unit,
     onEditRule: (String) -> Unit,
     onExportAll: () -> Unit,
+    /**
+     * Opens the saved values screen. Reached from this header rather than from
+     * the rule editor, because a saved value belongs to no rule: any rule can
+     * read it and any rule can write it, which is the same reason "export all"
+     * lives here and "share" lives on a rule.
+     */
+    onSavedValues: () -> Unit,
     onExportRule: (Rule) -> Unit,
     /** Saves a copy of the rule. See [RulesViewModel.duplicate]. */
     onDuplicateRule: (Rule) -> Unit = {},
@@ -84,6 +91,14 @@ fun RulesScreen(
             title = stringResource(R.string.rules_title),
             actions = {
                 BlockTextButton(stringResource(R.string.rules_import), onClick = onImport)
+                // Shown whatever the rule list holds, unlike export. A saved
+                // value can exist with no rules at all, and somebody arriving
+                // before their first rule is exactly who needs to find out what
+                // saved values are.
+                BlockTextButton(
+                    text = stringResource(R.string.rules_saved_values),
+                    onClick = onSavedValues,
+                )
                 // Export is pointless with nothing to export.
                 if (statuses.isNotEmpty()) {
                     BlockTextButton(

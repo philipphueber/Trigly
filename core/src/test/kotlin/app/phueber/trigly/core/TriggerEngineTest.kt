@@ -990,7 +990,7 @@ private class CountingVariableStore(
     var getCalls = 0
         private set
 
-    override fun all() = delegate.all()
+    override fun history() = delegate.history()
 
     override suspend fun get(name: String): String? {
         getCalls++

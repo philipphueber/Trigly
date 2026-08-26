@@ -808,10 +808,47 @@ spelling of the grammar, and it would drift the day the grammar gained a
 character: a name a person was allowed to store would become a name no field
 could read.
 
-**Not built, and visible as a gap.** Nothing shows the person what app variables
-exist or lets them set one by hand, so the picker offers nothing until some rule
-has written something. That is discoverability rather than correctness, and it is
-the obvious next piece.
+**The store has one wholesale read, not two.** `history()` carries every value
+with the moment it was written, and `all()` is an extension derived from it. The
+first shape of this had both as interface methods, with `history()` defaulted to
+derive from `all()` and report every timestamp as zero. That is two spellings of
+one fact, and the default was a plausible lie: an implementation that overrode
+`all()` and not `history()` would have rendered every saved value as last changed
+in 1970. One abstract read means an implementation cannot answer half the
+question.
+
+#### Seeing and setting a saved value
+
+The screen that makes app scope findable. Before it, nothing showed which saved
+values existed or let a person set one by hand, so the editor's variable picker
+had nothing to offer until some rule had already written something. A working
+feature that cannot be found is the failure this project keeps designing against,
+and this was an instance of it.
+
+Reached from the rules list header, beside "Export all", because a saved value
+belongs to no rule: any rule can read it and any rule can write it. It is offered
+even when there are no rules at all, unlike export, because somebody arriving
+before their first rule is exactly who needs to learn what a saved value is. The
+empty state therefore has to teach rather than apologise: it names the action that
+writes one.
+
+**Deleting names what it will break.** A value that rules read cannot vanish
+quietly, because those rules would start failing on a reference that no longer
+resolves and nothing afterwards would say why. So a delete on a value two rules
+read names both rules first. A delete on a value nothing reads gets no dialog at
+all: ceremony only where there is something to lose.
+
+`Rule.appVariablesRead` answers that question, and it finds **reads only**.
+Finding what *writes* a variable would mean knowing that `set_variable` is the
+action that does it and which config key holds the name, which is one component's
+identity in a shared file, and the plugin rule forbids exactly that. A read is
+spelled `{{app.name}}` in a field that declared it accepts a reference, so it is a
+property of the grammar rather than of any component, and a component added later
+that learns to read a variable is found by this without it changing.
+
+"Read by two rules" is drawn as information rather than as a warning, per
+"Warnings are not errors" below. A value being used is the ordinary case, and it
+is the reason the value exists.
 
 ### Rule storage and the portable format
 

@@ -635,10 +635,12 @@ Four things came out differently from what this section assumed:
 - **A save never requires an app variable to exist.** The reader is usually
   written before the writer.
 
-**Still missing, and it is the obvious next thing:** nothing lets a person see
-what app variables exist or set one by hand. Until a rule has written one, the
-picker has nothing to offer, so the feature is hard to find even though it works.
-That is a screen, not a correctness problem, and it is not in phase 3 below.
+**The screen that was missing is built.** "Saved values", reached from the rules
+list header. It lists what exists with each value's last-changed time, lets a
+person add or edit one by hand, and names the rules that read a value before
+letting it be deleted. Until it existed the picker had nothing to offer before
+some rule had written something, so a working feature was nearly impossible to
+find. See `docs/architecture.md`'s "Seeing and setting a saved value".
 
 **Phase 3: the fields a template cannot reach, and derived variables.**
 Whole-field binding per P7. Derived variables computed at resolution rather than

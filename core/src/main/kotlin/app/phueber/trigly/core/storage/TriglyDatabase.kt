@@ -8,6 +8,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.RuleRepository
+import app.phueber.trigly.core.VariableRecord
 import app.phueber.trigly.core.VariableStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -215,8 +216,10 @@ internal class RoomRuleRepository(private val dao: RuleDao) : RuleRepository {
  */
 internal class RoomVariableStore(private val dao: VariableDao) : VariableStore {
 
-    override fun all(): Flow<Map<String, String>> =
-        dao.observeAll().map { rows -> rows.associate { it.name to it.value } }
+    override fun history(): Flow<Map<String, VariableRecord>> =
+        dao.observeAll().map { rows ->
+            rows.associate { it.name to VariableRecord(it.value, it.updatedAtMillis) }
+        }
 
     override suspend fun get(name: String): String? = dao.get(name)
 
