@@ -21,13 +21,21 @@ import java.time.ZoneId
  * time" is not a question anyone should have to debug on a device.
  *
  * **Scheduling used to be the honest weakness here, and now is not.** [events]
- * waits with [AlarmScheduler.waitUntil], not a plain coroutine `delay`, so a
- * sunset hours away survives Doze instead of only firing on whatever next
- * wakes the CPU. `docs/todo.md`'s T1 is the record of the old gap and the fix;
- * this is the one place in this class that changed. Drift of up to a few
- * minutes is still expected, which the warning below says plainly, because a
- * few kilometres of typed location already changes true sunrise by only
- * seconds and this trigger was never promising more than that.
+ * waits with [AlarmScheduler.waitUntilDurable], not a plain coroutine
+ * `delay` and not the plain listener form either. `docs/todo.md`'s T1 is
+ * the record of the `delay` gap and its fix: a sunset hours away survives
+ * Doze instead of only firing on whatever next wakes the CPU. The listener
+ * form fixed that but not a kill: AOSP deletes a listener alarm the moment
+ * the process holding it dies, so a killed process left this trigger with
+ * nothing pending at all, which is T17's finding.
+ * [AlarmScheduler.waitUntilDurable] is the fix, and it is also why
+ * [nextOccurrenceMillis] below is not always asked to search from `now()`;
+ * see [events]. Whether a durable wake actually restarts the engine on a
+ * given device is a separate, sourced question; see `AlarmManagerScheduler`'s
+ * KDoc. Drift of up to a few minutes is still expected, which the warning
+ * below says plainly, because a few kilometres of typed location already
+ * changes true sunrise by only seconds and this trigger was never
+ * promising more than that.
  *
  * Days with no sunrise or sunset — real, above the Arctic circle — are skipped
  * rather than approximated: the loop moves to the next day instead of inventing
@@ -51,11 +59,23 @@ class SolarTrigger(
 
     override fun events(): Flow<TriggerEvent> = flow {
         while (true) {
-            val fireAt = nextOccurrenceMillis(now()) ?: break
+            // Ordinarily searches strictly after now, which is right for a
+            // rule the user just enabled: an occurrence a minute ago should
+            // not fire late, it should wait for the next one. But when
+            // AlarmWakeEvents says a durable wait's alarm fired recently,
+            // this very collection may only exist because that alarm just
+            // restarted the process, and "now" can already be a few minutes
+            // past the exact occurrence this trigger was woken for. Search
+            // from a little earlier than now in that case only, so the
+            // occurrence this trigger was durably woken for is found instead
+            // of skipped in favour of tomorrow's. See AlarmWakeEvents for why
+            // no identity is checked here, only freshness.
+            val searchFrom = if (AlarmWakeEvents.pending(now())) now() - CATCH_UP_MILLIS else now()
+            val fireAt = nextOccurrenceMillis(searchFrom) ?: break
             // Computed from the scheduled instant, never from "now plus a day" —
             // the drift bug `docs/triggers.md` warns about for recurring time
             // triggers is exactly that mistake.
-            scheduler.waitUntil(fireAt)
+            scheduler.waitUntilDurable(fireAt)
             emit(
                 TriggerEvent(
                     triggerType = TYPE,
@@ -64,7 +84,11 @@ class SolarTrigger(
                 )
             )
             // Past the emitted instant, so the same day cannot be scheduled twice
-            // if the clock has not visibly advanced.
+            // if the clock has not visibly advanced. Plain waitFor is enough:
+            // if a kill happens during this one-second nudge, a fresh
+            // collection's own now() will already have moved well past
+            // today's occurrence, and searches forward correctly with no
+            // help from AlarmWakeEvents.
             scheduler.waitFor(1_000)
         }
     }
@@ -155,6 +179,20 @@ class SolarTrigger(
          * that needs more than one day.
          */
         const val SEARCH_DAYS = 200
+
+        /**
+         * How far before "now" [events] searches once [AlarmWakeEvents.pending]
+         * says a durable wait's alarm fired recently.
+         *
+         * Covers [MAX_WINDOW_MILLIS], the most that alarm can run late per
+         * `AlarmManagerScheduler`'s own drift promise, plus
+         * [AlarmWakeEvents.DEFAULT_WINDOW_MILLIS] for how old the record
+         * [AlarmWakeEvents.pending] accepted as fresh might already be by the
+         * time this runs. Wider than either bound alone needs, on purpose: a
+         * rule whose own occurrence is not inside this window is unaffected
+         * either way, so there is nothing to trade away by being generous.
+         */
+        private const val CATCH_UP_MILLIS = MAX_WINDOW_MILLIS + AlarmWakeEvents.DEFAULT_WINDOW_MILLIS
     }
 }
 

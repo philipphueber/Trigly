@@ -1021,16 +1021,16 @@ for a dead listener was itself asleep in Doze. `docs/todo.md` names this T1 and
 puts it first in the backlog for that reason.
 
 `AlarmScheduler`, in `:core`, is the fix. `:core` may not depend on any Android
-type, so the port is kept to the two shapes every one of the five callers
-needs: `waitFor(durationMillis)`, a repeating wait counted from now, and
-`waitUntil(atMillis)`, a wait until one wall-clock instant. Neither method
-takes a separate cancel parameter. Every caller reaches the port from inside
-its own coroutine, and cancelling that coroutine is the cancel; the
-implementation's job is to release whatever it asked the system for when that
-happens, not to offer a second way to stop. The shape is deliberately small,
-for the same reason `NotificationController` and `UiController` are: a small
-port is one a fake in a JVM test can implement in two lines, which is how all
-five callers are tested without a device.
+type, so the port is kept to the shapes every one of the five callers needs:
+`waitFor(durationMillis)`, a repeating wait counted from now, `waitUntil(atMillis)`,
+a wait until one wall-clock instant, and, since T17 below, a durable version of
+each. None of the four takes a separate cancel parameter. Every caller reaches
+the port from inside its own coroutine, and cancelling that coroutine is the
+cancel; the implementation's job is to release whatever it asked the system for
+when that happens, not to offer a second way to stop. The shape is deliberately
+small, for the same reason `NotificationController` and `UiController` are: a
+small port is one a fake in a JVM test can implement in a few lines, which is
+how all five callers are tested without a device.
 
 `AlarmManagerScheduler`, the implementation, lives in `:triggers` rather than
 `:ui`. The port exists for triggers to call, and `:triggers` is already the
@@ -1045,24 +1045,78 @@ own instance instead of taking one from the container, for the same reason it
 builds its own `RequirementChecker`: its only caller, `EngineService`, already
 takes just a `Context`, and that shape did not need to change for this.
 
-Every wait goes through `AlarmManager.setWindow` with an `OnAlarmListener`,
-never a `PendingIntent`. The listener form delivers straight into the calling
-process while it is alive, on a plain `Handler`, with no manifest entry and no
-exact-alarm permission. That is exactly the shape every caller needs, since all five
-wait inside a live coroutine and none needs to be woken in a process the
-system has already killed. `setExactAndAllowWhileIdle` is the API for a wait
-that must survive Doze *and* land on the minute, and it needs
-`SCHEDULE_EXACT_ALARM` from API 31, a permission Google reserves for
-alarm-clock-like apps at its `USE_EXACT_ALARM` tier. No caller in this
-codebase asks for that precision today, so that path is not built; the honest
-trade instead is drift of up to a few minutes, sized by how long the wait
-itself is, and every trigger that calls this port says so in its own warning
-text.
+Every wait used to go through `AlarmManager.setWindow` with an
+`OnAlarmListener`, never a `PendingIntent`. The listener form delivers
+straight into the calling process while it is alive, on a plain `Handler`,
+with no manifest entry and no exact-alarm permission, and that is still
+exactly the shape `AppForegroundTrigger`, `NotificationWatchdogTrigger` and
+`keepListenerBound` need: each polls inside a process the engine is already
+keeping alive, and none needs to be woken in a process the system has already
+killed. `setExactAndAllowWhileIdle` is the API for a wait that must survive
+Doze *and* land on the minute, and it needs `SCHEDULE_EXACT_ALARM` from API
+31, a permission Google reserves for alarm-clock-like apps at its
+`USE_EXACT_ALARM` tier. No caller in this codebase asks for that precision
+today, so that path is still not built; the honest trade for these three is
+drift of up to a few minutes, sized by how long the wait itself is, and each
+says so in its own warning text.
 
-**What this does not fix.** A user's force-stop puts the app in the stopped
-state, and the system cancels every alarm this class has pending. Nothing in
-this port, or in any implementation of it, gets that back. The limit
-described above for the foreground service stays true whatever wakes the app.
+**T17: the listener form fixed the sleeping phone and not the stopped app.**
+`IntervalTrigger` and `SolarTrigger` do not merely poll inside a live process;
+their whole wait is worthless if it does not outlive one. AOSP deletes a
+listener alarm the instant the process holding it dies:
+`AlarmManagerService.setImplLocked` links the listener's death to
+`removeLocked(..., REMOVE_REASON_LISTENER_BINDER_DIED)`. So a rule on either
+trigger, killed mid-wait, was left with no pending alarm at all and nothing
+that would ever set a new one. `docs/todo.md`'s T17 is the record of that
+gap, and `waitForDurable`/`waitUntilDurable` are the fix: a second,
+independent `PendingIntent` alarm for the same instant, aimed at
+`AlarmWakeReceiver` in `:ui`, the same shape `BootReceiver` and
+`BluetoothConnectionReceiver` already use to bring the engine back for their
+own events. `AlarmWakeEvents` is the record those two already have a
+counterpart for (`BootEvents`, `BluetoothEvents`): the receiver writes it
+before starting the engine, so a fresh collection can tell that a durable
+wait just fired somewhere and search from a little before "now" instead of
+from "now" itself, which is what stops `SolarTrigger` from skipping an
+occurrence that was already due in favour of tomorrow's. `IntervalTrigger`
+needs no such check: it always counts a fresh period from whenever it
+restarts, kill or no kill.
+
+**Whether the durable alarm can actually restart the foreground engine is a
+sourced answer, not a hope, and it depends on which alarm fired.**
+`ActiveServices.shouldAllowFgsStartForegroundNoBindingCheckLocked` (AOSP tag
+`android-15.0.0_r1`) is what `EngineService.start`'s
+`startForegroundService` call is checked against, and it allows a background
+start only for a caller already on one of a short list of allowances, read
+out of `ActivityManagerService.isAllowlistedForFgsStartLOSP`.
+`AlarmManagerService.setImplLocked` puts a caller on that list, with
+`TEMPORARY_ALLOW_LIST_TYPE_FOREGROUND_SERVICE_ALLOWED`, only for an *exact*
+alarm: `setExactAndAllowWhileIdle` or `setAlarmClock`. An ordinary
+`setWindow` alarm, which is all this codebase uses, gets nothing from that
+allowlist at all. So this fix deliberately stops short of `SCHEDULE_EXACT_ALARM`:
+that permission is a user-granted special access, `USE_EXACT_ALARM` is
+Play-restricted to alarm-clock apps, and reaching for either is a product
+decision for the maintainer, not a byproduct of closing T17.
+
+There is a second, unrelated door onto that same allowlist.
+`ActivityManagerService.isAllowlistedForFgsStartLOSP` also passes any uid
+already on the device-idle "except idle" allowlist, which is exactly the list
+a user joins by granting the battery-optimisation exemption described above.
+So on a device where the user has granted what this app already asks for and
+nags about, an ordinary, inexact durable wake *does* bring the foreground
+engine back; on a device where they have not, `EngineService.start` is
+refused, exactly as its own KDoc already expects for a call site that is not
+one of the platform's own exemptions, and the durable alarm still recorded
+that it fired, for whichever restart happens to come next to read. The README
+limit on this trigger pair should say it survives a kill on a device that has
+granted the exemption Trigly already asks for, and otherwise survives sleep
+but not a stop, which is the honest version of the claim until the maintainer
+decides an exact alarm is worth its cost.
+
+**What none of this fixes.** A user's force-stop puts the app in the stopped
+state, and the system cancels every alarm this class has pending, both the
+listener form and the durable `PendingIntent` form alike. Nothing in this
+port, or in any implementation of it, gets that back. The limit described
+above for the foreground service stays true whatever wakes the app.
 `docs/todo.md`'s R1 records this explicitly, because the review that first
 asked for a scheduler also proposed it as a fix for force-stop, and it is not
 one.

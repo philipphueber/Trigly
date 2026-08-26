@@ -13,9 +13,14 @@ import java.time.ZoneId
 /**
  * Proves [SolarTrigger.events] waits for the computed sunrise instant, and
  * then for the short anti-double-fire buffer, through the scheduler port
- * rather than a plain coroutine `delay`. This is the one place T1 changes in
- * this class, per its own KDoc; the astronomy behind the computed instant is
- * [SolarTimeTest]'s job, not this file's.
+ * rather than a plain coroutine `delay`. T1 is why this asks the port at
+ * all; T17 is why the instant itself is awaited through the *durable* half
+ * of the port ([AlarmScheduler.waitUntilDurable], not
+ * [AlarmScheduler.waitUntil]) while the short anti-double-fire buffer stays
+ * on the plain [AlarmScheduler.waitFor]. See [SolarTrigger.events]' own
+ * KDoc for why that one did not need to change. The astronomy behind the
+ * computed instant is [SolarTimeTest]'s job, not this file's; the catch-up
+ * search after a durable wake is [SolarTriggerCatchUpTest]'s.
  *
  * [now] is sourced from `runTest`'s own virtual clock rather than a fixed
  * value, so the second loop iteration sees a "now" that has genuinely moved
@@ -50,10 +55,11 @@ class SolarTriggerSchedulingTest {
         assertEquals(2, events.size)
         assertEquals(listOf(SolarTrigger.TYPE, SolarTrigger.TYPE), events.map { it.triggerType })
         assertEquals(listOf(1_000L), scheduler.waitForCalls)
-        assertEquals(firstFireAt, scheduler.waitUntilCalls[0])
+        assertEquals(emptyList<Long>(), scheduler.waitUntilCalls)
+        assertEquals(firstFireAt, scheduler.waitUntilDurableCalls[0])
         assertTrue(
             "the second occurrence must be strictly after the first",
-            scheduler.waitUntilCalls[1] > scheduler.waitUntilCalls[0],
+            scheduler.waitUntilDurableCalls[1] > scheduler.waitUntilDurableCalls[0],
         )
     }
 }

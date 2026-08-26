@@ -52,6 +52,14 @@ drift of up to a few minutes: this blocker is resolved for the callers that
 existed, not for wall-clock precision in general. Still *blocks*, because
 nobody has built them yet: time of day, day of week, calendar, stopwatch.
 
+The port has since grown a durable half, `waitForDurable`/`waitUntilDurable`,
+because `docs/todo.md`'s T17 found that the plain form fixed the sleeping
+phone and not the stopped app: `interval` and `solar` now use it, and a
+future time-based trigger should ask whether its own wait needs the same
+treatment. See `docs/architecture.md`'s scheduler section for the sourced
+finding on what actually restarts the engine, and for why that finding is
+about an ordinary alarm and not about `SCHEDULE_EXACT_ALARM`.
+
 **3. ~~No permission-request flow.~~** *Done.* `RequirementChecker` evaluates
 requirements against the device, the rules screen explains why an enabled rule
 cannot fire, and a Grant button leads to the permission dialog or the right
@@ -458,7 +466,11 @@ use. Reschedule on boot, on time-zone change (`ACTION_TIMEZONE_CHANGED`), and
 after each firing. The recurring-alarm bug to avoid: computing the next
 occurrence from *now* rather than from the scheduled time, which makes the
 rule drift later on every fire. `SolarTrigger` already gets this right and is
-the pattern to copy.
+the pattern to copy, including its T17 half: waiting through
+`waitUntilDurable` rather than `waitUntil`, and reading `AlarmWakeEvents` on a
+fresh collection so an occurrence already due is not skipped for the next
+one. A rule for "every weekday at 8am" has exactly the same failure this
+closes for sunrise or sunset, and no reason to skip the fix.
 
 ### ~~Sunrise / sunset~~: done, scheduler caveat resolved
 
@@ -475,11 +487,15 @@ takes the zone explicitly so a rule about a place you are not standing in is
 still right.
 
 **It used to share `interval`'s scheduling weakness; it no longer does.** The
-wait is now `AlarmScheduler.waitUntil`, not a plain coroutine `delay`, so a
-sunset hours away survives Doze instead of only firing on whatever next wakes
-the CPU. `events()` was the single place that changed, as this section used to
-predict. Its warning still says drift of a few minutes is normal, because the
-fix is not exact-alarm precision.
+wait is now `AlarmScheduler.waitUntilDurable`, not a plain coroutine `delay`
+and not the plain listener form either: `docs/todo.md`'s T17 found that the
+listener form fixed Doze but not a kill, since the alarm behind it dies with
+the process holding it. `events()` was the single place that changed for T1,
+as this section used to predict, and it is also the one place T17 changed a
+second time, to search from a little before "now" once a durable wait's own
+alarm has fired recently rather than searching from "now" and risking a
+missed occurrence. Its warning still says drift of a few minutes is normal,
+because the fix is not exact-alarm precision.
 
 ### Calendar event
 Query `CalendarContract.Instances` with `READ_CALENDAR`. There is no "event
@@ -702,8 +718,11 @@ geofencing.
 2. ~~Scheduler (blocker 2).~~ Done: `AlarmScheduler` in `:core`, over
    `AlarmManager` in `:triggers`. `interval` and `solar` both wait through it
    now, and so does the notification-listener rebind repair and the two other
-   poll loops; see `docs/todo.md`'s T1. It still unlocks the remaining
-   time-based triggers below: time of day, day of week, calendar, stopwatch.
+   poll loops; see `docs/todo.md`'s T1. `interval` and `solar` wait through
+   its durable half specifically, added for T1's own gap that T17 found and
+   closed: a wait bound only to a live process. It still unlocks the
+   remaining time-based triggers below: time of day, day of week, calendar,
+   stopwatch.
 3. ~~Device restart.~~ Done: `device_restart`, via `BootEvents`.
 4. ~~USB vs AC.~~ Done: `charging_type`.
 5. Network callbacks (mobile data, Wi-Fi SSID), sensors, calendar.
