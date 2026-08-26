@@ -104,10 +104,8 @@ object VariableScope {
     const val RULE = "rule"
 
     /**
-     * App-scope variables. **Reserved and not resolved yet.** Phase 2 in
-     * `docs/variables.md` adds the store behind it. The word is taken now so a
-     * trigger type cannot claim it in the meantime, which would make the later
-     * change a breaking one for saved rules.
+     * App-scope variables, read from the store's snapshot the engine hands
+     * [EventLookup]. See [EventLookup.appVariables].
      */
     const val APP = "app"
 
@@ -335,11 +333,11 @@ sealed interface VariableValue {
 /**
  * Where a value comes from. Pure on purpose.
  *
- * Two implementations exist and neither can suspend: the engine reads a payload
- * it already has, and the editor reads declared samples. When app scope lands,
- * the engine fetches the names the rule references *before* the run and hands
- * this a snapshot, which is one read for the whole event rather than one read
- * per reference, and keeps every caller of this free of a coroutine.
+ * Two implementations exist and neither can suspend: the editor reads declared
+ * samples, and the engine reads a payload it already has plus a snapshot of
+ * app-scope values it fetched *before* resolving. See
+ * [EventLookup.appVariables] for where that snapshot is taken and why it is
+ * taken once per action rather than once per event.
  */
 fun interface VariableLookup {
     fun value(ref: VariableRef): VariableValue
@@ -491,6 +489,22 @@ class EventLookup(
     private val rule: Rule,
     private val event: TriggerEvent,
     private val zone: ZoneId = ZoneId.systemDefault(),
+    /**
+     * The app-scope store, as of a moment the caller chose. Defaulted to
+     * empty, which is what every caller outside `TriggerEngine` gets and what
+     * keeps this class usable with no store at all.
+     *
+     * **Read once per action, not once per event.** `TriggerEngine.ActionSlot`
+     * fetches only the names an action's own templates reference, and it does
+     * so immediately before that action runs, not once for the whole event
+     * before the first action. A rule's actions run in sequence, and one of
+     * them can be `set_variable`, writing a value a later action reads. A
+     * snapshot taken once up front would show that later action the value
+     * from before the write, which contradicts the one thing "a list of
+     * actions" plainly means: they run in order, and a later one sees what an
+     * earlier one did.
+     */
+    private val appVariables: Map<String, String> = emptyMap(),
 ) : VariableLookup {
 
     override fun value(ref: VariableRef): VariableValue = when (ref.scope) {
@@ -512,9 +526,8 @@ class EventLookup(
             else -> unknown(ref)
         }
 
-        VariableScope.APP -> VariableValue.Absent(
-            "This version of Trigly has no app variables."
-        )
+        VariableScope.APP -> appVariables[ref.name]?.let(VariableValue::Present)
+            ?: VariableValue.Absent("'${ref.name}' is not set.")
 
         // A trigger type. It reads only when it is the leaf that fired.
         event.triggerType -> fromPayload(ref.name, event.triggerType)
@@ -611,13 +624,30 @@ fun availableVariables(
  * Called at save time, which is the point. A name nobody offers is a rule that
  * fails every time it fires, and finding that out from a fault log is finding
  * out too late.
+ *
+ * **An app-scope reference is accepted on sight, and that is deliberate.** It is
+ * the one place where checking harder would be wrong. App variables are written
+ * by rules, so the rule that reads `{{app.trip_count}}` is very often saved
+ * before the rule that first sets it, and refusing that save would make the two
+ * rules impossible to write in either order.
+ *
+ * Nor is there a name left to check. [variableNameProblem] asks whether a name
+ * can be read back by a rule, and it asks it by round-tripping the name through
+ * this same parser. A name that arrived here inside a parsed reference has
+ * already answered that question by existing, so calling it again could only
+ * ever agree. The check belongs where a name is *typed*, which is the writing
+ * action, not where one is read.
  */
 fun variableProblems(value: String, available: List<ScopedVariable>): List<String> {
     val template = parseTemplate(value)
     val lookup = SampleLookup(available)
 
-    return template.malformed.map { "'${it.raw}' is not a variable. ${it.reason}" } +
-        template.references
-            .filter { lookup.value(it) is VariableValue.Absent }
-            .map { "There is no variable named ${it.reference} in this rule." }
+    val malformed = template.malformed.map { "'${it.raw}' is not a variable. ${it.reason}" }
+
+    val unresolvable = template.references
+        .filterNot { it.scope == VariableScope.APP }
+        .filter { lookup.value(it) is VariableValue.Absent }
+        .map { "There is no variable named ${it.reference} in this rule." }
+
+    return malformed + unresolvable
 }

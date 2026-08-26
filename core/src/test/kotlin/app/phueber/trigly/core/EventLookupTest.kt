@@ -128,16 +128,37 @@ class EventLookupTest {
         assertEquals(VariableValue.Present("rule-1"), value)
     }
 
-    // --- app scope: reserved, not built yet -------------------------------------------
+    // --- app scope: resolved from the snapshot the engine hands in --------------------
 
     @Test
-    fun `app scope is absent, saying this version has no app variables`() {
+    fun `app scope reads the name from the snapshot it was given`() {
+        val event = TriggerEvent("notification_posted", 1L)
+        val ref = VariableRef("app", "trip_count")
+
+        val value = EventLookup(rule, event, appVariables = mapOf("trip_count" to "7")).value(ref)
+
+        assertEquals(VariableValue.Present("7"), value)
+    }
+
+    @Test
+    fun `app scope is absent for a name the snapshot does not hold, and says it is not set`() {
         val event = TriggerEvent("notification_posted", 1L)
         val ref = VariableRef("app", "trip_count")
 
         val value = lookup(event).value(ref) as VariableValue.Absent
 
-        assertTrue(value.reason.contains("app variables"))
+        assertTrue(value.reason.contains("trip_count"))
+        assertTrue(value.reason.contains("not set"))
+    }
+
+    @Test
+    fun `a fallback still applies to an app variable the snapshot does not hold`() {
+        val event = TriggerEvent("notification_posted", 1L)
+        val template = parseTemplate("{{app.trip_count|0}}")
+
+        val substituted = template.substitute(lookup(event), Substitution.TEXT)
+
+        assertEquals(Substituted.Ok("0"), substituted)
     }
 
     // --- an unknown name under a known scope ------------------------------------------

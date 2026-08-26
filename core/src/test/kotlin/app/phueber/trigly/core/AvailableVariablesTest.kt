@@ -163,4 +163,30 @@ class AvailableVariablesTest {
 
         assertTrue(problems.isEmpty())
     }
+
+    /**
+     * The case that would break the feature if it were checked harder. An app
+     * variable is written by a rule, so the rule that reads one is very often
+     * saved before the rule that first sets it. Refusing that save would make
+     * the pair impossible to write in either order.
+     */
+    @Test
+    fun `an app reference is not a problem even though nothing offers it`() {
+        val available = availableVariables(null) { emptyList() }
+
+        assertEquals(
+            emptyList<String>(),
+            variableProblems("Trip {{app.trip_count}}", available),
+        )
+    }
+
+    /** Being lenient about app scope must not make anything else lenient. */
+    @Test
+    fun `an unknown name in another scope is still a problem`() {
+        val available = availableVariables(null) { emptyList() }
+
+        assertEquals(1, variableProblems("{{trigger.nonsense}}", available).size)
+        assertEquals(1, variableProblems("{{event.nonsense}}", available).size)
+        assertEquals(1, variableProblems("{{app.ok}} {{rule.nonsense}}", available).size)
+    }
 }
