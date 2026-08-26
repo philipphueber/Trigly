@@ -159,6 +159,30 @@ interface ComponentFactory {
     fun requirementsFor(config: Map<String, String>): List<ComponentRequirement> = requirements
 
     /**
+     * The same configuration with anything an older build left out filled in.
+     *
+     * For a key this component added after rules were already being saved. A
+     * rule written before the key exists has no value for it, and every reader
+     * then has to decide what absence means. That is fine while exactly one
+     * reader exists and stops being fine the moment the editor and the engine
+     * both decide: the editor draws the schema default, the engine applies
+     * whatever the old behaviour was, and the two disagree about what the rule
+     * matches. A field the person cannot see then decides the answer, which is
+     * the failure this whole model is built to prevent.
+     *
+     * So a component that grew such a key resolves absence *here*, once, and
+     * both readers get the same answer. The editor calls this when it opens a
+     * rule, so the form shows what the rule really does and saving writes it
+     * down for good.
+     *
+     * Defaults to the configuration unchanged. Must be pure and idempotent:
+     * called on the same config twice it answers the same thing, and it never
+     * invents a value a person did not imply. It is not validation, and it is
+     * not a place to correct a choice someone made on purpose.
+     */
+    fun normalise(config: Map<String, String>): Map<String, String> = config
+
+    /**
      * Tools this component offers on its own block in the editor, beyond editing
      * its settings.
      *

@@ -432,16 +432,17 @@ class BluetoothConnectionTrigger(
          * project exists to avoid.
          *
          * So it is read now, by [bluetoothWantedAddress] and
-         * [bluetoothNameFilter]:
+         * [bluetoothNameFilter], through [bluetoothIdentifyBy]:
          *
          * - `address`: match on the address, ignore any stored name.
          * - `name`: match on the name, ignore any stored address.
-         * - absent: match on both, ANDed, exactly as before this key existed.
+         * - absent: derived from what the rule stores, and never both. See
+         *   [bluetoothIdentifyBy], which is also where the ANDed reading this
+         *   used to have is written down and why it was worse than the trap it
+         *   was avoiding.
          *
-         * The absent case is what keeps the legacy promise. A rule saved before
-         * this key existed has no value here and behaves as it always did. A rule
-         * that *has* a value has it because a person saw this control and chose,
-         * so the choice is honoured rather than second-guessed.
+         * A rule that *has* a value has it because a person saw this control and
+         * chose, so the choice is honoured rather than second-guessed.
          */
         const val CONFIG_IDENTIFY_BY = "identifyBy"
         const val IDENTIFY_BY_ADDRESS = "address"
@@ -508,19 +509,80 @@ fun bluetoothConnectRequirements(apiLevel: Int): List<ComponentRequirement> =
     }
 
 /**
+ * Which of the two filters this configuration matches on: an address or a name,
+ * never both.
+ *
+ * **The absent case is the whole reason this function exists.**
+ * [BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY] is a key that arrived after
+ * rules were already being saved, and the editor seeds a default only when a
+ * component is first chosen, so a rule written before it has no value here and
+ * editing that rule never adds one. Absence used to mean "read both keys and AND
+ * them", which kept an old name-matching rule working and cost far more than it
+ * bought: a rule holding an address *and* a name left over from an earlier
+ * attempt matched nothing at all, while the editor drew the schema default,
+ * showed the paired-device picker, and hid the name. A filter nobody could see
+ * decided every match, and the rules list does not name what a trigger matches
+ * on either, so there was nowhere at all to find out.
+ *
+ * Absence is now resolved from what the rule actually stores, and the answer is
+ * always one filter:
+ *
+ * - a stored address wins. It identifies one device, so a name beside it can
+ *   only ever subtract, and no rule was ever written to say "this device, but
+ *   only while it calls itself that".
+ * - failing that, a stored name. This is the legacy promise kept: the name was
+ *   the escape hatch for unpaired gear, and a rule using it goes on using it.
+ * - failing both, the address, which is "any device" and matches everything.
+ *
+ * A value the editor could not have written is treated as absent for the same
+ * reason: it can only have come from a hand-edited or imported file, and the
+ * ANDed reading of it is the behaviour being removed.
+ */
+fun bluetoothIdentifyBy(config: Map<String, String>): String {
+    val stored = config[BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY]
+    if (stored == BluetoothConnectionTrigger.IDENTIFY_BY_ADDRESS ||
+        stored == BluetoothConnectionTrigger.IDENTIFY_BY_NAME
+    ) {
+        return stored
+    }
+
+    return when {
+        !config[BluetoothConnectionTrigger.CONFIG_ADDRESS].isNullOrBlank() ->
+            BluetoothConnectionTrigger.IDENTIFY_BY_ADDRESS
+
+        !config[BluetoothConnectionTrigger.CONFIG_NAME].isNullOrBlank() ->
+            BluetoothConnectionTrigger.IDENTIFY_BY_NAME
+
+        else -> BluetoothConnectionTrigger.IDENTIFY_BY_ADDRESS
+    }
+}
+
+/**
+ * The same configuration with the identify-by choice written down.
+ *
+ * What the editor is handed when it opens a rule, per
+ * `ComponentFactory.normalise`. The engine does not need it, because its readers
+ * resolve an absent key themselves through [bluetoothIdentifyBy]; the editor
+ * does, because a `shownWhen` condition can only read a stored value, so without
+ * this the form hides the filter that is deciding every match.
+ *
+ * Idempotent, since [bluetoothIdentifyBy] returns a stored choice unchanged.
+ */
+fun bluetoothNormalise(config: Map<String, String>): Map<String, String> =
+    config + (BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY to bluetoothIdentifyBy(config))
+
+/**
  * The address this configuration matches on, or null for "any address".
  *
  * Null when the rule identifies its device by name, whatever an address key left
- * over from an earlier edit says. See [BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY].
+ * over from an earlier edit says. See [bluetoothIdentifyBy].
  *
  * Pure, and separate from the factory, for the reason every other helper in this
  * file is: the factory needs a `Context` and cannot be built in a JVM test, while
  * getting this wrong is a rule that never fires and says nothing.
  */
 fun bluetoothWantedAddress(config: Map<String, String>): String? =
-    if (config[BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY] ==
-        BluetoothConnectionTrigger.IDENTIFY_BY_NAME
-    ) {
+    if (bluetoothIdentifyBy(config) == BluetoothConnectionTrigger.IDENTIFY_BY_NAME) {
         null
     } else {
         config[BluetoothConnectionTrigger.CONFIG_ADDRESS]
@@ -534,9 +596,7 @@ fun bluetoothWantedAddress(config: Map<String, String>): String? =
  * name key left over from an earlier edit says.
  */
 fun bluetoothNameFilter(config: Map<String, String>): TextFilter =
-    if (config[BluetoothConnectionTrigger.CONFIG_IDENTIFY_BY] ==
-        BluetoothConnectionTrigger.IDENTIFY_BY_ADDRESS
-    ) {
+    if (bluetoothIdentifyBy(config) == BluetoothConnectionTrigger.IDENTIFY_BY_ADDRESS) {
         TextFilter.Any
     } else {
         TextFilter.fromConfig(
@@ -688,6 +748,14 @@ class BluetoothConnectionTriggerFactory(
     // than one to build a feature on. A requirement that is always relevant is
     // also the one the list can afford to show.
     override val requirements = bluetoothConnectRequirements(Build.VERSION.SDK_INT)
+
+    // Writes down the answer [bluetoothIdentifyBy] would have derived anyway, so
+    // the editor draws the filter that actually matches rather than the schema
+    // default, and saving ends the question for that rule for good. The engine
+    // does not need this, because its readers resolve absence themselves; the
+    // editor does, because a `shownWhen` condition can only read a stored value.
+    override fun normalise(config: Map<String, String>): Map<String, String> =
+        bluetoothNormalise(config)
 
     override fun create(config: Map<String, String>): Trigger =
         BluetoothConnectionTrigger(

@@ -96,7 +96,13 @@ class RuleEditorViewModel(
             // A one-shot read: the editor works on a snapshot, so an external
             // change while editing cannot yank the form out from under typing.
             repository.rules().first().firstOrNull { it.id == ruleId }?.let { rule ->
-                _state.value = EditorState(rule.toDraft())
+                // Filled in before it is drawn, so the form shows what the rule
+                // matches on rather than what the schema would default to. A key
+                // a component added after this rule was saved is absent here, and
+                // a `shownWhen` condition can only read a stored value; without
+                // this the editor hides the filter that is deciding every match.
+                // See `ComponentFactory.normalise`.
+                _state.value = EditorState(registry.normalise(rule).toDraft())
             }
         }
     }

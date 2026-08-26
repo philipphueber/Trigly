@@ -351,12 +351,29 @@ filter and the engine applied two.
 
 `identifyBy` is read at runtime now, by `bluetoothWantedAddress` and
 `bluetoothNameFilter`: `address` ignores any stored name, `name` ignores any
-stored address, and **absent** keeps ANDing both exactly as before. The absent
-case is what keeps the legacy promise, and a rule that has a value has it
-because a person saw the control and chose.
+stored address. Absent used to keep ANDing both, exactly as before the key
+existed, and that half-fix is what a real rule then died of.
+
+The key is seeded when a component is *chosen*, so a rule written before it
+existed has no value here and editing that rule never adds one. Every such rule
+kept the ANDed reading, invisibly: `bluetoothIdentifyBy` now resolves absence
+from what the rule stores instead. A stored address wins, because an address
+identifies one device on its own and a name beside it can only subtract; failing
+that a stored name wins, which is the legacy promise the AND was really
+protecting; failing both, "any device". Never two filters at once, which is the
+invariant a test pins directly.
+
+The other half is that the editor has to agree. A `shownWhen` condition can only
+read a stored value, so the form drew the schema default and hid the filter that
+was deciding every match. `ComponentFactory.normalise` is the hook for that: the
+editor asks the registry to fill in what an older build left out before it draws
+a rule, and saving writes the answer down for good. `:core` stays ignorant of
+which key any component grew.
 
 The general rule this is an instance of: a field the editor hides must not
-change what a rule does. Either it is shown, or it is inert.
+change what a rule does. Either it is shown, or it is inert. And a key added
+after rules were already being saved needs one place that decides what its
+absence means, or the editor and the engine will each decide differently.
 
 ### Requirements
 
