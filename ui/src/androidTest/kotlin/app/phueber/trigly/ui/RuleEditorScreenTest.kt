@@ -39,6 +39,7 @@ import app.phueber.trigly.core.NodePath
 import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.Registry
 import app.phueber.trigly.core.TriggerNode
+import app.phueber.trigly.triggers.AlarmManagerScheduler
 import app.phueber.trigly.triggers.triggerFactories
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -60,7 +61,7 @@ class RuleEditorScreenTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
     private val registry = Registry(
-        triggerFactories = triggerFactories(context),
+        triggerFactories = triggerFactories(context, AlarmManagerScheduler(context)),
         actionFactories = actionFactories(context, NotificationController.Unavailable),
     )
 

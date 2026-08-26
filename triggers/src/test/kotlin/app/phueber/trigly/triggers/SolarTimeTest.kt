@@ -128,7 +128,7 @@ class SolarTimeTest {
 
     @Test
     fun `the next occurrence is strictly in the future`() {
-        val trigger = SolarTrigger(berlinLat, berlinLon, SolarEvent.SUNRISE, berlin)
+        val trigger = SolarTrigger(berlinLat, berlinLon, SolarEvent.SUNRISE, FakeAlarmScheduler(), berlin)
         val sunrise = (
             solarTime(
                 LocalDate.of(2026, 6, 21), berlinLat, berlinLon, SolarEvent.SUNRISE, berlin,
@@ -148,7 +148,7 @@ class SolarTimeTest {
 
     @Test
     fun `a sunset rule inside the polar summer looks weeks ahead rather than giving up`() {
-        val trigger = SolarTrigger(78.223, 15.626, SolarEvent.SUNSET, ZoneId.of("UTC"))
+        val trigger = SolarTrigger(78.223, 15.626, SolarEvent.SUNSET, FakeAlarmScheduler(), ZoneId.of("UTC"))
         val midsummer = ZonedDateTime.of(2026, 6, 21, 12, 0, 0, 0, ZoneId.of("UTC"))
             .toInstant().toEpochMilli()
 

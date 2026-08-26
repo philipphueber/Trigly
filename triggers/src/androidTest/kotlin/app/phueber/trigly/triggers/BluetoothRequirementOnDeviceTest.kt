@@ -83,7 +83,7 @@ class BluetoothRequirementOnDeviceTest {
      */
     @Test
     fun the_registry_reports_it_for_an_any_device_rule() {
-        val registry = Registry(triggerFactories(context), emptyList())
+        val registry = Registry(triggerFactories(context, AlarmManagerScheduler(context)), emptyList())
 
         val rule = Rule(
             id = "any-device",

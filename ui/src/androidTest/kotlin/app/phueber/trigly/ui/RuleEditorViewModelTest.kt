@@ -15,6 +15,7 @@ import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
 import app.phueber.trigly.core.TriggerNode
+import app.phueber.trigly.triggers.AlarmManagerScheduler
 import app.phueber.trigly.triggers.triggerFactories
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -53,7 +54,7 @@ class RuleEditorViewModelTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
     private val registry = Registry(
-        triggerFactories = triggerFactories(context),
+        triggerFactories = triggerFactories(context, AlarmManagerScheduler(context)),
         actionFactories = actionFactories(context, NotificationController.Unavailable),
     )
 

@@ -7,8 +7,8 @@ import android.os.Looper
 import android.os.SystemClock
 import app.phueber.trigly.core.AlarmScheduler
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 /**
  * [AlarmScheduler] over [AlarmManager].

@@ -12,6 +12,7 @@ import app.phueber.trigly.core.companionKeys
 import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.SpecialAccessKind
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.triggers.AlarmManagerScheduler
 import app.phueber.trigly.triggers.triggerFactories
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -35,7 +36,7 @@ class ConfigSchemaContractTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
     private val factories: List<ComponentFactory> =
-        triggerFactories(context) + actionFactories(context, NotificationController.Unavailable)
+        triggerFactories(context, AlarmManagerScheduler(context)) + actionFactories(context, NotificationController.Unavailable)
 
     @Test
     fun every_component_is_registered_and_reachable() {

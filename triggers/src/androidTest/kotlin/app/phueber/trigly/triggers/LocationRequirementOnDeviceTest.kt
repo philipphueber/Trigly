@@ -42,7 +42,7 @@ class LocationRequirementOnDeviceTest {
     )
 
     private fun requirementsFor(type: String, radius: String): List<ComponentRequirement> {
-        val registry = Registry(triggerFactories(context), emptyList())
+        val registry = Registry(triggerFactories(context, AlarmManagerScheduler(context)), emptyList())
         val rule = Rule(
             id = "area",
             name = "In an area",
