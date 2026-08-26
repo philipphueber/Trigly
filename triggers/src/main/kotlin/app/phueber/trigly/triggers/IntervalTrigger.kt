@@ -12,16 +12,31 @@ import kotlinx.coroutines.flow.flow
 /**
  * Fires every [periodMillis] while the rule is enabled.
  *
- * The wait is [AlarmScheduler.waitFor], not a plain coroutine `delay`. A
- * plain `delay` only wakes when something else wakes the device, and can
- * sleep through the whole period in Doze; `docs/todo.md`'s T1 is the record
- * of that gap and the fix. The trade is drift: expect the fire time to move
- * by up to a few minutes, for the reason `AlarmManagerScheduler`'s own KDoc
- * gives.
+ * The wait is [AlarmScheduler.waitForDurable], not a plain coroutine `delay`
+ * and not the plain listener form either. A plain `delay` only wakes when
+ * something else wakes the device, and can sleep through the whole period
+ * in Doze; `docs/todo.md`'s T1 is the record of that gap and the fix. The
+ * listener form fixes the sleeping phone but not the stopped one: AOSP
+ * deletes a listener alarm the moment the process holding it dies, so a
+ * killed process left this trigger with no pending wake at all, which is
+ * T17's finding. [AlarmScheduler.waitForDurable] is the fix for that: even
+ * if this process is killed mid-wait, something still asks the system to
+ * try again. Whether that actually restarts the engine on a given device is
+ * a separate, sourced question; see `AlarmManagerScheduler`'s KDoc.
+ *
+ * Every fresh call counts a full [periodMillis] from whenever it happens to
+ * start, kill or no kill, rather than trying to remember how much of a
+ * previous period had already elapsed. Nothing here needs to know why a
+ * collection is fresh, unlike [SolarTrigger], because "count from now" is
+ * already the correct, and only, thing a repeating interval can do.
+ *
+ * The trade is drift: expect the fire time to move by up to a few minutes,
+ * for the reason `AlarmManagerScheduler`'s own KDoc gives.
  *
  * **What this still does not survive.** A user's force-stop puts the app in
- * the stopped state and cancels every pending alarm. Nothing in this class,
- * or in the scheduler it calls, gets that back. See `docs/todo.md`'s R1.
+ * the stopped state and cancels every pending alarm, both forms this class
+ * now sets. Nothing in this class, or in the scheduler it calls, gets that
+ * back. See `docs/todo.md`'s R1.
  */
 class IntervalTrigger(
     private val periodMillis: Long,
@@ -35,7 +50,7 @@ class IntervalTrigger(
 
     override fun events(): Flow<TriggerEvent> = flow {
         while (true) {
-            scheduler.waitFor(periodMillis)
+            scheduler.waitForDurable(periodMillis)
             emit(TriggerEvent(TYPE, now()))
         }
     }
