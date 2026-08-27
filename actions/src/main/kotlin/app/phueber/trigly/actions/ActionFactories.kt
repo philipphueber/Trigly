@@ -89,6 +89,7 @@ fun actionFactories(
     SpeakActionFactory(context),
     VibrateActionFactory(context),
     PlayAlertActionFactory(context, notifications),
+    PlaySoundActionFactory(context),
 
     // Open something
     OpenUrlActionFactory(context),

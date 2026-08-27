@@ -135,7 +135,7 @@ Trigly is at an early stage of development. The app has these parts:
 - A **foreground service** that keeps the engine running.
 - The plugin design for triggers and actions.
 - The requirement model, and the permission flow that goes with it.
-- **33 triggers** and **23 actions**.
+- **33 triggers** and **24 actions**.
 - A rules list screen. This screen explains why a rule cannot start. You can
   search it. The search examines the name of each rule, and also the names of
   the triggers and actions in it. Thus a search for "bluetooth" finds a rule
@@ -238,6 +238,8 @@ Trigly's triggers cover:
 Trigly's actions cover:
 
 - Sending a notice: a notification, a toast, speech, or vibration.
+- Playing a sound: a plain sound, or a loud alert that a silenced phone
+  still plays.
 - Opening something: a website or an app.
 - Handing off to another app, for you to confirm: email, SMS, an alarm, or
   a calendar entry.

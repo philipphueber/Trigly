@@ -94,6 +94,7 @@ the tap start the activity: worse automation, but honest about who decided.
 | Show a toast | `toast` | None (suppressed in background from API 12) |
 | Speak text aloud | `speak` | None |
 | Vibrate | `vibrate` | `VIBRATE` (install-time) |
+| Play a sound | `play_sound` | None |
 | Play an alert sound | `play_alert` | None (storage access only for a `file:` custom sound; notification access only for "stop when the notification goes away") |
 | Open a website | `open_url` | Display over other apps, to work in the background |
 | Open an app | `open_app` | Display over other apps, to work in the background (and see package visibility below) |
@@ -411,6 +412,38 @@ which reads as a broken feature rather than a quiet one.
 `AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK`, not a full transient gain: a short chime
 over music wants the music quieter for a moment, and pausing it is what a phone
 call does.
+
+### And a plain sound, which is a different job
+
+`play_sound` plays one sound, once, and has one field: which sound. It exists
+because everything that makes `play_alert` good at being an alert makes it the
+wrong shape for "play this chime": the alarm stream, the repeat-for-a-duration
+model, the route, the volume and the stop-when-gone switch are six decisions to
+make before a person gets a sound out of the phone.
+
+**It sets no audio attributes at all**, which is the feature rather than an
+omission. Every other sound in this codebase declares a usage and a content
+type, because each of those callers has an opinion about where the sound
+belongs. This action's opinion is that it has none: it leaves the player
+unconfigured and lets Android decide. In practice that is the media stream, so
+the sound follows the media volume and the connected output, and a silenced
+phone plays nothing.
+
+Declaring `USAGE_MEDIA` explicitly would land in the same place today and would
+be a different promise. It would say this action chose the media stream, and it
+would keep choosing it if the platform default ever moved. Leaving the
+attributes unset says what was actually decided, which is nothing.
+
+The cost is stated in the action's own warning rather than left to be found: it
+asks for no audio focus, so a sound played while music is playing can be quiet.
+`play_alert`'s music route asks for ducking focus precisely because of that, and
+a person who must be heard over music wants that action instead. The two are
+told apart by which one can be silenced: `play_alert` on the alarm stream by
+almost nothing, `play_sound` by the silent switch.
+
+The sound's own length is how long the rule waits, capped at two minutes. The
+picker can reach a podcast as easily as a chime, and this action holds the rule
+while the sound plays.
 
 **One trap this does not solve.** A Bluetooth rule fires on the ACL connect, and
 the audio route is a separate, later event: an ACL link, an A2DP link and an HFP
