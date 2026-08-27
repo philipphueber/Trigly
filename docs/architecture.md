@@ -1061,6 +1061,51 @@ hand-editing is not: deleting is the recovery path for a rule that wrote
 nonsense into its own scope, while adding one by hand needs a rule as well as a
 name.
 
+#### A notification button kept for later
+
+`notification_button` resolves its target in the live notification list, so it
+can only press a button still on screen. `capture_notification_button` keeps the
+button's `PendingIntent` under a name, and `press_captured_button` sends it
+later, with no notification access and no notification required.
+
+**The platform fact this rests on** is that a `PendingIntent` is a token the
+system holds on behalf of the app that created it, and its life is not tied to
+the notification that carried it.
+`CapturedButtonOutlivesDismissalTest` established that against the real
+framework before any of this was built, and also pinned the boundary: an app that
+rebuilds its intent with `FLAG_CANCEL_CURRENT` invalidates every copy anyone
+holds, and `send` throws rather than doing nothing, which is what lets a rule
+report "the app withdrew that button" instead of claiming success.
+
+**The token cannot be persisted, and that shapes everything.** A `PendingIntent`
+is not a URI or an id. There is no form of it to write into a variable, a Room
+row or an exported rule, and nothing can reconstruct one after the process ends.
+So `CapturedButtons` is an in-memory map, and the limit belongs in what a person
+reads before building the rule rather than in a comment: a kept button dies with
+Trigly's process. The engine's foreground service is what makes that uncommon,
+since a rule that keeps anything is a rule that is enabled; `docs/todo.md`'s R1
+covers the one cause nothing here can fix.
+
+It follows that "keep a button into a variable" is not possible in the sense it
+sounds. What a variable can carry is the *name*, which is why the keeping action
+reports it as `{{action.captured}}`: the name is a string, the token is not.
+
+**Why an object rather than state on the controller.**
+`ListenerNotificationController` deliberately holds nothing of its own and is
+constructed wherever it is needed, so it stays correct across the unbind and
+rebind cycles the system puts a listener through. A kept button has to outlive
+that, and outlive the controller instance that took it, so it lives in an object
+for the same reason `NotificationEvents` and `ShortcutEvents` do.
+
+**The shared resolution, and the one place it must not be shared.**
+`resolveButtonTarget` is used by pressing and by keeping, so both agree on the
+package selection, on `chooseButton`'s semantic-then-label-then-index order, and
+on refusing a reply box. Its outcomes are separate types rather than one failure
+string, because the two actions need different answers to the
+custom-RemoteViews case: the screen can press a button the system does not
+expose, and it cannot hand over a token to keep. Collapsing the outcomes would
+force a shared policy where there is none.
+
 ### Rule storage and the portable format
 
 Rules are Room-backed. Two tables: `rules`, and one `components` table holding

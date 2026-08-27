@@ -112,6 +112,8 @@ the tap start the activity: worse automation, but honest about who decided.
 | HTTP request | `http_request` | `INTERNET` (install-time) |
 | Dismiss another app's notification | `dismiss_notification` | Notification access |
 | Press a notification's button | `notification_button` | Notification access |
+| Keep a notification button | `capture_notification_button` | Notification access |
+| Press a kept button | `press_captured_button` | None |
 | Set Do Not Disturb | `set_dnd` | Do Not Disturb access |
 
 Design lines held deliberately:
@@ -241,6 +243,71 @@ bypass 3**, and the difference matters: if the app never created
 then `actions` is *empty*. There is no `PendingIntent` anywhere for those buttons.
 No amount of cleverness in the listener reaches them, because the thing to send
 does not exist. Blitzer.de's "MELDEN" / "BEENDEN" is this case.
+
+### Keeping a button for later
+
+`notification_button` finds its target in the live list, so it can only press a
+button that is still on screen. Some buttons are only worth pressing later, and
+Bedtime mode is the case that drove this. Digital Wellbeing's notification
+carries "Turn off for now", and the moment somebody wants it pressed is the
+moment they pick the phone up, by which time the notification has usually been
+swiped away.
+
+That button is also the *only* route. Bedtime is an `AutomaticZenRule` owned by
+Wellbeing, and every read and write goes through an owner, system-uid or
+signature-level check, so `getAutomaticZenRules` hides it and setting its state
+from another app is a silent no-op rather than an error. Wellbeing's own
+notification action runs with Wellbeing's identity, which is what makes it work
+where the API does not.
+
+So the job splits into the two moments it really is. `capture_notification_button`
+runs when the notification appears and keeps the button's `PendingIntent` under
+a name. `press_captured_button` runs when the thing is wanted, needs no
+notification access of its own, and needs no notification on screen.
+
+A rule pair reads:
+
+    when a notification from Digital Wellbeing appears
+      keep the button "Turn off for now" as bedtime_off
+
+    when I unlock the phone            (or a shortcut, or a time)
+      press the kept button bedtime_off
+
+**Why this works at all.** A `PendingIntent` is a token the system holds on
+behalf of the app that created it, and its life is not tied to the notification
+that carried it. `CapturedButtonOutlivesDismissalTest` establishes that fact
+against the real framework: capture, dismiss the way a swipe does, and the
+captured button still fires. `CapturedButtonOnDeviceTest` then asserts this code
+delivers it, which is a separate claim, because the mistake that passes every
+other test is reading the token at press time rather than at keep time.
+
+**What a kept button cannot do, and it is not a gap to be closed later.** A
+`PendingIntent` cannot be written down. It is not a URI and not an id; it is a
+live token, so there is no form of it to put in a variable, store in the
+database, or carry in an exported rule, and nothing can rebuild one after the
+process ends. A kept button therefore lives in memory and dies with Trigly's
+process. The engine's foreground service is what usually keeps that from
+mattering, and `docs/todo.md`'s R1 covers the one cause nothing can fix. The
+action says so in its own warning, and pressing a name that is not there names
+that cause specifically rather than blaming the notification.
+
+Eight kept buttons, oldest evicted. Nothing kept is read unless a rule names it,
+so an unbounded store would be a slow leak fed by a rule firing all day.
+
+**The two actions share their target selection and diverge on one point.**
+`resolveButtonTarget` is used by both, so "the Turn off button" means the same
+thing to each: same package selection, same semantic-then-label-then-index
+order, same refusal of a reply box. Where they part is the custom-RemoteViews
+case. When the system exposes no `PendingIntent`, pressing can still fall back to
+the notification shade, because the button is on screen whatever the API says.
+Keeping cannot: there is nothing to hand over. So that case is a fallback for one
+action and a dead end for the other, which is why the resolution returns separate
+outcomes rather than one failure string.
+
+The button field is required, with no "first button" default, because
+`chooseButton` refuses to guess and the reason is stronger here than for
+pressing: a wrongly kept button is only discovered later, when the wrong thing
+gets pressed.
 
 So `notification_button` gained an opt-in **"use the screen if the button is not
 exposed"**. When the notification offers no matching action, and only when the
