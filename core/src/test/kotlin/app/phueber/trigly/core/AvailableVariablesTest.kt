@@ -53,7 +53,7 @@ class AvailableVariablesTest {
     }
 
     @Test
-    fun `a tree with two leaves of different types offers both type-qualified`() {
+    fun `two leaves of different types are each offered under their own type`() {
         val tree = all(one("bluetooth_connected"), one("sms_received"))
         val declarations = mapOf(
             "bluetooth_connected" to listOf(spec("name")),
@@ -67,7 +67,7 @@ class AvailableVariablesTest {
     }
 
     @Test
-    fun `every type-qualified spec is never always present, whatever it declared`() {
+    fun `an instance spec is never always present, whatever it declared`() {
         // Another leaf may be what fired, so a type-qualified reference can
         // never be relied on, even for a key that leaf always emits.
         val tree = all(one("bluetooth_connected"), one("sms_received"))
@@ -85,88 +85,85 @@ class AvailableVariablesTest {
         assertTrue(qualified.all { !it.spec.alwaysPresent })
     }
 
+    /**
+     * Two or more leaves: the short form is not offered at all, because it
+     * cannot say which payload arrives. This reverses what
+     * `docs/variables.md` section 3 first decided, and section 15 records the
+     * reversal and the rewrite that makes it survivable.
+     */
     @Test
-    fun `under trigger scope a key every leaf declares stays always present`() {
+    fun `two leaves offer nothing under trigger scope`() {
         val tree = all(one("bluetooth_connected"), one("sms_received"))
-        val btSpecs = listOf(
-            spec("state", alwaysPresent = true),
-            spec("address", alwaysPresent = false),
+        val declarations = mapOf(
+            "bluetooth_connected" to listOf(spec("name")),
+            "sms_received" to listOf(spec("body")),
         )
-        val smsSpecs = listOf(
-            spec("state", alwaysPresent = true),
-            spec("sender", alwaysPresent = false),
-        )
-        val declarations = mapOf("bluetooth_connected" to btSpecs, "sms_received" to smsSpecs)
 
         val available = availableVariables(tree) { declarations[it].orEmpty() }
-        val shared = available.single {
-            it.scope == VariableScope.TRIGGER && it.spec.key == "state"
-        }
 
-        assertTrue(shared.spec.alwaysPresent)
-    }
-
-    @Test
-    fun `under trigger scope a key only one leaf declares is not always present`() {
-        // This recomputation is why availableVariables exists rather than the
-        // screen copying a spec's own alwaysPresent.
-        val tree = all(one("bluetooth_connected"), one("sms_received"))
-        val btSpecs = listOf(
-            spec("state", alwaysPresent = true),
-            spec("address", alwaysPresent = true),
+        assertTrue(
+            "the short form cannot say which leaf fired, so it is not offered",
+            available.none { it.scope == VariableScope.TRIGGER },
         )
-        val smsSpecs = listOf(spec("state", alwaysPresent = true))
-        val declarations = mapOf("bluetooth_connected" to btSpecs, "sms_received" to smsSpecs)
-
-        val available = availableVariables(tree) { declarations[it].orEmpty() }
-        val onlyOne = available.single {
-            it.scope == VariableScope.TRIGGER && it.spec.key == "address"
-        }
-
-        assertFalse(onlyOne.spec.alwaysPresent)
     }
 
     /**
-     * Two leaves of one type share one namespace, per `docs/variables.md`
-     * section 3: whichever of them fires fills `{{trigger.key}}`. There is
-     * nothing here for the type-qualified form to say that the shared form does
-     * not, because a person still cannot tell the two leaves apart by type, so
-     * it is not offered at all.
+     * The requirement this whole change exists for: two leaves of one type are
+     * two separate things to read, not one shared namespace whose value
+     * depends on which of them happened to fire.
      */
     @Test
-    fun `two leaves of the same type offer it once under trigger scope, not type-qualified`() {
-        val tree = all(one("battery_level"), one("battery_level"))
+    fun `two leaves of the same type offer two numbered namespaces`() {
+        val tree = all(one("notification_posted"), one("notification_posted"))
 
         val available = availableVariables(tree) { type ->
-            if (type == "battery_level") listOf(spec("level")) else emptyList()
+            if (type == "notification_posted") listOf(spec("title")) else emptyList()
         }
+
+        assertTrue(available.any { it.scope == "notification_posted" && it.spec.key == "title" })
+        assertTrue(available.any { it.scope == "notification_posted_2" && it.spec.key == "title" })
+        assertTrue(available.none { it.scope == VariableScope.TRIGGER })
+    }
+
+    @Test
+    fun `three leaves of one type are numbered to three`() {
+        val tree = all(*Array(3) { one("notification_posted") })
+
+        val available = availableVariables(tree) { listOf(spec("title")) }
+        val scopes = available.map { it.scope }.filter { it.startsWith("notification_posted") }
 
         assertEquals(
-            1,
-            available.count { it.scope == VariableScope.TRIGGER && it.spec.key == "level" },
+            listOf("notification_posted", "notification_posted_2", "notification_posted_3"),
+            scopes,
         )
-        assertTrue(available.none { it.scope == "battery_level" })
     }
 
     /**
-     * The type-qualified form always forces `alwaysPresent = false`, per
-     * [availableVariables]'s KDoc. A duplicated type is only ever offered
-     * under the shared `trigger` scope, so that forcing never applies to it.
-     * What decides the shared entry's mark is only ever the declaration itself.
+     * Only one leaf fires per run, so no instance form can promise a value,
+     * however the leaf declared it. The one-leaf case is the exception and
+     * keeps its declaration, because there is no other leaf to lose to.
      */
     @Test
-    fun `a key only sometimes present stays that way when its type is duplicated`() {
+    fun `an instance form is never always present once there are two leaves`() {
         val tree = all(one("bluetooth_connected"), one("bluetooth_connected"))
 
-        val available = availableVariables(tree) { type ->
-            if (type == "bluetooth_connected") listOf(spec("name", alwaysPresent = false))
-            else emptyList()
-        }
+        val available = availableVariables(tree) { listOf(spec("name", alwaysPresent = true)) }
+        val instances = available.filter { it.scope.startsWith("bluetooth_connected") }
+
+        assertTrue(instances.isNotEmpty())
+        assertTrue(instances.all { !it.spec.alwaysPresent })
+    }
+
+    @Test
+    fun `a one-leaf tree keeps the declaration's own mark`() {
+        val tree = one("bluetooth_connected")
+
+        val available = availableVariables(tree) { listOf(spec("name", alwaysPresent = true)) }
         val shared = available.single {
             it.scope == VariableScope.TRIGGER && it.spec.key == "name"
         }
 
-        assertFalse(shared.spec.alwaysPresent)
+        assertTrue(shared.spec.alwaysPresent)
     }
 
     // --- availableActionOutputs --------------------------------------------------------
@@ -197,8 +194,10 @@ class AvailableVariablesTest {
 
         val available = availableActionOutputs(types, index = 1, ::actionDeclarations)
 
-        assertEquals(VariableScope.ACTION, available.single().scope)
-        assertEquals("value", available.single().spec.key)
+        // Both forms: the unnumbered one for "whichever produced it last", and
+        // the instance one for "that action there".
+        assertTrue(available.any { it.scope == VariableScope.ACTION && it.spec.key == "value" })
+        assertTrue(available.any { it.scope == "set_variable" && it.spec.key == "value" })
     }
 
     /**
@@ -229,17 +228,18 @@ class AvailableVariablesTest {
             else emptyList()
         }
 
-        assertFalse(available.single().spec.alwaysPresent)
+        assertTrue(available.isNotEmpty())
+        assertTrue(available.all { !it.spec.alwaysPresent })
     }
 
     @Test
-    fun `one producing type above is offered under action scope only`() {
+    fun `one producing action above is offered both unnumbered and by name`() {
         val types = listOf("set_variable", "post_notification", "toast")
 
         val available = availableActionOutputs(types, index = 2, ::actionDeclarations)
 
         assertTrue(available.any { it.scope == VariableScope.ACTION && it.spec.key == "value" })
-        assertTrue(available.none { it.scope == "set_variable" })
+        assertTrue(available.any { it.scope == "set_variable" && it.spec.key == "value" })
     }
 
     @Test
@@ -255,19 +255,21 @@ class AvailableVariablesTest {
     }
 
     /**
-     * Two earlier actions of one type collapse to one type, so the qualified
-     * form is not offered: the engine keeps the most recent value per key, so
-     * neither form can say which of the two is meant. The same call
-     * `availableVariables` makes for two trigger leaves of one type.
+     * The action half of the same requirement. Two `set_variable` actions
+     * above this one are two things that produced a value, and each is
+     * readable on its own. Before instances they collapsed into one namespace
+     * whose value was whichever ran most recently, which is still available as
+     * the unnumbered form for a rule that does not care.
      */
     @Test
-    fun `two actions of the same type above are offered under action scope only`() {
+    fun `two actions of the same type above are each offered by name`() {
         val types = listOf("set_variable", "set_variable", "post_notification")
 
         val available = availableActionOutputs(types, index = 2, ::actionDeclarations)
 
-        assertEquals(1, available.size)
-        assertEquals(VariableScope.ACTION, available.single().scope)
+        assertTrue(available.any { it.scope == "set_variable" && it.spec.key == "value" })
+        assertTrue(available.any { it.scope == "set_variable_2" && it.spec.key == "value" })
+        assertTrue(available.any { it.scope == VariableScope.ACTION && it.spec.key == "value" })
     }
 
     // --- variableProblems ---------------------------------------------------------------

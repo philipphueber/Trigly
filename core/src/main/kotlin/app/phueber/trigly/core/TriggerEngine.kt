@@ -154,9 +154,19 @@ class TriggerEngine(
             .map { (_, spec) -> spec }
             .distinct()
             .associateWith(registry::createTrigger)
+        // Which namespace each leaf answers to, keyed by the path the merge
+        // below already carries. Two leaves of one type are told apart here and
+        // nowhere else: the event itself cannot say which of them produced it.
+        val instanceByPath: Map<NodePath, String> = leafPaths
+            .map { (path, _) -> path }
+            .zip(componentInstanceNames(leafPaths.map { (_, spec) -> spec.type }))
+            .toMap()
         // Paired with the spec they were built from, so an outcome can say which
         // action it belongs to. The instance alone does not know its own type.
-        val actions = rule.actions.map { spec -> ActionSlot(spec, registry, store) }
+        val actionInstances = componentInstanceNames(rule.actions.map { it.type })
+        val actions = rule.actions.mapIndexed { index, spec ->
+            ActionSlot(spec, registry, store, actionInstances[index])
+        }
 
         val job = scope.launch {
             leafPaths
@@ -181,7 +191,7 @@ class TriggerEngine(
                     // progress" from the first hop, not only from the
                     // second.
                     withContext(RunChain(listOf(rule.id))) {
-                        runActions(rule, event, actions)
+                        runActions(rule, event, actions, instanceByPath[firedPath])
                     }
                 }
         }
@@ -203,18 +213,25 @@ class TriggerEngine(
      * event" of its own to reuse the list for, so it builds a fresh one
      * every time.
      */
-    private suspend fun runActions(rule: Rule, event: TriggerEvent, actions: List<ActionSlot>) {
+    private suspend fun runActions(
+        rule: Rule,
+        event: TriggerEvent,
+        actions: List<ActionSlot>,
+        firedTriggerInstance: String?,
+    ) {
         // Fresh for every call, and never carried to the next one: see
         // ActionOutputs. Grows as each action below returns, so the action
         // after it can read what was just produced, the same way the
         // app-scope store is read fresh immediately before every action.
         var actionOutputs = ActionOutputs.EMPTY
         actions.forEach { slot ->
-            when (val filled = slot.fill(rule, event, actionOutputs)) {
+            when (val filled = slot.fill(rule, event, actionOutputs, firedTriggerInstance)) {
                 is ActionSlot.Filled.Ready -> {
                     val result = run(rule, slot.type, filled.action, event)
                     if (result is ActionResult.Success) {
-                        actionOutputs = actionOutputs.plus(slot.type, result.outputs)
+                        // Keyed by the slot's namespace, not its type, so two
+                        // actions of one type keep their outputs apart.
+                        actionOutputs = actionOutputs.plus(slot.namespace, result.outputs)
                     }
                 }
                 // A field that could not be filled in is reported through the
@@ -303,9 +320,16 @@ class TriggerEngine(
         }
 
         return try {
-            val actions = rule.actions.map { spec -> ActionSlot(spec, registry, store) }
+            val instances = componentInstanceNames(rule.actions.map { it.type })
+            val actions = rule.actions.mapIndexed { index, spec ->
+                ActionSlot(spec, registry, store, instances[index])
+            }
+            // No fired instance: this rule did not fire its own trigger, so no
+            // leaf of *this* rule produced the event. `{{trigger.*}}` still
+            // reads the causing event, per runNow's own KDoc, but a numbered
+            // leaf namespace of this rule has nothing to resolve against.
             withContext(RunChain(chain + rule.id)) {
-                runActions(rule, causingEvent, actions)
+                runActions(rule, causingEvent, actions, firedTriggerInstance = null)
             }
             RunRuleOutcome.Ran
         } catch (cancellation: CancellationException) {
@@ -370,6 +394,18 @@ class TriggerEngine(
         private val spec: ComponentSpec,
         private val registry: Registry,
         private val store: VariableStore,
+        /**
+         * This action's namespace, from [componentInstanceNames]. The bare
+         * type for the first action of its type in the rule, `<type>_2` for
+         * the second.
+         *
+         * Held per slot rather than computed where it is used, because the
+         * number depends on the whole rule's action list and a slot is the
+         * only thing that knows its own position in it. An outcome still
+         * reports [type], because a fault log names the action a person
+         * recognises rather than a namespace.
+         */
+        val namespace: String,
     ) {
 
         val type: String get() = spec.type
@@ -408,7 +444,12 @@ class TriggerEngine(
             data class Refused(val reason: String) : Filled
         }
 
-        suspend fun fill(rule: Rule, event: TriggerEvent, actionOutputs: ActionOutputs): Filled {
+        suspend fun fill(
+            rule: Rule,
+            event: TriggerEvent,
+            actionOutputs: ActionOutputs,
+            firedTriggerInstance: String?,
+        ): Filled {
             if (templates.isEmpty()) return Filled.Ready(instance)
 
             // Only the names this action actually needs, read right now: see
@@ -431,6 +472,7 @@ class TriggerEngine(
                 event,
                 appVariables = appVariables,
                 actionOutputs = actionOutputs,
+                firedTriggerInstance = firedTriggerInstance,
             )
             val resolved = builtFrom.toMutableMap()
             for ((key, form) in templates) {
