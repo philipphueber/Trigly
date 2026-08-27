@@ -1,6 +1,6 @@
 # Variables
 
-**Status: phases 1, 2 and 4 are built. Phase 3 is not.** Phase 4 is numbered
+**Status: phases 1, 2, 4 and 5 are built. Phase 3 is not.** Phase 4 is numbered
 after phase 3 because it was not planned here at all, and it did not wait for
 the phase it follows: see section 15. `docs/actions.md`
 recorded variables as the largest design decision left after conditions. This
@@ -93,6 +93,8 @@ where it happens instead.
 | Rule  | One rule run | The engine | No |
 | App   | Until changed or removed | A `set_variable` action, or the user | Yes |
 | Action | The rest of one rule run | An action that declares an output | No |
+| Run | One firing, the whole `run_rule` chain included | A `set_variable` action | No |
+| Rule | Until changed or removed | A `set_variable` action, for one rule only | Yes |
 
 **Event scope** is the trigger payload, named and declared.
 
@@ -101,6 +103,24 @@ the type that fired, the time it fired, the rule name, and the rule id.
 
 **App scope** is a small named store, shared by every rule. This is the only
 scope that needs a table and a migration.
+
+**Run scope** is a value this firing wrote and only this firing can read,
+`{{local.*}}`. It is for scaffolding rather than state: a total built across
+three actions, a string assembled in two steps. Nothing persists it, so nothing
+has to clean it up and it cannot reach the next firing. A `run_rule` chain
+shares one, because the chain is one firing started by one event.
+
+**Rule scope** is a value that belongs to one rule, survives its runs, and is
+invisible to every other rule, `{{mine.*}}`. This is what app scope was standing
+in for whenever a name only ever mattered to one rule: a per-rule counter or
+cooldown had to be globally unique and then sat in a list shared with every
+other rule's bookkeeping. Keyed by rule id in storage, so two rules can both
+keep a `count` without agreeing on anything, and a deleted rule takes its values
+with it.
+
+Rule scope is the only one of the three writable scopes that a person cannot
+create by hand. The saved values screen lists and deletes them; adding one needs
+a rule as well as a name, and nothing has asked for that yet.
 
 **Action scope** is what an action produced for the actions after it in the same
 run. It starts empty at every event, it grows as each action returns, and it is
@@ -122,7 +142,10 @@ One syntax: `{{namespace.name}}`. Five reserved namespaces:
 | `{{rule.name}}`, `{{rule.id}}` | The rule that is running |
 | `{{app.trip_count}}` | An app-scope variable |
 | `{{action.value}}` | What an action earlier in this run produced, whichever one it was |
-| `{{set_rule_enabled.enabled}}` | The same, from that one action type in this rule |
+| `{{set_rule_enabled.enabled}}` | The same, from that one action in this rule |
+| `{{notification_posted_2.title}}` | The *second* notification trigger in this rule |
+| `{{local.total}}` | A value this firing wrote |
+| `{{mine.count}}` | A value this rule keeps to itself |
 
 `trigger` is the form to recommend and to offer first. A rule usually has one
 trigger, and `{{trigger.text}}` keeps working when the person changes which
@@ -133,14 +156,45 @@ fires. A leaf that did not fire has no payload, so
 `{{bluetooth_connected.name}}` is empty when the screen turned on instead. The
 editor has to say that plainly, next to the reference, not in a help page.
 
-Two leaves of the same type share one namespace, and whichever of them fired
-fills it. This is a deliberate limit. The alternative is to address a leaf by
-its `NodePath`, and a path is not a name a person can read or keep. Rules with
-two leaves of one type are rare, and the shared namespace is still correct for
-the fired one.
+**Two leaves of the same type used to share one namespace, and that is
+reversed.** The original decision was that whichever leaf fired filled the
+shared namespace, on the grounds that the alternative was addressing a leaf by
+its `NodePath`, and a path is not a name a person can read or keep. The
+objection to paths still stands. What it missed is that there is a third option:
+number the instances of a type. A rule watching two chats now reads
+`{{notification_posted.title}}` for the first and
+`{{notification_posted_2.title}}` for the second, and neither is a path.
 
-`trigger`, `event`, `rule`, `app` and `action` therefore become reserved words.
-No trigger type may be one of the five. A JVM test asserts that, in the same
+`componentInstanceNames` is the single definition of that numbering, because the
+picker, save-time validation and the engine have to agree on it exactly. Two of
+them counting separately would produce a rule that saves and then reads the
+wrong trigger. Actions are numbered the same way and for the same reason: two
+`set_variable` actions are `{{set_variable.value}}` and
+`{{set_variable_2.value}}` rather than one name whose value depends on which ran
+last.
+
+The first instance of a type keeps the bare type string, which is what
+`{{bluetooth_connected.name}}` meant before instances existed. No rule needs
+migrating.
+
+**The number is a position, and a position moves.** Delete the first of three
+leaves of one type and the old third becomes the second, so a saved `_2` starts
+reading a different trigger. Nothing downstream can catch that: the reference
+still resolves, so the grammar sees nothing wrong and validation sees a name it
+offers. The editor closes it instead, by rewriting a rule's references whenever
+a delete, a reorder or a type change moves the mapping. Positional numbering
+without that rewrite would not be safe to ship, and section 12 says how it
+works.
+
+**The short form is offered only for a one-leaf rule.** With two leaves
+`{{trigger.title}}` cannot say which payload arrives, and the picker's contract
+is to offer exactly what is available at that point. The engine still resolves
+the short form, so an imported rule keeps running rather than dying on an event,
+and adding a second leaf rewrites the short form into the first leaf's own name
+so the next save is not refused for something the person did not do.
+
+`trigger`, `event`, `rule`, `app`, `action`, `local` and `mine` therefore become
+reserved words. No trigger type may be one of the seven. A JVM test asserts that, in the same
 place T2 pins the type strings.
 
 The type-qualified form names an action type as well as a trigger type, and the
@@ -641,6 +695,40 @@ not a call and the chain element cannot see one.
 - Save-time validation of every reference, per section 9.
 - The Test button substitutes samples and says on screen that they are samples.
 
+**The picker shows exactly what is available at that point, and "that point" is
+literal.** For a trigger field that is the trigger tree. For an action field it
+is the tree *plus* what the actions above that action produce, which differs
+down the list: the first action has nothing above it, the last can read every
+producing one. A single list for the whole screen would have to choose between
+offering the first action names that can never resolve and hiding from the last
+action names that always can.
+
+The same rule decides what is *not* offered. A trigger namespace for a leaf that
+did not fire, an output from an action further down, and the short form in a
+rule with two leaves are all left out, because each of them would be pickable,
+saveable and empty for ever.
+
+**The editor repairs references, and this is the load-bearing half of positional
+instance names.** A delete, a reorder or a type change can alter what an
+existing `{{...}}` reference means without touching a character of it. The
+editor is the only place that holds the rule as it was and as it now is, which
+is what a rename needs, so:
+
+- old components are matched to new ones by **object identity**, not by position
+  or by value. Position is the thing that changed, so it cannot be the key.
+  Value cannot be either: two `toast` actions with the same text are equal, and
+  matching by value would pair the wrong one and produce a rename that is
+  silently backwards;
+- the renames are applied in **one pass**. In sequence, `_3` to `_2` followed by
+  `_2` to the bare type would land two references on one component, which is
+  worse than the bug being repaired;
+- a **deleted** component's namespace is given no target, so the reference
+  dangles. That is the one case save-time validation does see, and inventing a
+  target would repoint it at a component the person never named;
+- the repair runs in the editor's single `edit` funnel rather than at the call
+  sites that can move numbering. A mutation added later that forgot to ask for
+  it would silently reintroduce the wrong-reference case.
+
 ---
 
 ## 13. Privacy, stated where the rule is written
@@ -687,7 +775,15 @@ put them behind a flag on the trigger rather than in every event.
   reads the response, and its KDoc calls draining an arbitrary response into
   memory "a liability, not a feature". An output is a fixed, reviewed value with
   a label and a sample, not a place to put whatever a server sent back.
-- **No addressing a leaf by path.** Section 3.
+- **Still no addressing a leaf by path.** Section 3 reversed the *shared
+  namespace* for two leaves of one type, and it did not reverse this: a
+  `NodePath` is not a name a person can read or keep. What landed is a number
+  per instance of a type, which is a name, and the editor repairs it when a
+  position moves.
+- **No hand-written rule-scope value.** The saved values screen lists and
+  deletes them, because state this app persists must be visible and clearable.
+  Adding one needs a rule as well as a name, which is a picker and a dialog for
+  something nothing has asked for.
 
 ---
 
@@ -785,6 +881,41 @@ What came out differently from what this work assumed:
   producing: it can fail first, and `set_variable`'s clear mode succeeds while
   storing nothing.
 
+**Phase 5: one namespace per component, and three writable scopes. Built.**
+Also not planned here. Both halves came from the same complaint, which is that a
+rule could not say *which* of two similar things it meant.
+
+- **Every trigger leaf and every action has its own namespace**, numbered by
+  position among the components of its type. Section 3 has the numbering, the
+  reversal it represents, and the rewrite that makes a positional number safe.
+- **The short form is offered only for a one-leaf rule.** Section 3.
+- **`set_variable` chooses where a value lives**: this run, this rule, or every
+  rule. Section 3 has the three scopes; the rule scope is a table keyed by rule
+  id, added as database version 6.
+
+What came out differently from what this work assumed:
+
+- **The engine already knew which leaf fired and nothing used it.**
+  `startRule` carries the fired leaf's path through the merged flow because
+  `resolveHolds` needs it, so numbering the leaves turned that path into the one
+  namespace allowed to read the payload. No change to `TriggerEvent`, which
+  still cannot say which leaf produced it and does not need to.
+- **A run-scope value cannot go in a store.** `Action.execute` takes only an
+  event, so a write has no store to reach and no parameter to arrive by. It goes
+  on the coroutine running the firing, the way the `run_rule` chain does, and
+  for exactly the same reason. That also decided the `run_rule` question: a
+  chain shares run values, because it is one firing, while `{{mine.*}}` follows
+  whichever rule is running.
+- **Validation cannot check run scope**, and says so rather than pretending. A
+  run-scope name exists only because an earlier action writes it, and finding
+  that out means knowing which action type writes variables and which config key
+  holds the name. That is the coupling the plugin rule forbids. `docs/todo.md`
+  holds the declaration that would close it.
+- **A deleted rule's private values delete with it**, by foreign key. The
+  alternative, a prefixed name in the shared table, would have leaked rows no
+  screen lists and no rule can read, and would have let two rules collide on the
+  prefix.
+
 ---
 
 ## 16. Tests
@@ -832,6 +963,30 @@ Instrumented:
 - A save that reads an earlier action's output is accepted, and the same
   reference one position higher is refused.
 - The picker's heading for action scope, and for a type-qualified group.
+
+Phase 5 added, JVM:
+
+- `componentInstanceNames`: the first of a type is the bare type, a repeat is
+  numbered from two, and each type is numbered independently.
+- `instanceRenames` and `rewriteInstanceReferences`: deleting the first of three
+  shifts the two behind it, a reorder swaps two namespaces, a shifting rename
+  does not chain, a fallback survives, and a deleted namespace is given no
+  target.
+- `availableVariables`: two leaves offer nothing under the short form, two
+  leaves of one type offer two numbered namespaces, and an instance form is
+  never always-present.
+- `EventLookup`: a numbered leaf reads only when that leaf fired, the wrong
+  number says which one did, two actions of one type keep their outputs apart,
+  and the three writable scopes do not see each other.
+- `set_variable`: each scope writes where it should and nowhere else, two rules
+  keep the same name apart, a run value does not survive into the next run, and
+  a new scope with no run refuses with a reason.
+
+Instrumented:
+
+- `MIGRATION_5_6`, and a round trip through the real store proving two rules
+  keep the same name apart and that deleting a rule deletes its values.
+- The saved values entry behind the overflow menu, with its count.
 
 Per `CLAUDE.md`: two devices or API levels before a merge, and every new
 instrumented test run twice back to back.
