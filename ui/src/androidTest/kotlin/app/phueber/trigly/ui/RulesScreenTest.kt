@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -334,7 +335,13 @@ class RulesScreenTest {
         composeRule
             .onNodeWithText("(6 TRIGGERS) → SHOW A NOTIFICATION", substring = true)
             .assertIsDisplayed()
-        composeRule.onNodeWithText("…", substring = true).assertIsDisplayed()
+        // Asserted on the summary itself rather than on any node containing an
+        // ellipsis. The overflow beside "New rule" is labelled with one too, so
+        // a screen-wide search matches two nodes and fails for a reason that has
+        // nothing to do with truncation.
+        composeRule
+            .onNodeWithText("(6 TRIGGERS) → SHOW A NOTIFICATION", substring = true)
+            .assertTextContains("…", substring = true)
         // The whole tree, spelled out, would not have needed truncating at all —
         // if this is present the cut never happened and the test is not exercising it.
         composeRule
