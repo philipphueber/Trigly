@@ -45,7 +45,7 @@ class GateEngineTest {
                 ),
                 actionFactories = listOf(GateActionFactory(ACTION_TYPE, action)),
             )
-            val engine = TriggerEngine(registry, InMemoryVariableStore(), this)
+            val engine = TriggerEngine(registry, InMemoryVariableStore(), InMemoryRuleVariableStore(), this)
             val rule = Rule(
                 id = "r",
                 name = "two leaves",
@@ -165,7 +165,7 @@ class GateEngineTest {
                 ),
                 actionFactories = listOf(GateActionFactory(ACTION_TYPE, action)),
             )
-            val engine = TriggerEngine(registry, InMemoryVariableStore(), this)
+            val engine = TriggerEngine(registry, InMemoryVariableStore(), InMemoryRuleVariableStore(), this)
             val rule = Rule(
                 id = "r",
                 name = "momentary and condition",
@@ -190,7 +190,7 @@ class GateEngineTest {
             // a AND (b OR (c AND d)) — satisfied here only through c and d.
             val state = ConditionState(b = false, c = true, d = true)
             val action = GateRecordingAction()
-            val engine = TriggerEngine(nestedRegistry(action, state), InMemoryVariableStore(), this)
+            val engine = TriggerEngine(nestedRegistry(action, state), InMemoryVariableStore(), InMemoryRuleVariableStore(), this)
 
             engine.startRule(nestedRule())
 
@@ -202,7 +202,7 @@ class GateEngineTest {
         runTest(UnconfinedTestDispatcher()) {
             val state = ConditionState(b = false, c = true, d = false)
             val action = GateRecordingAction()
-            val engine = TriggerEngine(nestedRegistry(action, state), InMemoryVariableStore(), this)
+            val engine = TriggerEngine(nestedRegistry(action, state), InMemoryVariableStore(), InMemoryRuleVariableStore(), this)
 
             engine.startRule(nestedRule())
 
@@ -215,7 +215,7 @@ class GateEngineTest {
             // b alone satisfies the ANY, regardless of what c and d say.
             val state = ConditionState(b = true, c = false, d = false)
             val action = GateRecordingAction()
-            val engine = TriggerEngine(nestedRegistry(action, state), InMemoryVariableStore(), this)
+            val engine = TriggerEngine(nestedRegistry(action, state), InMemoryVariableStore(), InMemoryRuleVariableStore(), this)
 
             engine.startRule(nestedRule())
 
@@ -239,7 +239,7 @@ class GateEngineTest {
                 ),
                 actionFactories = listOf(GateActionFactory(ACTION_TYPE, action)),
             )
-            val engine = TriggerEngine(registry, InMemoryVariableStore(), this)
+            val engine = TriggerEngine(registry, InMemoryVariableStore(), InMemoryRuleVariableStore(), this)
             val rule = Rule(
                 id = "r",
                 name = "two leaves, one job",
@@ -264,7 +264,7 @@ class GateEngineTest {
                 triggerFactories = listOf(edgeFactory(TRIGGER_TYPE, event(1))),
                 actionFactories = listOf(GateActionFactory(ACTION_TYPE, GateRecordingAction())),
             )
-            val engine = TriggerEngine(registry, InMemoryVariableStore(), this)
+            val engine = TriggerEngine(registry, InMemoryVariableStore(), InMemoryRuleVariableStore(), this)
             val rule = Rule(
                 id = "r",
                 name = "bad leaf",
@@ -330,7 +330,7 @@ private fun conditionHarness(
         triggerFactories = listOf(edgeFactory(TRIGGER_TYPE, emissions), conditionFactory(CONDITION_TYPE, conditionHolds)),
         actionFactories = listOf(GateActionFactory(ACTION_TYPE, action)),
     )
-    val engine = TriggerEngine(registry, InMemoryVariableStore(), scope)
+    val engine = TriggerEngine(registry, InMemoryVariableStore(), InMemoryRuleVariableStore(), scope)
     val rule = Rule(
         id = "r",
         name = "conditioned",

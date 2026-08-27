@@ -1,5 +1,6 @@
 package app.phueber.trigly.ui
 
+import app.phueber.trigly.core.InMemoryRuleVariableStore
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import app.phueber.trigly.actions.actionFactories
@@ -79,7 +80,7 @@ class SavedValuesViewModelTest {
     private fun viewModel(
         variableStore: InMemoryVariableStore = InMemoryVariableStore(),
         ruleRepository: InMemoryRuleRepository = InMemoryRuleRepository(),
-    ) = SavedValuesViewModel(variableStore, ruleRepository, registry::substitutionsFor)
+    ) = SavedValuesViewModel(variableStore, InMemoryRuleVariableStore(), ruleRepository, registry::substitutionsFor)
 
     /** A rule with one action whose field reads `{{app.[name]}}`. */
     private fun ruleReading(name: String, ruleName: String, id: String) = Rule(

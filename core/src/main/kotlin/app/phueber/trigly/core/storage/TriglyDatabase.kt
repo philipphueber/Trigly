@@ -8,19 +8,26 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.RuleRepository
+import app.phueber.trigly.core.RuleVariableStore
 import app.phueber.trigly.core.VariableRecord
 import app.phueber.trigly.core.VariableStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 @Database(
-    entities = [RuleEntity::class, ComponentEntity::class, VariableEntity::class],
-    version = 5,
+    entities = [
+        RuleEntity::class,
+        ComponentEntity::class,
+        VariableEntity::class,
+        RuleVariableEntity::class,
+    ],
+    version = 6,
     exportSchema = true,
 )
 abstract class TriglyDatabase : RoomDatabase() {
     abstract fun rules(): RuleDao
     abstract fun variables(): VariableDao
+    abstract fun ruleVariables(): RuleVariableDao
 
     companion object {
         const val NAME = "trigly.db"
@@ -105,6 +112,39 @@ internal val MIGRATION_4_5 = object : Migration(4, 5) {
 }
 
 /**
+ * Adds the rule-scope variable table: the `{{mine.*}}` scope.
+ *
+ * A table rather than a column, for the reason `MIGRATION_4_5` gives about the
+ * shared one, and keyed by the pair rather than by name alone, which is what
+ * lets two rules both keep a `count`. Nothing to carry forward: no build before
+ * this one could write a rule-scope value, so the table starts empty.
+ *
+ * **The foreign key needs the pragma to be on to do anything.** Room enables
+ * `foreign_keys` for the database it opens, so the `CASCADE` here behaves for
+ * the app. It is stated because a migration test that opens the file with a
+ * bare helper does not get that for free, and a cascade that quietly does not
+ * fire is indistinguishable from one that does until rows pile up.
+ */
+internal val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `rule_variables` (" +
+                "`ruleId` TEXT NOT NULL, " +
+                "`name` TEXT NOT NULL, " +
+                "`value` TEXT NOT NULL, " +
+                "`updatedAtMillis` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`ruleId`, `name`), " +
+                "FOREIGN KEY(`ruleId`) REFERENCES `rules`(`id`) " +
+                "ON UPDATE NO ACTION ON DELETE CASCADE)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_rule_variables_ruleId` " +
+                "ON `rule_variables` (`ruleId`)",
+        )
+    }
+}
+
+/**
  * The app's rule storage, as a [RuleRepository].
  *
  * Returns the interface rather than the database so Room stays an implementation
@@ -126,6 +166,13 @@ fun variableStore(context: Context): VariableStore =
     RoomVariableStore(triglyDatabase(context).variables())
 
 /**
+ * The app's rule-scope variable storage, as a [RuleVariableStore]. Returns the
+ * interface for the reason [variableStore] does.
+ */
+fun ruleVariableStore(context: Context): RuleVariableStore =
+    RoomRuleVariableStore(triglyDatabase(context).ruleVariables())
+
+/**
  * Every migration, in one place, because the alternative was caught failing.
  *
  * A test that opens the database has to register the same chain the app does: the
@@ -140,7 +187,7 @@ fun variableStore(context: Context): VariableStore =
  * `TriglyDatabase`, here or in a test. Adding a migration means adding it once.
  */
 internal val TRIGLY_MIGRATIONS: Array<Migration> =
-    arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+    arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
 
 private val databaseLock = Any()
 
@@ -230,5 +277,50 @@ internal class RoomVariableStore(private val dao: VariableDao) : VariableStore {
 
     override suspend fun remove(name: String) {
         dao.remove(name)
+    }
+}
+
+/**
+ * The durable [RuleVariableStore]. Replaces `InMemoryRuleVariableStore` in the
+ * app, and mirrors [RoomVariableStore] method for method, with a rule id on
+ * every one of them.
+ *
+ * [historyByRule] groups in memory rather than asking SQLite to. The whole table
+ * is one row per rule per name that some rule wrote on purpose, which is small,
+ * and the alternative is a query whose result Room would have to map into a
+ * shape it has no type for.
+ */
+internal class RoomRuleVariableStore(
+    private val dao: RuleVariableDao,
+) : RuleVariableStore {
+
+    override fun history(ruleId: String): Flow<Map<String, VariableRecord>> =
+        dao.observeFor(ruleId).map { rows ->
+            rows.associate { it.name to VariableRecord(it.value, it.updatedAtMillis) }
+        }
+
+    override fun historyByRule(): Flow<Map<String, Map<String, VariableRecord>>> =
+        dao.observeAll().map { rows ->
+            rows.groupBy { it.ruleId }
+                .mapValues { (_, forRule) ->
+                    forRule.associate { it.name to VariableRecord(it.value, it.updatedAtMillis) }
+                }
+        }
+
+    override suspend fun get(ruleId: String, name: String): String? = dao.get(ruleId, name)
+
+    override suspend fun set(ruleId: String, name: String, value: String) {
+        dao.set(
+            RuleVariableEntity(
+                ruleId = ruleId,
+                name = name,
+                value = value,
+                updatedAtMillis = System.currentTimeMillis(),
+            )
+        )
+    }
+
+    override suspend fun remove(ruleId: String, name: String) {
+        dao.remove(ruleId, name)
     }
 }

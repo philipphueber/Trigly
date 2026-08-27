@@ -92,7 +92,7 @@ class TriggerEngineTest {
     @Test
     fun `sync stops a rule that was disabled or deleted`() =
         runTest(UnconfinedTestDispatcher()) {
-            val engine = TriggerEngine(idleRegistry(CountingTriggerFactory()), InMemoryVariableStore(), this)
+            val engine = TriggerEngine(idleRegistry(CountingTriggerFactory()), InMemoryVariableStore(), InMemoryRuleVariableStore(), this)
 
             engine.sync(listOf(idleRule("a"), idleRule("b")))
             assertEquals(setOf("a", "b"), engine.runningRuleIds)
@@ -116,7 +116,7 @@ class TriggerEngineTest {
     fun `sync leaves an unchanged rule running rather than rebuilding it`() =
         runTest(UnconfinedTestDispatcher()) {
             val factory = CountingTriggerFactory()
-            val engine = TriggerEngine(idleRegistry(factory), InMemoryVariableStore(), this)
+            val engine = TriggerEngine(idleRegistry(factory), InMemoryVariableStore(), InMemoryRuleVariableStore(), this)
 
             engine.sync(listOf(idleRule("a")))
             engine.sync(listOf(idleRule("a"), idleRule("b")))
@@ -132,7 +132,7 @@ class TriggerEngineTest {
     fun `sync rebuilds a rule whose configuration changed`() =
         runTest(UnconfinedTestDispatcher()) {
             val factory = CountingTriggerFactory()
-            val engine = TriggerEngine(idleRegistry(factory), InMemoryVariableStore(), this)
+            val engine = TriggerEngine(idleRegistry(factory), InMemoryVariableStore(), InMemoryRuleVariableStore(), this)
 
             engine.sync(listOf(idleRule("a", mapOf("level" to "20"))))
             engine.sync(listOf(idleRule("a", mapOf("level" to "30"))))
@@ -150,6 +150,7 @@ class TriggerEngineTest {
             val engine = TriggerEngine(
                 registry = idleRegistry(CountingTriggerFactory()),
                 store = InMemoryVariableStore(),
+                ruleStore = InMemoryRuleVariableStore(),
                 scope = this,
                 onStartFailure = { rule, _ -> failed += rule.id },
             )
@@ -189,6 +190,7 @@ class TriggerEngineTest {
                     actionFactories = listOf(SingleActionFactory(ACTION_TYPE, RecordingAction())),
                 ),
                 store = InMemoryVariableStore(),
+                ruleStore = InMemoryRuleVariableStore(),
                 scope = this,
                 onSuppressed = { _, _, unreadable -> suppressed += unreadable.map { it.type } },
             )
@@ -242,6 +244,7 @@ class TriggerEngineTest {
                     actionFactories = listOf(SingleActionFactory(ACTION_TYPE, action)),
                 ),
                 store = InMemoryVariableStore(),
+                ruleStore = InMemoryRuleVariableStore(),
                 scope = this,
                 onSuppressed = { _, _, unreadable -> suppressed += unreadable.map { it.type } },
             )
@@ -291,6 +294,7 @@ class TriggerEngineTest {
                     actionFactories = listOf(SingleActionFactory(ACTION_TYPE, RecordingAction())),
                 ),
                 store = InMemoryVariableStore(),
+                ruleStore = InMemoryRuleVariableStore(),
                 scope = this,
                 onSuppressed = { _, _, unreadable -> suppressed += unreadable.map { it.type } },
             )
@@ -334,6 +338,7 @@ class TriggerEngineTest {
                     actionFactories = listOf(SingleActionFactory(ACTION_TYPE, action)),
                 ),
                 store = InMemoryVariableStore(),
+                ruleStore = InMemoryRuleVariableStore(),
                 scope = this,
                 onSuppressed = { _, _, unreadable -> suppressed += unreadable.map { it.type } },
             )
@@ -384,6 +389,7 @@ class TriggerEngineTest {
                     actionFactories = listOf(SingleActionFactory(ACTION_TYPE, action)),
                 ),
                 store = InMemoryVariableStore(),
+                ruleStore = InMemoryRuleVariableStore(),
                 scope = this,
                 onSuppressed = { _, _, unreadable -> suppressed += unreadable.map { it.type } },
             )
@@ -433,7 +439,7 @@ class TriggerEngineTest {
     @Test
     fun `sync and runningRuleIds are safe to call from two threads`() {
         val scope = CoroutineScope(Dispatchers.Default)
-        val engine = TriggerEngine(idleRegistry(CountingTriggerFactory()), InMemoryVariableStore(), scope)
+        val engine = TriggerEngine(idleRegistry(CountingTriggerFactory()), InMemoryVariableStore(), InMemoryRuleVariableStore(), scope)
         val failures = java.util.concurrent.CopyOnWriteArrayList<Throwable>()
 
         // Alternating sets, so every round both starts and stops something and
@@ -483,6 +489,7 @@ class TriggerEngineTest {
                     actionFactories = listOf(factory),
                 ),
                 store = InMemoryVariableStore(),
+                ruleStore = InMemoryRuleVariableStore(),
                 scope = this,
             )
 
@@ -519,6 +526,7 @@ class TriggerEngineTest {
                     actionFactories = listOf(factory),
                 ),
                 store = InMemoryVariableStore(),
+                ruleStore = InMemoryRuleVariableStore(),
                 scope = this,
             )
             val config = mapOf("text" to "Battery: {{trigger.level}}%")
@@ -559,6 +567,7 @@ class TriggerEngineTest {
                     actionFactories = listOf(factory),
                 ),
                 store = InMemoryVariableStore(),
+                ruleStore = InMemoryRuleVariableStore(),
                 scope = this,
             )
             val config = mapOf("text" to "Battery: {{trigger.level}}%")
@@ -594,6 +603,7 @@ class TriggerEngineTest {
                     actionFactories = listOf(factory),
                 ),
                 store = store,
+                ruleStore = InMemoryRuleVariableStore(),
                 scope = this,
             )
             val config = mapOf("text" to "Trips: {{app.trip_count}}")
@@ -638,6 +648,7 @@ class TriggerEngineTest {
                     actionFactories = listOf(factory),
                 ),
                 store = store,
+                ruleStore = InMemoryRuleVariableStore(),
                 scope = this,
             )
             val config = mapOf("text" to "Trips: {{app.trip_count}}")
@@ -688,6 +699,7 @@ class TriggerEngineTest {
                     actionFactories = listOf(factory),
                 ),
                 store = store,
+                ruleStore = InMemoryRuleVariableStore(),
                 scope = this,
             )
             // A trigger-scope reference only. This is the promise that keeps
@@ -723,6 +735,7 @@ class TriggerEngineTest {
                     actionFactories = listOf(writeFactory, readFactory),
                 ),
                 store = store,
+                ruleStore = InMemoryRuleVariableStore(),
                 scope = this,
             )
 
@@ -762,6 +775,7 @@ class TriggerEngineTest {
                     actionFactories = listOf(outputFactory, readFactory),
                 ),
                 store = InMemoryVariableStore(),
+                ruleStore = InMemoryRuleVariableStore(),
                 scope = this,
             )
 
@@ -802,6 +816,7 @@ class TriggerEngineTest {
                     actionFactories = listOf(readFactory, outputFactory),
                 ),
                 store = InMemoryVariableStore(),
+                ruleStore = InMemoryRuleVariableStore(),
                 scope = this,
                 onOutcome = { _, _, _, result -> outcomes += result },
             )
@@ -851,6 +866,7 @@ class TriggerEngineTest {
                     actionFactories = listOf(outputFactory, readFactory),
                 ),
                 store = InMemoryVariableStore(),
+                ruleStore = InMemoryRuleVariableStore(),
                 scope = this,
             )
 
@@ -894,6 +910,7 @@ class TriggerEngineTest {
                     actionFactories = listOf(actionFactory),
                 ),
                 store = InMemoryVariableStore(),
+                ruleStore = InMemoryRuleVariableStore(),
                 scope = this,
                 onOutcome = { _, _, _, result -> outcomes += result },
             )
@@ -925,6 +942,7 @@ class TriggerEngineTest {
                     actionFactories = emptyList(),
                 ),
                 store = InMemoryVariableStore(),
+                ruleStore = InMemoryRuleVariableStore(),
                 scope = this,
                 onStartFailure = { rule, _ -> failed += rule.id },
             )
@@ -965,6 +983,7 @@ class TriggerEngineTest {
                     actionFactories = listOf(SingleActionFactory(ACTION_TYPE, action)),
                 ),
                 store = InMemoryVariableStore(),
+                ruleStore = InMemoryRuleVariableStore(),
                 scope = this,
                 onOutcome = { rule, _, actionType, result ->
                     outcomes += Triple(rule.id, actionType, result)
@@ -998,6 +1017,7 @@ class TriggerEngineTest {
             val engine = TriggerEngine(
                 registry = Registry(triggerFactories = emptyList(), actionFactories = emptyList()),
                 store = InMemoryVariableStore(),
+                ruleStore = InMemoryRuleVariableStore(),
                 scope = this,
             )
             val broken = Rule(
@@ -1037,6 +1057,7 @@ class TriggerEngineTest {
                     actionFactories = listOf(SingleActionFactory(ACTION_TYPE, callsSelf)),
                 ),
                 store = InMemoryVariableStore(),
+                ruleStore = InMemoryRuleVariableStore(),
                 scope = this,
             )
             selfRule = Rule(
@@ -1097,6 +1118,7 @@ class TriggerEngineTest {
                     actionFactories = factories,
                 ),
                 store = InMemoryVariableStore(),
+                ruleStore = InMemoryRuleVariableStore(),
                 scope = this,
             )
 
@@ -1151,6 +1173,7 @@ private fun harness(
     val engine = TriggerEngine(
         registry = registry,
         store = InMemoryVariableStore(),
+        ruleStore = InMemoryRuleVariableStore(),
         scope = scope,
         onOutcome = { _, _, _, result -> outcomes += result },
     )

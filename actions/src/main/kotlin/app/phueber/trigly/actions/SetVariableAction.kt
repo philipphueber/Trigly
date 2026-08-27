@@ -6,6 +6,10 @@ import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.ExpressionOutcome
 import app.phueber.trigly.core.FieldCondition
+import app.phueber.trigly.core.InMemoryRuleVariableStore
+import app.phueber.trigly.core.RuleVariableStore
+import app.phueber.trigly.core.RunScope
+import app.phueber.trigly.core.VariableScope
 import app.phueber.trigly.core.Substitution
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.VariableKind
@@ -15,8 +19,51 @@ import app.phueber.trigly.core.evaluateExpression
 import app.phueber.trigly.core.normalizeVariableName
 import app.phueber.trigly.core.variableNameProblem
 import java.math.BigDecimal
+import kotlin.coroutines.coroutineContext
 
 /** What `set_variable` does to the named app variable. */
+/**
+ * Which of the three writable scopes a value goes to. See `docs/variables.md`
+ * section 3, and [VariableScope] for the namespaces these read back as.
+ *
+ * **[APP] is the default, and has to be**, because it is what every
+ * `set_variable` action saved before this field existed did. A rule with no
+ * `scope` key in its config is one of those, and reading a missing key as
+ * anything else would silently move where its value goes.
+ *
+ * The display names say the lifetime rather than the namespace, because that is
+ * the choice being made. A person picking here is deciding how long the value
+ * lives and who else can see it; `{{local.x}}` against `{{mine.x}}` is the
+ * consequence, and the field's help text is where that belongs.
+ */
+enum class VariableWriteScope(
+    val configValue: String,
+    val displayName: String,
+    /** The namespace this scope reads back as, for the help text to name it. */
+    val namespace: String,
+) {
+    RUN("run", "this run only", VariableScope.LOCAL),
+    RULE("rule", "this rule", VariableScope.MINE),
+    APP("app", "every rule", VariableScope.APP),
+    ;
+
+    companion object {
+        const val CONFIG_KEY = "scope"
+
+        /**
+         * [APP] for anything unrecognised, which is the opposite call from
+         * [VariableWriteMode.parse]'s refusal, and deliberately so. An
+         * unrecognised *mode* means the rule asked for an operation this build
+         * cannot perform, and guessing which one would do the wrong thing to a
+         * stored value. An unrecognised scope on a rule from a newer build is
+         * more likely to be a scope this build has never heard of, and the
+         * honest fallback for "where does this go" is where it has always gone.
+         */
+        fun parse(raw: String?): VariableWriteScope =
+            entries.firstOrNull { it.configValue.equals(raw?.trim(), ignoreCase = true) } ?: APP
+    }
+}
+
 enum class VariableWriteMode(val configValue: String, val displayName: String) {
     SET("set", "set it"),
     CLEAR("clear", "clear it"),
@@ -123,39 +170,94 @@ class SetVariableAction(
     private val name: String,
     private val mode: VariableWriteMode,
     private val value: String,
+    /**
+     * Which of the three scopes this action writes to. Defaulted to
+     * [VariableWriteScope.APP] because that is what this action did before the
+     * scope existed, and it keeps app scope the thing you get when nobody says
+     * otherwise, in the class exactly as in the config.
+     */
+    private val scope: VariableWriteScope = VariableWriteScope.APP,
+    /**
+     * Where a [VariableWriteScope.RULE] value goes. Defaulted so a caller
+     * writing app scope does not have to name a store it will never touch;
+     * [SetVariableActionFactory] always passes the real one.
+     */
+    private val ruleStore: RuleVariableStore = InMemoryRuleVariableStore(),
 ) : Action {
 
-    override suspend fun execute(event: TriggerEvent): ActionResult = when (mode) {
-        VariableWriteMode.SET -> {
-            store.set(name, value)
-            ActionResult.Success(outputs = mapOf(OUTPUT_VALUE to value))
+    override suspend fun execute(event: TriggerEvent): ActionResult {
+        // The run and the rule scopes both need to know which firing this is.
+        // The engine puts that on the coroutine; nothing else can supply it.
+        // See RunScope, and `TriggerEngine.runActions` for where it is set.
+        val run = coroutineContext[RunScope]
+        if (scope != VariableWriteScope.APP && run == null) {
+            return ActionResult.Failure(
+                "'${scope.displayName}' only exists while a rule is running, and " +
+                    "this action was not run by a rule."
+            )
         }
 
-        VariableWriteMode.CLEAR -> {
-            // Removing a name that was never set is not an error: see
-            // VariableStore.remove. "Make sure this is cleared" must not fail
-            // just because nothing was there to clear. No output either: there
-            // is no stored value left to report.
-            store.remove(name)
-            ActionResult.Success()
-        }
-
-        VariableWriteMode.ADD -> when (val outcome = addToVariable(store.get(name), value)) {
-            is VariableAddOutcome.Added -> {
-                store.set(name, outcome.newValue)
-                ActionResult.Success(outputs = mapOf(OUTPUT_VALUE to outcome.newValue))
+        return when (mode) {
+            VariableWriteMode.SET -> {
+                write(run, value)
+                ActionResult.Success(outputs = mapOf(OUTPUT_VALUE to value))
             }
 
-            is VariableAddOutcome.Failed -> ActionResult.Failure(outcome.reason)
-        }
-
-        VariableWriteMode.EVALUATE -> when (val outcome = evaluateExpression(value)) {
-            is ExpressionOutcome.Ok -> {
-                store.set(name, outcome.value)
-                ActionResult.Success(outputs = mapOf(OUTPUT_VALUE to outcome.value))
+            VariableWriteMode.CLEAR -> {
+                // Removing a name that was never set is not an error: see
+                // VariableStore.remove. "Make sure this is cleared" must not
+                // fail just because nothing was there to clear. No output
+                // either: there is no stored value left to report.
+                clear(run)
+                ActionResult.Success()
             }
 
-            is ExpressionOutcome.Failed -> ActionResult.Failure(outcome.reason)
+            VariableWriteMode.ADD -> when (val outcome = addToVariable(read(run), value)) {
+                is VariableAddOutcome.Added -> {
+                    write(run, outcome.newValue)
+                    ActionResult.Success(outputs = mapOf(OUTPUT_VALUE to outcome.newValue))
+                }
+
+                is VariableAddOutcome.Failed -> ActionResult.Failure(outcome.reason)
+            }
+
+            VariableWriteMode.EVALUATE -> when (val outcome = evaluateExpression(value)) {
+                is ExpressionOutcome.Ok -> {
+                    write(run, outcome.value)
+                    ActionResult.Success(outputs = mapOf(OUTPUT_VALUE to outcome.value))
+                }
+
+                is ExpressionOutcome.Failed -> ActionResult.Failure(outcome.reason)
+            }
+        }
+    }
+
+    /**
+     * The three scopes, each read and written in its own place, behind one set
+     * of names so the four modes above do not each grow a `when` over scopes.
+     *
+     * [run] is non-null for every scope that needs it, which the guard in
+     * [execute] has already established, so these do not repeat that check.
+     */
+    private suspend fun read(run: RunScope?): String? = when (scope) {
+        VariableWriteScope.RUN -> run?.snapshot()?.get(name)
+        VariableWriteScope.RULE -> run?.let { ruleStore.get(it.ruleId, name) }
+        VariableWriteScope.APP -> store.get(name)
+    }
+
+    private suspend fun write(run: RunScope?, newValue: String) {
+        when (scope) {
+            VariableWriteScope.RUN -> run?.set(name, newValue)
+            VariableWriteScope.RULE -> run?.let { ruleStore.set(it.ruleId, name, newValue) }
+            VariableWriteScope.APP -> store.set(name, newValue)
+        }
+    }
+
+    private suspend fun clear(run: RunScope?) {
+        when (scope) {
+            VariableWriteScope.RUN -> run?.remove(name)
+            VariableWriteScope.RULE -> run?.let { ruleStore.remove(it.ruleId, name) }
+            VariableWriteScope.APP -> store.remove(name)
         }
     }
 
@@ -176,6 +278,12 @@ class SetVariableActionFactory(
      * "this device has no variables" is not a real state.
      */
     private val store: VariableStore,
+    /**
+     * Where a rule-scope value goes. Beside [store] rather than replacing it,
+     * because the two scopes are two stores and this action is the one place
+     * that has to know both.
+     */
+    private val ruleStore: RuleVariableStore = InMemoryRuleVariableStore(),
 ) : ActionFactory {
     override val type = SetVariableAction.TYPE
 
@@ -183,12 +291,30 @@ class SetVariableActionFactory(
     override val category = ActionCategory.RULES
 
     override val configFields = listOf(
+        /**
+         * First, above the name, because it decides what the name *is*. The
+         * same word means three different values depending on this field, and a
+         * person choosing a name should have already chosen who can see it.
+         */
+        ConfigField.Choice(
+            key = VariableWriteScope.CONFIG_KEY,
+            label = "Where it lives",
+            options = VariableWriteScope.entries.map {
+                ConfigField.Option(it.configValue, it.displayName)
+            },
+            default = VariableWriteScope.APP.configValue,
+            help = "'this run only' is gone when the rule finishes, and only " +
+                "this run can read it. 'this rule' survives, and no other rule " +
+                "can see it. 'every rule' is shared, and it is what appears in " +
+                "Saved values.",
+        ),
         ConfigField.Text(
             key = SetVariableAction.CONFIG_NAME,
             label = "Variable name",
             required = true,
-            help = "Any rule can read this back as {{app.name}}. A name has no " +
-                "spaces and no '|', '{' or '}'.",
+            help = "Read it back as {{local.name}}, {{mine.name}} or {{app.name}}, " +
+                "matching the scope above. A name has no spaces and no '|', " +
+                "'{' or '}'.",
         ),
         ConfigField.Choice(
             key = VariableWriteMode.CONFIG_KEY,
@@ -260,12 +386,15 @@ class SetVariableActionFactory(
     )
 
     override fun create(config: Map<String, String>): Action {
+        val scope = VariableWriteScope.parse(config[VariableWriteScope.CONFIG_KEY])
         val rawName = config[SetVariableAction.CONFIG_NAME].orEmpty()
         val problem = variableNameProblem(rawName)
         require(problem == null) { problem.orEmpty() }
 
         return SetVariableAction(
             store = store,
+            ruleStore = ruleStore,
+            scope = scope,
             name = normalizeVariableName(rawName),
             mode = VariableWriteMode.parse(
                 config[VariableWriteMode.CONFIG_KEY] ?: VariableWriteMode.SET.configValue

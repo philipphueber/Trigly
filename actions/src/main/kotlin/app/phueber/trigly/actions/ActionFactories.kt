@@ -7,7 +7,9 @@ import app.phueber.trigly.core.InMemoryRuleRepository
 import app.phueber.trigly.core.InMemoryVariableStore
 import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.RuleRepository
+import app.phueber.trigly.core.InMemoryRuleVariableStore
 import app.phueber.trigly.core.RuleRunner
+import app.phueber.trigly.core.RuleVariableStore
 import app.phueber.trigly.core.UiController
 import app.phueber.trigly.core.VariableStore
 
@@ -71,6 +73,14 @@ fun actionFactories(
      * real state.
      */
     variables: VariableStore = InMemoryVariableStore(),
+    /**
+     * The rule-scope half of `set_variable`'s three scopes. Defaulted the same
+     * way [variables] is and for the same reason: a working in-memory store is
+     * a real state, unlike a scheduler or an engine handle that has no
+     * stand-in, so a caller that only wants to read the schema does not have to
+     * build storage first.
+     */
+    ruleVariables: RuleVariableStore = InMemoryRuleVariableStore(),
 ): List<ActionFactory> = listOf(
     // Tell the user something
     PostNotificationActionFactory(context),
@@ -95,7 +105,7 @@ fun actionFactories(
 
     // Trigly's own rules
     SetRuleEnabledActionFactory(rules),
-    SetVariableActionFactory(variables),
+    SetVariableActionFactory(variables, ruleVariables),
     RunRuleActionFactory(rules, runner),
 
     // Device state

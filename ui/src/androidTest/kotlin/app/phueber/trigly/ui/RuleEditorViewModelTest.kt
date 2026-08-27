@@ -7,12 +7,14 @@ import android.os.Build
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ComponentSpec
 import app.phueber.trigly.core.InMemoryRuleRepository
+import app.phueber.trigly.core.InMemoryRuleVariableStore
 import app.phueber.trigly.core.InMemoryVariableStore
 import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.Registry
 import app.phueber.trigly.core.RequirementChecker
 import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.RuleRunnerHandle
+import app.phueber.trigly.core.RuleVariableStore
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
@@ -104,9 +106,15 @@ class RuleEditorViewModelTest {
     private fun viewModel(
         repository: InMemoryRuleRepository = InMemoryRuleRepository(),
         variableStore: VariableStore = InMemoryVariableStore(),
+        ruleVariableStore: RuleVariableStore = InMemoryRuleVariableStore(),
         ruleId: String? = null,
     ) = RuleEditorViewModel(
-        repository, registry, RequirementChecker(context), variableStore, ruleId,
+        repository,
+        registry,
+        RequirementChecker(context),
+        variableStore,
+        ruleVariableStore,
+        ruleId,
     )
 
     /** Unwraps a leaf, or null if [this] is a group or unchosen. */
@@ -1164,6 +1172,7 @@ class RuleEditorViewModelTest {
             ),
             RequirementChecker(context),
             InMemoryVariableStore(),
+            InMemoryRuleVariableStore(),
             null,
         )
 
@@ -1194,6 +1203,7 @@ class RuleEditorViewModelTest {
             ),
             RequirementChecker(context),
             InMemoryVariableStore(),
+            InMemoryRuleVariableStore(),
             null,
         )
 

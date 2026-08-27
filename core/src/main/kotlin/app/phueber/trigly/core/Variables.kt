@@ -862,11 +862,24 @@ fun availableVariables(
  * fails every time it fires, and finding that out from a fault log is finding
  * out too late.
  *
- * **An app-scope reference is accepted on sight, and that is deliberate.** It is
- * the one place where checking harder would be wrong. App variables are written
- * by rules, so the rule that reads `{{app.trip_count}}` is very often saved
- * before the rule that first sets it, and refusing that save would make the two
- * rules impossible to write in either order.
+ * **The three writable scopes are accepted on sight, and that is deliberate.**
+ * They are the one place where checking harder would be wrong. App variables are
+ * written by rules, so the rule that reads `{{app.trip_count}}` is very often
+ * saved before the rule that first sets it, and refusing that save would make
+ * the two rules impossible to write in either order. `{{mine.*}}` has the same
+ * shape inside one rule: the action that reads a value is often written before
+ * the action that sets it, and a rule is saved half-built all the time.
+ *
+ * `{{local.*}}` is accepted for a different and weaker reason: this function
+ * *cannot* know. A run-scope name exists only because some action earlier in
+ * the same run writes it, and finding that out would mean knowing which action
+ * type writes variables and which of its config keys holds the name. That is
+ * one component's identity in a shared file, which the plugin rule forbids for
+ * the reason `Rule.appVariablesRead` gives about the same temptation. Being
+ * lenient here is honest about the gap. `docs/todo.md` holds the item that
+ * would close it: a declaration on the factory saying "I write a variable, and
+ * its name is in this key", which would let the picker offer run-scope names
+ * and let this be exact.
  *
  * Nor is there a name left to check. [variableNameProblem] asks whether a name
  * can be read back by a rule, and it asks it by round-tripping the name through
@@ -875,6 +888,9 @@ fun availableVariables(
  * ever agree. The check belongs where a name is *typed*, which is the writing
  * action, not where one is read.
  */
+private val WRITABLE_SCOPES =
+    setOf(VariableScope.APP, VariableScope.MINE, VariableScope.LOCAL)
+
 fun variableProblems(value: String, available: List<ScopedVariable>): List<String> {
     val template = parseTemplate(value)
     val lookup = SampleLookup(available)
@@ -882,7 +898,7 @@ fun variableProblems(value: String, available: List<ScopedVariable>): List<Strin
     val malformed = template.malformed.map { "'${it.raw}' is not a variable. ${it.reason}" }
 
     val unresolvable = template.references
-        .filterNot { it.scope == VariableScope.APP }
+        .filterNot { it.scope in WRITABLE_SCOPES }
         .filter { lookup.value(it) is VariableValue.Absent }
         .map { "There is no variable named ${it.reference} in this rule." }
 
@@ -1004,8 +1020,23 @@ fun componentInstanceNames(types: List<String>): List<String> {
  * different rule.
  */
 class RunScope(
+    /**
+     * The rule this firing belongs to, so an action can write a value keyed to
+     * it without being told which rule it is in.
+     *
+     * Carried here rather than passed to the action, for the reason the values
+     * are: [Action.execute] takes only a [TriggerEvent]. A `run_rule` chain is
+     * the one case where this and the shared values part company. The values
+     * are shared down the chain, because the chain is one firing; this is
+     * replaced for a called rule, because `{{mine.*}}` belongs to whichever
+     * rule is running now and a called rule is a different rule.
+     */
+    val ruleId: String,
     private val values: MutableMap<String, String> = mutableMapOf(),
 ) : AbstractCoroutineContextElement(Key) {
+
+    /** The same values, for a called rule that keeps them but changes owner. */
+    fun forRule(otherRuleId: String): RunScope = RunScope(otherRuleId, values)
 
     fun snapshot(): Map<String, String> = values.toMap()
 

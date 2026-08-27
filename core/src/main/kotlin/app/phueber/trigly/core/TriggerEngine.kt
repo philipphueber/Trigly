@@ -46,6 +46,14 @@ import kotlinx.coroutines.withTimeoutOrNull
 class TriggerEngine(
     private val registry: Registry,
     private val store: VariableStore,
+    /**
+     * Where `{{mine.*}}` is read from. Required, not defaulted, for the reason
+     * [store] is: an engine wired to a store nothing else writes would resolve
+     * every rule-scope reference as absent, and a rule would fail on every
+     * firing with a message about an unset value rather than about a missing
+     * wire.
+     */
+    private val ruleStore: RuleVariableStore,
     private val scope: CoroutineScope,
     private val onOutcome: (
         rule: Rule,
@@ -165,7 +173,7 @@ class TriggerEngine(
         // action it belongs to. The instance alone does not know its own type.
         val actionInstances = componentInstanceNames(rule.actions.map { it.type })
         val actions = rule.actions.mapIndexed { index, spec ->
-            ActionSlot(spec, registry, store, actionInstances[index])
+            ActionSlot(spec, registry, store, ruleStore, actionInstances[index])
         }
 
         val job = scope.launch {
@@ -190,7 +198,10 @@ class TriggerEngine(
                     // this very rule sees its own id as already "in
                     // progress" from the first hop, not only from the
                     // second.
-                    withContext(RunChain(listOf(rule.id))) {
+                    // RunScope is created here, once per firing, and holds
+                    // both this rule's identity and the run-scope values. See
+                    // RunScope: `set_variable` has no other way to learn either.
+                    withContext(RunChain(listOf(rule.id)) + RunScope(rule.id)) {
                         runActions(rule, event, actions, instanceByPath[firedPath])
                     }
                 }
@@ -322,13 +333,17 @@ class TriggerEngine(
         return try {
             val instances = componentInstanceNames(rule.actions.map { it.type })
             val actions = rule.actions.mapIndexed { index, spec ->
-                ActionSlot(spec, registry, store, instances[index])
+                ActionSlot(spec, registry, store, ruleStore, instances[index])
             }
             // No fired instance: this rule did not fire its own trigger, so no
             // leaf of *this* rule produced the event. `{{trigger.*}}` still
             // reads the causing event, per runNow's own KDoc, but a numbered
             // leaf namespace of this rule has nothing to resolve against.
-            withContext(RunChain(chain + rule.id)) {
+            // The chain shares one set of run-scope values, because the whole
+            // chain is one firing, but `{{mine.*}}` follows whichever rule is
+            // running now. See RunScope.forRule.
+            val runScope = coroutineContext[RunScope]?.forRule(rule.id) ?: RunScope(rule.id)
+            withContext(RunChain(chain + rule.id) + runScope) {
                 runActions(rule, causingEvent, actions, firedTriggerInstance = null)
             }
             RunRuleOutcome.Ran
@@ -394,6 +409,7 @@ class TriggerEngine(
         private val spec: ComponentSpec,
         private val registry: Registry,
         private val store: VariableStore,
+        private val ruleStore: RuleVariableStore,
         /**
          * This action's namespace, from [componentInstanceNames]. The bare
          * type for the first action of its type in the rule, `<type>_2` for
@@ -434,6 +450,16 @@ class TriggerEngine(
             .filter { it.scope == VariableScope.APP }
             .mapTo(mutableSetOf()) { it.name }
 
+        /**
+         * The `{{mine.*}}` names this action needs, filtered at start time for
+         * the reason [appVariableNames] is: an action that reads none of them
+         * must not pay for a query, and most actions read none.
+         */
+        private val ruleVariableNames: Set<String> = templates.values
+            .flatMap { (template, _) -> template.references }
+            .filter { it.scope == VariableScope.MINE }
+            .mapTo(mutableSetOf()) { it.name }
+
         private var builtFrom: Map<String, String> = spec.config
 
         private var instance: Action = registry.createAction(spec)
@@ -464,15 +490,31 @@ class TriggerEngine(
                 }
             }
 
+            // Read the same way and for the same reason, against this rule's
+            // own keyspace. A rule that reads none of these pays nothing.
+            val ruleVariables: Map<String, String> = if (ruleVariableNames.isEmpty()) {
+                emptyMap()
+            } else {
+                buildMap {
+                    for (name in ruleVariableNames) {
+                        ruleStore.get(rule.id, name)?.let { put(name, it) }
+                    }
+                }
+            }
+
             // No pre-filtering like appVariableNames above: an earlier
             // action's outputs are already in memory, built by the caller for
             // this one event, so there is no per-action fetch cost to spare.
+            // Run-scope values are in memory too, on the coroutine running this
+            // firing, so they cost a copy rather than a query.
             val lookup = EventLookup(
                 rule,
                 event,
                 appVariables = appVariables,
                 actionOutputs = actionOutputs,
                 firedTriggerInstance = firedTriggerInstance,
+                localVariables = coroutineContext[RunScope]?.snapshot().orEmpty(),
+                ruleVariables = ruleVariables,
             )
             val resolved = builtFrom.toMutableMap()
             for ((key, form) in templates) {

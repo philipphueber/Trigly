@@ -8,6 +8,8 @@ import app.phueber.trigly.core.storage.MIGRATION_1_2
 import app.phueber.trigly.core.storage.MIGRATION_2_3
 import app.phueber.trigly.core.storage.MIGRATION_3_4
 import app.phueber.trigly.core.storage.MIGRATION_4_5
+import app.phueber.trigly.core.storage.MIGRATION_5_6
+import app.phueber.trigly.core.storage.RoomRuleVariableStore
 import app.phueber.trigly.core.storage.RoomRuleRepository
 import app.phueber.trigly.core.storage.RoomVariableStore
 import app.phueber.trigly.core.storage.TRIGLY_MIGRATIONS
@@ -473,6 +475,100 @@ class MigrationTest {
             database.close()
         }
     }
+    @Test
+    fun migration_5_to_6_creates_the_rule_variables_table_and_leaves_rules_alone() {
+        helper.createDatabase(TEST_DB, 5).apply {
+            execSQL(
+                "INSERT INTO rules (id, name, enabled, position, triggerJson) VALUES (?, ?, ?, ?, ?)",
+                arrayOf("r1", "Old rule", 1, 0, """{"type":"screen_state","config":{}}"""),
+            )
+            execSQL(
+                "INSERT INTO variables (name, value, updatedAtMillis) VALUES (?, ?, ?)",
+                arrayOf("trip_count", "7", 1L),
+            )
+            close()
+        }
+
+        val migrated = helper.runMigrationsAndValidate(TEST_DB, 6, true, MIGRATION_5_6)
+
+        migrated.query("SELECT name FROM rules WHERE id = 'r1'").use { cursor ->
+            assertTrue("the old rule should still be there", cursor.moveToFirst())
+            assertEquals("Old rule", cursor.getString(0))
+        }
+        // The shared scope is a different table and is not touched. A value a
+        // person already had must not move to the new scope, which nothing
+        // could then read as `{{app.trip_count}}`.
+        migrated.query("SELECT value FROM variables WHERE name = 'trip_count'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("7", cursor.getString(0))
+        }
+        migrated.query("SELECT COUNT(*) FROM rule_variables").use { cursor ->
+            assertTrue("the new table should exist and start empty", cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+        }
+    }
+
+    /**
+     * The property the whole scope exists for, proved through the real store
+     * rather than through raw SQL: two rules both keep a `count`, neither sees
+     * the other's, and neither is the shared `{{app.count}}`.
+     *
+     * The cascade is checked in the same test because it is the other half of
+     * the same design. A rule's private values are unreachable once the rule is
+     * gone, since nothing else could name them, so leaving them behind would be
+     * a leak no screen lists and no rule can use.
+     */
+    @Test
+    fun migration_5_to_6_keeps_two_rules_values_apart_and_deletes_them_with_the_rule() = runTest {
+        val dbName = "$TEST_DB-rule-variables"
+
+        helper.createDatabase(dbName, 5).apply {
+            execSQL(
+                "INSERT INTO rules (id, name, enabled, position, triggerJson) VALUES (?, ?, ?, ?, ?)",
+                arrayOf("r1", "First", 1, 0, """{"type":"screen_state","config":{}}"""),
+            )
+            execSQL(
+                "INSERT INTO rules (id, name, enabled, position, triggerJson) VALUES (?, ?, ?, ?, ?)",
+                arrayOf("r2", "Second", 1, 1, """{"type":"screen_state","config":{}}"""),
+            )
+            close()
+        }
+        helper.runMigrationsAndValidate(dbName, 6, true, MIGRATION_5_6).close()
+
+        val database = Room.databaseBuilder(
+            InstrumentationRegistry.getInstrumentation().targetContext,
+            TriglyDatabase::class.java,
+            dbName,
+        ).addMigrations(*TRIGLY_MIGRATIONS).build()
+
+        try {
+            val store = RoomRuleVariableStore(database.ruleVariables())
+            val shared = RoomVariableStore(database.variables())
+
+            assertNull("nothing has been set yet", store.get("r1", "count"))
+
+            store.set("r1", "count", "1")
+            store.set("r2", "count", "99")
+
+            assertEquals("1", store.get("r1", "count"))
+            assertEquals("the same name, a different rule, a different value", "99", store.get("r2", "count"))
+            assertNull("and the shared scope is untouched", shared.get("count"))
+
+            store.remove("r1", "count")
+            assertNull(store.get("r1", "count"))
+            assertEquals("removing one rule's value leaves the other's", "99", store.get("r2", "count"))
+
+            // The cascade. Deleting the rule takes its private values with it.
+            database.rules().deleteRule("r2")
+            assertNull(
+                "a deleted rule's values must not outlive it",
+                store.get("r2", "count"),
+            )
+        } finally {
+            database.close()
+        }
+    }
+
 }
 
 private const val TEST_DB = "migration-test"

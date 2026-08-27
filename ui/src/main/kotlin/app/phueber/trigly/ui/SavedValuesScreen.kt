@@ -78,6 +78,14 @@ data class SavedValueRow(
 @Composable
 fun SavedValuesScreen(
     values: List<SavedValueRow>,
+    /**
+     * Every value a rule keeps to itself, sorted by rule. Listed below the
+     * shared ones and never mixed in with them: a person's own shared names
+     * would be buried by bookkeeping they did not write, and the two are not
+     * interchangeable, since only one rule can read a rule-scope value.
+     */
+    ruleValues: List<RuleValueRow> = emptyList(),
+    onDeleteRuleValue: (ruleId: String, name: String) -> Unit = { _, _ -> },
     onAddValue: (name: String, value: String) -> Unit,
     /** [name] is the value being changed; a saved value's name cannot be edited. */
     onEditValue: (name: String, value: String) -> Unit,
@@ -103,7 +111,7 @@ fun SavedValuesScreen(
             },
         )
 
-        if (values.isEmpty()) {
+        if (values.isEmpty() && ruleValues.isEmpty()) {
             SavedValuesEmptyState(modifier = Modifier.weight(1f))
         } else {
             LazyColumn(
@@ -135,6 +143,34 @@ fun SavedValuesScreen(
                             }
                         },
                     )
+                }
+
+                if (ruleValues.isNotEmpty()) {
+                    item(key = "rule-scope-heading") {
+                        // A heading rather than a second screen. There is one
+                        // question being answered here, "what is saved", and
+                        // splitting the answer by who can read it would make a
+                        // person visit two places to find one name.
+                        Text(
+                            text = "KEPT BY ONE RULE",
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.padding(top = 16.dp),
+                        )
+                    }
+                    items(
+                        items = ruleValues,
+                        key = { "${it.ruleId}/${it.name}" },
+                    ) { row ->
+                        RuleValueBlock(
+                            row = row,
+                            // Straight through, with no dialog. Only one rule
+                            // can read this and its name is on the row, so a
+                            // dialog would tell the person what they are
+                            // already looking at. See the shared case above for
+                            // the one time ceremony is earned.
+                            onDelete = { onDeleteRuleValue(row.ruleId, row.name) },
+                        )
+                    }
                 }
             }
         }
@@ -183,6 +219,39 @@ fun SavedValuesScreen(
             },
             onDismiss = { pendingDelete = null },
         )
+    }
+}
+
+/**
+ * One rule-scope value: which rule keeps it, its name, its value, and a delete.
+ *
+ * No edit, unlike [SavedValueBlock]. Setting one by hand would mean choosing a
+ * rule as well as a name, which is a picker and a dialog for something no rule
+ * has asked for yet. Delete is here because it is the recovery path: a rule that
+ * wrote nonsense into its own scope must be fixable without deleting the rule.
+ * `docs/todo.md` holds the item for hand-editing if it turns out to be wanted.
+ */
+@Composable
+private fun RuleValueBlock(row: RuleValueRow, onDelete: () -> Unit) {
+    BlockCard {
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(
+                text = row.ruleName.uppercase(),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = row.name,
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Text(
+                text = row.value,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            BlockTextButton(text = "Delete", onClick = onDelete)
+        }
     }
 }
 
