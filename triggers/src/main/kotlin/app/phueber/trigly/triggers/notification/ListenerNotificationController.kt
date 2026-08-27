@@ -72,7 +72,7 @@ class ListenerNotificationController : NotificationController {
 
         return try {
             service.cancelNotification(key)
-            ActionResult.Success
+            ActionResult.Success()
         } catch (denied: SecurityException) {
             ActionResult.Failure("Notification access was revoked.", denied)
         }
@@ -103,7 +103,7 @@ class ListenerNotificationController : NotificationController {
 
         return try {
             pending.send()
-            ActionResult.Success
+            ActionResult.Success()
         } catch (cancelled: PendingIntent.CanceledException) {
             // The owning app withdrew the intent — common once a notification is
             // stale, and not something the user did wrong.

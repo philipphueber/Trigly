@@ -32,7 +32,8 @@ data class ComponentDescriptor(
     val producesEvents: Boolean = true,
     /**
      * What this component's events carry, for a rule's actions to read — see
-     * [VariableSpec]. Empty for every action today.
+     * [VariableSpec]. For an action, this is what it produced for a later
+     * action to read; see [ComponentFactory.variables] and [ActionResult.Success].
      */
     val variables: List<VariableSpec> = emptyList(),
 )
@@ -132,6 +133,15 @@ class Registry(
      */
     fun availableVariables(trigger: TriggerNode?): List<ScopedVariable> =
         availableVariables(trigger, ::variablesOf)
+
+    /**
+     * What the action at [index] can read from the actions before it. See
+     * [app.phueber.trigly.core.availableActionOutputs], which this only
+     * supplies the declarations to, and [availableVariables] for the trigger
+     * half a caller adds to this.
+     */
+    fun availableActionOutputs(actionTypes: List<String>, index: Int): List<ScopedVariable> =
+        availableActionOutputs(actionTypes, index, ::variablesOf)
 
     /**
      * Which of this component's config keys accept a variable, and how each is

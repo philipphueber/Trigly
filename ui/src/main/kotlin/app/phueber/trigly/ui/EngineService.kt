@@ -93,6 +93,10 @@ class EngineService : Service() {
             onStartFailure = ::reportStartFailure,
             onSuppressed = ::reportSuppressed,
         )
+        // run_rule's factory was built before this engine existed and holds
+        // container.ruleRunner instead; this is where that handle starts
+        // reaching a real engine. See RuleRunnerHandle.
+        container.ruleRunner.attach(engine)
 
         scope.launch {
             container.ruleRepository.rules().collect(::applyRules)
@@ -131,6 +135,9 @@ class EngineService : Service() {
     }
 
     override fun onDestroy() {
+        // Detached before the engine stops collecting, so a call arriving
+        // after this reports why rather than reaching a stopped engine.
+        (application as TriglyApp).container.ruleRunner.detach()
         engine.stop()
         scope.cancel()
         super.onDestroy()

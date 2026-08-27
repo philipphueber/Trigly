@@ -42,7 +42,7 @@ class ClipboardWriteAction(
         }
 
         clipboard.setPrimaryClip(clip)
-        return ActionResult.Success
+        return ActionResult.Success()
     }
 
     companion object {

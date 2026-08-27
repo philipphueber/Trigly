@@ -20,6 +20,14 @@ internal object ActionCategory {
      * does not touch nor the apps it does not reach.
      */
     const val RULES = "Trigly's own rules"
+
+    /**
+     * Actions that change when the rest of the rule runs, rather than doing
+     * anything themselves. `delay` is the first of these; kept separate from
+     * [RULES] because its subject is this one rule's own timing, not Trigly
+     * as a whole.
+     */
+    const val TIMING = "Timing"
 }
 
 /**

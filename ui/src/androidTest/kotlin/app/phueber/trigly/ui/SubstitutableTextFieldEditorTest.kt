@@ -68,6 +68,28 @@ class SubstitutableTextFieldEditorTest {
         ),
     )
 
+    /** A type-qualified entry, as offered when a tree has more than one leaf. */
+    private val qualifiedNameVariable = ScopedVariable(
+        "bluetooth_connected",
+        VariableSpec(
+            key = "name",
+            label = "Name",
+            sample = "Car speakers",
+            alwaysPresent = false,
+        ),
+    )
+
+    /** An action output, as offered to an action below the one that makes it. */
+    private val actionOutputVariable = ScopedVariable(
+        VariableScope.ACTION,
+        VariableSpec(
+            key = "value",
+            label = "Value stored",
+            sample = "4",
+            alwaysPresent = false,
+        ),
+    )
+
     /** Every value the field reported, in order. */
     private val edits = mutableListOf<String?>()
 
@@ -75,6 +97,7 @@ class SubstitutableTextFieldEditorTest {
         field: ConfigField.Text,
         value: String?,
         variables: List<ScopedVariable> = listOf(titleVariable, triggerTypeVariable),
+        describeComponent: (String) -> String = { it },
     ) {
         composeRule.setContent {
             TriglyTheme {
@@ -87,6 +110,7 @@ class SubstitutableTextFieldEditorTest {
                         text = it
                     },
                     availableVariables = variables,
+                    describeComponent = describeComponent,
                 )
             }
         }
@@ -157,5 +181,45 @@ class SubstitutableTextFieldEditorTest {
         setField(substitutableField, value = "just text")
 
         composeRule.onNodeWithText("Sample:", substring = true).assertDoesNotExist()
+    }
+
+    /**
+     * A type-qualified group is headed by the trigger's own name, the one the
+     * trigger picker and the rules list already use. It is not a reformatting
+     * of its type string. `bluetooth_connected` reads as "Bluetooth device"
+     * everywhere else in the app; a heading that called it "Bluetooth connected"
+     * here would be the picker describing the same trigger under a name nobody
+     * else in the app uses for it.
+     */
+    @Test
+    fun a_type_qualified_heading_uses_the_trigger_s_own_name() {
+        setField(
+            substitutableField,
+            value = null,
+            variables = listOf(qualifiedNameVariable),
+            describeComponent = { type ->
+                if (type == "bluetooth_connected") "Bluetooth device" else type
+            },
+        )
+
+        composeRule.onNodeWithText("Insert variable", ignoreCase = true).performClick()
+
+        composeRule.onNodeWithText("BLUETOOTH DEVICE").assertIsDisplayed()
+        composeRule.onNodeWithText("BLUETOOTH CONNECTED").assertDoesNotExist()
+    }
+
+    /**
+     * Action scope gets a sentence of its own rather than the bare word
+     * "action". What a person has to know about it is when the value exists,
+     * which is only after an action earlier in the same rule has run and
+     * produced it, and the raw scope word says none of that.
+     */
+    @Test
+    fun the_action_scope_heading_says_where_the_value_comes_from() {
+        setField(substitutableField, value = null, variables = listOf(actionOutputVariable))
+
+        composeRule.onNodeWithText("Insert variable", ignoreCase = true).performClick()
+
+        composeRule.onNodeWithText("PRODUCED BY AN EARLIER ACTION IN THIS RULE").assertIsDisplayed()
     }
 }

@@ -39,7 +39,7 @@ class NotificationControlActionsTest {
         val result = DismissNotificationAction(controller, targetPackage = null)
             .execute(fromNotificationRule)
 
-        assertEquals(ActionResult.Success, result)
+        assertEquals(ActionResult.Success(), result)
         assertEquals(listOf("dismiss:0|com.example|42|null|10123"), controller.calls)
     }
 
@@ -60,7 +60,7 @@ class NotificationControlActionsTest {
             val result = DismissNotificationAction(controller, targetPackage = "com.shopping")
                 .execute(fromOtherRule)
 
-            assertEquals(ActionResult.Success, result)
+            assertEquals(ActionResult.Success(), result)
             assertEquals(listOf("dismiss:0|com.shopping|7|null|10"), controller.calls)
         }
 
@@ -128,7 +128,7 @@ class NotificationControlActionsTest {
         val result = DismissNotificationAction(controller, targetPackage = null)
             .execute(fromNotificationRule)
 
-        assertEquals(ActionResult.Success, result)
+        assertEquals(ActionResult.Success(), result)
         assertEquals(listOf("dismiss:0|com.example|42|null|10123"), controller.calls)
     }
 
@@ -215,7 +215,7 @@ class NotificationControlActionsTest {
             legacyIndex = null,
         ).execute(fromOtherRule)
 
-        assertEquals(ActionResult.Success, result)
+        assertEquals(ActionResult.Success(), result)
         assertEquals(listOf("button:media-1:0"), controller.calls)
     }
 
@@ -360,7 +360,7 @@ class DndModeTest {
 }
 
 private class FakeNotificationController(
-    private val result: ActionResult = ActionResult.Success,
+    private val result: ActionResult = ActionResult.Success(),
     private val active: List<ActiveNotification> = emptyList(),
 ) : NotificationController {
 

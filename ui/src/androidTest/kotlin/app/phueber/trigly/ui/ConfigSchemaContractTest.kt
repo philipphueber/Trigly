@@ -10,6 +10,7 @@ import app.phueber.trigly.core.ComponentTool
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.companionKeys
 import app.phueber.trigly.core.NotificationController
+import app.phueber.trigly.core.RuleRunnerHandle
 import app.phueber.trigly.core.SpecialAccessKind
 import app.phueber.trigly.core.Substitution
 import app.phueber.trigly.core.TriggerFactory
@@ -37,7 +38,13 @@ class ConfigSchemaContractTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
     private val factories: List<ComponentFactory> =
-        triggerFactories(context, AlarmManagerScheduler(context)) + actionFactories(context, NotificationController.Unavailable)
+        triggerFactories(context, AlarmManagerScheduler(context)) +
+            actionFactories(
+                context,
+                AlarmManagerScheduler(context),
+                RuleRunnerHandle(),
+                NotificationController.Unavailable,
+            )
 
     @Test
     fun every_component_is_registered_and_reachable() {
@@ -159,6 +166,36 @@ class ConfigSchemaContractTest {
         }
 
         assertTrue("duplicate variable keys: $offenders", offenders.isEmpty())
+    }
+
+    /**
+     * A trigger that never fires must not offer anything to read.
+     *
+     * `{{some_type.key}}` resolves only when `some_type` is what started the
+     * run. A component declaring `producesEvents = false` never starts one, so
+     * a variable declared on it could be picked, saved, and would then be
+     * absent on every firing for ever. The editor cannot see that: it lists
+     * whatever a leaf declares.
+     *
+     * Nothing violates this today. `time_window`, `location_check` and
+     * `variable_check` all declare no variables at all, so this test passes
+     * without asserting anything about the present. It is here for the day
+     * somebody gives one of them a value that looks worth exposing, which is a
+     * reasonable thing to try and a silent dead end to ship.
+     */
+    @Test
+    fun a_trigger_that_never_fires_declares_no_variables() {
+        val offenders = factories
+            .filterIsInstance<TriggerFactory>()
+            .filterNot { it.producesEvents }
+            .filter { it.variables.isNotEmpty() }
+            .map { "${it.type}: ${it.variables.map { spec -> spec.key }}" }
+
+        assertTrue(
+            "a component that produces no events can never resolve a variable, " +
+                "so these could be picked and would always be empty: $offenders",
+            offenders.isEmpty(),
+        )
     }
 
     /**

@@ -83,6 +83,8 @@ internal fun TriggerNodeBlock(
     availableVariables: List<ScopedVariable> = emptyList(),
     /** See [RuleEditorScreen]'s parameter of the same name. */
     substitutionsFor: SubstitutionLookup = { _, _ -> emptyMap() },
+    /** See [RuleEditorScreen]'s parameter of the same name. */
+    describeComponent: (String) -> String = { it },
     modifier: Modifier = Modifier,
 ) {
     when (node) {
@@ -128,6 +130,7 @@ internal fun TriggerNodeBlock(
                 isRequirementSatisfied = isRequirementSatisfied,
                 availableVariables = availableVariables,
                 substitutionsFor = substitutionsFor,
+                describeComponent = describeComponent,
             )
         }
 
@@ -149,6 +152,7 @@ internal fun TriggerNodeBlock(
             onToggleCaveat = onToggleCaveat,
             availableVariables = availableVariables,
             substitutionsFor = substitutionsFor,
+            describeComponent = describeComponent,
             modifier = modifier,
         )
     }
@@ -199,6 +203,8 @@ private fun TriggerGroupBlock(
     availableVariables: List<ScopedVariable> = emptyList(),
     /** See [RuleEditorScreen]'s parameter of the same name. */
     substitutionsFor: SubstitutionLookup = { _, _ -> emptyMap() },
+    /** See [RuleEditorScreen]'s parameter of the same name. */
+    describeComponent: (String) -> String = { it },
     modifier: Modifier = Modifier,
 ) {
     val key = triggerKey(path)
@@ -331,6 +337,7 @@ private fun TriggerGroupBlock(
                                 onToggleCaveat = onToggleCaveat,
                                 availableVariables = availableVariables,
                                 substitutionsFor = substitutionsFor,
+                                describeComponent = describeComponent,
                                 modifier = Modifier.padding(bottom = 12.dp),
                             )
                         }

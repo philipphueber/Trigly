@@ -171,4 +171,72 @@ class EventLookupTest {
 
         assertTrue(value is VariableValue.Absent)
     }
+
+    // --- action scope: what an earlier action in this run produced --------------------
+
+    @Test
+    fun `action scope reads the most recent producer of a name`() {
+        val outputs = ActionOutputs.EMPTY.plus("set_variable", mapOf("value" to "4"))
+        val event = TriggerEvent("notification_posted", 1L)
+
+        val value = EventLookup(rule, event, actionOutputs = outputs)
+            .value(VariableRef("action", "value"))
+
+        assertEquals(VariableValue.Present("4"), value)
+    }
+
+    @Test
+    fun `action scope is absent when nothing has produced that name yet, and says so`() {
+        val event = TriggerEvent("notification_posted", 1L)
+
+        val value = lookup(event).value(VariableRef("action", "value")) as VariableValue.Absent
+
+        // This is the case an action reading ahead of its own producer hits:
+        // the accumulator simply does not have the name yet. The reason has to
+        // read as "not yet", not as "never", since a later action producing it
+        // is the ordinary case, not a mistake.
+        assertTrue(value.reason.contains("value"))
+        assertTrue(value.reason.contains("run"))
+    }
+
+    @Test
+    fun `action scope takes the most recent of two producers of the same name`() {
+        val outputs = ActionOutputs.EMPTY
+            .plus("set_variable", mapOf("value" to "first"))
+            .plus("set_rule_enabled", mapOf("value" to "second"))
+        val event = TriggerEvent("notification_posted", 1L)
+
+        val value = EventLookup(rule, event, actionOutputs = outputs)
+            .value(VariableRef("action", "value"))
+
+        assertEquals(VariableValue.Present("second"), value)
+    }
+
+    @Test
+    fun `a type-qualified action reference reads what that action type produced`() {
+        val outputs = ActionOutputs.EMPTY
+            .plus("set_variable", mapOf("value" to "first"))
+            .plus("set_rule_enabled", mapOf("value" to "second"))
+        val event = TriggerEvent("notification_posted", 1L)
+        val lookup = EventLookup(rule, event, actionOutputs = outputs)
+
+        assertEquals(
+            VariableValue.Present("first"),
+            lookup.value(VariableRef("set_variable", "value")),
+        )
+        assertEquals(
+            VariableValue.Present("second"),
+            lookup.value(VariableRef("set_rule_enabled", "value")),
+        )
+    }
+
+    @Test
+    fun `a type-qualified action reference is absent when that type has not produced it`() {
+        val event = TriggerEvent("notification_posted", 1L)
+
+        val value = lookup(event)
+            .value(VariableRef("set_rule_enabled", "enabled")) as VariableValue.Absent
+
+        assertTrue(value.reason.contains("set_rule_enabled"))
+    }
 }

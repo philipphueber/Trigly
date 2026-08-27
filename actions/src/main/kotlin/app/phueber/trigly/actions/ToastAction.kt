@@ -32,7 +32,7 @@ class ToastAction(
                 text,
                 if (long) Toast.LENGTH_LONG else Toast.LENGTH_SHORT,
             ).show()
-            ActionResult.Success
+            ActionResult.Success()
         }
 
     companion object {

@@ -167,4 +167,89 @@ class SubstitutionTest {
 
         assertEquals(Substituted.Ok("q=a%20b"), result)
     }
+
+    // --- Substitution.EXPRESSION -------------------------------------------------------
+
+    @Test
+    fun `EXPRESSION inserts a value that reads as a number bare`() {
+        assertEquals("42", Substitution.EXPRESSION.encode("42"))
+    }
+
+    @Test
+    fun `EXPRESSION inserts a decimal number bare`() {
+        assertEquals("3.14", Substitution.EXPRESSION.encode("3.14"))
+    }
+
+    @Test
+    fun `EXPRESSION inserts a negative number bare`() {
+        assertEquals("-5", Substitution.EXPRESSION.encode("-5"))
+    }
+
+    @Test
+    fun `EXPRESSION quotes a value that does not read as a number`() {
+        assertEquals("\"Pixel Buds\"", Substitution.EXPRESSION.encode("Pixel Buds"))
+    }
+
+    @Test
+    fun `EXPRESSION escapes a quotation mark in a quoted value`() {
+        assertEquals("\"he said \\\"no\\\"\"", Substitution.EXPRESSION.encode("he said \"no\""))
+    }
+
+    @Test
+    fun `EXPRESSION escapes a backslash in a quoted value`() {
+        assertEquals("\"a\\\\b\"", Substitution.EXPRESSION.encode("a\\b"))
+    }
+
+    @Test
+    fun `EXPRESSION quotes an empty value rather than inserting nothing`() {
+        assertEquals("\"\"", Substitution.EXPRESSION.encode(""))
+    }
+
+    @Test
+    fun `a numeric value embedded in an expression stays a bare number`() {
+        val template = parseTemplate("{{app.count}} + 1")
+        val lookup = VariableLookup { VariableValue.Present("41") }
+
+        val result = template.substitute(lookup, Substitution.EXPRESSION)
+
+        assertEquals(Substituted.Ok("41 + 1"), result)
+    }
+
+    @Test
+    fun `a text value embedded in an expression is quoted so it parses`() {
+        val template = parseTemplate("upper({{trigger.name}})")
+        val lookup = VariableLookup { VariableValue.Present("Pixel Buds") }
+
+        val result = template.substitute(lookup, Substitution.EXPRESSION)
+
+        assertEquals(Substituted.Ok("upper(\"Pixel Buds\")"), result)
+    }
+
+    // --- the single-reference exemption does not apply to EXPRESSION -----------------
+
+    @Test
+    fun `a field that is exactly one numeric reference is still evaluable source`() {
+        // Unlike URL or JSON_STRING, EXPRESSION never takes the raw
+        // single-reference path: the field is always source text, never the
+        // value itself, and a bare number is already valid source text.
+        val template = parseTemplate("{{app.count}}")
+        val lookup = VariableLookup { VariableValue.Present("42") }
+
+        val result = template.substitute(lookup, Substitution.EXPRESSION)
+
+        assertEquals(Substituted.Ok("42"), result)
+    }
+
+    @Test
+    fun `a field that is exactly one text reference is quoted, not passed through raw`() {
+        // The single-reference exemption would insert "Pixel Buds" raw here,
+        // which upper() and every other consumer of this text cannot parse.
+        // EXPRESSION quotes it instead, so the result is valid source.
+        val template = parseTemplate("{{trigger.name}}")
+        val lookup = VariableLookup { VariableValue.Present("Pixel Buds") }
+
+        val result = template.substitute(lookup, Substitution.EXPRESSION)
+
+        assertEquals(Substituted.Ok("\"Pixel Buds\""), result)
+    }
 }

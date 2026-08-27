@@ -82,7 +82,7 @@ class ScreenFallbackTest {
 
         val result = action.execute(fromNotification)
 
-        assertEquals(ActionResult.Success, result)
+        assertEquals(ActionResult.Success(), result)
         assertEquals(listOf("de.blitzer/BEENDEN"), ui.presses)
     }
 
@@ -167,7 +167,7 @@ class ScreenFallbackTest {
 
         val result = action.execute(fromNotification)
 
-        assertEquals(ActionResult.Success, result)
+        assertEquals(ActionResult.Success(), result)
         assertEquals(listOf("button:0|de.blitzer|9|null|10:0"), controller.calls)
         assertTrue("the screen must not be used when the API can do it", ui.presses.isEmpty())
     }
@@ -202,7 +202,7 @@ class ScreenFallbackTest {
 
         val result = action.execute(fromNotification)
 
-        assertEquals(ActionResult.Success, result)
+        assertEquals(ActionResult.Success(), result)
         assertEquals(listOf("null/BEENDEN"), ui.presses)
     }
 }
@@ -218,17 +218,17 @@ private class FakeController(
 
     override fun dismiss(key: String): ActionResult {
         calls += "dismiss:$key"
-        return ActionResult.Success
+        return ActionResult.Success()
     }
 
     override fun triggerActionButton(key: String, actionIndex: Int): ActionResult {
         calls += "button:$key:$actionIndex"
-        return ActionResult.Success
+        return ActionResult.Success()
     }
 }
 
 private class FakeUiController(
-    private val result: ActionResult = ActionResult.Success,
+    private val result: ActionResult = ActionResult.Success(),
 ) : UiController {
 
     val presses = mutableListOf<String>()

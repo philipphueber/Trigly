@@ -191,6 +191,27 @@ fun RuleEditorScreen(
     /** Whether the notification listener is bound — an empty list means two different things. */
     inspectorConnected: () -> Boolean = { false },
     describeApp: (String) -> String = { it },
+    /**
+     * The name a person already knows a component type by. Threaded down to
+     * every [ComponentBlock] so the variable picker's type-qualified heading
+     * names a trigger the same way the trigger picker and the rules list do.
+     * See [VariablePickerDialog]'s parameter of the same name. Defaults to the
+     * type string itself, the same as [describeApp], for a caller that has not
+     * wired this.
+     */
+    describeComponent: (String) -> String = { it },
+    /**
+     * What the action at this index can read, which is [availableVariables]
+     * plus what the actions above it produce. See
+     * [RuleEditorViewModel.availableVariablesForAction].
+     *
+     * A function of the index rather than one list, because an action's
+     * position is what decides the answer: the first action has nothing above
+     * it to read from. Defaults to [availableVariables] for a caller that has
+     * not wired this, which is every test that only cares about the trigger
+     * half.
+     */
+    availableVariablesForAction: (Int) -> List<ScopedVariable> = { availableVariables },
     modifier: Modifier = Modifier,
 ) {
     var picking by remember { mutableStateOf<Picking?>(null) }
@@ -395,6 +416,7 @@ fun RuleEditorScreen(
                         onToggleCaveat = ::toggleCaveat,
                         availableVariables = availableVariables,
                         substitutionsFor = substitutionsFor,
+                        describeComponent = describeComponent,
                         modifier = Modifier.padding(bottom = 12.dp),
                     )
                 }
@@ -411,8 +433,9 @@ fun RuleEditorScreen(
                             onConfigChange(Slot.ACTION, index, key, value)
                         },
                         onResolveRequirement = onResolveRequirement,
-                        availableVariables = availableVariables,
+                        availableVariables = availableVariablesForAction(index),
                         substitutionsFor = substitutionsFor,
+                        describeComponent = describeComponent,
                         modifier = Modifier.padding(bottom = 12.dp),
                         footer = {
                             // Test is no longer written here: every action declares
@@ -809,6 +832,8 @@ internal fun ComponentBlock(
     availableVariables: List<ScopedVariable> = emptyList(),
     /** See [RuleEditorScreen]'s parameter of the same name. */
     substitutionsFor: SubstitutionLookup = { _, _ -> emptyMap() },
+    /** See [RuleEditorScreen]'s parameter of the same name. */
+    describeComponent: (String) -> String = { it },
 ) {
     // Only what applies right now. A setting a sibling has made irrelevant is
     // not drawn at all, and a requirement already granted has nothing left to
@@ -919,6 +944,7 @@ internal fun ComponentBlock(
                             onCompanionChange = onConfigChange,
                             availableVariables = availableVariables,
                             previewEncoding = substitutions[field.key] ?: field.substitution,
+                            describeComponent = describeComponent,
                         )
                     }
                 }

@@ -12,6 +12,7 @@ import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.Registry
 import app.phueber.trigly.core.RequirementChecker
 import app.phueber.trigly.core.Rule
+import app.phueber.trigly.core.RuleRunnerHandle
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
@@ -58,7 +59,12 @@ class RuleEditorViewModelTest {
 
     private val registry = Registry(
         triggerFactories = triggerFactories(context, AlarmManagerScheduler(context)),
-        actionFactories = actionFactories(context, NotificationController.Unavailable),
+        actionFactories = actionFactories(
+            context,
+            AlarmManagerScheduler(context),
+            RuleRunnerHandle(),
+            NotificationController.Unavailable,
+        ),
     )
 
     @Before
@@ -461,6 +467,85 @@ class RuleEditorViewModelTest {
         assertNull("a sometimes-empty reference is not a save error", editor.state.value.error)
         assertTrue(editor.state.value.finished)
         assertEquals(1, repository.rules().first().size)
+    }
+
+    /**
+     * An action reads what an action above it produced. The engine has
+     * resolved `{{action.*}}` from the moment `ActionOutputs` existed, but
+     * `availableVariables` only ever walked the trigger tree, so save-time
+     * validation refused every such field as a name nobody offers. The
+     * feature worked in the engine and was unreachable from the editor.
+     */
+    @Test
+    fun an_action_can_read_what_the_action_above_it_produced() = runTest {
+        val repository = InMemoryRuleRepository()
+        val editor = viewModel(repository)
+        editor.setName("Count and say so")
+        editor.chooseTrigger("bluetooth_connected")
+        editor.addAction("set_variable")
+        editor.setConfigValue(Slot.ACTION, 0, "name", "trip_count")
+        editor.setConfigValue(Slot.ACTION, 0, "mode", "add")
+        editor.setConfigValue(Slot.ACTION, 0, "value", "1")
+        editor.addAction("toast")
+        editor.setConfigValue(Slot.ACTION, 1, "text", "Trip {{action.value}}")
+
+        editor.save()
+
+        assertNull("an earlier action's output is a real name", editor.state.value.error)
+        assertEquals(1, repository.rules().first().size)
+    }
+
+    /**
+     * And the same reference one position higher is still refused. The engine
+     * grows `ActionOutputs` as each action returns, so an action naming a
+     * *later* action's output resolves absent on every firing. Accepting it
+     * would be a rule that saves cleanly and never works, which is the
+     * failure this whole check exists to prevent.
+     */
+    @Test
+    fun an_action_cannot_read_what_a_later_action_produces() = runTest {
+        val repository = InMemoryRuleRepository()
+        val editor = viewModel(repository)
+        editor.setName("Says it too early")
+        editor.chooseTrigger("bluetooth_connected")
+        editor.addAction("toast")
+        editor.setConfigValue(Slot.ACTION, 0, "text", "Trip {{action.value}}")
+        editor.addAction("set_variable")
+        editor.setConfigValue(Slot.ACTION, 1, "name", "trip_count")
+        editor.setConfigValue(Slot.ACTION, 1, "mode", "add")
+        editor.setConfigValue(Slot.ACTION, 1, "value", "1")
+
+        editor.save()
+
+        val error = editor.state.value.error
+        assertNotNull("a later action's output cannot be read", error)
+        assertTrue("was: $error", error!!.contains("action.value"))
+        assertTrue("nothing should be stored", repository.rules().first().isEmpty())
+    }
+
+    /**
+     * The picker's half of the same answer, per action rather than per screen.
+     * `set_rule_enabled` declares one output, so the action after it is
+     * offered that and the action before it is not.
+     */
+    @Test
+    fun the_picker_offers_an_action_output_only_below_the_action_that_makes_it() = runTest {
+        val editor = viewModel()
+        editor.chooseTrigger("bluetooth_connected")
+        editor.addAction("set_rule_enabled")
+        editor.addAction("toast")
+
+        val first = editor.availableVariablesForAction(0)
+        val second = editor.availableVariablesForAction(1)
+
+        assertTrue(
+            "the first action has nothing above it",
+            first.none { it.scope == VariableScope.ACTION },
+        )
+        assertTrue(
+            "was: ${second.map { it.reference }}",
+            second.any { it.reference == "{{action.enabled}}" },
+        )
     }
 
     /**

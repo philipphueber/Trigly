@@ -407,7 +407,9 @@ class RulesScreenTest {
     fun saved_values_is_offered_even_with_no_rules() {
         composeRule.setContent { Screen(emptyList()) }
 
-        composeRule.onNodeWithText("SAVED VALUES").performScrollTo().performClick()
+        // No performScrollTo: the row sits above the list, not inside it,
+        // so it has no scrollable parent and is always on screen.
+        composeRule.onNodeWithText("SAVED VALUES").performClick()
 
         assertEquals(1, savedValuesTaps)
     }
@@ -431,7 +433,7 @@ class RulesScreenTest {
         composeRule.onNodeWithText("IMPORT").assertExists()
         composeRule.onNodeWithText("EXPORT ALL").assertExists()
         // Present on the screen, but as a row in the list rather than up there.
-        composeRule.onNodeWithText("SAVED VALUES").performScrollTo().assertExists()
+        composeRule.onNodeWithText("SAVED VALUES").assertExists()
     }
 
     /** The row says whether anything is stored, which a header button never could. */

@@ -4,10 +4,14 @@ import app.phueber.trigly.core.Action
 import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.ExpressionOutcome
 import app.phueber.trigly.core.FieldCondition
 import app.phueber.trigly.core.Substitution
 import app.phueber.trigly.core.TriggerEvent
+import app.phueber.trigly.core.VariableKind
+import app.phueber.trigly.core.VariableSpec
 import app.phueber.trigly.core.VariableStore
+import app.phueber.trigly.core.evaluateExpression
 import app.phueber.trigly.core.normalizeVariableName
 import app.phueber.trigly.core.variableNameProblem
 import java.math.BigDecimal
@@ -17,6 +21,7 @@ enum class VariableWriteMode(val configValue: String, val displayName: String) {
     SET("set", "set it"),
     CLEAR("clear", "clear it"),
     ADD("add", "add to it"),
+    EVALUATE("evaluate", "compute it"),
     ;
 
     companion object {
@@ -102,6 +107,16 @@ fun addToVariable(stored: String?, addend: String): VariableAddOutcome {
  * exists in the first place: "how many times has this fired today", "how many
  * bytes since the last reset". See [addToVariable] for the two decisions that
  * shape it.
+ *
+ * `evaluate` is what makes a *computed* value possible, rather than just a
+ * copied or accumulated one: `{{app.count}} + 1`, `upper({{trigger.name}})`,
+ * `{{battery.level}} < 20 ? "low" : "ok"`. The value field carries the
+ * expression source, already substituted into literals by
+ * [Substitution.EXPRESSION] before this action ever sees it, and
+ * [evaluateExpression] in `:core` does the rest. See `Expression.kt` for the
+ * language and why it stops well short of a general scripting model: a rule
+ * is a file someone else can import, and this mode must not become a way to
+ * carry arbitrary code onto their phone.
  */
 class SetVariableAction(
     private val store: VariableStore,
@@ -113,24 +128,34 @@ class SetVariableAction(
     override suspend fun execute(event: TriggerEvent): ActionResult = when (mode) {
         VariableWriteMode.SET -> {
             store.set(name, value)
-            ActionResult.Success
+            ActionResult.Success(outputs = mapOf(OUTPUT_VALUE to value))
         }
 
         VariableWriteMode.CLEAR -> {
             // Removing a name that was never set is not an error: see
             // VariableStore.remove. "Make sure this is cleared" must not fail
-            // just because nothing was there to clear.
+            // just because nothing was there to clear. No output either: there
+            // is no stored value left to report.
             store.remove(name)
-            ActionResult.Success
+            ActionResult.Success()
         }
 
         VariableWriteMode.ADD -> when (val outcome = addToVariable(store.get(name), value)) {
             is VariableAddOutcome.Added -> {
                 store.set(name, outcome.newValue)
-                ActionResult.Success
+                ActionResult.Success(outputs = mapOf(OUTPUT_VALUE to outcome.newValue))
             }
 
             is VariableAddOutcome.Failed -> ActionResult.Failure(outcome.reason)
+        }
+
+        VariableWriteMode.EVALUATE -> when (val outcome = evaluateExpression(value)) {
+            is ExpressionOutcome.Ok -> {
+                store.set(name, outcome.value)
+                ActionResult.Success(outputs = mapOf(OUTPUT_VALUE to outcome.value))
+            }
+
+            is ExpressionOutcome.Failed -> ActionResult.Failure(outcome.reason)
         }
     }
 
@@ -138,6 +163,9 @@ class SetVariableAction(
         const val TYPE = "set_variable"
         const val CONFIG_NAME = "name"
         const val CONFIG_VALUE = "value"
+
+        /** The output key the factory declares below for what was just stored. */
+        const val OUTPUT_VALUE = "value"
     }
 }
 
@@ -176,7 +204,9 @@ class SetVariableActionFactory(
             required = true,
             substitution = Substitution.TEXT,
             help = "This can include another variable, such as {{trigger.name}}. " +
-                "Adding needs a value that is a plain number.",
+                "Adding needs a value that is a plain number. Evaluating runs this " +
+                "as an expression, such as {{app.count}} + 1 or " +
+                "upper({{trigger.name}}).",
             // Gone entirely when the mode is clear, rather than shown with a
             // sentence explaining that it does nothing: clearing needs no value.
             shownWhen = FieldCondition(
@@ -184,8 +214,48 @@ class SetVariableActionFactory(
                 isAnyOf = setOf(
                     VariableWriteMode.SET.configValue,
                     VariableWriteMode.ADD.configValue,
+                    VariableWriteMode.EVALUATE.configValue,
                 ),
             ),
+        ),
+    )
+
+    /**
+     * The value field's escaping depends on the mode, which is a sibling
+     * field: see [ConfigField.substitution] and `docs/variables.md` section 8.
+     * Every mode but evaluate treats the value as prose that may embed a
+     * variable, [Substitution.TEXT]. Evaluate treats it as expression source,
+     * [Substitution.EXPRESSION], so a substituted value arrives as a literal
+     * the evaluator can parse rather than as raw device text spliced into
+     * code. [HttpRequestActionFactory.substitutionsFor] is the pattern this
+     * copies, for the same reason: the editor rendering a picker and the
+     * engine escaping a value must agree on what mode is chosen, so both read
+     * the mode with the same fallback [create] uses for it.
+     */
+    override fun substitutionsFor(config: Map<String, String>): Map<String, Substitution> {
+        val rawMode = config[VariableWriteMode.CONFIG_KEY] ?: VariableWriteMode.SET.configValue
+        val isEvaluate = rawMode.equals(VariableWriteMode.EVALUATE.configValue, ignoreCase = true)
+        val valueSubstitution = if (isEvaluate) Substitution.EXPRESSION else Substitution.TEXT
+        return super.substitutionsFor(config) +
+            (SetVariableAction.CONFIG_VALUE to valueSubstitution)
+    }
+
+    /**
+     * What this action just stored, so a later action can announce it without
+     * a second read: "Trip {{action.value}} recorded" right after the count
+     * that reads is the one this same run just wrote. Not declared
+     * [VariableSpec.alwaysPresent], because the clear mode leaves nothing
+     * stored to report.
+     */
+    override val variables = listOf(
+        VariableSpec(
+            key = SetVariableAction.OUTPUT_VALUE,
+            label = "Value stored",
+            kind = VariableKind.TEXT,
+            sample = "4",
+            help = "What this action just set the variable to. Not produced " +
+                "when the mode clears the variable.",
+            alwaysPresent = false,
         ),
     )
 

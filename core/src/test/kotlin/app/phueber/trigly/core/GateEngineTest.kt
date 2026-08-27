@@ -391,7 +391,7 @@ private class GateRecordingAction : Action {
 
     override suspend fun execute(event: TriggerEvent): ActionResult {
         seen += event
-        return ActionResult.Success
+        return ActionResult.Success()
     }
 }
 
@@ -412,6 +412,6 @@ private class OverlapDetectingAction : Action {
         delay(50)
         seen += event
         active--
-        return ActionResult.Success
+        return ActionResult.Success()
     }
 }

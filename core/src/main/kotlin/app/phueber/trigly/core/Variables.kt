@@ -109,13 +109,26 @@ object VariableScope {
      */
     const val APP = "app"
 
+    /**
+     * What an earlier action in this same run produced, whichever of them it
+     * was. See [ActionOutputs] and [EventLookup.actionOutputs].
+     *
+     * The form to offer first, for the reason [TRIGGER] is: it keeps working
+     * when the person reorders or swaps which action produced the value. The
+     * type-qualified form exists for the same reason it does for a trigger
+     * leaf, a rule with two producing actions of different types can say which
+     * one it means, except that here the disambiguating name is an action
+     * type rather than a trigger type.
+     */
+    const val ACTION = "action"
+
     const val EVENT_TYPE = "type"
     const val EVENT_TIME = "time"
     const val EVENT_TIMESTAMP = "timestamp"
     const val RULE_NAME = "name"
     const val RULE_ID = "id"
 
-    val reserved: Set<String> = setOf(TRIGGER, EVENT, RULE, APP)
+    val reserved: Set<String> = setOf(TRIGGER, EVENT, RULE, APP, ACTION)
 
     /**
      * The variables the engine supplies for every event, whatever fired.
@@ -249,6 +262,10 @@ data class Template(val segments: List<TemplateSegment>) {
      * percent-encoded.
      *
      * One rule, two behaviours, and both are what the person plainly wrote.
+     *
+     * [Substitution.EXPRESSION] is the one encoding this does not describe.
+     * See its KDoc: an expression field is source text to evaluate, never the
+     * value itself, so [substitute] does not read this flag for it.
      */
     val isSingleReference: Boolean
         get() = segments.size == 1 && segments.single() is TemplateSegment.Reference
@@ -375,12 +392,61 @@ enum class Substitution {
 
     /** Escape for the inside of a JSON string. The quotes stay the author's. */
     JSON_STRING,
+
+    /**
+     * Render as a literal the expression language in `Expression.kt` can
+     * parse: a value that reads as a number goes in bare, anything else goes
+     * in as a double-quoted string with its own quotes and backslashes
+     * escaped. `set_variable`'s evaluate mode is the one field that declares
+     * this, only while that mode is chosen: see
+     * `SetVariableActionFactory.substitutionsFor`.
+     *
+     * This field is never the exemption [Template.isSingleReference]
+     * describes for the other encodings. A field whose whole value is one
+     * reference is still, for every other [Substitution], a *value* rather
+     * than a value embedded in structure, so encoding it would corrupt it:
+     * `{{app.endpoint}}` as a whole URL must not come back percent-encoded.
+     * An expression field is never the value itself. It is always source
+     * text to run through the evaluator, even when the whole field is one
+     * reference: `{{app.count}}` alone, typed as the entire expression, has
+     * to become the literal `42` or `"Pixel Buds"` before it is anything the
+     * evaluator can read. Skipping the encoding there would hand the
+     * evaluator raw device text. That is `upper(Pixel Buds)` for the bare
+     * reference case, or a bare `Pixel Buds` with nothing to quote it.
+     * Neither is parseable, so it would fail every evaluate-mode field whose
+     * value is not already a number. See [Template.substitute].
+     */
+    EXPRESSION,
     ;
 
     fun encode(value: String): String = when (this) {
         NONE, TEXT -> value
         URL -> percentEncode(value)
         JSON_STRING -> jsonEscape(value)
+        EXPRESSION -> expressionLiteral(value)
+    }
+}
+
+/**
+ * A literal the expression language can read back as [value], per
+ * [Substitution.EXPRESSION].
+ *
+ * [looksLikeExpressionNumber] is the same check `Expression.kt`'s lexer uses
+ * to read a NUMBER token, so a value this inserts bare is guaranteed to parse
+ * as the number it names rather than as a bare, unquoted identifier the
+ * parser cannot make sense of.
+ */
+private fun expressionLiteral(value: String): String =
+    if (looksLikeExpressionNumber(value)) value else "\"${expressionStringEscape(value)}\""
+
+/** Escapes for the inside of this language's string literal, matching its own lexer. */
+private fun expressionStringEscape(value: String): String = buildString {
+    for (char in value) {
+        when (char) {
+            '\\' -> append("\\\\")
+            '"' -> append("\\\"")
+            else -> append(char)
+        }
     }
 }
 
@@ -452,7 +518,12 @@ fun Template.substitute(lookup: VariableLookup, encoding: Substitution): Substit
         return Substituted.Failed("'${it.raw}' is not a variable. ${it.reason}")
     }
 
-    val whole = isSingleReference
+    // EXPRESSION is excluded here on purpose: see its KDoc and
+    // Template.isSingleReference's. Every other encoding treats a field that
+    // is exactly one reference as the value itself; an expression field is
+    // always source text to evaluate, so it always needs the literal
+    // encoding, even when nothing else is next to it.
+    val whole = isSingleReference && encoding != Substitution.EXPRESSION
     val out = StringBuilder()
 
     for (segment in segments) {
@@ -476,6 +547,61 @@ fun Template.substitute(lookup: VariableLookup, encoding: Substitution): Substit
     }
 
     return Substituted.Ok(out.toString())
+}
+
+/**
+ * What every earlier action in the current run has produced, for
+ * [EventLookup] to resolve `{{action.*}}` and a type-qualified action
+ * reference against.
+ *
+ * Immutable and grows one action at a time: [TriggerEngine] merges an
+ * action's [ActionResult.Success.outputs] into a fresh [ActionOutputs] right
+ * after that action returns, and hands the result to the next action's
+ * [EventLookup]. That mirrors the reason [EventLookup.appVariables] is read
+ * fresh before every action rather than once per event: a rule's actions run
+ * in sequence, and a later one has to see what an earlier one just produced.
+ * An action that produces nothing calls [plus] with an empty map, which is a
+ * no-op, so a rule with no producing action pays nothing extra.
+ *
+ * A fresh, empty instance starts every event. Nothing here persists past the
+ * run it was built for, so one event's outputs can never leak into the next.
+ */
+data class ActionOutputs(
+    private val mostRecentByKey: Map<String, String> = emptyMap(),
+    private val byType: Map<String, Map<String, String>> = emptyMap(),
+) {
+
+    /**
+     * Folds in what one action of [actionType] produced. [outputs] empty
+     * returns this unchanged, which is the fast path for the vast majority of
+     * actions that declare no outputs at all.
+     */
+    fun plus(actionType: String, outputs: Map<String, String>): ActionOutputs {
+        if (outputs.isEmpty()) return this
+        return ActionOutputs(
+            mostRecentByKey = mostRecentByKey + outputs,
+            byType = byType + (actionType to (byType[actionType].orEmpty() + outputs)),
+        )
+    }
+
+    /**
+     * The most recent producer of [name], whichever action type it was. See
+     * [VariableScope.ACTION].
+     */
+    fun value(name: String): VariableValue = mostRecentByKey[name]?.let(VariableValue::Present)
+        ?: VariableValue.Absent("No action earlier in this run has produced '$name'.")
+
+    /**
+     * What an earlier action of [type] produced for [name], or null when no
+     * action of that type has run yet, or none of them produced [name]. Null
+     * rather than [VariableValue.Absent], so [EventLookup] can fall through to
+     * its own message when [type] is not an action type at all.
+     */
+    fun value(type: String, name: String): String? = byType[type]?.get(name)
+
+    companion object {
+        val EMPTY = ActionOutputs()
+    }
 }
 
 /**
@@ -505,6 +631,13 @@ class EventLookup(
      * earlier one did.
      */
     private val appVariables: Map<String, String> = emptyMap(),
+    /**
+     * What every earlier action in this run has produced. Defaulted to
+     * [ActionOutputs.EMPTY], the same "usable with nothing wired up" default
+     * [appVariables] gets. See [ActionOutputs] for why this grows across a run
+     * rather than being read once.
+     */
+    private val actionOutputs: ActionOutputs = ActionOutputs.EMPTY,
 ) : VariableLookup {
 
     override fun value(ref: VariableRef): VariableValue = when (ref.scope) {
@@ -529,12 +662,20 @@ class EventLookup(
         VariableScope.APP -> appVariables[ref.name]?.let(VariableValue::Present)
             ?: VariableValue.Absent("'${ref.name}' is not set.")
 
+        VariableScope.ACTION -> actionOutputs.value(ref.name)
+
         // A trigger type. It reads only when it is the leaf that fired.
         event.triggerType -> fromPayload(ref.name, event.triggerType)
 
-        else -> VariableValue.Absent(
-            "'${ref.scope}' is not what started this rule. '${event.triggerType}' did."
-        )
+        // An action type. It reads only what an action of that type has
+        // produced so far in this run, whether or not it is the type this
+        // event's trigger happens to share a name with.
+        else -> actionOutputs.value(ref.scope, ref.name)?.let(VariableValue::Present)
+            ?: VariableValue.Absent(
+                "'${ref.scope}' is not what started this rule, and no action of " +
+                    "that name has produced '${ref.name}' yet in this run. " +
+                    "'${event.triggerType}' started this run."
+            )
     }
 
     private fun fromPayload(name: String, type: String): VariableValue =
@@ -650,4 +791,60 @@ fun variableProblems(value: String, available: List<ScopedVariable>): List<Strin
         .map { "There is no variable named ${it.reference} in this rule." }
 
     return malformed + unresolvable
+}
+
+/**
+ * What an action can read from the actions that run before it, per
+ * [ActionOutputs]. The action-scope half of what the editor's picker lists
+ * and what its validation checks against, and the reason a declared output is
+ * reachable at all: [availableVariables] walks a trigger tree, so on its own
+ * it makes every `{{action.*}}` reference a name nobody offers.
+ *
+ * [index] is the position of the action doing the reading, and only
+ * [actionTypes] before it are considered. That is not a nicety. The engine
+ * grows [ActionOutputs] as each action returns, so an action naming a *later*
+ * action's output resolves absent on every single firing. Offering it would be
+ * exactly the dead end `ConfigSchemaContractTest` refuses for a trigger that
+ * never fires: pickable, saveable, and empty for ever.
+ *
+ * **Nothing here is ever [VariableSpec.alwaysPresent], whatever the
+ * declaration says.** This is the opposite of [availableVariables]'s rule for
+ * a trigger, which can promise a key when every leaf declares it, and the
+ * reason is that an earlier action running is not the same as it producing.
+ * It can fail before it gets that far, and a mode can succeed while producing
+ * nothing: `set_variable`'s clear mode stores no value, so it reports none.
+ * The declaration says what an action produces when it produces anything at
+ * all, which is a weaker promise than "this will be there", so the mark is
+ * forced off rather than trusted.
+ *
+ * The type-qualified form follows [availableVariables]'s rule exactly, for
+ * the same reason and with the same consequence for a repeat. It is offered
+ * only once two *distinct* earlier types declare something, because with one
+ * producer the short form already names it unambiguously. Two earlier actions
+ * of the same type collapse to one type, so they are offered only under
+ * [VariableScope.ACTION], which is honest: the engine keeps the most recent
+ * value per key, so neither form can tell those two apart.
+ */
+fun availableActionOutputs(
+    actionTypes: List<String>,
+    index: Int,
+    variablesOf: (String) -> List<VariableSpec>,
+): List<ScopedVariable> {
+    val earlier = actionTypes.take(index.coerceAtLeast(0)).distinct()
+    val declarations = earlier.associateWith(variablesOf).filterValues { it.isNotEmpty() }
+    if (declarations.isEmpty()) return emptyList()
+
+    val shared = declarations.values.flatten().distinctBy { it.key }.map { spec ->
+        ScopedVariable(VariableScope.ACTION, spec.copy(alwaysPresent = false))
+    }
+
+    val qualified = if (declarations.size < 2) {
+        emptyList()
+    } else {
+        declarations.flatMap { (type, specs) ->
+            specs.map { ScopedVariable(type, it.copy(alwaysPresent = false)) }
+        }
+    }
+
+    return shared + qualified
 }

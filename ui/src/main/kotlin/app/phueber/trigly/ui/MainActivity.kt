@@ -438,6 +438,9 @@ class MainActivity : ComponentActivity() {
             // draft, so it is recomputed on every recomposition `state`
             // triggers, the same as `state` itself.
             availableVariables = editor.availableVariables,
+            // The action half of the same question, which depends on where the
+            // action sits: see `RuleEditorViewModel.availableVariablesForAction`.
+            availableVariablesForAction = editor::availableVariablesForAction,
             substitutionsFor = { type, config ->
                 container.registry.substitutionsFor(ComponentSpec(type, config))
             },
@@ -449,6 +452,10 @@ class MainActivity : ComponentActivity() {
             inspectorNotifications = { container.notifications.activeNotifications() },
             inspectorConnected = { container.notifications.isConnected },
             describeApp = installedApps::labelFor,
+            // Names a type-qualified variable group the same way the trigger
+            // picker and the rules list already name that trigger. See
+            // `RulesScreen`'s own `describeComponent`.
+            describeComponent = container.registry::displayNameOf,
         )
     }
 

@@ -15,10 +15,12 @@ import app.phueber.trigly.core.ComponentSpec
 import app.phueber.trigly.core.InMemoryVariableStore
 import app.phueber.trigly.core.Registry
 import app.phueber.trigly.core.Rule
+import app.phueber.trigly.core.RuleRunnerHandle
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEngine
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
+import app.phueber.trigly.triggers.AlarmManagerScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -86,7 +88,7 @@ class VariableSubstitutionOnDeviceTest {
             body = "Chat said: {{trigger.$PAYLOAD_TITLE}}",
         )
 
-        assertEquals(ActionResult.Success, outcome)
+        assertEquals(ActionResult.Success(), outcome)
         val posted = awaitNotification()
         assertNotNull("no notification was posted", posted)
         assertEquals(
@@ -123,7 +125,7 @@ class VariableSubstitutionOnDeviceTest {
             body = "Chat said: {{trigger.$PAYLOAD_TITLE | nothing}}",
         )
 
-        assertEquals(ActionResult.Success, outcome)
+        assertEquals(ActionResult.Success(), outcome)
         assertEquals(
             "Chat said: nothing",
             awaitNotification()?.getString(Notification.EXTRA_TEXT),
@@ -140,7 +142,9 @@ class VariableSubstitutionOnDeviceTest {
     private fun runRule(payload: Map<String, String>, body: String): ActionResult? {
         val registry = Registry(
             triggerFactories = listOf(FakeTriggerFactory(payload)),
-            actionFactories = actionFactories(context),
+            actionFactories = actionFactories(
+                context, AlarmManagerScheduler(context), RuleRunnerHandle(),
+            ),
         )
         val outcomes = Channel<ActionResult>(capacity = Channel.BUFFERED)
         val scope = CoroutineScope(SupervisorJob()).also { this.scope = it }

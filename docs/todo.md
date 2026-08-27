@@ -157,6 +157,15 @@ and a poll does not.
 **Done when.** The choice is written down per caller, and any caller that keeps
 `setWindow` says in its own warning text how late it can be.
 
+**Since this was written.** There is a sixth caller: the `delay` action waits on
+`waitFor`, and it is the first one whose duration a person chooses rather than
+this codebase. It already does the second half of "done when", because its
+warning says the wait can be off by a few minutes. It has no claim on the first
+half. Whether a wait a person set is worth the allow-while-idle family is
+exactly the per-caller decision this item asks for, and `DelayAction`'s KDoc
+says why it is not on the *durable* form, which is a different question from
+this one.
+
 ### T15 A second ingress that is not a broadcast
 
 **Evidence.** A user's Bluetooth connect rule never fired because no process was

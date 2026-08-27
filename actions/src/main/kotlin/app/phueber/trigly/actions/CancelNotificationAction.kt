@@ -24,7 +24,7 @@ class CancelNotificationAction(
         val manager = NotificationManagerCompat.from(context)
 
         if (id == null) manager.cancelAll() else manager.cancel(id)
-        return ActionResult.Success
+        return ActionResult.Success()
     }
 
     companion object {

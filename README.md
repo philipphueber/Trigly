@@ -135,7 +135,7 @@ Trigly is at an early stage of development. The app has these parts:
 - A **foreground service** that keeps the engine running.
 - The plugin design for triggers and actions.
 - The requirement model, and the permission flow that goes with it.
-- **33 triggers** and **20 actions**.
+- **33 triggers** and **23 actions**.
 - A rules list screen. This screen explains why a rule cannot start. You can
   search it. The search examines the name of each rule, and also the names of
   the triggers and actions in it. Thus a search for "bluetooth" finds a rule
@@ -243,7 +243,9 @@ Trigly's actions cover:
   a calendar entry.
 - Device state: volume, ringer mode, clipboard, Do Not Disturb.
 - Other apps' notifications: dismiss one, or press one of its buttons.
-- Turning one of your own rules on or off.
+- Turning one of your own rules on or off, or running one now.
+- Saving a value for later, and computing a new value from it.
+- Waiting, before the rest of the rule runs.
 - HTTP requests, for webhooks and home automation.
 
 `docs/triggers.md` and `docs/actions.md` list every trigger and action,
@@ -278,11 +280,15 @@ in the code:
   Services. Trigly leaves them out on purpose, so the app works on a
   de-Googled device. The `location` trigger uses the plain Android platform
   API instead.
-- **Variables and loops.** Trigly now has conditions; see above. But a
-  rule still cannot carry state between the times it starts, and a rule
-  still cannot repeat an action a computed number of times. How to add this
-  remains an open question about the execution model; see the design note
-  in `docs/actions.md`.
+- **Loops.** Trigly now has conditions, and it has variables: a rule can
+  save a value, read it the next time it starts, and compute a new value
+  from it. A rule can also run another rule, and it can wait. What a rule
+  still cannot do is repeat an action a computed number of times. Trigly
+  also does not run a script that you write. The expression language
+  computes one value. It has no loop and no function that you can define,
+  because a rule is a file that you can send to another person, and that
+  file must not carry program code onto their phone. `docs/variables.md`
+  gives the reasons in full.
 - **Location needs "Allow all the time".** Trigly reads your position while
   it runs in the background. Android permits this only with that setting.
   With any other setting, the `location` trigger and the same component's

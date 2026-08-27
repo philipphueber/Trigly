@@ -88,6 +88,8 @@ fun ConfigFieldEditor(
      * Defaults to the declaration, for a caller that has not looked this up.
      */
     previewEncoding: Substitution = field.substitution,
+    /** See [VariablePickerDialog]'s parameter of the same name. */
+    describeComponent: (String) -> String = { it },
 ) {
     Column(modifier = modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         when (field) {
@@ -99,6 +101,7 @@ fun ConfigFieldEditor(
                 value = value,
                 availableVariables = availableVariables,
                 previewEncoding = previewEncoding,
+                describeComponent = describeComponent,
                 onValueChange = onValueChange,
             )
 
@@ -385,6 +388,8 @@ private fun SubstitutableTextField(
     availableVariables: List<ScopedVariable>,
     previewEncoding: Substitution,
     onValueChange: (String?) -> Unit,
+    /** See [VariablePickerDialog]'s parameter of the same name. */
+    describeComponent: (String) -> String = { it },
 ) {
     val acceptsVariables = field.substitution != Substitution.NONE
 
@@ -439,6 +444,7 @@ private fun SubstitutableTextField(
     if (picking) {
         VariablePickerDialog(
             available = availableVariables,
+            describeComponent = describeComponent,
             onPick = { picked ->
                 val insertion = picked.reference
                 val selection = fieldValue.selection

@@ -2,7 +2,15 @@ package app.phueber.trigly.core
 
 /** Outcome of one [Action] run. Failure is expected traffic, not exceptional. */
 sealed interface ActionResult {
-    data object Success : ActionResult
+    /**
+     * @param outputs What this run produced, for a later action in the same rule
+     *   run to read as `{{action.<key>}}` or `{{<this action's type>.<key>}}`.
+     *   See `docs/variables.md` and [ComponentFactory.variables]. Empty for
+     *   almost every action: an action declares an output only for a value it
+     *   computed and that nothing else could have known in advance, such as
+     *   `set_rule_enabled` reporting which way `TOGGLE` actually went.
+     */
+    data class Success(val outputs: Map<String, String> = emptyMap()) : ActionResult
 
     data class Failure(val reason: String, val cause: Throwable? = null) : ActionResult
 }

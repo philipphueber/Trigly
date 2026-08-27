@@ -58,7 +58,7 @@ class SetDndAction(
 
         return try {
             manager.setInterruptionFilter(mode.filter)
-            ActionResult.Success
+            ActionResult.Success()
         } catch (denied: SecurityException) {
             ActionResult.Failure("Do Not Disturb access was revoked.", denied)
         }

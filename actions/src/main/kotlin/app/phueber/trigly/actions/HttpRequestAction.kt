@@ -72,7 +72,7 @@ class HttpRequestAction(
 
                 val code = connection.responseCode
                 if (isSuccessfulStatus(code)) {
-                    ActionResult.Success
+                    ActionResult.Success()
                 } else {
                     ActionResult.Failure("The server at $url answered with HTTP $code.")
                 }

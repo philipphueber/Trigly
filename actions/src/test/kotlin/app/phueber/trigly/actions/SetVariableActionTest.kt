@@ -2,6 +2,7 @@ package app.phueber.trigly.actions
 
 import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.InMemoryVariableStore
+import app.phueber.trigly.core.Substitution
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.shownWith
 import kotlinx.coroutines.flow.first
@@ -31,7 +32,10 @@ class SetVariableActionTest {
 
         val result = SetVariableAction(store, "count", VariableWriteMode.SET, "7").execute(event)
 
-        assertEquals(ActionResult.Success, result)
+        assertEquals(
+            ActionResult.Success(outputs = mapOf(SetVariableAction.OUTPUT_VALUE to "7")),
+            result,
+        )
         assertEquals("7", store.get("count"))
     }
 
@@ -52,7 +56,8 @@ class SetVariableActionTest {
 
         val result = SetVariableAction(store, "count", VariableWriteMode.CLEAR, "").execute(event)
 
-        assertEquals(ActionResult.Success, result)
+        // No output either: nothing is stored to report any more.
+        assertEquals(ActionResult.Success(), result)
         assertNull(store.get("count"))
     }
 
@@ -64,7 +69,7 @@ class SetVariableActionTest {
 
         val result = SetVariableAction(store, "count", VariableWriteMode.CLEAR, "").execute(event)
 
-        assertEquals(ActionResult.Success, result)
+        assertEquals(ActionResult.Success(), result)
         assertNull(store.get("count"))
     }
 
@@ -76,7 +81,10 @@ class SetVariableActionTest {
 
         val result = SetVariableAction(store, "count", VariableWriteMode.ADD, "5").execute(event)
 
-        assertEquals(ActionResult.Success, result)
+        assertEquals(
+            ActionResult.Success(outputs = mapOf(SetVariableAction.OUTPUT_VALUE to "5")),
+            result,
+        )
         assertEquals("5", store.get("count"))
     }
 
@@ -86,7 +94,12 @@ class SetVariableActionTest {
 
         val result = SetVariableAction(store, "count", VariableWriteMode.ADD, "4").execute(event)
 
-        assertEquals(ActionResult.Success, result)
+        // add reports what it actually stored, the running total, not the
+        // addend: what makes "Trip 4 recorded" possible without a second read.
+        assertEquals(
+            ActionResult.Success(outputs = mapOf(SetVariableAction.OUTPUT_VALUE to "7")),
+            result,
+        )
         assertEquals("7", store.get("count"))
     }
 
@@ -97,7 +110,10 @@ class SetVariableActionTest {
         val result = SetVariableAction(store, "total", VariableWriteMode.ADD, "2.5")
             .execute(event)
 
-        assertEquals(ActionResult.Success, result)
+        assertEquals(
+            ActionResult.Success(outputs = mapOf(SetVariableAction.OUTPUT_VALUE to "4")),
+            result,
+        )
         assertEquals("4", store.get("total"))
     }
 
@@ -141,6 +157,145 @@ class SetVariableActionTest {
         val outcome = addToVariable(stored = "banana", addend = "1")
         assertTrue(outcome is VariableAddOutcome.Failed)
         assertTrue((outcome as VariableAddOutcome.Failed).reason.contains("banana"))
+    }
+
+    // --- evaluate --------------------------------------------------------------
+
+    @Test
+    fun `evaluate stores a computed result`() = runTest {
+        val store = InMemoryVariableStore()
+
+        val result = SetVariableAction(store, "total", VariableWriteMode.EVALUATE, "1 + 2")
+            .execute(event)
+
+        assertEquals(
+            ActionResult.Success(outputs = mapOf(SetVariableAction.OUTPUT_VALUE to "3")),
+            result,
+        )
+        assertEquals("3", store.get("total"))
+    }
+
+    @Test
+    fun `evaluate runs a string function`() = runTest {
+        val store = InMemoryVariableStore()
+
+        val result = SetVariableAction(
+            store,
+            "shout",
+            VariableWriteMode.EVALUATE,
+            "upper(\"pixel buds\")",
+        ).execute(event)
+
+        assertEquals(
+            ActionResult.Success(outputs = mapOf(SetVariableAction.OUTPUT_VALUE to "PIXEL BUDS")),
+            result,
+        )
+        assertEquals("PIXEL BUDS", store.get("shout"))
+    }
+
+    @Test
+    fun `evaluate runs a ternary against what substitution already inserted`() = runTest {
+        // Stands in for the substituted field "{{battery.level}} < 20 ?
+        // \"low\" : \"ok\"", which by the time set_variable sees it is
+        // already plain text with the reference replaced.
+        val store = InMemoryVariableStore()
+
+        val result = SetVariableAction(
+            store,
+            "status",
+            VariableWriteMode.EVALUATE,
+            "15 < 20 ? \"low\" : \"ok\"",
+        ).execute(event)
+
+        assertEquals("low", store.get("status"))
+        assertEquals(
+            ActionResult.Success(outputs = mapOf(SetVariableAction.OUTPUT_VALUE to "low")),
+            result,
+        )
+    }
+
+    @Test
+    fun `a bad expression fails with a readable reason and stores nothing`() = runTest {
+        val store = InMemoryVariableStore()
+
+        val result = SetVariableAction(store, "total", VariableWriteMode.EVALUATE, "1 +")
+            .execute(event)
+
+        assertTrue("expected a failure, got $result", result is ActionResult.Failure)
+        assertNull(store.get("total"))
+    }
+
+    @Test
+    fun `an unknown function fails and names it, and stores nothing`() = runTest {
+        val store = InMemoryVariableStore(mapOf("total" to "old"))
+
+        val result = SetVariableAction(store, "total", VariableWriteMode.EVALUATE, "shout(\"hi\")")
+            .execute(event)
+
+        assertTrue(result is ActionResult.Failure)
+        assertTrue((result as ActionResult.Failure).reason.contains("shout"))
+        // Nothing should have overwritten what was already stored.
+        assertEquals("old", store.get("total"))
+    }
+
+    @Test
+    fun `evaluate reading another app variable through plus`() = runTest {
+        val store = InMemoryVariableStore(mapOf("count" to "41"))
+
+        // "{{app.count}} + 1" after substitution, with count reading as a
+        // number and so inserted bare by Substitution.EXPRESSION.
+        val result = SetVariableAction(store, "count", VariableWriteMode.EVALUATE, "41 + 1")
+            .execute(event)
+
+        assertEquals("42", store.get("count"))
+        assertEquals(
+            ActionResult.Success(outputs = mapOf(SetVariableAction.OUTPUT_VALUE to "42")),
+            result,
+        )
+    }
+
+    // --- substitutionsFor: the value field's escaping depends on the mode -------------
+
+    @Test
+    fun `the value field is declared TEXT when the mode is set`() {
+        val factory = SetVariableActionFactory(InMemoryVariableStore())
+
+        val substitutions = factory.substitutionsFor(
+            mapOf(VariableWriteMode.CONFIG_KEY to VariableWriteMode.SET.configValue)
+        )
+
+        assertEquals(Substitution.TEXT, substitutions[SetVariableAction.CONFIG_VALUE])
+    }
+
+    @Test
+    fun `the value field is declared TEXT when the mode is add`() {
+        val factory = SetVariableActionFactory(InMemoryVariableStore())
+
+        val substitutions = factory.substitutionsFor(
+            mapOf(VariableWriteMode.CONFIG_KEY to VariableWriteMode.ADD.configValue)
+        )
+
+        assertEquals(Substitution.TEXT, substitutions[SetVariableAction.CONFIG_VALUE])
+    }
+
+    @Test
+    fun `the value field is declared EXPRESSION only when the mode is evaluate`() {
+        val factory = SetVariableActionFactory(InMemoryVariableStore())
+
+        val substitutions = factory.substitutionsFor(
+            mapOf(VariableWriteMode.CONFIG_KEY to VariableWriteMode.EVALUATE.configValue)
+        )
+
+        assertEquals(Substitution.EXPRESSION, substitutions[SetVariableAction.CONFIG_VALUE])
+    }
+
+    @Test
+    fun `the value field defaults to TEXT before a mode has been chosen`() {
+        val factory = SetVariableActionFactory(InMemoryVariableStore())
+
+        val substitutions = factory.substitutionsFor(emptyMap())
+
+        assertEquals(Substitution.TEXT, substitutions[SetVariableAction.CONFIG_VALUE])
     }
 
     // --- create() and the name check --------------------------------------------
@@ -193,7 +348,7 @@ class SetVariableActionTest {
     }
 
     @Test
-    fun `the value field is shown for set and add`() {
+    fun `the value field is shown for set, add and evaluate`() {
         val factory = SetVariableActionFactory(InMemoryVariableStore())
 
         val shownForSet = factory.configFields.shownWith(
@@ -202,9 +357,13 @@ class SetVariableActionTest {
         val shownForAdd = factory.configFields.shownWith(
             mapOf(VariableWriteMode.CONFIG_KEY to VariableWriteMode.ADD.configValue)
         )
+        val shownForEvaluate = factory.configFields.shownWith(
+            mapOf(VariableWriteMode.CONFIG_KEY to VariableWriteMode.EVALUATE.configValue)
+        )
 
         assertTrue(shownForSet.any { it.key == SetVariableAction.CONFIG_VALUE })
         assertTrue(shownForAdd.any { it.key == SetVariableAction.CONFIG_VALUE })
+        assertTrue(shownForEvaluate.any { it.key == SetVariableAction.CONFIG_VALUE })
     }
 
     @Test

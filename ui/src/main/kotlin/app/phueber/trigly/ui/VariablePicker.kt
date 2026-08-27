@@ -37,6 +37,19 @@ internal fun VariablePickerDialog(
     available: List<ScopedVariable>,
     onPick: (ScopedVariable) -> Unit,
     onDismiss: () -> Unit,
+    /**
+     * The name a person already knows a trigger type by, the same one the
+     * trigger picker and the rules list use. Defaults to the type string
+     * itself, for a caller that predates this.
+     *
+     * A type-qualified scope is a trigger's own type string, and a heading
+     * built by lightly reformatting that string drifts from the component's
+     * real name the moment the two are not the same words: `bluetooth_connected`
+     * reads as "Bluetooth device" everywhere else in the app, not "Bluetooth
+     * connected". A heading that calls the same trigger something else here is
+     * confusing in exactly the way this picker exists to prevent.
+     */
+    describeComponent: (String) -> String = { it },
 ) {
     val grouped = available.groupBy { it.scope }
     val ordered = buildList {
@@ -72,7 +85,7 @@ internal fun VariablePickerDialog(
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
                                 Text(
-                                    text = scopeHeading(scope).uppercase(),
+                                    text = scopeHeading(scope, describeComponent).uppercase(),
                                     style = MaterialTheme.typography.labelSmall,
                                     modifier = Modifier
                                         .padding(horizontal = 12.dp, vertical = 6.dp),
@@ -91,22 +104,31 @@ internal fun VariablePickerDialog(
 }
 
 /**
- * What a scope reads as, above the variables it groups. The three reserved
- * scopes get the plain words a person would use; a type-qualified scope is a
- * trigger's own type string, which is the honest label for "only when this
- * exact leaf is the one that fired". See `docs/variables.md` section 3.
+ * What a scope reads as, above the variables it groups. The reserved scopes
+ * get the plain words a person would use; a type-qualified scope is a
+ * trigger's own type string, so it is named through [describeComponent] the
+ * same way the trigger picker and the rules list name it, which is the
+ * honest label for "only when this exact leaf is the one that fired". See
+ * `docs/variables.md` section 3.
  *
  * App scope gets its own sentence rather than falling through to the raw
- * word "app": what sets it apart from the other three is that it persists
- * and that any rule, not only this one, can read or write it.
+ * word "app": what sets it apart from the others is that it persists and that
+ * any rule, not only this one, can read or write it. Action scope gets one for
+ * the same kind of reason. What a person has to know about it is not the word
+ * "action" but *when* the value exists: only after an action earlier in this
+ * same rule has run and produced it. A type-qualified action scope is named
+ * through [describeComponent] the same as a trigger type, because it is an
+ * action's own type string.
  */
-private fun scopeHeading(scope: String): String = when (scope) {
-    VariableScope.TRIGGER -> "The trigger that fired"
-    VariableScope.EVENT -> "This run"
-    VariableScope.RULE -> "This rule"
-    VariableScope.APP -> "Saved, and shared with every rule"
-    else -> scope.replace('_', ' ')
-}
+private fun scopeHeading(scope: String, describeComponent: (String) -> String): String =
+    when (scope) {
+        VariableScope.TRIGGER -> "The trigger that fired"
+        VariableScope.EVENT -> "This run"
+        VariableScope.RULE -> "This rule"
+        VariableScope.APP -> "Saved, and shared with every rule"
+        VariableScope.ACTION -> "Produced by an earlier action in this rule"
+        else -> describeComponent(scope)
+    }
 
 /**
  * One variable's row: its label, the reference itself so a person learns the

@@ -5,6 +5,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import app.phueber.trigly.actions.actionFactories
 import app.phueber.trigly.core.ComponentFactory
 import app.phueber.trigly.core.NotificationController
+import app.phueber.trigly.core.RuleRunnerHandle
 import app.phueber.trigly.triggers.AlarmManagerScheduler
 import app.phueber.trigly.triggers.triggerFactories
 import org.junit.Assert.assertTrue
@@ -37,8 +38,13 @@ class PinnedTypeStringsTest {
 
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
+    private val scheduler = AlarmManagerScheduler(context)
+
     private val factories: List<ComponentFactory> =
-        triggerFactories(context, AlarmManagerScheduler(context)) + actionFactories(context, NotificationController.Unavailable)
+        triggerFactories(context, scheduler) +
+            actionFactories(
+                context, scheduler, RuleRunnerHandle(), NotificationController.Unavailable,
+            )
 
     /** Every trigger type string ever released. Add new lines. Do not remove any. */
     private val releasedTriggerTypes = setOf(
@@ -115,8 +121,12 @@ class PinnedTypeStringsTest {
         "set_alarm",
         "add_calendar_event",
 
+        // Timing
+        "delay",
+
         // Trigly's own rules
         "set_rule_enabled",
+        "run_rule",
 
         // Device state
         "set_volume",

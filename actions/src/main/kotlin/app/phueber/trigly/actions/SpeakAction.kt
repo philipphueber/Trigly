@@ -66,7 +66,7 @@ class SpeakAction(
 
                 val queued = tts.speak(text, TextToSpeech.QUEUE_ADD, null, UTTERANCE_ID)
                 if (queued == TextToSpeech.SUCCESS) {
-                    finish(ActionResult.Success)
+                    finish(ActionResult.Success())
                 } else {
                     tts.shutdown()
                     finish(ActionResult.Failure("The speech engine refused the text."))

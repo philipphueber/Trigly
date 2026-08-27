@@ -34,7 +34,7 @@ internal fun Context.launchForRule(intent: Intent): ActionResult {
 
     return try {
         startActivity(intent)
-        ActionResult.Success
+        ActionResult.Success()
     } catch (notFound: ActivityNotFoundException) {
         ActionResult.Failure("No app on this device can handle this action.", notFound)
     } catch (denied: SecurityException) {

@@ -1,5 +1,6 @@
 package app.phueber.trigly.actions
 
+import app.phueber.trigly.core.VariableScope
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -54,9 +55,13 @@ class ActionTypeStringsTest {
         "set_alarm" to SetAlarmAction.TYPE,
         "add_calendar_event" to AddCalendarEventAction.TYPE,
 
+        // Timing
+        "delay" to DelayAction.TYPE,
+
         // Trigly's own rules
         "set_rule_enabled" to SetRuleEnabledAction.TYPE,
         "set_variable" to SetVariableAction.TYPE,
+        "run_rule" to RunRuleAction.TYPE,
 
         // Device state
         "set_volume" to SetVolumeAction.TYPE,
@@ -91,6 +96,25 @@ class ActionTypeStringsTest {
         // A guard that only checks equality would pass on an empty list too.
         // This pins the count so deleting a line reads as a failure, not as
         // one fewer thing to maintain.
-        assertEquals(21, pinned.size)
+        assertEquals(23, pinned.size)
+    }
+
+    /**
+     * `VariableScope.reserved` names the five namespaces a `{{...}}` reference
+     * can use besides a component's own type string: `trigger`, `event`,
+     * `rule`, `app` and `action`. An action type equal to one of those would
+     * make `{{<that type>.key}}` unresolvable as the type-qualified action
+     * reference it should be. See `EventLookup.value` and `ActionOutputs`.
+     * `TriggerTypeStringsTest` runs the matching check for trigger types.
+     */
+    @Test
+    fun `no action type is a reserved variable namespace`() {
+        val collisions = pinned.filter { (released, _) -> released in VariableScope.reserved }
+        assertTrue(
+            "these action types collide with a reserved variable namespace " +
+                "(${VariableScope.reserved}) and must be renamed: " +
+                collisions.joinToString { (released, _) -> released },
+            collisions.isEmpty(),
+        )
     }
 }
