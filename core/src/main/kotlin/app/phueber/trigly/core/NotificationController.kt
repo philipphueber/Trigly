@@ -47,6 +47,60 @@ interface NotificationController {
     fun triggerActionButton(key: String, actionIndex: Int): ActionResult
 
     /**
+     * Keeps one of a notification's buttons so a rule can press it after the
+     * notification is gone, under the name [as].
+     *
+     * **Why this exists, and it is not a convenience.** [triggerActionButton]
+     * finds the notification by key in the live list, so it can only press a
+     * button that is still on screen. Some buttons are only worth pressing
+     * later: Digital Wellbeing's "Turn off for now" appears when Bedtime mode
+     * starts, and the person who wants it pressed wants that at the moment they
+     * pick the phone up, by which time the notification may well have been
+     * swiped away.
+     *
+     * `CapturedButtonOutlivesDismissalTest` is why this is possible at all. A
+     * `PendingIntent` is a token the system holds on behalf of the app that made
+     * it, and its life is not tied to the notification that carried it: the test
+     * captures a button, dismisses the notification the way a swipe does, and
+     * the captured button still fires.
+     *
+     * **What a capture cannot survive is Trigly's own process ending.** A
+     * `PendingIntent` cannot be written down. It is not a URI or an id; it is a
+     * live token, so it cannot be put in a variable, stored in the database, or
+     * rebuilt after a restart. A capture therefore lives in memory and dies with
+     * the process, which the engine's foreground service makes uncommon but not
+     * impossible. [pressCaptured] says so when it happens rather than failing
+     * vaguely, and this is stated in the action's own caveat rather than left
+     * for somebody to discover the first time it matters.
+     *
+     * Capturing the same [as] twice replaces the earlier one. A rule that
+     * captures on every appearance of a notification is the ordinary case, and
+     * the newest copy is the one the owning app has not rebuilt underneath.
+     *
+     * Defaulted, unlike the three methods above it, for the reason
+     * `ComponentFactory.variables` is: there is one real implementation and a
+     * handful of test fakes, and requiring every fake to answer a question it
+     * has no opinion about is churn that hides the change worth reading. The
+     * default is a refusal rather than a no-op, so a build that somehow reaches
+     * it says so instead of appearing to keep a button it dropped.
+     */
+    fun captureActionButton(key: String, actionIndex: Int, `as`: String): ActionResult =
+        ActionResult.Failure("This build cannot keep a notification button.")
+
+    /**
+     * Presses whatever [captureActionButton] last kept under [name].
+     *
+     * Three outcomes, each said as itself, because they are fixed in different
+     * ways. Nothing captured under that name means the rule that captures has
+     * not run, or Trigly restarted since it did. A captured button the owning
+     * app has withdrawn throws `PendingIntent.CanceledException`, which is
+     * reported as the app's doing rather than as Trigly failing. Anything else
+     * is the send itself.
+     */
+    fun pressCaptured(name: String): ActionResult =
+        ActionResult.Failure("This build cannot press a kept notification button.")
+
+    /**
      * No-op implementation for assembling the app before, or without, the
      * listener service. Reports a clear failure rather than pretending to work.
      */
@@ -59,6 +113,15 @@ interface NotificationController {
             ActionResult.Failure("Notification access is not available.")
 
         override fun triggerActionButton(key: String, actionIndex: Int): ActionResult =
+            ActionResult.Failure("Notification access is not available.")
+
+        override fun captureActionButton(
+            key: String,
+            actionIndex: Int,
+            `as`: String,
+        ): ActionResult = ActionResult.Failure("Notification access is not available.")
+
+        override fun pressCaptured(name: String): ActionResult =
             ActionResult.Failure("Notification access is not available.")
     }
 }
