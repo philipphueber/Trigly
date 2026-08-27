@@ -119,6 +119,13 @@ class ListenerNotificationController : NotificationController {
     }
 
     /**
+     * Also not routed through the listener service, for the same reason
+     * [pressCaptured] is not: the captures live in this process, so the editor
+     * can read them whether or not notification access is on.
+     */
+    override fun capturedNames(): List<String> = CapturedButtons.names()
+
+    /**
      * The one place a `PendingIntent` is sent, so the three callers report the
      * same three outcomes in the same words.
      */

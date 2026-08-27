@@ -83,6 +83,22 @@ sealed interface ConfigField {
         val blankMeaning: String? = null,
         val multiline: Boolean = false,
         override val substitution: Substitution = Substitution.NONE,
+        /**
+         * Values to offer beside the box, when a person cannot be expected to
+         * remember the right one and a closed picker would be wrong.
+         *
+         * This is the middle ground between [Text] and a kind of its own like
+         * [AppPackage]. A dedicated kind means the value can *only* be picked,
+         * which is right for a UUID or a MAC address and wrong here: the name of
+         * a kept button can also be a `{{...}}` reference, and it can name
+         * something a rule in another list keeps that nothing has kept yet. So
+         * the box stays a box, and this adds a way to find out what the
+         * candidates are.
+         *
+         * Null for every field that has no such list, which is all of them but
+         * one, so nothing else changes.
+         */
+        val suggests: TextSuggestions? = null,
     ) : ConfigField
 
     /** A closed set of values. Covers both two-word toggles and wider enums. */
@@ -435,6 +451,24 @@ sealed interface ConfigField {
 
     /** One selectable value: [value] is stored, [label] is shown. */
     data class Option(val value: String, val label: String)
+}
+
+/**
+ * Where a [ConfigField.Text]'s offered values come from.
+ *
+ * One entry, and it stays a closed set on purpose: each value is a promise that
+ * something in the UI knows how to answer it, and an unanswerable entry would
+ * draw a button that opens an empty list. See [ConfigField.Text.suggests].
+ */
+enum class TextSuggestions {
+
+    /**
+     * The names buttons are kept under: what is kept in this process right now,
+     * and what the rules declare they keep. `press_captured_button` is the field
+     * that needs it, because the name it presses was typed into a different
+     * action, often in a different rule.
+     */
+    KEPT_BUTTON_NAMES,
 }
 
 /**

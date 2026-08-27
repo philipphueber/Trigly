@@ -405,6 +405,18 @@ private fun SubstitutableTextField(
     }
 
     var picking by remember(field.key) { mutableStateOf(false) }
+    var choosing by remember(field.key) { mutableStateOf(false) }
+
+    // Null for every field but one. See ConfigField.Text.suggests: the box stays
+    // a box, and this only adds a way to find out what the candidates are.
+    val wording = field.suggests?.let { suggestionWording(it) }
+    val keptButtons = LocalKeptButtons.current
+
+    /** Replaces the whole value, cursor at the end, the way a picker should. */
+    fun replaceWith(picked: String) {
+        fieldValue = TextFieldValue(picked, TextRange(picked.length))
+        onValueChange(picked)
+    }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         OutlinedTextField(
@@ -429,6 +441,12 @@ private fun SubstitutableTextField(
             modifier = Modifier.fillMaxWidth(),
         )
 
+        if (wording != null) {
+            BlockTextButton(wording.buttonLabel, modifier = Modifier.padding(top = 4.dp)) {
+                choosing = true
+            }
+        }
+
         if (acceptsVariables) {
             BlockTextButton("Insert variable", modifier = Modifier.padding(top = 4.dp)) {
                 picking = true
@@ -439,6 +457,33 @@ private fun SubstitutableTextField(
                 encoding = previewEncoding,
             )
         }
+    }
+
+    if (choosing && wording != null) {
+        // Read on open, not on compose, for the reason NotificationButtonPicker
+        // reads notifications that way: what is kept changes while the editor
+        // sits open, and a snapshot from launch would be stale.
+        val offered = remember(choosing) { keptButtons() }
+
+        ValuePickerDialog(
+            title = wording.title,
+            searchLabel = wording.searchLabel,
+            // Where it comes from on the headline, the name underneath. That is
+            // the order every other picker uses for an identifier, and it is
+            // load-bearing rather than cosmetic: PickerRow uppercases its
+            // headline, and a variable name is compared exactly, so a name
+            // shown as BEDTIME_OFF would not be the name.
+            options = offered.map { PickerOption(it.name, it.detail, it.name) },
+            // No row that clears it. This field is required, and an empty name
+            // is not a setting: it is the action doing nothing.
+            clearLabel = null,
+            placeholder = wording.placeholder,
+            onPick = { picked ->
+                choosing = false
+                picked?.let(::replaceWith)
+            },
+            onDismiss = { choosing = false },
+        )
     }
 
     if (picking) {

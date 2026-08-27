@@ -2,8 +2,10 @@ package app.phueber.trigly.actions
 
 import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.ActiveNotification
+import app.phueber.trigly.core.ComponentSpec
 import app.phueber.trigly.core.NotificationButton
 import app.phueber.trigly.core.NotificationController
+import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.SharedPayloadKeys
 import app.phueber.trigly.core.TriggerEvent
 import kotlinx.coroutines.test.runTest
@@ -264,6 +266,86 @@ class CapturedButtonActionsTest {
         assertTrue(result is ActionResult.Failure)
         assertTrue((result as ActionResult.Failure).reason.contains("Nothing is captured"))
     }
+
+    // --- The names the editor offers ---------------------------------------------------
+
+    @Test
+    fun `a rule that keeps a button declares its name`() {
+        val rules = listOf(ruleKeeping("bedtime_off", ruleName = "Evening"))
+
+        assertEquals(
+            listOf(DeclaredKeptButton("bedtime_off", "Evening")),
+            declaredKeptButtons(rules),
+        )
+    }
+
+    @Test
+    fun `a name is reported once, with the first rule that keeps it`() {
+        val rules = listOf(
+            ruleKeeping("bedtime_off", ruleName = "Evening"),
+            ruleKeeping("bedtime_off", ruleName = "Weekend"),
+        )
+
+        assertEquals(
+            listOf(DeclaredKeptButton("bedtime_off", "Evening")),
+            declaredKeptButtons(rules),
+        )
+    }
+
+    @Test
+    fun `an action that is not keeping a button declares nothing`() {
+        val rules = listOf(
+            Rule(
+                id = "r1",
+                name = "Something else",
+                trigger = ComponentSpec("screen_state"),
+                actions = listOf(ComponentSpec("toast", mapOf("text" to "hi"))),
+            ),
+        )
+
+        assertEquals(emptyList<DeclaredKeptButton>(), declaredKeptButtons(rules))
+    }
+
+    /**
+     * A reference is an instruction to work a name out at run time, not a name.
+     * Offering it in the picker would put a reference to one rule's outputs into
+     * a rule that has none of them.
+     */
+    @Test
+    fun `a name that is a variable reference is not offered`() {
+        val rules = listOf(ruleKeeping("{{action.captured}}", ruleName = "Evening"))
+
+        assertEquals(emptyList<DeclaredKeptButton>(), declaredKeptButtons(rules))
+    }
+
+    @Test
+    fun `a blank name is not offered`() {
+        val rules = listOf(ruleKeeping("   ", ruleName = "Evening"))
+
+        assertEquals(emptyList<DeclaredKeptButton>(), declaredKeptButtons(rules))
+    }
+
+    @Test
+    fun `a name is offered trimmed, the way the action stores it`() {
+        val rules = listOf(ruleKeeping("  bedtime_off  ", ruleName = "Evening"))
+
+        assertEquals(listOf("bedtime_off"), declaredKeptButtons(rules).map { it.name })
+    }
+
+    private fun ruleKeeping(name: String, ruleName: String) = Rule(
+        id = "rule-$ruleName",
+        name = ruleName,
+        trigger = ComponentSpec("notification_posted"),
+        actions = listOf(
+            ComponentSpec(
+                CaptureNotificationButtonAction.TYPE,
+                mapOf(
+                    CaptureNotificationButtonAction.CONFIG_NAME to name,
+                    CaptureNotificationButtonAction.CONFIG_BUTTON to "Turn off for now",
+                ),
+            ),
+        ),
+    )
 }
 
 private class FakeCaptureController(
