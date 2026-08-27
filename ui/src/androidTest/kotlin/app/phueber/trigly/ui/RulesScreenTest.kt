@@ -394,22 +394,18 @@ class RulesScreenTest {
     }
 
     /**
-     * The way in to the saved values screen, and the reason it is tested at all:
-     * a saved value is written by a rule and read by any rule, so until this
-     * entry existed there was no way to find out that saved values are a thing.
      * A working feature nobody can reach is the failure this whole screen is
-     * fixing, so the door to it is worth one test.
-     *
-     * Offered with no rules at all, unlike export. Somebody arriving before
-     * their first rule is exactly who needs to learn what a saved value is.
+     * fixing, so the door to it is worth one test. It is behind the overflow
+     * beside "New rule" now, and it is offered with no rules at all, unlike
+     * export: somebody arriving before their first rule is exactly who needs to
+     * learn what a saved value is.
      */
     @Test
     fun saved_values_is_offered_even_with_no_rules() {
         composeRule.setContent { Screen(emptyList()) }
 
-        // No performScrollTo: the row sits above the list, not inside it,
-        // so it has no scrollable parent and is always on screen.
-        composeRule.onNodeWithText("SAVED VALUES").performClick()
+        composeRule.onNodeWithText("\u2026").performClick()
+        composeRule.onNodeWithText("Saved values").performClick()
 
         assertEquals(1, savedValuesTaps)
     }
@@ -432,27 +428,35 @@ class RulesScreenTest {
 
         composeRule.onNodeWithText("IMPORT").assertExists()
         composeRule.onNodeWithText("EXPORT ALL").assertExists()
-        // Present on the screen, but as a row in the list rather than up there.
-        composeRule.onNodeWithText("SAVED VALUES").assertExists()
+        // Not in the header, and not on the screen at all until the overflow is
+        // opened. That is the whole point of the move: it costs the header
+        // nothing and the list no height.
+        composeRule.onNodeWithText("Saved values").assertDoesNotExist()
     }
 
-    /** The row says whether anything is stored, which a header button never could. */
+    /**
+     * The count is the reason a person finds this screen: it says a rule has
+     * written something. A menu entry can carry it, so moving off the row did
+     * not have to lose it.
+     */
     @Test
-    fun the_saved_values_row_says_how_many_are_stored() {
+    fun the_menu_entry_says_how_many_are_stored() {
         savedValueCount = 2
         composeRule.setContent { Screen(emptyList()) }
+
+        composeRule.onNodeWithText("\u2026").performClick()
 
         composeRule.onNodeWithText("2 values, shared with every rule").assertExists()
     }
 
     @Test
-    fun the_saved_values_row_says_when_nothing_is_stored() {
+    fun the_menu_entry_says_when_nothing_is_stored() {
         savedValueCount = 0
         composeRule.setContent { Screen(emptyList()) }
 
-        composeRule
-            .onNodeWithText("Nothing saved yet", substring = true)
-            .assertExists()
+        composeRule.onNodeWithText("\u2026").performClick()
+
+        composeRule.onNodeWithText("Nothing saved yet", substring = true).assertExists()
     }
 
     @Test

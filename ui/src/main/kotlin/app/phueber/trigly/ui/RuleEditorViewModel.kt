@@ -718,9 +718,32 @@ class RuleEditorViewModel(
 
     private fun fail(message: String) = _state.update { it.copy(error = message) }
 
+    /**
+     * Applies one change to the draft, and repairs the rule's references
+     * afterwards. See [repairReferences].
+     *
+     * **The repair belongs here, in the one funnel, and not at the handful of
+     * call sites that can actually move the numbering.** A component's
+     * namespace comes from its position among the components of its type, so a
+     * delete, a reorder or a type change can alter what an existing
+     * `{{...}}` reference means without touching the reference. A mutation
+     * added later that forgets to ask for the repair would reintroduce that
+     * silently, and silently is the whole problem: the rule still saves and
+     * still runs, and reads the wrong component. Doing it for every edit
+     * cannot be forgotten.
+     *
+     * It costs a walk of the trigger tree and two small list comparisons per
+     * edit, including the edits that cannot possibly move anything, such as a
+     * keystroke in a text field. That is bounded by the size of one rule and
+     * is not measurable next to the recomposition the same update triggers.
+     * [repairReferences] returns the draft unchanged when nothing moved, which
+     * is nearly always.
+     */
     private fun edit(block: RuleDraft.() -> RuleDraft) = _state.update {
+        val before = it.draft
+        val after = before.block()
         // Any edit clears a stale error, so the message never outlives its cause.
-        it.copy(draft = it.draft.block(), error = null)
+        it.copy(draft = repairReferences(before, after, registry), error = null)
     }
 
     /** Requirements for everything currently in the draft, for inline warnings. */
