@@ -38,6 +38,14 @@ class SetRuleEnabledTest {
     private suspend fun InMemoryRuleRepository.enabledOf(id: String): Boolean =
         rules().first().first { it.id == id }.enabled
 
+    /** The success outcome for the rule ending up on, or off. */
+    private val onOutcome = ActionResult.Success(
+        outputs = mapOf(SetRuleEnabledAction.OUTPUT_ENABLED to SetRuleEnabledAction.ENABLED)
+    )
+    private val offOutcome = ActionResult.Success(
+        outputs = mapOf(SetRuleEnabledAction.OUTPUT_ENABLED to SetRuleEnabledAction.DISABLED)
+    )
+
     // --- the decision, on its own ---------------------------------------------
 
     @Test
@@ -74,7 +82,7 @@ class SetRuleEnabledTest {
 
         val result = SetRuleEnabledAction(repository, "a", RuleSwitch.DISABLE).execute(event)
 
-        assertEquals(ActionResult.Success, result)
+        assertEquals(offOutcome, result)
         assertFalse(repository.enabledOf("a"))
     }
 
@@ -88,19 +96,28 @@ class SetRuleEnabledTest {
 
         val result = SetRuleEnabledAction(repository, "a", RuleSwitch.ENABLE).execute(event)
 
-        assertEquals(ActionResult.Success, result)
+        // Idempotent means no write, not "no answer". The output still says
+        // the rule's true resulting state, which is what it already was.
+        assertEquals(onOutcome, result)
         assertEquals("nothing should have been written", before, repository.rules().first())
     }
 
+    /**
+     * This is the case the output feature exists for: `TOGGLE` is "flip it",
+     * and the resulting state is the one thing nothing else in the rule can
+     * know, in either direction.
+     */
     @Test
-    fun `toggle flips whichever way the rule is facing`() = runTest {
+    fun `toggle reports the resulting state, both directions`() = runTest {
         val repository = InMemoryRuleRepository(
             listOf(rule("on", enabled = true), rule("off", enabled = false))
         )
 
-        SetRuleEnabledAction(repository, "on", RuleSwitch.TOGGLE).execute(event)
-        SetRuleEnabledAction(repository, "off", RuleSwitch.TOGGLE).execute(event)
+        val fromOn = SetRuleEnabledAction(repository, "on", RuleSwitch.TOGGLE).execute(event)
+        val fromOff = SetRuleEnabledAction(repository, "off", RuleSwitch.TOGGLE).execute(event)
 
+        assertEquals(offOutcome, fromOn)
+        assertEquals(onOutcome, fromOff)
         assertFalse(repository.enabledOf("on"))
         assertTrue(repository.enabledOf("off"))
     }
@@ -154,7 +171,7 @@ class SetRuleEnabledTest {
 
         val result = SetRuleEnabledAction(repository, "self", RuleSwitch.DISABLE).execute(event)
 
-        assertEquals(ActionResult.Success, result)
+        assertEquals(offOutcome, result)
         assertFalse(repository.enabledOf("self"))
     }
 }

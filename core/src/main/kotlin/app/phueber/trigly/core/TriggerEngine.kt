@@ -1,5 +1,8 @@
 package app.phueber.trigly.core
 
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -7,6 +10,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -55,7 +59,7 @@ class TriggerEngine(
         event: TriggerEvent,
         unreadable: List<ComponentSpec>,
     ) -> Unit = { _, _, _ -> },
-) {
+) : RuleRunner {
     /** The rule as it was when started, so [sync] can tell an edit from a redelivery. */
     private class Running(val rule: Rule, val job: Job)
 
@@ -171,26 +175,146 @@ class TriggerEngine(
                         }
                         return@collect
                     }
-                    actions.forEach { slot ->
-                        when (val filled = slot.fill(rule, event)) {
-                            is ActionSlot.Filled.Ready ->
-                                run(rule, slot.type, filled.action, event)
-                            // A field that could not be filled in is reported
-                            // through the same hook a failed run uses, so it
-                            // reaches the rule's fault log as what it is: this
-                            // action did not do its job, and here is why.
-                            is ActionSlot.Filled.Refused -> onOutcome(
-                                rule,
-                                event,
-                                slot.type,
-                                ActionResult.Failure(filled.reason),
-                            )
-                        }
+                    // The base of a run_rule chain. See runNow. Set here, on
+                    // the normal firing path, so a run_rule action inside
+                    // this very rule sees its own id as already "in
+                    // progress" from the first hop, not only from the
+                    // second.
+                    withContext(RunChain(listOf(rule.id))) {
+                        runActions(rule, event, actions)
                     }
                 }
         }
         jobs[rule.id] = Running(rule, job)
         Unit
+    }
+
+    /**
+     * Runs [actions] once for [event], in order, threading [ActionOutputs]
+     * from one to the next. This is the body [startRule] always ran, and it
+     * is also the body [runNow] runs for a rule invoked on demand. One
+     * implementation, factored out once, is what keeps those two paths from
+     * drifting into two subtly different ways to run a rule's actions.
+     *
+     * Deliberately takes [actions] rather than building it. [startRule]
+     * builds its list once, outside this call, and reuses it for every
+     * event: that is the compatibility promise [ActionSlot] documents.
+     * [runNow] keeps no such promise. A rule run on demand has no "next
+     * event" of its own to reuse the list for, so it builds a fresh one
+     * every time.
+     */
+    private suspend fun runActions(rule: Rule, event: TriggerEvent, actions: List<ActionSlot>) {
+        // Fresh for every call, and never carried to the next one: see
+        // ActionOutputs. Grows as each action below returns, so the action
+        // after it can read what was just produced, the same way the
+        // app-scope store is read fresh immediately before every action.
+        var actionOutputs = ActionOutputs.EMPTY
+        actions.forEach { slot ->
+            when (val filled = slot.fill(rule, event, actionOutputs)) {
+                is ActionSlot.Filled.Ready -> {
+                    val result = run(rule, slot.type, filled.action, event)
+                    if (result is ActionResult.Success) {
+                        actionOutputs = actionOutputs.plus(slot.type, result.outputs)
+                    }
+                }
+                // A field that could not be filled in is reported through the
+                // same hook a failed run uses, so it reaches the rule's fault
+                // log as what it is: this action did not do its job, and
+                // here is why.
+                is ActionSlot.Filled.Refused ->
+                    onOutcome(rule, event, slot.type, ActionResult.Failure(filled.reason))
+            }
+        }
+    }
+
+    /**
+     * Runs [rule]'s actions once, right now, for `run_rule`. See [RuleRunner].
+     * Bypasses [rule]'s own trigger and its `enabled` flag entirely. This can
+     * run a disabled rule's actions, which turns a rule into something close
+     * to a callable routine: kept off so its own trigger never fires it, and
+     * reached only this way.
+     *
+     * **[causingEvent] is reused, not replaced.** [rule] never fired its own
+     * trigger, so there is no fresh [TriggerEvent] of its own to build one
+     * from. Reusing the event that caused the call means `{{event.*}}` and
+     * `{{trigger.*}}` inside [rule]'s actions still read the payload that
+     * started this whole chain. `{{rule.*}}` still reads as [rule] itself,
+     * because [runActions] is given [rule], not the caller's rule: the
+     * actions belong to [rule], and were written expecting their own rule's
+     * name and id.
+     *
+     * **The guard against a loop.** `docs/variables.md` section 11 refused a
+     * `variable_changed` trigger for exactly this shape: rule A changes
+     * something that starts rule B, which changes something that starts rule
+     * A. It wrote down that a guard has to exist before such a feature ships,
+     * not after. `run_rule` is that same shape with an explicit call in place
+     * of an implicit one, so the same guard applies here, in two parts:
+     *
+     * - **A rule cannot run itself**, directly or by appearing again further
+     *   down its own chain of `run_rule` calls. This is refused outright
+     *   rather than merely counted against the depth cap below, because
+     *   nothing makes a cycle safe at any depth: it repeats forever on its
+     *   own once it is allowed once. `TriggerEngineTest` covers the direct
+     *   case. The depth cap below is what catches an indirect cycle this
+     *   check cannot see.
+     * - **A chain deeper than [MAX_RUN_RULE_CHAIN_DEPTH] is refused.** This
+     *   catches a cycle through rules that are all distinct from each other,
+     *   rule A running rule B running rule C and on, which the same-rule
+     *   check above cannot see because no single rule ever repeats. See
+     *   [MAX_RUN_RULE_CHAIN_DEPTH]'s own KDoc for the number and the
+     *   reasoning behind it.
+     *
+     * **Why a coroutine context element, and not a parameter.**
+     * [Action.execute] takes only a [TriggerEvent]. `run_rule` cannot hand
+     * this method the chain so far, because nothing gives `run_rule` a way to
+     * know it. The chain is instead ambient on the coroutine that is running
+     * one firing of one rule from the top. [startRule] sets it to `[rule.id]`
+     * before the first action of a normal firing runs, and every nested
+     * [runNow] extends it by one before running the actions it was asked
+     * for. A coroutine context element is what makes that ambient value
+     * visible to a suspend call several layers down, without threading it
+     * through every signature on the way. That is exactly `run_rule`'s
+     * situation: it is an ordinary [Action], built and called the same way
+     * every other action is.
+     *
+     * **A rule that cannot be built fails cleanly, not by throwing.**
+     * Resolving [rule]'s actions can throw [UnknownComponentException] the
+     * same way [startRule] can, most likely from an import from a newer
+     * build. [startRule] lets that propagate, because [sync] is there to
+     * catch it for every rule at once. Nothing here plays that role for an
+     * on-demand run reached from inside another rule's own action, so this
+     * catches it itself and answers [RunRuleOutcome.Refused] with what went
+     * wrong. That becomes `run_rule`'s own failure reason.
+     */
+    override suspend fun runNow(rule: Rule, causingEvent: TriggerEvent): RunRuleOutcome {
+        val chain = coroutineContext[RunChain]?.ruleIds.orEmpty()
+
+        if (rule.id in chain) {
+            return RunRuleOutcome.Refused(
+                "'${rule.name}' is already running, earlier in this same chain of " +
+                    "run-rule calls. Running it again would never stop, so Trigly refuses."
+            )
+        }
+        if (chain.size >= MAX_RUN_RULE_CHAIN_DEPTH) {
+            return RunRuleOutcome.Refused(
+                "This chain of run-rule calls is already $MAX_RUN_RULE_CHAIN_DEPTH " +
+                    "rules deep. Trigly stops here so one rule cannot run another forever."
+            )
+        }
+
+        return try {
+            val actions = rule.actions.map { spec -> ActionSlot(spec, registry, store) }
+            withContext(RunChain(chain + rule.id)) {
+                runActions(rule, causingEvent, actions)
+            }
+            RunRuleOutcome.Ran
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (t: Throwable) {
+            RunRuleOutcome.Refused(
+                "'${rule.name}' could not be built. ${t.message ?: t::class.simpleName}"
+            )
+        }
     }
 
     /**
@@ -234,6 +358,13 @@ class TriggerEngine(
      * touches the store at all: [appVariableNames] is computed once, here,
      * and an empty set is the fast path that keeps the cost on the rules that
      * actually use app scope.
+     *
+     * **An action's own outputs follow the same rule, without a store to
+     * read.** [startRule] keeps an [ActionOutputs] that grows as each action
+     * returns, and passes it into [fill] for the next one, so `{{action.*}}`
+     * sees what an earlier action in this run produced for the same reason
+     * `{{app.*}}` does. It costs nothing to pass: unlike the store, it is
+     * already in memory, built for this one event.
      */
     private class ActionSlot(
         private val spec: ComponentSpec,
@@ -277,7 +408,7 @@ class TriggerEngine(
             data class Refused(val reason: String) : Filled
         }
 
-        suspend fun fill(rule: Rule, event: TriggerEvent): Filled {
+        suspend fun fill(rule: Rule, event: TriggerEvent, actionOutputs: ActionOutputs): Filled {
             if (templates.isEmpty()) return Filled.Ready(instance)
 
             // Only the names this action actually needs, read right now: see
@@ -292,7 +423,15 @@ class TriggerEngine(
                 }
             }
 
-            val lookup = EventLookup(rule, event, appVariables = appVariables)
+            // No pre-filtering like appVariableNames above: an earlier
+            // action's outputs are already in memory, built by the caller for
+            // this one event, so there is no per-action fetch cost to spare.
+            val lookup = EventLookup(
+                rule,
+                event,
+                appVariables = appVariables,
+                actionOutputs = actionOutputs,
+            )
             val resolved = builtFrom.toMutableMap()
             for ((key, form) in templates) {
                 val (template, encoding) = form
@@ -510,7 +649,7 @@ class TriggerEngine(
         actionType: String,
         action: Action,
         event: TriggerEvent,
-    ) {
+    ): ActionResult {
         val result = try {
             action.execute(event)
         } catch (cancellation: CancellationException) {
@@ -519,6 +658,7 @@ class TriggerEngine(
             ActionResult.Failure("This action threw ${t::class.simpleName}. ${t.message}", t)
         }
         onOutcome(rule, event, actionType, result)
+        return result
     }
 
     fun stopRule(ruleId: String) = synchronized(lock) {
@@ -529,7 +669,41 @@ class TriggerEngine(
     fun stop() = synchronized(lock) {
         jobs.keys.toList().forEach(::stopRule)
     }
+
+    /**
+     * The rule ids currently active in one chain of `run_rule` calls, base
+     * rule first. See [runNow] for how this is built and read.
+     *
+     * A coroutine context element rather than a field on the engine, because
+     * two different rules can each be mid-chain on their own coroutine at
+     * the same time, and a shared field would mix their chains together. A
+     * context element is scoped to the one coroutine that carries it, which
+     * is exactly the lifetime of one firing's worth of nested calls.
+     */
+    private class RunChain(val ruleIds: List<String>) : AbstractCoroutineContextElement(Key) {
+        companion object Key : CoroutineContext.Key<RunChain>
+    }
 }
+
+/**
+ * How many rules deep one chain of `run_rule` calls may go before
+ * [TriggerEngine.runNow] refuses to extend it further. See that method for
+ * the cycle this catches and the separate, unconditional refusal of a rule
+ * that runs itself.
+ *
+ * Eight, chosen the way [UNREADABLE_RETRIES] is: comfortably past any chain
+ * a person would deliberately build (a handful of rules handing off to the
+ * next, such as a sequence of modes), and short enough that a mistake is
+ * refused quickly rather than after visibly heavy work. `run_rule` has no
+ * way to know in advance whether a chain is a deliberate design or a
+ * mistake, so the cap is picked to be generous to the first case and cheap
+ * for the second.
+ *
+ * Public, not `internal`: `run_rule`'s own warning text in `:actions` states
+ * this number, so a person reads the same figure the engine actually
+ * enforces rather than a copy that could drift from it.
+ */
+const val MAX_RUN_RULE_CHAIN_DEPTH: Int = 8
 
 /**
  * How many extra tries [TriggerEngine.resolveHolds] gets after a state read

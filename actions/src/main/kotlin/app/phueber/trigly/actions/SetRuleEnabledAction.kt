@@ -7,6 +7,8 @@ import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.RuleRepository
 import app.phueber.trigly.core.TriggerEvent
+import app.phueber.trigly.core.VariableKind
+import app.phueber.trigly.core.VariableSpec
 import kotlinx.coroutines.flow.first
 
 /** What to do to the rule's own switch. */
@@ -53,6 +55,14 @@ enum class RuleSwitch(val configValue: String, val displayName: String) {
  * success: a write would churn the engine into stopping and restarting a rule
  * that was already running, and reporting failure would make "make sure this is
  * on" an action that fails whenever it was already on.
+ *
+ * **This is the case the output feature exists for.** `TOGGLE` is the only
+ * mode whose result nothing else can know: `ENABLE` and `DISABLE` say the
+ * outcome in their own config, but "flip it" leaves the rule that flipped it
+ * as the only place that ever learns which way it went. [OUTPUT_ENABLED]
+ * reports that, so a later action can announce it. It is reported for every
+ * mode, not only `TOGGLE`, because the value is free once computed and a
+ * rule should not have to know which mode it used to read the result.
  */
 class SetRuleEnabledAction(
     private val repository: RuleRepository,
@@ -73,15 +83,27 @@ class SetRuleEnabledAction(
             )
 
         val wanted = mode.applyTo(rule.enabled)
-            ?: return ActionResult.Success
+        if (wanted != null) {
+            repository.upsert(rule.copy(enabled = wanted))
+        }
 
-        repository.upsert(rule.copy(enabled = wanted))
-        return ActionResult.Success
+        // `wanted` is null when the mode asked for what the rule already was.
+        // The output still reports the true resulting state, which is the
+        // rule's own state either way.
+        val resultingState = wanted ?: rule.enabled
+        return ActionResult.Success(
+            outputs = mapOf(OUTPUT_ENABLED to if (resultingState) ENABLED else DISABLED)
+        )
     }
 
     companion object {
         const val TYPE = "set_rule_enabled"
         const val CONFIG_RULE = "ruleId"
+
+        /** The output key the factory declares below for the resulting state. */
+        const val OUTPUT_ENABLED = "enabled"
+        const val ENABLED = "on"
+        const val DISABLED = "off"
     }
 }
 
@@ -113,6 +135,25 @@ class SetRuleEnabledActionFactory(
                 ConfigField.Option(it.configValue, it.displayName)
             },
             default = RuleSwitch.DISABLE.configValue,
+        ),
+    )
+
+    /**
+     * Whether the target rule is on or off once this action has run. The
+     * reason this exists: [RuleSwitch.TOGGLE] is "flip it", and nothing but
+     * this action ever learns which way that went. A later action reads it as
+     * `{{action.enabled}}` or `{{set_rule_enabled.enabled}}` to announce the
+     * result, such as "Driving mode is now {{action.enabled}}".
+     */
+    override val variables = listOf(
+        VariableSpec(
+            key = SetRuleEnabledAction.OUTPUT_ENABLED,
+            label = "Rule is now",
+            kind = VariableKind.STATE,
+            sample = SetRuleEnabledAction.ENABLED,
+            help = "'${SetRuleEnabledAction.ENABLED}' or " +
+                "'${SetRuleEnabledAction.DISABLED}', whichever the target rule " +
+                "ended up as.",
         ),
     )
 

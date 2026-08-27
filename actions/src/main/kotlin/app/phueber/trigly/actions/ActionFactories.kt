@@ -2,10 +2,12 @@ package app.phueber.trigly.actions
 
 import android.content.Context
 import app.phueber.trigly.core.ActionFactory
+import app.phueber.trigly.core.AlarmScheduler
 import app.phueber.trigly.core.InMemoryRuleRepository
 import app.phueber.trigly.core.InMemoryVariableStore
 import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.RuleRepository
+import app.phueber.trigly.core.RuleRunner
 import app.phueber.trigly.core.UiController
 import app.phueber.trigly.core.VariableStore
 
@@ -21,6 +23,28 @@ import app.phueber.trigly.core.VariableStore
  */
 fun actionFactories(
     context: Context,
+    /**
+     * The wake-up `delay` waits through instead of a plain coroutine `delay`;
+     * see [DelayAction]. No default, unlike every parameter below, and for
+     * the same reason `triggerFactories` in `:triggers` does not default its
+     * own copy: there is no meaningful stand-in the way
+     * [NotificationController.Unavailable] and [UiController.Unavailable] are
+     * real, reportable states. A production assembly point that forgot to
+     * wire the real implementation here would still compile, and would build
+     * a `delay` action that silently does not wait, the same silent failure
+     * `TriggerEngine`'s required `store` parameter already guards against.
+     */
+    scheduler: AlarmScheduler,
+    /**
+     * Reaches the engine's own action-running path for `run_rule`; see
+     * [RuleRunner]. No default, for the same reason [scheduler] has none: a
+     * production assembly point that forgot to wire the real
+     * `RuleRunnerHandle` here would still compile, and would build a
+     * `run_rule` action that silently never runs anything, because the
+     * default it fell back to would be a handle `EngineService` never
+     * learns about. See `app.phueber.trigly.core.RuleRunnerHandle`.
+     */
+    runner: RuleRunner,
     /**
      * Supplied by `:ui`, which is the only module that can see both the listener
      * service in `:triggers` and the actions here. Defaults to the unavailable
@@ -66,9 +90,13 @@ fun actionFactories(
     SetAlarmActionFactory(context),
     AddCalendarEventActionFactory(context),
 
+    // Timing
+    DelayActionFactory(scheduler),
+
     // Trigly's own rules
     SetRuleEnabledActionFactory(rules),
     SetVariableActionFactory(variables),
+    RunRuleActionFactory(rules, runner),
 
     // Device state
     SetVolumeActionFactory(context),

@@ -94,7 +94,7 @@ class ServiceUiController : UiController {
                 )
 
             if (target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                ActionResult.Success
+                ActionResult.Success()
             } else {
                 // The platform refused a click on a node that said it was
                 // clickable. Reported rather than retried: it means the tree

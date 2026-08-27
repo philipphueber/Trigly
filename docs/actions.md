@@ -105,6 +105,9 @@ the tap start the activity: worse automation, but honest about who decided.
 | Set ringer mode | `set_ringer_mode` | Do Not Disturb access |
 | Copy text to clipboard | `set_clipboard` | None |
 | Turn a rule on or off | `set_rule_enabled` | None |
+| Set an app variable | `set_variable` | None |
+| Run another rule | `run_rule` | None |
+| Wait | `delay` | None |
 | HTTP request | `http_request` | `INTERNET` (install-time) |
 | Dismiss another app's notification | `dismiss_notification` | Notification access |
 | Press a notification's button | `notification_button` | Notification access |
@@ -182,6 +185,21 @@ can be edited, and a reference that broke when someone tidied a title would fail
 silently. `ConfigField.RuleRef` shows the name and stores the id. It has no
 typed-entry escape hatch, unlike the app picker: an id is a UUID, so there is no
 value anyone could usefully type.
+
+`run_rule` is the second action of this kind and it reuses that same field. Where
+`set_rule_enabled` changes whether a rule is watched, `run_rule` runs a rule's
+actions now, without consulting that rule's trigger or its switch, so a rule kept
+switched off becomes something close to a callable routine. It needed the one
+piece of engine machinery `set_rule_enabled` did not: a seam that lets an action
+built before any engine exists reach the engine that exists later, and a guard
+against a rule that runs itself. `docs/architecture.md`'s "One rule runs another"
+has both, and `docs/variables.md` section 11 has the loop the guard prevents.
+
+`delay` is the third, and its subject is narrower still: this one rule's own
+timing. It waits on the scheduler port rather than on a coroutine `delay`, so
+Doze cannot sleep through it, and it deliberately does not use the port's durable
+form. Its warning text says what a wait costs, because a rule that pauses is a
+rule whose next event queues behind the pause.
 
 Two consequences documented in the action's own warning, because both are
 discovered by confusion otherwise:
@@ -470,6 +488,20 @@ payload it already emits, and an action reads one through a template in a field
 that declares it accepts one. It also records the seven paths that were weighed
 for reading a variable in an action, and why three of them are not the
 mechanism.
+
+**One part of the scripting end did land, and it is worth being exact about
+which.** `set_variable` has an evaluate mode and `run_rule` has an "only if"
+condition, and both run a small expression language: arithmetic, comparison, a
+ternary, and six string or number functions. That is not the bullet above. The
+language has no variables of its own, no loops, no function a person can
+define, and no call that reads or writes anything outside the string it is
+given, so it does not make Trigly a language runtime and it carries none of
+what that implies for persistence or debugging. The safety question it does
+carry is the one this catalogue keeps coming back to: a rule is a file somebody
+else can import onto their own phone. An embedded interpreter would be a way to
+put arbitrary code on a stranger's device, and a closed grammar of reviewed
+operations is not. `docs/variables.md` section 6 has the grammar, the two
+bounds that make the claim true, and the note saying where the claim ends.
 
 ---
 

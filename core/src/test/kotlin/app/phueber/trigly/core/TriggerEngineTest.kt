@@ -29,7 +29,10 @@ class TriggerEngineTest {
         h.engine.sync(listOf(h.rule))
 
         assertEquals(listOf(1L, 2L), action.seen.map { it.firedAtMillis })
-        assertEquals(listOf<ActionResult>(ActionResult.Success, ActionResult.Success), h.outcomes)
+        assertEquals(
+            listOf<ActionResult>(ActionResult.Success(), ActionResult.Success()),
+            h.outcomes,
+        )
     }
 
     @Test
@@ -743,6 +746,139 @@ class TriggerEngineTest {
             engine.stop()
         }
 
+    // --- action outputs: what one action hands the next in the same run ---------------
+
+    @Test
+    fun `a later action reads an earlier action's output in the same run`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val fields = listOf(
+                ConfigField.Text(key = "text", label = "Text", substitution = Substitution.TEXT),
+            )
+            val readFactory = CountingActionFactory("read-action", fields)
+            val outputFactory = OutputtingActionFactory("write-action", "value") { "on" }
+            val engine = TriggerEngine(
+                registry = Registry(
+                    triggerFactories = listOf(FakeTriggerFactory(TRIGGER_TYPE, listOf(event(1)))),
+                    actionFactories = listOf(outputFactory, readFactory),
+                ),
+                store = InMemoryVariableStore(),
+                scope = this,
+            )
+
+            engine.startRule(
+                Rule(
+                    id = "rule-1",
+                    name = "flip then announce",
+                    trigger = ComponentSpec(TRIGGER_TYPE),
+                    actions = listOf(
+                        ComponentSpec("write-action"),
+                        ComponentSpec("read-action", mapOf("text" to "Now: {{action.value}}")),
+                    ),
+                )
+            )
+
+            assertEquals("Now: on", readFactory.builtWith.last().getValue("text"))
+            engine.stop()
+        }
+
+    @Test
+    fun `an action cannot read the output of an action that runs after it`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val fields = listOf(
+                ConfigField.Text(key = "text", label = "Text", substitution = Substitution.TEXT),
+            )
+            val readFactory = TemplatedRecordingActionFactory(
+                "read-action",
+                fields,
+                RecordingAction(),
+            )
+            val outputFactory = OutputtingActionFactory("write-action", "value") { "on" }
+            val outcomes = mutableListOf<ActionResult>()
+            val engine = TriggerEngine(
+                registry = Registry(
+                    triggerFactories = listOf(FakeTriggerFactory(TRIGGER_TYPE, listOf(event(1)))),
+                    // The reader is declared first, so it runs before the
+                    // action that would have produced what it asks for.
+                    actionFactories = listOf(readFactory, outputFactory),
+                ),
+                store = InMemoryVariableStore(),
+                scope = this,
+                onOutcome = { _, _, _, result -> outcomes += result },
+            )
+
+            engine.startRule(
+                Rule(
+                    id = "rule-1",
+                    name = "announce before flipping",
+                    trigger = ComponentSpec(TRIGGER_TYPE),
+                    actions = listOf(
+                        ComponentSpec("read-action", mapOf("text" to "Now: {{action.value}}")),
+                        ComponentSpec("write-action"),
+                    ),
+                )
+            )
+
+            val failure = outcomes.first() as ActionResult.Failure
+            assertTrue(
+                "names the field that failed: ${failure.reason}",
+                failure.reason.contains("text"),
+            )
+            assertTrue(
+                "says nothing has produced it yet: ${failure.reason}",
+                failure.reason.contains("value"),
+            )
+            engine.stop()
+        }
+
+    @Test
+    fun `outputs do not leak between two events of the same rule`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val fields = listOf(
+                ConfigField.Text(key = "text", label = "Text", substitution = Substitution.TEXT),
+            )
+            val readFactory = CountingActionFactory("read-action", fields)
+            // Produces a value only on the first event's firing time, so the
+            // second event's read has nothing of its own to see. The only
+            // way it could read anything is a leftover from event one.
+            val outputFactory = OutputtingActionFactory("write-action", "value") { event ->
+                if (event.firedAtMillis == 1L) "first" else null
+            }
+            val engine = TriggerEngine(
+                registry = Registry(
+                    triggerFactories = listOf(
+                        FakeTriggerFactory(TRIGGER_TYPE, listOf(event(1), event(2))),
+                    ),
+                    actionFactories = listOf(outputFactory, readFactory),
+                ),
+                store = InMemoryVariableStore(),
+                scope = this,
+            )
+
+            engine.startRule(
+                Rule(
+                    id = "rule-1",
+                    name = "no leak",
+                    trigger = ComponentSpec(TRIGGER_TYPE),
+                    actions = listOf(
+                        ComponentSpec("write-action"),
+                        ComponentSpec(
+                            "read-action",
+                            mapOf("text" to "Now: {{action.value|nothing}}"),
+                        ),
+                    ),
+                )
+            )
+
+            // The first entry is the raw-config build ActionSlot always makes
+            // at start time, before any event: see its KDoc. The two that
+            // matter here are the ones built per event.
+            assertEquals(
+                listOf("Now: first", "Now: nothing"),
+                readFactory.builtWith.drop(1).map { it.getValue("text") },
+            )
+            engine.stop()
+        }
+
     @Test
     fun `a field that cannot be resolved fails through onOutcome and the action does not run`() =
         runTest(UnconfinedTestDispatcher()) {
@@ -808,6 +944,173 @@ class TriggerEngineTest {
             )
 
             assertEquals(listOf("rule-1"), failed)
+            engine.stop()
+        }
+
+    // --- runNow: what run_rule calls, and the guard against a loop -----------------
+
+    /**
+     * The mechanism `run_rule` reuses, proven independently of that action: a
+     * rule's actions run, in order, and report through the same `onOutcome`
+     * hook a normal firing uses, against the target rule's own id.
+     */
+    @Test
+    fun `runNow builds and runs the target rule's own actions`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val action = RecordingAction()
+            val outcomes = mutableListOf<Triple<String, String, ActionResult>>()
+            val engine = TriggerEngine(
+                registry = Registry(
+                    triggerFactories = emptyList(),
+                    actionFactories = listOf(SingleActionFactory(ACTION_TYPE, action)),
+                ),
+                store = InMemoryVariableStore(),
+                scope = this,
+                onOutcome = { rule, _, actionType, result ->
+                    outcomes += Triple(rule.id, actionType, result)
+                },
+            )
+            val target = Rule(
+                id = "target",
+                name = "Target",
+                trigger = ComponentSpec(TRIGGER_TYPE),
+                actions = listOf(ComponentSpec(ACTION_TYPE)),
+            )
+
+            val outcome = engine.runNow(target, event(1))
+
+            assertEquals(RunRuleOutcome.Ran, outcome)
+            assertEquals(listOf(1L), action.seen.map { it.firedAtMillis })
+            assertEquals(listOf(Triple("target", ACTION_TYPE, ActionResult.Success())), outcomes)
+            engine.stop()
+        }
+
+    /**
+     * A target rule naming an action type this build does not have throws
+     * while it is being resolved, the same way `startRule` can. `sync` is
+     * the catcher for the normal path; `runNow` has to be its own catcher
+     * here, so a broken target reads as a refusal `run_rule` can turn into a
+     * failure reason, not as an exception nothing on this path expects.
+     */
+    @Test
+    fun `runNow refuses cleanly when the target rule cannot be built`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val engine = TriggerEngine(
+                registry = Registry(triggerFactories = emptyList(), actionFactories = emptyList()),
+                store = InMemoryVariableStore(),
+                scope = this,
+            )
+            val broken = Rule(
+                id = "broken",
+                name = "Broken",
+                trigger = ComponentSpec(TRIGGER_TYPE),
+                actions = listOf(ComponentSpec("nope")),
+            )
+
+            val outcome = engine.runNow(broken, event(1))
+
+            assertTrue("expected a refusal, got $outcome", outcome is RunRuleOutcome.Refused)
+            engine.stop()
+        }
+
+    /**
+     * The unconditional half of the loop guard: a rule cannot run itself,
+     * whether that call comes from the rule's own trigger firing or, as
+     * here, from inside its own action. `docs/variables.md` section 11 is
+     * the design note this answers.
+     */
+    @Test
+    fun `a rule that runs itself through runNow is refused`() =
+        runTest(UnconfinedTestDispatcher()) {
+            lateinit var engine: TriggerEngine
+            lateinit var selfRule: Rule
+            val outcomes = mutableListOf<RunRuleOutcome>()
+            val callsSelf = object : Action {
+                override suspend fun execute(event: TriggerEvent): ActionResult {
+                    outcomes += engine.runNow(selfRule, event)
+                    return ActionResult.Success()
+                }
+            }
+            engine = TriggerEngine(
+                registry = Registry(
+                    triggerFactories = listOf(FakeTriggerFactory(TRIGGER_TYPE, listOf(event(1)))),
+                    actionFactories = listOf(SingleActionFactory(ACTION_TYPE, callsSelf)),
+                ),
+                store = InMemoryVariableStore(),
+                scope = this,
+            )
+            selfRule = Rule(
+                id = "self",
+                name = "Loopy",
+                trigger = ComponentSpec(TRIGGER_TYPE),
+                actions = listOf(ComponentSpec(ACTION_TYPE)),
+            )
+
+            engine.startRule(selfRule)
+
+            assertTrue(
+                "expected a refusal, got ${outcomes.singleOrNull()}",
+                outcomes.singleOrNull() is RunRuleOutcome.Refused,
+            )
+            engine.stop()
+        }
+
+    /**
+     * The other half: a chain of distinct rules, none of which repeats, so
+     * the self-call check above never fires. This is the case only a depth
+     * cap catches. Every hop up to the cap succeeds; the hop that would make
+     * the chain one rule too deep is refused, and nothing past it ever runs.
+     *
+     * Each rule's single action calls `runNow` for the next rule and only
+     * then returns, so the deepest hop is the first to come back and the
+     * first one this test's `outcomes` list records. The refusal is
+     * therefore the first entry, not the last.
+     */
+    @Test
+    fun `a chain of runNow calls is refused once it passes the depth cap`() =
+        runTest(UnconfinedTestDispatcher()) {
+            lateinit var engine: TriggerEngine
+            val ruleCount = MAX_RUN_RULE_CHAIN_DEPTH + 2
+            val rules = (0 until ruleCount).map { i ->
+                Rule(
+                    id = "chain-$i",
+                    name = "Chain $i",
+                    trigger = ComponentSpec(TRIGGER_TYPE),
+                    actions = listOf(ComponentSpec("chain-action-$i")),
+                )
+            }
+            val outcomes = mutableListOf<RunRuleOutcome>()
+            val factories = rules.indices.map { i ->
+                val action = object : Action {
+                    override suspend fun execute(event: TriggerEvent): ActionResult {
+                        if (i + 1 < rules.size) {
+                            outcomes += engine.runNow(rules[i + 1], event)
+                        }
+                        return ActionResult.Success()
+                    }
+                }
+                SingleActionFactory("chain-action-$i", action)
+            }
+            engine = TriggerEngine(
+                registry = Registry(
+                    triggerFactories = listOf(FakeTriggerFactory(TRIGGER_TYPE, listOf(event(1)))),
+                    actionFactories = factories,
+                ),
+                store = InMemoryVariableStore(),
+                scope = this,
+            )
+
+            engine.startRule(rules[0])
+
+            assertEquals(MAX_RUN_RULE_CHAIN_DEPTH, outcomes.size)
+            assertTrue(
+                "expected a refusal, got ${outcomes.first()}",
+                outcomes.first() is RunRuleOutcome.Refused,
+            )
+            assertEquals(
+                List(MAX_RUN_RULE_CHAIN_DEPTH - 1) { RunRuleOutcome.Ran },
+                outcomes.drop(1),
+            )
             engine.stop()
         }
 }
@@ -1016,7 +1319,27 @@ private class WritingActionFactory(
     override fun create(config: Map<String, String>): Action = object : Action {
         override suspend fun execute(event: TriggerEvent): ActionResult {
             store.set(name, value)
-            return ActionResult.Success
+            return ActionResult.Success()
+        }
+    }
+}
+
+/**
+ * An action that reports one output on [key], computed from the event by
+ * [valueFor], standing in for `set_rule_enabled` and `set_variable`. Null
+ * means "produces nothing for this event", which is what a test that must not
+ * see a leak from a previous event needs: a rule where the producer really
+ * has nothing of its own to say this time.
+ */
+private class OutputtingActionFactory(
+    override val type: String,
+    private val key: String,
+    private val valueFor: (TriggerEvent) -> String?,
+) : ActionFactory {
+    override fun create(config: Map<String, String>): Action = object : Action {
+        override suspend fun execute(event: TriggerEvent): ActionResult {
+            val outputs = valueFor(event)?.let { mapOf(key to it) } ?: emptyMap()
+            return ActionResult.Success(outputs = outputs)
         }
     }
 }
@@ -1052,7 +1375,7 @@ private class RecordingAction : Action {
 
     override suspend fun execute(event: TriggerEvent): ActionResult {
         seen += event
-        return ActionResult.Success
+        return ActionResult.Success()
     }
 }
 
@@ -1082,7 +1405,8 @@ private class CountingActionFactory(
         buildCount++
         builtWith += config
         return object : Action {
-            override suspend fun execute(event: TriggerEvent): ActionResult = ActionResult.Success
+            override suspend fun execute(event: TriggerEvent): ActionResult =
+                ActionResult.Success()
         }
     }
 }

@@ -45,7 +45,7 @@ class PostNotificationAction(
         val id = (event.firedAtMillis and 0x7FFFFFFF).toInt()
         return runCatching { NotificationManagerCompat.from(context).notify(id, notification) }
             .fold(
-                onSuccess = { ActionResult.Success },
+                onSuccess = { ActionResult.Success() },
                 onFailure = {
                     ActionResult.Failure("Trigly could not post the notification. ${it.message}", it)
                 },

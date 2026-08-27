@@ -1,6 +1,8 @@
 # Variables
 
-**Status: phases 1 and 2 are built. Phase 3 is not.** `docs/actions.md`
+**Status: phases 1, 2 and 4 are built. Phase 3 is not.** Phase 4 is numbered
+after phase 3 because it was not planned here at all, and it did not wait for
+the phase it follows: see section 15. `docs/actions.md`
 recorded variables as the largest design decision left after conditions. This
 file is that decision, in the shape `docs/conditions.md` holds its own, and it
 is kept as written so that what was weighed stays readable next to what was
@@ -24,13 +26,18 @@ showed something the plan could not:
 - **The firing time is offered twice**, as `{{event.time}}` for a person to read
   and `{{event.timestamp}}` for a server. That is what let phase 1 ship with no
   format language at all, which section 14 wanted and had no answer for.
+- **There is a fourth scope.** An action can produce a value for the actions
+  after it, which this plan refused twice, in section 14 and in P8. Both
+  refusals were about a scripting model and an arbitrary captured result, and
+  what landed is neither. Sections 3, 6 and 15 say what it is.
 
 `app` is reserved and deliberately unresolved until phase 2, so that adding the
 store is not a breaking change for a rule saved in the meantime.
 
 The scope of the plan:
 
-1. A variable model with three scopes: the event, the rule, and the app.
+1. A variable model with three scopes: the event, the rule, and the app. A
+   fourth, the action, arrived later; see section 15.
 2. Every trigger declares the contents it already emits, so a person can find
    them and the editor can offer them.
 3. Several paths to read a variable in an action, with a recommendation for
@@ -78,13 +85,14 @@ where it happens instead.
 
 ---
 
-## 3. The three scopes
+## 3. The scopes
 
 | Scope | Lives for | Written by | Persisted |
 |-------|-----------|------------|-----------|
 | Event | One event, one rule run | The trigger that fired | No |
 | Rule  | One rule run | The engine | No |
 | App   | Until changed or removed | A `set_variable` action, or the user | Yes |
+| Action | The rest of one rule run | An action that declares an output | No |
 
 **Event scope** is the trigger payload, named and declared.
 
@@ -94,9 +102,17 @@ the type that fired, the time it fired, the rule name, and the rule id.
 **App scope** is a small named store, shared by every rule. This is the only
 scope that needs a table and a migration.
 
+**Action scope** is what an action produced for the actions after it in the same
+run. It starts empty at every event, it grows as each action returns, and it is
+never saved, so another rule cannot read it and neither can the next firing. An
+action declares an output only for a value it computed that nothing else could
+know in advance. `set_rule_enabled`'s toggle mode is the case that asked for it:
+"flip it" leaves the action that flipped it as the only place that ever learns
+which way it went.
+
 ### Names
 
-One syntax: `{{namespace.name}}`. Four reserved namespaces:
+One syntax: `{{namespace.name}}`. Five reserved namespaces:
 
 | Reference | Means |
 |-----------|-------|
@@ -105,6 +121,8 @@ One syntax: `{{namespace.name}}`. Four reserved namespaces:
 | `{{event.type}}`, `{{event.time}}` | Engine facts about the run |
 | `{{rule.name}}`, `{{rule.id}}` | The rule that is running |
 | `{{app.trip_count}}` | An app-scope variable |
+| `{{action.value}}` | What an action earlier in this run produced, whichever one it was |
+| `{{set_rule_enabled.enabled}}` | The same, from that one action type in this rule |
 
 `trigger` is the form to recommend and to offer first. A rule usually has one
 trigger, and `{{trigger.text}}` keeps working when the person changes which
@@ -121,9 +139,15 @@ its `NodePath`, and a path is not a name a person can read or keep. Rules with
 two leaves of one type are rare, and the shared namespace is still correct for
 the fired one.
 
-`trigger`, `event`, `rule` and `app` therefore become reserved words. No
-trigger type may be one of the four. A JVM test asserts that, in the same
+`trigger`, `event`, `rule`, `app` and `action` therefore become reserved words.
+No trigger type may be one of the five. A JVM test asserts that, in the same
 place T2 pins the type strings.
+
+The type-qualified form names an action type as well as a trigger type, and the
+two are read in that order: if a type string were ever both, the trigger that
+fired wins. Nothing collides today, and T2 pins all 54 strings, so a rename that
+introduced a collision fails the suite rather than quietly changing which value
+a reference reads.
 
 ### Grammar
 
@@ -341,10 +365,25 @@ A mode switch on a field: either a typed value, or "take this field from
 
 Arithmetic, comparison, string functions, date formats.
 
-- **Deferred, on purpose.** `docs/actions.md` already weighed a scripting model
-  and recommended against it. The one place a format is genuinely needed is a
-  timestamp, and that is handled in phase 3 as a *derived* variable, not as a
-  language. See section 15.
+- **Built as a closed grammar, not as a script.** `docs/actions.md` weighed a
+  scripting model and recommended against it, and that recommendation still
+  holds, because what landed is not one. `set_variable` gained an evaluate mode
+  and `run_rule` gained an "only if" condition. Both run the language in
+  `core/Expression.kt`, which has no variables of its own, no loops, no
+  functions a person can define, and no call that reads or writes anything
+  outside the string it is given. Six functions, each one fixed and reviewed.
+- **The safety argument is exactly two numbers.** A rule is a file somebody else
+  can import onto their own phone, so an embedded interpreter would be a way to
+  carry arbitrary code onto a stranger's device. With no loops, and no recursion
+  a person can write, every expression does a bounded amount of work and
+  returns. The only thing a small piece of text can still damage is the parser's
+  own call stack, so the parser bounds the input length and the nesting depth,
+  and nothing else stands between an expression and the evaluator. That claim is
+  true only while the grammar stays this small, and `Expression.kt` says so at
+  the point where somebody would add the feature that ends it.
+- **Date formats are still not here.** The evaluate mode does arithmetic,
+  comparison, and six string or number functions. A formatted timestamp is still
+  phase 3's derived variable rather than a format string in this language.
 
 ---
 
@@ -376,11 +415,16 @@ rather than by holding the instance.
 Which keys are eligible is **declared per field**, not guessed:
 
 ```kotlin
-enum class Substitution { NONE, TEXT, URL, JSON_STRING, REGEX_QUOTE }
+enum class Substitution { NONE, TEXT, URL, JSON_STRING, EXPRESSION }
 
 // on ConfigField, defaulted like shownWhen
 val substitution: Substitution get() = Substitution.NONE
 ```
+
+`REGEX_QUOTE` is not in that list, and the note at the top of this file says
+why. `EXPRESSION` is there instead, and it arrived with P8's evaluate mode. It
+is the one member that is not about a value landing inside structure. It turns a
+value into a literal the expression language can read back.
 
 Only a field's primary `key` is eligible. A companion key from
 `companionKeys()` is never substituted, because it holds a mode or a package and
@@ -410,11 +454,26 @@ the same value needs different treatment depending on where it lands.
 | `http_request.url` | `URL` (percent-encode each substituted value) |
 | `http_request.body` | `JSON_STRING` when the content type is JSON, else `TEXT` |
 | a `TextPattern` in regex mode | `REGEX_QUOTE` |
+| `set_variable.value` in evaluate mode | `EXPRESSION` |
+| `run_rule.condition` | `EXPRESSION` |
 
-`http_request.body` is the one case where the encoding depends on a sibling
+`http_request.body` is the first case where the encoding depends on a sibling
 field. `FieldCondition` already models "this field depends on a sibling", so the
 shape exists. If that turns out to read badly, the honest fallback is to declare
 the body as `TEXT` and say in its help text that a variable is inserted raw.
+
+`set_variable.value` is the second such case, and it works the same way: the
+factory reads the mode and answers `EXPRESSION` for evaluate and `TEXT` for
+every other mode.
+
+**`EXPRESSION` is also the one encoding that breaks the single-reference
+exemption.** A field whose whole value is one reference is normally handed over
+unencoded, because it is the value itself rather than a value inside structure:
+`{{app.endpoint}}` as an entire URL must not come back percent-encoded. An
+expression field is never the value itself. It is always source text to run, so
+`{{app.count}}` typed as the whole expression still has to arrive as `42`, and a
+device name still has to arrive as `"Pixel Buds"` with its quotes, or the
+evaluator has nothing it can parse.
 
 **Do not ship P1 for `http_request` without this.** A silently malformed webhook
 is precisely the failure mode the rest of this project is built to avoid.
@@ -549,6 +608,25 @@ parts, both needed: a write from a rule does not wake that same rule, and a
 chain of variable-caused runs is capped at one hop. Write the decision down
 before the code.
 
+**The guard now exists, and `run_rule` is what asked for it.** An action that
+runs another rule is the same shape this section refused, with an explicit call
+in place of an implicit one: rule A runs rule B, which runs rule A. So the guard
+was designed before that action shipped, in the form this shape needs. A rule
+cannot run itself, directly or by appearing again further down its own chain of
+calls, and that is refused outright rather than counted against a depth, because
+no depth makes a cycle safe: allowed once, it repeats for ever. A chain of rules
+that are all distinct is capped at `MAX_RUN_RULE_CHAIN_DEPTH`, which is eight,
+because the same-rule check cannot see a cycle in which no single rule ever
+repeats. The chain travels as a coroutine context element, so two rules can each
+be part-way through their own chain at the same time without mixing the two
+together.
+
+`variable_changed` is still not built. What changed is that the guard it was
+waiting for is no longer hypothetical. It is written, tested, and in use. A
+future `variable_changed` would still need the *first* part of the decision
+above, that a rule's own write does not wake that same rule, because a write is
+not a call and the chain element cannot see one.
+
 ---
 
 ## 12. The editor
@@ -588,15 +666,27 @@ put them behind a flag on the trigger rather than in every event.
 ## 14. Not built, on purpose
 
 - **No value type.** Strings only. A number comparison in `variable_check`
-  parses at the point of comparison and fails clearly when it cannot.
-- **No expressions, no branching, no loops.** `docs/actions.md` weighed this and
-  recommended against it. Nothing here reopens that.
+  parses at the point of comparison and fails clearly when it cannot. The
+  evaluate mode does not change this. It parses a number out of a string,
+  computes with `BigDecimal`, and formats the result back to a string, so what
+  is stored is still a string.
+- **No loops, no user-defined functions, no scripting.** An expression language
+  landed for the evaluate mode and for `run_rule`'s condition, and section 6's
+  P8 says what it is and what bounds it. What stays refused is everything that
+  would make it a runtime: a loop, a function a person defines, and any call
+  that reads or writes state outside the one string being evaluated.
+- **No branching inside a rule.** A ternary in an expression chooses a *value*.
+  It does not choose which actions run. `run_rule`'s condition is the closest
+  thing to a branch, and it is deliberately narrow: it decides whether one named
+  rule's actions run, and it is visible on the screen as the field it is.
 - **No `variable_changed`.** Section 11.
-- **No action outputs in phase 1.** An action producing a variable is a real
-  path, and the obvious candidate is an HTTP response body. `HttpRequestAction`
-  deliberately never reads the response, and its KDoc calls draining an
-  arbitrary response into memory "a liability, not a feature". So this needs its
-  own decision, not a phase.
+- **No captured action output.** Action scope exists now, and section 3 says
+  what it is, but only for a value an action *computed*: which way a toggle
+  went, what a counter now holds, whether a target rule ran. The candidate this
+  bullet used to name is still refused. `HttpRequestAction` deliberately never
+  reads the response, and its KDoc calls draining an arbitrary response into
+  memory "a liability, not a feature". An output is a fixed, reviewed value with
+  a label and a sample, not a place to put whatever a server sent back.
 - **No addressing a leaf by path.** Section 3.
 
 ---
@@ -650,6 +740,51 @@ paying for a lookup on every event that nobody reads.
 Done when a `Duration` field takes its value from an app variable, and
 `{{trigger.appLabel}}` resolves without the trigger emitting it.
 
+**Phase 4: a value that computes, and a rule that calls another. Built.** Not in
+this section's plan at all, and section 14 had refused two of its three parts.
+What changed the answer is that both refusals were about a scripting model, and
+a closed grammar is not one. P8 in section 6 has the language and its bounds.
+
+Three things landed together, because each is most of the value of the others:
+
+- **`set_variable`'s evaluate mode.** A computed value rather than a copied or
+  an accumulated one: `{{app.count}} + 1`, `upper({{trigger.name}})`,
+  `{{battery.level}} < 20 ? "low" : "ok"`.
+- **`run_rule`.** One rule runs another rule's actions, and only while an
+  optional condition holds. The target's own trigger and its on/off switch are
+  not consulted, so a rule kept switched off becomes something close to a
+  callable routine. Section 11 has the loop guard this needed first.
+- **`delay`.** The rest of the rule waits. On `AlarmScheduler.waitFor`, never a
+  plain coroutine `delay`, for the reason `docs/todo.md`'s T1 records. Not on
+  the durable form either: a restarted process has no way back into the middle
+  of the firing that was interrupted, so a durable alarm would only ever wake a
+  process with nothing left to resume. `DelayAction`'s KDoc says it at length.
+
+**Action scope came with them**, as section 3 describes, because
+`set_rule_enabled`'s toggle mode had a result that nothing else could learn.
+
+What came out differently from what this work assumed:
+
+- **The engine half was finished and unreachable.** The engine resolved
+  `{{action.*}}` correctly, every producing action declared its output with a
+  label and a sample, and the editor still refused to save any field that read
+  one, because `availableVariables` walked the trigger tree and nothing else. A
+  declared output that the picker never offers and that validation refuses is
+  not a feature with a missing screen. It is a feature that does not exist from
+  where the person stands. `availableActionOutputs` is the other half.
+- **An action output is offered by position, not by rule.** The engine grows
+  `ActionOutputs` as each action returns, so an action naming a *later* action's
+  output would resolve absent on every firing. Offering it would be the same
+  dead end `ConfigSchemaContractTest` refuses for a trigger that never fires:
+  pickable, saveable, and empty for ever. So the question is asked per action
+  rather than once per screen, and the answer changes as actions are added,
+  removed or reordered.
+- **An action output is never marked always-present**, whatever it declares.
+  This is the opposite of the rule for a trigger, which can promise a key that
+  every leaf declares. An earlier action *running* is not the same as it
+  producing: it can fail first, and `set_variable`'s clear mode succeeds while
+  storing nothing.
+
 ---
 
 ## 16. Tests
@@ -675,6 +810,28 @@ Instrumented:
 - `set_variable` then `variable_check` across a process restart.
 - One end-to-end rule that carries a real notification title into a posted
   notification.
+
+Phase 4 added, JVM:
+
+- The expression language: each operator and its precedence, the short-circuit,
+  the six functions, division rounding, the length and depth bounds, and a
+  named failure for each way an expression can be malformed.
+- The `EXPRESSION` encoding, including the case every other encoding exempts: a
+  field that is exactly one reference is still encoded as a literal.
+- `availableActionOutputs`: the first action is offered nothing, an action is
+  offered what is above it and not what is below it, the always-present mark is
+  forced off, and the type-qualified form appears only once two distinct
+  producing types are above.
+- `run_rule`'s guard: a rule that runs itself is refused, and a chain past the
+  cap is refused.
+- `delay`: a missing duration is refused rather than defaulted, and the cap is
+  applied.
+
+Instrumented:
+
+- A save that reads an earlier action's output is accepted, and the same
+  reference one position higher is refused.
+- The picker's heading for action scope, and for a type-qualified group.
 
 Per `CLAUDE.md`: two devices or API levels before a merge, and every new
 instrumented test run twice back to back.

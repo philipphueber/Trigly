@@ -20,6 +20,9 @@ Priority 1 is work that makes a rule fire when it should. Priority 2 is work
 that makes a rule explain itself. Priority 3 needs a decision before it needs
 code.
 
+T19 is the third item that was not in the review: it is a consequence of
+`run_rule`, found while writing down phase 4 of `docs/variables.md`.
+
 ---
 
 ## Landed
@@ -156,6 +159,15 @@ and a poll does not.
 
 **Done when.** The choice is written down per caller, and any caller that keeps
 `setWindow` says in its own warning text how late it can be.
+
+**Since this was written.** There is a sixth caller: the `delay` action waits on
+`waitFor`, and it is the first one whose duration a person chooses rather than
+this codebase. It already does the second half of "done when", because its
+warning says the wait can be off by a few minutes. It has no claim on the first
+half. Whether a wait a person set is worth the allow-while-idle family is
+exactly the per-caller decision this item asks for, and `DelayAction`'s KDoc
+says why it is not on the *durable* form, which is a different question from
+this one.
 
 ### T15 A second ingress that is not a broadcast
 
@@ -317,6 +329,40 @@ protect something nobody misses.
 
 **Done when.** An event recorded before a process kill is acted on after the
 restart, once, and not twice.
+
+### T19 A rule picker that says which rule cannot be picked
+
+**Evidence.** `run_rule` refuses a rule that runs itself, and it has to: see
+`TriggerEngine.runNow` and `docs/variables.md` section 11. But the field that
+chooses the target is `ConfigField.RuleRef`, the same field `set_rule_enabled`
+uses, and it offers the open rule like any other. It even marks it, with "the
+rule you're editing", because for `set_rule_enabled` picking yourself is a real
+rule: a one-shot that fires and turns itself off.
+
+So `run_rule` pointed at its own rule saves cleanly and then fails on every
+firing. This is not silent, and that is why it is Priority 2 rather than
+Priority 1. The fault log names the rule and says the run would never stop. It
+is still a save the editor could have refused while the person was looking at
+the field, which is what this project does everywhere else a reference cannot
+resolve.
+
+**Do.** A flag on `ConfigField.RuleRef`, declared by the factory that needs it
+and defaulted off, saying that this field may not name the rule it is in. Then
+the picker leaves the open rule out and save-time validation refuses it. Both
+halves read the flag off the schema, so neither `:ui` nor `:core` learns that
+`run_rule` is the action that wants it. Naming the action in either place is the
+coupling the plugin rule forbids, and it is the reason this is not simply a
+special case in the editor.
+
+**Watch for.** A rule saved before this exists can already hold a
+self-reference, so validation has to refuse it on the next save rather than
+assume the picker prevented it. Also the *indirect* cycle stays a run-time
+matter whatever this does: the editor cannot see that rule A runs B which runs
+A, and the chain depth cap is what covers that.
+
+**Done when.** The open rule cannot be picked in a `run_rule` action, a stored
+self-reference is refused with a message naming the field, and
+`set_rule_enabled` still offers the open rule.
 
 ---
 

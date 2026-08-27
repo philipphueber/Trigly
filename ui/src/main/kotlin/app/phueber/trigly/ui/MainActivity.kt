@@ -35,6 +35,7 @@ import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ComponentSpec
 import app.phueber.trigly.core.ControllerLivenessProbe
 import app.phueber.trigly.core.SpecialAccessKind
+import app.phueber.trigly.core.all
 import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.variableNameProblem
 
@@ -232,6 +233,11 @@ class MainActivity : ComponentActivity() {
                 // nothing back, and grantEpoch is what makes onResume's
                 // refresh visible to this composable.
                 val ignoringBatteryOptimizations = remember(grantEpoch) { ignoringBatteryOptimizations() }
+                // Collected here rather than folded into RulesViewModel: the
+                // rules list has no other business with the variable store, and
+                // a count is the only thing this screen wants from it.
+                val savedValues by container.variableStore.all()
+                    .collectAsStateWithLifecycle(initialValue = emptyMap())
                 RulesScreen(
                     statuses = statuses,
                     onEnabledChange = listViewModel::setEnabled,
@@ -242,10 +248,11 @@ class MainActivity : ComponentActivity() {
                     onExportRule = ::shareSingle,
                     onDuplicateRule = listViewModel::duplicate,
                     onImport = { openDocument.launch(arrayOf("application/json", "text/*")) },
-                    // Both entries are about the whole rule set, not one rule,
-                    // which is why "Saved values" sits beside "Export all" in
-                    // the header rather than on any one rule's own row.
+                    // About the whole rule set rather than any one rule, which
+                    // is why this is on this screen at all. It is a row in the
+                    // list and not a header action: see `SavedValuesEntry`.
                     onSavedValues = { onNavigate(Screen.SavedValues) },
+                    savedValueCount = savedValues.size,
                     describeComponent = container.registry::displayNameOf,
                     ignoringBatteryOptimizations = ignoringBatteryOptimizations,
                     onFixBatteryOptimization = ::requestIgnoreBatteryOptimizations,
@@ -431,6 +438,9 @@ class MainActivity : ComponentActivity() {
             // draft, so it is recomputed on every recomposition `state`
             // triggers, the same as `state` itself.
             availableVariables = editor.availableVariables,
+            // The action half of the same question, which depends on where the
+            // action sits: see `RuleEditorViewModel.availableVariablesForAction`.
+            availableVariablesForAction = editor::availableVariablesForAction,
             substitutionsFor = { type, config ->
                 container.registry.substitutionsFor(ComponentSpec(type, config))
             },
@@ -442,6 +452,10 @@ class MainActivity : ComponentActivity() {
             inspectorNotifications = { container.notifications.activeNotifications() },
             inspectorConnected = { container.notifications.isConnected },
             describeApp = installedApps::labelFor,
+            // Names a type-qualified variable group the same way the trigger
+            // picker and the rules list already name that trigger. See
+            // `RulesScreen`'s own `describeComponent`.
+            describeComponent = container.registry::displayNameOf,
         )
     }
 

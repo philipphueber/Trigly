@@ -8,6 +8,7 @@ import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.Registry
 import app.phueber.trigly.core.RequirementChecker
 import app.phueber.trigly.core.RuleRepository
+import app.phueber.trigly.core.RuleRunnerHandle
 import app.phueber.trigly.core.UiController
 import app.phueber.trigly.core.VariableStore
 import app.phueber.trigly.core.storage.ruleRepository
@@ -109,6 +110,20 @@ class AppContainer(context: Context) {
     val scheduler: AlarmScheduler = AlarmManagerScheduler(context)
 
     /**
+     * Where `run_rule` reaches the engine, before any engine exists.
+     *
+     * Declared here, before [registry], for the same reason [scheduler] is:
+     * `run_rule`'s factory needs something to hold at construction time, and
+     * no `TriggerEngine` exists yet when this container is built. `EngineService`
+     * calls [RuleRunnerHandle.attach] once it builds one, against this same
+     * instance, and [RuleRunnerHandle.detach] when it stops. See
+     * `app.phueber.trigly.core.RuleRunner` for the full reasoning, and
+     * [ruleFaults] below for the same "two ends in different places" shape
+     * solved in the other direction.
+     */
+    val ruleRunner: RuleRunnerHandle = RuleRunnerHandle()
+
+    /**
      * What an action said when it last failed, per rule.
      *
      * Lives here because it has two ends in different places: `EngineService`
@@ -142,7 +157,7 @@ class AppContainer(context: Context) {
     val registry: Registry = Registry(
         triggerFactories = triggerFactories(context, scheduler, variableStore),
         actionFactories = actionFactories(
-            context, notifications, ui, ruleRepository, variableStore,
+            context, scheduler, ruleRunner, notifications, ui, ruleRepository, variableStore,
         ),
     )
 

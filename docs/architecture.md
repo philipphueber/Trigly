@@ -622,10 +622,16 @@ registered factory, not a hand-maintained list.
 ### Variables: what a trigger emits, and how an action reads it
 
 `docs/variables.md` holds the whole plan and the paths that were weighed and
-rejected. This is the shape of what phase 1 built.
+rejected. This is the shape of what phase 1 built. The subsections below carry
+what came after it: app scope, the screen that makes it findable, a value that
+computes, an output an action hands to the next one, one rule running another,
+and a wait inside a rule.
 
-A variable is a **named string**, and only a string. There is no value type, no
-arithmetic and no control flow. `TriggerEvent.payload` was already
+A variable is a **named string**, and only a string. There is no value type.
+Arithmetic arrived later, in a closed expression language, and what it computes
+is parsed out of a string and formatted back into one: see "A value that
+computes" below. There is still no control flow.
+`TriggerEvent.payload` was already
 `Map<String, String>` and config was already `Map<String, String>`, so the
 feature fits inside shapes that existed.
 
@@ -849,6 +855,124 @@ that learns to read a variable is found by this without it changing.
 "Read by two rules" is drawn as information rather than as a warning, per
 "Warnings are not errors" below. A value being used is the ordinary case, and it
 is the reason the value exists.
+
+#### A value that computes
+
+`set_variable`'s evaluate mode and `run_rule`'s "only if" condition both run the
+same small expression language, in `core/Expression.kt`. Arithmetic, comparison,
+a ternary, `and`/`or`/`not`, and six string or number functions.
+
+**It runs after substitution, never instead of it.** A field declared
+`Substitution.EXPRESSION` is substituted first, which turns every `{{...}}`
+reference into a literal the grammar can parse, and only then evaluated. So the
+evaluator never sees a variable and needs no idea that variables exist. It also
+means the expression encoding is the one that ignores the single-reference
+exemption the other encodings share: an expression field is always source text
+to run, so a field holding nothing but `{{app.count}}` still has to arrive as
+`42`, and a device name still has to arrive quoted.
+
+**A closed grammar rather than an embedded script, because a rule is a file
+somebody else can import.** JavaScript or Python in a rule would be a way to
+carry arbitrary code onto a stranger's phone. This language has no variables of
+its own, no loops, no function a person can define, and no call that reads or
+writes anything outside the string it is given. Every function is fixed and
+reviewed. That is what makes the safety story short enough to state: with no
+loops and no recursion a person can write, every expression does a bounded
+amount of work and returns, so the only thing left to protect is the parser's
+own call stack. The parser bounds the input length and the nesting depth, and
+nothing else stands between an expression and the evaluator. The bound is on the
+grammar staying this small, and `Expression.kt` says so where somebody would add
+the feature that ends it.
+
+Arithmetic is `BigDecimal`, the same choice `set_variable`'s add mode made and
+for the same reason: a running total built from repeated fractional additions
+drifts visibly in binary floating point, and a rule that computes a total is
+what this exists for. Division is the exception that needs a rule of its own,
+because exact decimal division does not always terminate, so it rounds.
+
+#### What an action hands to the next one
+
+An action can produce a value for the actions after it in the same run, read as
+`{{action.<key>}}` or `{{<action type>.<key>}}`. `ActionOutputs` in `:core`
+carries it: fresh at every event, grown as each action returns, and never saved.
+
+**Only a value the action computed.** `set_rule_enabled`'s toggle mode is the
+case that asked for the feature, because "flip it" leaves the action that
+flipped it as the only place that ever learns which way it went. What is
+deliberately not here is an arbitrary captured result: `HttpRequestAction` still
+never reads the response body, and its own KDoc calls draining an arbitrary
+response into memory a liability rather than a feature. An output is declared
+like any other variable, with a label, a sample and help text, so the editor can
+offer it and a person can read what it means.
+
+**The editor asks per action, not per rule, and that is the whole feature from
+where the person stands.** The engine grows the outputs as it goes, so an action
+naming a *later* action's output resolves absent on every firing.
+`availableActionOutputs` therefore takes the action's position and offers only
+what is above it. This half arrived late, and its absence is worth recording:
+the engine resolved these references correctly and every producing action
+declared its output, while `availableVariables` walked only the trigger tree, so
+save-time validation refused every field that read one. A declared output the
+picker never offers and validation refuses is not a feature with a missing
+screen. It is a feature that does not exist. `docs/variables.md` section 15 has
+the rest.
+
+An action output is never marked always-present, whatever it declares. That is
+the opposite of the rule for a trigger, which can promise a key every leaf
+declares, and the reason is that an earlier action *running* is not the same as
+it producing: it can fail first, and `set_variable`'s clear mode succeeds while
+storing nothing.
+
+#### One rule runs another
+
+`run_rule` runs a named rule's actions immediately, bypassing that rule's own
+trigger and its on/off switch. A rule kept switched off and reached only this way
+is a legitimate design, closer to a callable routine than to a watched rule.
+
+**The seam exists because of *when* an engine exists, not because of module
+boundaries.** `:actions` already depends on `:core`, where `TriggerEngine` lives,
+so naming the class would compile. The problem is that `actionFactories()` is
+called from `AppContainer`'s constructor and no engine exists at that point:
+`EngineService` builds one later, against the very registry being assembled, and
+only once a rule is enabled. So `run_rule` holds a `RuleRunner` interface, and
+`AppContainer` hands it a `RuleRunnerHandle` that starts with nothing to
+delegate to. `EngineService` attaches the real engine when it creates one and
+detaches on destroy. A call arriving outside that window is refused with a
+reportable reason rather than silently doing nothing, the same choice
+`NotificationController.Unavailable` makes for "notification access is off".
+This is `RuleFaultLog`'s shape in the other direction, and unlike that sink it
+cannot live in `:ui`, because `:actions` has to name the interface it calls.
+
+**The loop guard was designed before the action shipped.**
+`docs/variables.md` section 11 refused a `variable_changed` trigger for exactly
+this shape and wrote down that a guard had to exist first. Two parts: a rule
+cannot run itself, directly or by appearing again further down its own chain,
+refused outright because no depth makes a cycle safe; and a chain of distinct
+rules is capped, because the first check cannot see a cycle in which no single
+rule repeats. The chain travels as a coroutine context element rather than as a
+field on the engine, so two rules can each be part-way through their own chain
+at once without mixing them together.
+
+#### Waiting inside a rule
+
+`delay` holds the rest of the rule for a set time, on the scheduler port's
+`waitFor` and never on a plain coroutine `delay`, which Doze can sleep straight
+through. The port's *durable* form is deliberately not used, and the reason is
+worth stating because it looks like the safer choice. A durable wait works for
+`interval` and `solar` because a fresh collection after a killed process is a
+correct resumption: "the next occurrence" means the same thing either way. This
+action holds a position part-way through one firing of one rule, plus whatever
+earlier actions produced, and none of that is saved anywhere. A restarted engine
+listens for the *next* qualifying event and has no way back into the firing that
+was interrupted, so a durable alarm would only ever wake a process with nothing
+left to resume, at the cost of a needless wake and, without the battery
+exemption, a refused foreground-service start.
+
+What that costs is stated in the action's own warning rather than left to be
+discovered: a kill during the wait loses the rest of the rule with nothing to
+retry it, and a second event reaching the same rule while it waits queues behind
+the wait rather than running beside it, because a rule runs its actions in one
+coroutine.
 
 ### Rule storage and the portable format
 

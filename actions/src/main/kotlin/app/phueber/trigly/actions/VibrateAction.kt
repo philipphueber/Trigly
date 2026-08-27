@@ -30,7 +30,7 @@ class VibrateAction(
         vibrator.vibrate(
             VibrationEffect.createOneShot(durationMillis, VibrationEffect.DEFAULT_AMPLITUDE)
         )
-        return ActionResult.Success
+        return ActionResult.Success()
     }
 
     companion object {

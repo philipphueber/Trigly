@@ -253,9 +253,13 @@ interface ComponentFactory {
      *
      * Empty means "this component offers nothing to read", which is the honest
      * answer for `interval`, whose event is only the fact that it happened, and
-     * for every action today. An action producing a variable is a real path and
-     * it is not this one; `docs/variables.md` says why the obvious candidate,
-     * an HTTP response body, needs its own decision first.
+     * for most actions: a value the rule already knows from its own config is
+     * not worth declaring, and an arbitrary captured result is refused on
+     * purpose, the way `HttpRequestAction` refuses to read a response body. An
+     * action declares here only a value it computed that nothing else could
+     * know in advance, such as `set_rule_enabled` reporting which way `TOGGLE`
+     * went. See [ActionResult.Success.outputs] for how that value reaches a
+     * later action.
      */
     val variables: List<VariableSpec>
         get() = emptyList()

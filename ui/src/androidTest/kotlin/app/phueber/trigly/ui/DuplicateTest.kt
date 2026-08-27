@@ -7,6 +7,7 @@ import app.phueber.trigly.core.ComponentSpec
 import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.Registry
 import app.phueber.trigly.core.Rule
+import app.phueber.trigly.core.RuleRunnerHandle
 import app.phueber.trigly.core.TriggerNode
 import app.phueber.trigly.triggers.AlarmManagerScheduler
 import app.phueber.trigly.triggers.triggerFactories
@@ -33,7 +34,12 @@ class DuplicateTest {
 
     private val registry = Registry(
         triggerFactories = triggerFactories(context, AlarmManagerScheduler(context)),
-        actionFactories = actionFactories(context, NotificationController.Unavailable),
+        actionFactories = actionFactories(
+            context,
+            AlarmManagerScheduler(context),
+            RuleRunnerHandle(),
+            NotificationController.Unavailable,
+        ),
     )
 
     private fun rule(trigger: TriggerNode) = Rule(

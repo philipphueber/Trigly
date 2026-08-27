@@ -64,7 +64,7 @@ class SetVolumeAction(
 
         return try {
             audio.setStreamVolume(stream.streamType, index, 0)
-            ActionResult.Success
+            ActionResult.Success()
         } catch (denied: SecurityException) {
             // Dropping a stream to zero counts as entering Do Not Disturb, which
             // needs notification-policy access.
@@ -166,7 +166,7 @@ class SetRingerModeAction(
 
         return try {
             audio.ringerMode = mode.mode
-            ActionResult.Success
+            ActionResult.Success()
         } catch (denied: SecurityException) {
             ActionResult.Failure(
                 "Switching to ${mode.configValue} needs Do Not Disturb access.",

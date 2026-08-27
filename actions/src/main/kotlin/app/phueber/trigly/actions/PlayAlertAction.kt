@@ -389,7 +389,7 @@ class PlayAlertAction(
 
             when (stop) {
                 is AlertStop.Unwatchable -> ActionResult.Failure(stop.reason)
-                else -> ActionResult.Success
+                else -> ActionResult.Success()
             }
         } catch (failure: Exception) {
             // A bad custom URI, an unreadable file, a codec the device lacks.

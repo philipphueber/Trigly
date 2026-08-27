@@ -126,6 +126,150 @@ class AvailableVariablesTest {
         assertFalse(onlyOne.spec.alwaysPresent)
     }
 
+    /**
+     * Two leaves of one type share one namespace, per `docs/variables.md`
+     * section 3: whichever of them fires fills `{{trigger.key}}`. There is
+     * nothing here for the type-qualified form to say that the shared form does
+     * not, because a person still cannot tell the two leaves apart by type, so
+     * it is not offered at all.
+     */
+    @Test
+    fun `two leaves of the same type offer it once under trigger scope, not type-qualified`() {
+        val tree = all(one("battery_level"), one("battery_level"))
+
+        val available = availableVariables(tree) { type ->
+            if (type == "battery_level") listOf(spec("level")) else emptyList()
+        }
+
+        assertEquals(
+            1,
+            available.count { it.scope == VariableScope.TRIGGER && it.spec.key == "level" },
+        )
+        assertTrue(available.none { it.scope == "battery_level" })
+    }
+
+    /**
+     * The type-qualified form always forces `alwaysPresent = false`, per
+     * [availableVariables]'s KDoc. A duplicated type is only ever offered
+     * under the shared `trigger` scope, so that forcing never applies to it.
+     * What decides the shared entry's mark is only ever the declaration itself.
+     */
+    @Test
+    fun `a key only sometimes present stays that way when its type is duplicated`() {
+        val tree = all(one("bluetooth_connected"), one("bluetooth_connected"))
+
+        val available = availableVariables(tree) { type ->
+            if (type == "bluetooth_connected") listOf(spec("name", alwaysPresent = false))
+            else emptyList()
+        }
+        val shared = available.single {
+            it.scope == VariableScope.TRIGGER && it.spec.key == "name"
+        }
+
+        assertFalse(shared.spec.alwaysPresent)
+    }
+
+    // --- availableActionOutputs --------------------------------------------------------
+
+    /**
+     * The declarations a rule's actions make, for the tests below. Two
+     * producing types and one that produces nothing, which is what almost
+     * every action is.
+     */
+    private fun actionDeclarations(type: String): List<VariableSpec> = when (type) {
+        "set_variable" -> listOf(spec("value"))
+        "set_rule_enabled" -> listOf(spec("enabled"))
+        else -> emptyList()
+    }
+
+    @Test
+    fun `the first action has no earlier action to read from`() {
+        val types = listOf("set_variable", "post_notification")
+
+        val available = availableActionOutputs(types, index = 0, ::actionDeclarations)
+
+        assertEquals(emptyList<ScopedVariable>(), available)
+    }
+
+    @Test
+    fun `an action is offered what the action above it produces`() {
+        val types = listOf("set_variable", "post_notification")
+
+        val available = availableActionOutputs(types, index = 1, ::actionDeclarations)
+
+        assertEquals(VariableScope.ACTION, available.single().scope)
+        assertEquals("value", available.single().spec.key)
+    }
+
+    /**
+     * The dead end this function exists to prevent. A reference to an action
+     * further down the list resolves absent on every firing, because the
+     * engine grows [ActionOutputs] as each action returns.
+     */
+    @Test
+    fun `an action is not offered what a later action produces`() {
+        val types = listOf("post_notification", "set_variable")
+
+        val available = availableActionOutputs(types, index = 0, ::actionDeclarations)
+
+        assertTrue(available.none { it.spec.key == "value" })
+    }
+
+    /**
+     * An earlier action running is not the same as it producing: it can fail
+     * first, and `set_variable`'s clear mode succeeds while storing nothing.
+     * So the mark is forced off however the declaration reads.
+     */
+    @Test
+    fun `an action output is never marked always present`() {
+        val types = listOf("set_variable", "post_notification")
+
+        val available = availableActionOutputs(types, index = 1) { type ->
+            if (type == "set_variable") listOf(spec("value", alwaysPresent = true))
+            else emptyList()
+        }
+
+        assertFalse(available.single().spec.alwaysPresent)
+    }
+
+    @Test
+    fun `one producing type above is offered under action scope only`() {
+        val types = listOf("set_variable", "post_notification", "toast")
+
+        val available = availableActionOutputs(types, index = 2, ::actionDeclarations)
+
+        assertTrue(available.any { it.scope == VariableScope.ACTION && it.spec.key == "value" })
+        assertTrue(available.none { it.scope == "set_variable" })
+    }
+
+    @Test
+    fun `two producing types above are also offered type-qualified`() {
+        val types = listOf("set_variable", "set_rule_enabled", "post_notification")
+
+        val available = availableActionOutputs(types, index = 2, ::actionDeclarations)
+
+        assertTrue(available.any { it.scope == VariableScope.ACTION && it.spec.key == "value" })
+        assertTrue(available.any { it.scope == VariableScope.ACTION && it.spec.key == "enabled" })
+        assertTrue(available.any { it.scope == "set_variable" && it.spec.key == "value" })
+        assertTrue(available.any { it.scope == "set_rule_enabled" && it.spec.key == "enabled" })
+    }
+
+    /**
+     * Two earlier actions of one type collapse to one type, so the qualified
+     * form is not offered: the engine keeps the most recent value per key, so
+     * neither form can say which of the two is meant. The same call
+     * `availableVariables` makes for two trigger leaves of one type.
+     */
+    @Test
+    fun `two actions of the same type above are offered under action scope only`() {
+        val types = listOf("set_variable", "set_variable", "post_notification")
+
+        val available = availableActionOutputs(types, index = 2, ::actionDeclarations)
+
+        assertEquals(1, available.size)
+        assertEquals(VariableScope.ACTION, available.single().scope)
+    }
+
     // --- variableProblems ---------------------------------------------------------------
 
     @Test
@@ -178,6 +322,44 @@ class AvailableVariablesTest {
             emptyList<String>(),
             variableProblems("Trip {{app.trip_count}}", available),
         )
+    }
+
+    /**
+     * The two halves together, which is what the editor actually asks. Before
+     * `availableActionOutputs` existed, `{{action.value}}` was a name nobody
+     * offered, so save-time validation refused every field that read an
+     * earlier action's output. That made the whole action-output feature
+     * unreachable from the editor while the engine resolved it correctly.
+     */
+    @Test
+    fun `a reference to an earlier action's output is not a problem`() {
+        val available = availableVariables(null) { emptyList() } +
+            availableActionOutputs(
+                listOf("set_variable", "post_notification"),
+                index = 1,
+                ::actionDeclarations,
+            )
+
+        assertEquals(
+            emptyList<String>(),
+            variableProblems("Now {{action.value}}", available),
+        )
+    }
+
+    /** And the same reference from the action above it is still refused. */
+    @Test
+    fun `a reference to a later action's output is a problem`() {
+        val available = availableVariables(null) { emptyList() } +
+            availableActionOutputs(
+                listOf("post_notification", "set_variable"),
+                index = 0,
+                ::actionDeclarations,
+            )
+
+        val problems = variableProblems("Now {{action.value}}", available)
+
+        assertEquals(1, problems.size)
+        assertTrue(problems.single().contains("{{action.value}}"))
     }
 
     /** Being lenient about app scope must not make anything else lenient. */

@@ -129,6 +129,28 @@ class RuleEditorViewModel(
                 state.appVariables
         }
 
+    /**
+     * What the action at [index] can read: [availableVariables] plus what the
+     * actions before it produce. See
+     * [app.phueber.trigly.core.availableActionOutputs].
+     *
+     * Per action rather than once per screen, because the answer genuinely
+     * differs down the list: the first action has no earlier action to read
+     * from, and the last can read every producing one above it. A single list
+     * for the whole editor would have to pick between offering the first
+     * action names that can never resolve and hiding from the last action
+     * names that always can.
+     *
+     * Read from the live draft, the same as [availableVariables], so adding,
+     * removing or reordering an action changes what the ones below it are
+     * offered without anything having to invalidate a cache.
+     */
+    fun availableVariablesForAction(index: Int): List<ScopedVariable> =
+        availableVariables + registry.availableActionOutputs(
+            _state.value.draft.actions.map { it.type },
+            index,
+        )
+
     init {
         load()
         // App scope is collected once, for the life of this ViewModel, rather
@@ -517,7 +539,11 @@ class RuleEditorViewModel(
         // that could not resolve `{{app.something}}` because this list forgot
         // app scope would be the sample path silently narrower than the save
         // path it is supposed to stand in for.
-        val lookup = SampleLookup(availableVariables)
+        // Per index, not the screen-wide list: an action that reads
+        // `{{action.value}}` from the one above it has to resolve to that
+        // action's declared sample here, or a test run would report a
+        // reference the real firing resolves without trouble as unfillable.
+        val lookup = SampleLookup(availableVariablesForAction(index))
         val resolvedConfig = spec.config.toMutableMap()
         var readsAVariable = false
         for ((key, encoding) in registry.substitutionsFor(spec)) {
@@ -637,9 +663,20 @@ class RuleEditorViewModel(
             val label = triggerLabel(spec, index, leaves.size)
             variableProblem(spec, available)?.let { return "$label: $it" }
         }
+        // An action gets the trigger tree's variables *and* what the actions
+        // above it produce, which is why this is not the one `available` list
+        // the leaves share. A trigger is never offered an action's output: a
+        // trigger's configuration decides whether the rule runs at all, so
+        // there is no earlier action for it to have read from. Checked against
+        // `rule.actions`, the list about to be saved, so a reference that only
+        // resolved before an action was moved or deleted is refused here
+        // rather than failing on every firing afterwards.
+        val actionTypes = rule.actions.map { it.type }
         rule.actions.forEachIndexed { index, spec ->
             val label = "${registry.displayNameOf(spec.type)} (action ${index + 1})"
-            variableProblem(spec, available)?.let { return "$label: $it" }
+            val forThisAction =
+                available + registry.availableActionOutputs(actionTypes, index)
+            variableProblem(spec, forThisAction)?.let { return "$label: $it" }
         }
 
         return null
