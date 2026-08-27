@@ -1,5 +1,10 @@
 # Variables
 
+**Looking for what the syntax is, rather than why it is that?**
+`docs/expressions.md` is the reference: every scope, every write mode, every
+comparison, and the whole expression language with worked examples. This file is
+the design record behind it.
+
 **Status: phases 1, 2, 4 and 5 are built. Phase 3 is not.** Phase 4 is numbered
 after phase 3 because it was not planned here at all, and it did not wait for
 the phase it follows: see section 15. `docs/actions.md`
@@ -845,7 +850,7 @@ Three things landed together, because each is most of the value of the others:
 
 - **`set_variable`'s evaluate mode.** A computed value rather than a copied or
   an accumulated one: `{{app.count}} + 1`, `upper({{trigger.name}})`,
-  `{{battery.level}} < 20 ? "low" : "ok"`.
+  `{{battery_level.level}} < 20 ? "low" : "ok"`.
 - **`run_rule`.** One rule runs another rule's actions, and only while an
   optional condition holds. The target's own trigger and its on/off switch are
   not consulted, so a rule kept switched off becomes something close to a

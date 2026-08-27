@@ -31,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.core.net.toUri
+import app.phueber.trigly.actions.declaredKeptButtons
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ComponentSpec
 import app.phueber.trigly.core.ControllerLivenessProbe
@@ -187,12 +188,27 @@ class MainActivity : ComponentActivity() {
                     allRules.map { RuleChoice(it.rule.id, it.rule.name, it.rule.enabled) }
                 }
 
+                // The names "Press a kept button" can be pointed at. Two halves:
+                // what the rules declare, which is derived here and changes only
+                // when a rule does, and what is kept in this process right now,
+                // which the reader asks for each time the dialog opens.
+                // Remembered so the provided lambda stays the same object across
+                // recomposition — a static local re-provided with a fresh value
+                // invalidates everything under it.
+                val declaredKept = remember(allRules) {
+                    declaredKeptButtons(allRules.map { it.rule })
+                }
+                val keptButtonReader: () -> List<KeptButton> = remember(declaredKept) {
+                    { keptButtons(container.notifications.capturedNames(), declaredKept) }
+                }
+
                 CompositionLocalProvider(
                     LocalInstalledApps provides installedApps,
                     LocalDeviceSounds provides deviceSounds,
                     LocalPairedDevices provides pairedDevices,
                     LocalActiveNotifications provides container.notifications::activeNotifications,
                     LocalRules provides ruleChoices,
+                    LocalKeptButtons provides keptButtonReader,
                 ) {
                     // The page, as a Surface, for the content colour rather than
                     // for the fill — `window_background` in `res/values*` already

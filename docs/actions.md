@@ -291,6 +291,31 @@ mattering, and `docs/todo.md`'s R1 covers the one cause nothing can fix. The
 action says so in its own warning, and pressing a name that is not there names
 that cause specifically rather than blaming the notification.
 
+**The name is the hard part of the pair, so the editor answers it.** The name
+lives in one action and is used by another, usually in a different rule, and
+before this the only way to press the right button was to remember what was
+typed somewhere else. "Press a kept button" therefore offers a chooser beside
+its box, over two lists: what is kept in this process right now, and what the
+rules declare they keep. Both are needed and neither is enough. The live list
+proves pressing will work this minute and is empty until the keeping rule has
+run; the declared list is knowable while the rule is still being built, which is
+exactly when somebody is typing the name.
+
+It stays a box with a chooser rather than becoming a picker of its own kind,
+which is what `AppPackage` and `SoundUri` are. Two reasons, and each on its own
+would be enough: the field takes `{{action.captured}}`, so typing has to remain
+possible, and a name can be one that nothing has kept yet. The mechanism is
+`ConfigField.Text.suggests`, which is deliberately a closed enum: every value is
+a promise that the editor knows how to answer it.
+
+A name that is a `{{...}}` reference is not offered as a choice. It is an
+instruction to work a name out at run time rather than a name, and offering it
+would put a reference to one rule's outputs into a rule that has none of them.
+On screen the row leads with where the name comes from and shows the name
+underneath, because a picker row uppercases its headline and a variable name is
+compared exactly: a row reading `BEDTIME_OFF` would name something that does not
+exist.
+
 Eight kept buttons, oldest evicted. Nothing kept is read unless a rule names it,
 so an unbounded store would be a slow leak fed by a rule firing all day.
 
@@ -570,7 +595,7 @@ were considered:
 
 - **Conditions only**: an optional predicate on a rule, evaluated against the
   trigger payload, plus `TriggerEvent` values usable in action config
-  (`{{battery.level}}`). Small, covers most real automations, no execution model
+  (`{{battery_level.level}}`). Small, covers most real automations, no execution model
   needed.
 - **A scripting model**: variables, branching, loops. Powerful, and it turns
   Trigly into a language runtime with everything that implies for persistence,

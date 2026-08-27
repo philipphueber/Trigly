@@ -5,6 +5,9 @@ import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.NotificationController
+import app.phueber.trigly.core.Rule
+import app.phueber.trigly.core.Substitution
+import app.phueber.trigly.core.TextSuggestions
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.VariableKind
 import app.phueber.trigly.core.VariableSpec
@@ -185,6 +188,51 @@ class CaptureNotificationButtonActionFactory(
 }
 
 /**
+ * One name a rule keeps a button under, and the rule that keeps it.
+ *
+ * [ruleName] is half the answer, not decoration: two rules can keep two
+ * different buttons under names that read alike, and "bedtime_off, kept by
+ * Evening" is what makes the right one pickable a month later.
+ */
+data class DeclaredKeptButton(val name: String, val ruleName: String)
+
+/**
+ * Every name the rules in [rules] keep a button under, in rule order and
+ * without repeats.
+ *
+ * **Why the editor needs this at all.** A kept button lives in memory, so
+ * [NotificationController.capturedNames] answers "what is kept right now",
+ * which is empty until the keeping rule has run and empty again after Trigly
+ * restarts. That is exactly the state somebody is in while they build the
+ * pressing rule. The names the rules *declare* are knowable at any time, and
+ * together the two lists cover both "it is kept, here it is" and "nothing is
+ * kept yet, but this is the name you chose".
+ *
+ * A name that is a `{{...}}` reference is skipped rather than offered. It is not
+ * a name; it is an instruction to work one out at run time, and offering it as a
+ * choice would put a reference to *this* rule's outputs into a rule that has
+ * none of them.
+ *
+ * Pure, and in this file rather than in the UI, because the config key and the
+ * action type are declared here. A copy of either in `:ui` would be a second
+ * spelling that drifts the day a key is renamed.
+ */
+fun declaredKeptButtons(rules: List<Rule>): List<DeclaredKeptButton> {
+    val seen = mutableSetOf<String>()
+    val found = mutableListOf<DeclaredKeptButton>()
+    for (rule in rules) {
+        for (action in rule.actions) {
+            if (action.type != CaptureNotificationButtonAction.TYPE) continue
+            val raw = action.config[CaptureNotificationButtonAction.CONFIG_NAME].orEmpty()
+            val name = normalizeVariableName(raw)
+            if (name.isEmpty() || variableNameProblem(name) != null) continue
+            if (seen.add(name)) found += DeclaredKeptButton(name, rule.name)
+        }
+    }
+    return found
+}
+
+/**
  * Presses a button [CaptureNotificationButtonAction] kept earlier.
  *
  * Needs no notification access of its own and no notification on screen: the
@@ -222,9 +270,14 @@ class PressCapturedButtonActionFactory(
             // Takes a reference on purpose: the capturing action reports the
             // name it used as an output, so a rule can pass it along rather
             // than repeating a literal that could drift from the other rule's.
-            substitution = app.phueber.trigly.core.Substitution.TEXT,
+            substitution = Substitution.TEXT,
+            // The reason this is not a picker of its own kind: the value can be
+            // a reference, and it can name a button nothing has kept yet, so
+            // typing has to stay possible. See [ConfigField.Text.suggests].
+            suggests = TextSuggestions.KEPT_BUTTON_NAMES,
             help = "The name the other rule kept the button under, such as " +
-                "bedtime_off. This can also be a variable, for example " +
+                "bedtime_off. Use the chooser to see what is kept now and what " +
+                "your rules keep, or type a variable such as " +
                 "{{action.captured}}.",
         ),
     )

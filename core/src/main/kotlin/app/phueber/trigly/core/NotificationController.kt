@@ -101,6 +101,22 @@ interface NotificationController {
         ActionResult.Failure("This build cannot press a kept notification button.")
 
     /**
+     * The names something is currently kept under, newest last.
+     *
+     * For the editor, not for a rule. "Press a kept button" takes a name that was
+     * typed into a different action, usually in a different rule, and before this
+     * the only way to get it right was to remember it. A rule never needs this:
+     * [pressCaptured] already answers "nothing is kept under that name" in the
+     * one place where that answer matters.
+     *
+     * Empty is an honest and common answer, which is why it is not a failure.
+     * Nothing is kept until the keeping rule has run, and nothing survives a
+     * restart of Trigly, so the editor has to be able to say "nothing yet"
+     * without that reading as a fault.
+     */
+    fun capturedNames(): List<String> = emptyList()
+
+    /**
      * No-op implementation for assembling the app before, or without, the
      * listener service. Reports a clear failure rather than pretending to work.
      */
@@ -123,5 +139,7 @@ interface NotificationController {
 
         override fun pressCaptured(name: String): ActionResult =
             ActionResult.Failure("Notification access is not available.")
+
+        override fun capturedNames(): List<String> = emptyList()
     }
 }

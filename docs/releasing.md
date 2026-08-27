@@ -184,5 +184,152 @@ The first must print a certificate: "DOES NOT VERIFY" is the unsigned outcome
 described above. The second must show the `versionCode` and `versionName` the
 build file declares.
 
-The full test gate in `CLAUDE.md` (including connected tests on two API levels)
-is a precondition for tagging, not an afterthought to it.
+## Smoke testing the release build
+
+Every instrumented test in this project runs on the **debug** build. R8 and
+`isShrinkResources` are therefore never exercised by the suite, and a minified
+APK that crashes on launch passes the whole pre-merge gate. That is the reason
+this section exists: the release build gets a check by hand, and that check is
+part of cutting a release rather than an optional extra.
+
+Do the static half first. It costs about a minute, and it names a cause instead
+of only observing a crash: a missing class in `classes.dex` and a crash on
+launch are the same fault, but the first one says which class.
+
+    APK=dist/trigly-<version>.apk
+
+**1. Did R8 keep the components the manifest names?** They are instantiated by
+the platform, by name, so a rename here is fatal and silent until launch.
+
+    unzip -o -q $APK "classes*.dex" -d /tmp/dex
+    strings /tmp/dex/*.dex \
+        | grep -E "EngineService|BootReceiver|TriglyApp|MainActivity"
+
+Every dex file, not `classes.dex` alone. 0.0.11 fits in one, and the day it does
+not, a check that reads only the first file reports a missing class that is in the
+second one.
+
+**2. Did the stored `type` strings survive?** This is the check that matters
+most, because a rule names its trigger and its action by string, and R8 cannot
+follow a string. Factory classes get renamed, which is correct and expected. The
+strings must not go. Check the whole set rather than a sample, since it costs the
+same:
+
+    grep -rhoE 'const val TYPE = "[a-z0-9_]+"' triggers/src/main actions/src/main \
+        | grep -oE '"[a-z0-9_]+"' | tr -d '"' | sort -u > /tmp/types.txt
+    strings /tmp/dex/*.dex | sed -e 's/^[[:blank:]]*//' | sort -u > /tmp/dex.txt
+    comm -23 /tmp/types.txt /tmp/dex.txt
+
+Empty output is the pass. 0.0.11 declares 61 of these strings, and all 61 are in
+the APK.
+
+**Strip the line before you anchor a match to it.** A dex file stores each string
+with a length prefix byte, and `strings` keeps that byte on the line when the
+byte happens to be printable. A type string of exactly nine characters has length
+`0x09`, which is a tab, so `grep -E "^auto_sync$"` finds nothing and reads as "R8
+dropped it". `auto_sync`, `gps_state`, `nfc_state` and `set_alarm` are all nine
+characters long, and all four are present. The `sed` above is what makes the
+comparison honest. The same byte is why check 1 does not anchor either: a class
+name arrives as `%Lapp/phueber/trigly/ui/EngineService;`, prefix included.
+
+**3. Did R8 delete an app class outright?** In `usage.txt` a line **with** a
+trailing colon means the class was kept and only some members went. A line
+without one is a full removal.
+
+    grep -E "^app\.phueber\.trigly" ui/build/outputs/mapping/release/usage.txt \
+        | grep -v ":$"
+
+Most of what this prints is correct, and reading it needs the list of shapes that
+hold nothing at runtime:
+
+- an `object` or a `$Companion` that holds only `const val`s, because the
+  compiler puts the value at every use and leaves the holder empty. This is the
+  common one and it looks alarming: `ScreenContentTrigger` is removed from every
+  release build, while `ScreenContentTriggerFactory` and the string
+  `screen_content` both stay. Check 2 is what covers this case, and it is why
+  check 2 exists;
+- `*Kt` file facades, `R` classes, and a subclass R8 merges into its parent;
+- an interface's `$DefaultImpls`, once every implementation in the app overrides
+  the default. The default body then only serves the test fakes, which are not in
+  this build;
+- an in memory implementation of a store or a repository, for the same reason:
+  the app builds the Room one, and only a test builds the other.
+
+Anything outside those shapes needs an explanation before the tag.
+
+**4. Did `shrinkResources` keep what only code refers to?** A resource named
+from Kotlin and from no layout is the one it can drop. The engine's notification
+is all of that: its channel strings, its plural, and its icon.
+
+    $ANDROID_HOME/build-tools/<ver>/aapt2 dump resources $APK \
+        | grep -E "engine_|ic_notification"
+
+Six lines in 0.0.11: `ic_notification`, `engine_watching`, and the four
+`engine_` strings. A dropped one costs the foreground service its notification,
+which the platform then refuses, which stops every rule.
+
+Then the dynamic half, on a device or an emulator image.
+
+**5. It starts.**
+
+    adb install -r $APK
+    adb logcat -c
+    adb shell am start -n app.phueber.trigly/app.phueber.trigly.ui.MainActivity
+
+`pidof app.phueber.trigly` must be non-empty, the activity must be the
+`ResumedActivity`, and `logcat` must hold no `FATAL`, `ClassNotFound`,
+`NoSuchMethod` or `NoClassDefFound`.
+
+**6. It starts itself after a restart of the phone.** This one needs a real
+`adb reboot`. `BOOT_COMPLETED` is a protected broadcast, so `am broadcast`
+cannot send it; a release build is not debuggable, so `run-as` cannot seed a
+rule; and `EngineService` is not exported, so `am start-foreground-service` is
+refused. Reboot, and read the two lines the platform prints itself:
+
+    Start proc ...:app.phueber.trigly for broadcast {.../.ui.BootReceiver}
+    Background started FGS: Allowed [... cmp=.../.ui.EngineService; code:BOOT_COMPLETED ...]
+
+Together they prove the receiver resolved under R8, the service was built, and
+`startForeground` accepted its type. With no rule enabled the service then stops
+itself, so an empty `pidof` afterwards is the correct outcome. The absence of
+those two log lines is the failure, not the absence of a process.
+
+**7. Exercise a rule end to end, through the UI.** Make one rule with one
+trigger and one action, switch it on, and press Test. A factory that R8 dropped
+shows up here and nowhere in the static checks, because the editor resolves a
+type string at the moment you pick it.
+
+**8. The upgrade, when the database version changed.** Install the **published**
+APK of the release before this one, not the new one, and use it: make a rule,
+and write a saved value. Then install the new APK over it.
+
+    adb install -r dist/trigly-<previous>.apk
+    # make a rule and a saved value in the app
+    adb install -r $APK
+
+The rule must still be there and still be on, the saved value must still hold
+what it held, and `logcat` must hold no SQLite, foreign key or migration error.
+Then use whatever the new schema version added, so that the new tables are
+written on a **migrated** database and not only on one Room created from
+scratch. `MigrationTest` covers the migration itself; this covers the migration
+plus everything the app does afterwards.
+
+`dist/` keeps past releases, which is why the previous APK is at hand. Say in
+the release notes which API level the upgrade ran on. A migration that was
+checked on one image and no other is worth stating as exactly that.
+
+**Never `am force-stop` during any of this.** A force-stopped package receives
+no broadcast at all until a person launches it, and `BOOT_COMPLETED` carries
+`FLAG_EXCLUDE_STOPPED_PACKAGES`. The reboot check then fails with no process, no
+service and no crash log, which reads as a broken receiver. Launch the activity
+instead.
+
+What not to misread: an emulator image prints its own unrelated warnings, and
+the artifact is only the release build if the filename has no `-unsigned`
+suffix. A smoke test of the wrong file proves nothing.
+
+Two gates come before a tag, and they cover different things. The full test
+gate in `CLAUDE.md`, connected tests on two API levels included, covers the
+debug build and the code. The smoke test above covers the artifact people
+actually install. Neither is an afterthought to the tag, and neither replaces
+the other.

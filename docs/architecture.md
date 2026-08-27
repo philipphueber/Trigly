@@ -1090,6 +1090,17 @@ It follows that "keep a button into a variable" is not possible in the sense it
 sounds. What a variable can carry is the *name*, which is why the keeping action
 reports it as `{{action.captured}}`: the name is a string, the token is not.
 
+**The editor reads the captures, and that is why
+`NotificationController.capturedNames` exists.** It is the only method on that
+interface which no rule calls. A rule never needs it: `pressCaptured` already
+answers "nothing is kept under that name" in the one place where the answer
+matters. The editor does need it, because the name it is asking a person to type
+was typed into a different action, and `:ui` merges it with the names the rules
+declare, from `declaredKeptButtons`. That function is in `:actions` rather than
+in `:ui` because the action type and the config key are declared there, and a
+copy of either in the UI would be a second spelling that drifts. Empty is an
+ordinary answer from both halves, not a fault, so neither is a failure type.
+
 **Why an object rather than state on the controller.**
 `ListenerNotificationController` deliberately holds nothing of its own and is
 constructed wherever it is needed, so it stays correct across the unbind and

@@ -9,9 +9,11 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.compose.runtime.CompositionLocalProvider
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.ScopedVariable
 import app.phueber.trigly.core.Substitution
+import app.phueber.trigly.core.TextSuggestions
 import app.phueber.trigly.core.VariableScope
 import app.phueber.trigly.core.VariableSpec
 import org.junit.Assert.assertEquals
@@ -45,6 +47,18 @@ class SubstitutableTextFieldEditorTest {
         key = "filter",
         label = "Contains",
     )
+
+    /** As `press_captured_button` declares it: a reference is still typeable. */
+    private val keptButtonField = ConfigField.Text(
+        key = "name",
+        label = "Kept as",
+        required = true,
+        substitution = Substitution.TEXT,
+        suggests = TextSuggestions.KEPT_BUTTON_NAMES,
+    )
+
+    /** What the chooser's own button says. See [suggestionWording]. */
+    private val chooserLabel = "Choose a kept button"
 
     /** The first sentence of [VariableRow]'s mark for `alwaysPresent = false`. */
     private val sometimesEmptyMark = "This value is sometimes empty."
@@ -98,20 +112,23 @@ class SubstitutableTextFieldEditorTest {
         value: String?,
         variables: List<ScopedVariable> = listOf(titleVariable, triggerTypeVariable),
         describeComponent: (String) -> String = { it },
+        kept: List<KeptButton> = emptyList(),
     ) {
         composeRule.setContent {
             TriglyTheme {
                 var text by remember { mutableStateOf(value) }
-                ConfigFieldEditor(
-                    field = field,
-                    value = text,
-                    onValueChange = {
-                        edits += it
-                        text = it
-                    },
-                    availableVariables = variables,
-                    describeComponent = describeComponent,
-                )
+                CompositionLocalProvider(LocalKeptButtons provides { kept }) {
+                    ConfigFieldEditor(
+                        field = field,
+                        value = text,
+                        onValueChange = {
+                            edits += it
+                            text = it
+                        },
+                        availableVariables = variables,
+                        describeComponent = describeComponent,
+                    )
+                }
             }
         }
     }
@@ -159,6 +176,120 @@ class SubstitutableTextFieldEditorTest {
 
         composeRule.onNodeWithText(triggerTypeVariable.spec.label).assertIsDisplayed()
         composeRule.onNodeWithText(sometimesEmptyMark, substring = true).assertDoesNotExist()
+    }
+
+    // --- The kept-button chooser -------------------------------------------------------
+
+    @Test
+    fun a_field_that_declares_kept_buttons_offers_the_chooser() {
+        setField(keptButtonField, value = null)
+
+        composeRule.onNodeWithText(chooserLabel, ignoreCase = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun a_field_that_declares_no_source_offers_no_chooser() {
+        setField(substitutableField, value = null)
+
+        composeRule.onNodeWithText(chooserLabel, ignoreCase = true).assertDoesNotExist()
+    }
+
+    /**
+     * Both affordances at once, and they do different jobs: the chooser fills in
+     * a name that exists, the variable picker inserts a reference that works one
+     * out at run time. One replacing the other would take away half the field.
+     */
+    @Test
+    fun the_chooser_sits_beside_the_variable_picker() {
+        setField(keptButtonField, value = null)
+
+        composeRule.onNodeWithText(chooserLabel, ignoreCase = true).assertIsDisplayed()
+        composeRule.onNodeWithText("Insert variable", ignoreCase = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun choosing_a_kept_button_replaces_the_value() {
+        setField(
+            keptButtonField,
+            value = null,
+            kept = listOf(KeptButton("bedtime_off", "Kept now")),
+        )
+
+        composeRule.onNodeWithText(chooserLabel, ignoreCase = true).performClick()
+        composeRule.onNodeWithText("bedtime_off").performClick()
+
+        assertEquals("bedtime_off", edits.last())
+    }
+
+    /**
+     * The whole value, not an insertion at the cursor. A name is the entire
+     * field, so appending to what is already there would produce
+     * `bedtime_offwifi_off` from two picks.
+     */
+    @Test
+    fun choosing_replaces_what_was_there_rather_than_adding_to_it() {
+        setField(
+            keptButtonField,
+            value = "wifi_off",
+            kept = listOf(KeptButton("bedtime_off", "Kept now")),
+        )
+
+        composeRule.onNodeWithText(chooserLabel, ignoreCase = true).performClick()
+        composeRule.onNodeWithText("bedtime_off").performClick()
+
+        assertEquals("bedtime_off", edits.last())
+    }
+
+    /**
+     * The name keeps its own case, because a variable name is compared exactly.
+     * The row's headline is uppercased by [PickerRow]; the name is not, which is
+     * why it is the row's second line.
+     */
+    @Test
+    fun an_offered_name_is_shown_exactly_as_it_is_stored() {
+        setField(
+            keptButtonField,
+            value = null,
+            kept = listOf(KeptButton("bedtime_off", "Kept now")),
+        )
+
+        composeRule.onNodeWithText(chooserLabel, ignoreCase = true).performClick()
+
+        composeRule.onNodeWithText("bedtime_off").assertIsDisplayed()
+    }
+
+    @Test
+    fun the_chooser_says_where_each_name_comes_from() {
+        setField(
+            keptButtonField,
+            value = null,
+            kept = listOf(
+                KeptButton("bedtime_off", "Kept now"),
+                KeptButton("wifi_off", "Kept by the rule Evening"),
+            ),
+        )
+
+        composeRule.onNodeWithText(chooserLabel, ignoreCase = true).performClick()
+
+        // Uppercased by PickerRow, which is why both of these ignore case.
+        composeRule.onNodeWithText("Kept now", ignoreCase = true).assertIsDisplayed()
+        composeRule.onNodeWithText("Kept by the rule Evening", ignoreCase = true)
+            .assertIsDisplayed()
+    }
+
+    /**
+     * Empty is ordinary, not a fault: nothing is kept until the keeping rule has
+     * run, and nothing survives a restart. So the dialog has to say why and say
+     * that typing the name is allowed.
+     */
+    @Test
+    fun an_empty_chooser_explains_both_reasons() {
+        setField(keptButtonField, value = null, kept = emptyList())
+
+        composeRule.onNodeWithText(chooserLabel, ignoreCase = true).performClick()
+
+        composeRule.onNodeWithText("No name to offer yet", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("type the name yourself", substring = true).assertIsDisplayed()
     }
 
     @Test

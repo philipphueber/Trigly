@@ -26,8 +26,13 @@ Kotlin, and it uses Jetpack Compose for its UI.
 >   stops Trigly during the wait, the wait comes back only when Trigly is allowed
 >   to run in the background. The rules screen asks for that. Without it, the rule
 >   stays quiet until something else starts Trigly.
-> - **Nothing tests the release build.** The tests cover the debug build. The
->   release build shrinks and renames code, and no test exercises the result.
+> - **No test suite covers the release build.** The tests run on the debug build,
+>   and the build you install shrinks and renames code. So each release is smoke
+>   tested by hand on a device instead: it starts, it starts itself again after a
+>   restart of the phone, a rule runs, and the rules and the saved values written
+>   by the release before it survive the update. `docs/releasing.md` holds the
+>   steps and the result is named in the release notes. A suite would cover more
+>   than a smoke test can, and there is not one yet.
 > - **Some triggers need Trigly to be running.** Android can stop an app that
 >   sits idle. Android starts Trigly again for a Bluetooth connect, for a
 >   notification, for an accessibility event and after a restart of the phone, so
@@ -254,7 +259,10 @@ Trigly's actions cover:
 - HTTP requests, for webhooks and home automation.
 
 `docs/triggers.md` and `docs/actions.md` list every trigger and action,
-with its Android API, required permission, and known pitfalls. These
+with its Android API, required permission, and known pitfalls.
+`docs/expressions.md` is the complete reference for variables: every scope you
+can read, every mode you can write with, every comparison, and every operator
+and function the expression language has, with worked examples. These
 documents also list the ones Trigly does not build on purpose, and the ones
 current Android versions do not permit at all.
 
@@ -292,8 +300,9 @@ in the code:
   also does not run a script that you write. The expression language
   computes one value. It has no loop and no function that you can define,
   because a rule is a file that you can send to another person, and that
-  file must not carry program code onto their phone. `docs/variables.md`
-  gives the reasons in full.
+  file must not carry program code onto their phone. `docs/expressions.md`
+  lists everything the language does do, and `docs/variables.md` gives the
+  reasons in full.
 - **Location needs "Allow all the time".** Trigly reads your position while
   it runs in the background. Android permits this only with that setting.
   With any other setting, the `location` trigger and the same component's
