@@ -157,7 +157,7 @@ fun addToVariable(stored: String?, addend: String): VariableAddOutcome {
  *
  * `evaluate` is what makes a *computed* value possible, rather than just a
  * copied or accumulated one: `{{app.count}} + 1`, `upper({{trigger.name}})`,
- * `{{battery.level}} < 20 ? "low" : "ok"`. The value field carries the
+ * `{{battery_level.level}} < 20 ? "low" : "ok"`. The value field carries the
  * expression source, already substituted into literals by
  * [Substitution.EXPRESSION] before this action ever sees it, and
  * [evaluateExpression] in `:core` does the rest. See `Expression.kt` for the

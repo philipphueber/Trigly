@@ -570,7 +570,7 @@ were considered:
 
 - **Conditions only**: an optional predicate on a rule, evaluated against the
   trigger payload, plus `TriggerEvent` values usable in action config
-  (`{{battery.level}}`). Small, covers most real automations, no execution model
+  (`{{battery_level.level}}`). Small, covers most real automations, no execution model
   needed.
 - **A scripting model**: variables, branching, loops. Powerful, and it turns
   Trigly into a language runtime with everything that implies for persistence,

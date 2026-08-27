@@ -66,5 +66,10 @@ On-device state leaks between runs — granted permissions, a registered
 notification listener, a paired Bluetooth device — so a test that depends on
 leftover state passes in isolation and on a first run, and fails on the second.
 
+The suite runs on the **debug** build only, so it never sees R8. The release
+build is checked by hand instead, and `docs/releasing.md` holds that smoke test.
+It belongs to cutting a release, not to a merge, and it is a precondition for a
+tag.
+
 Report outcomes faithfully. If a test fails, say so and show the output; if a
 step was skipped, say that.

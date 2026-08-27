@@ -450,11 +450,62 @@ time. That is worth something and it is not worth much. T2 is the strong half
 of this item, and T2 has landed. So this field now buys only the move of the
 message from first run to import time. Judge it on that alone.
 
-### T12 Nothing tests the release build
+### T12 No suite tests the release build
 
-`README.md:25` says it: the tests cover the debug build, and the release build
-shrinks and renames code. R8 renaming is unexercised. This is already recorded
-as deferred work after 0.0.1.
+The tests run on the debug build, and the build people install shrinks and
+renames code. R8 renaming is unexercised by anything automated. This was
+recorded as deferred work after 0.0.1 and it is still open.
+
+What has changed is that the gap is no longer unattended. `docs/releasing.md`
+now holds a smoke test of the artifact, and it is a precondition for a tag: four
+static checks of what R8 kept, launch, a reboot, one rule run through the UI,
+and an in place upgrade from the previous published APK. That is what caught the
+boot time loss of location, so it is not a formality.
+
+So judge this item on what a suite would add over that, which is real but
+narrower than it first looks:
+
+- **Every** trigger and action, instead of the one or two a person exercises by
+  hand. This is the strong half. `ConfigSchemaContractTest` already walks every
+  registered factory, and it walks it in the debug build only.
+- Repeatability, and a result that does not depend on who cut the release.
+
+The cost is where it gets awkward. A connected run against the release variant
+needs `testBuildType = "release"`, and then the test APK needs signing material
+too, which a contributor without a key cannot supply. That is the same
+constraint the signing section describes, and it argues for a separate opt in
+variant rather than a change to what `connectedDebugAndroidTest` means.
+
+Cheaper and worth more than it costs: assert the static half in Kotlin instead
+of in shell. A JVM test can read `classes.dex` from the release APK and check
+that every registered `type` string is still present, which is check 2 of the
+smoke test and the one failure that would break every saved rule at once.
+
+
+### T22 `round`'s second argument is not bounded
+
+`round(number, places)` reads `places` with `intValueExact`, and nothing checks
+the result. Two consequences, found while writing `docs/expressions.md` and
+neither of them is what the language promises:
+
+- `round(1.234, 1.5)` throws `ArithmeticException("Rounding necessary")`, which
+  is not an `ExpressionError`, so it escapes `evaluateExpression`. The engine's
+  per-action `catch (t: Throwable)` turns it into "This action threw
+  ArithmeticException. Rounding necessary". Nothing breaks, and the message
+  names Java rather than naming the field, which every other mistake in this
+  language avoids.
+- `round(1.5, 20000000)` succeeds. It builds a `BigDecimal` with twenty million
+  digits, which took 9 seconds on a desktop with a 256 MB heap. A larger number
+  is worse. `Expression.kt`'s own safety section claims "every expression does a
+  bounded amount of work and returns", and that claim is what this breaks: the
+  bound exists, but it is set by heap size rather than by the language.
+
+The fix is small and belongs with the other two bounds: read `places` as a
+whole number and refuse anything outside a sane range, with an
+`ExpressionOutcome.Failed` naming the argument. A range like -6 to 12 covers
+every use a person reading a value has. It is deliberately not urgent: the
+damage is a slow action and an ugly message, not a wrong value or a crash, and
+only a hand-written expression can reach it.
 
 ---
 
