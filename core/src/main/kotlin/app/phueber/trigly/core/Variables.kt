@@ -3,6 +3,8 @@ package app.phueber.trigly.core
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
 
 /**
  * A named string a rule can read while it runs. See `docs/variables.md`.
@@ -122,13 +124,37 @@ object VariableScope {
      */
     const val ACTION = "action"
 
+    /**
+     * A value this run wrote and only this run can read. Gone when the run
+     * ends, and never written to storage. See [RunScope].
+     *
+     * The scope to reach for when a value is scaffolding rather than state: a
+     * total being built across three actions, a string assembled in two steps.
+     * Its whole life is one firing, so nothing has to clean it up and nothing
+     * can leak it into the next firing or into another rule.
+     */
+    const val LOCAL = "local"
+
+    /**
+     * A value that belongs to one rule, survives its runs, and is invisible to
+     * every other rule.
+     *
+     * This is the scope [APP] was standing in for whenever a name only ever
+     * mattered to one rule. A per-rule counter or cooldown had to be given a
+     * globally unique name and then sat in a list shared with every other
+     * rule's private bookkeeping. Keyed by rule id in storage, so two rules
+     * can both keep a `count` without agreeing on anything, and a deleted rule
+     * takes its values with it.
+     */
+    const val MINE = "mine"
+
     const val EVENT_TYPE = "type"
     const val EVENT_TIME = "time"
     const val EVENT_TIMESTAMP = "timestamp"
     const val RULE_NAME = "name"
     const val RULE_ID = "id"
 
-    val reserved: Set<String> = setOf(TRIGGER, EVENT, RULE, APP, ACTION)
+    val reserved: Set<String> = setOf(TRIGGER, EVENT, RULE, APP, ACTION, LOCAL, MINE)
 
     /**
      * The variables the engine supplies for every event, whatever fired.
@@ -568,19 +594,23 @@ fun Template.substitute(lookup: VariableLookup, encoding: Substitution): Substit
  */
 data class ActionOutputs(
     private val mostRecentByKey: Map<String, String> = emptyMap(),
-    private val byType: Map<String, Map<String, String>> = emptyMap(),
+    private val byInstance: Map<String, Map<String, String>> = emptyMap(),
 ) {
 
     /**
-     * Folds in what one action of [actionType] produced. [outputs] empty
-     * returns this unchanged, which is the fast path for the vast majority of
-     * actions that declare no outputs at all.
+     * Folds in what the action at namespace [instance] produced. [outputs]
+     * empty returns this unchanged, which is the fast path for the vast
+     * majority of actions that declare no outputs at all.
+     *
+     * [instance] is a namespace from [componentInstanceNames], not a type
+     * string, so two actions of one type keep their outputs apart instead of
+     * the second silently replacing the first.
      */
-    fun plus(actionType: String, outputs: Map<String, String>): ActionOutputs {
+    fun plus(instance: String, outputs: Map<String, String>): ActionOutputs {
         if (outputs.isEmpty()) return this
         return ActionOutputs(
             mostRecentByKey = mostRecentByKey + outputs,
-            byType = byType + (actionType to (byType[actionType].orEmpty() + outputs)),
+            byInstance = byInstance + (instance to (byInstance[instance].orEmpty() + outputs)),
         )
     }
 
@@ -592,12 +622,12 @@ data class ActionOutputs(
         ?: VariableValue.Absent("No action earlier in this run has produced '$name'.")
 
     /**
-     * What an earlier action of [type] produced for [name], or null when no
-     * action of that type has run yet, or none of them produced [name]. Null
-     * rather than [VariableValue.Absent], so [EventLookup] can fall through to
-     * its own message when [type] is not an action type at all.
+     * What the action at namespace [instance] produced for [name], or null when
+     * that action has not run yet, or ran and produced nothing named [name].
+     * Null rather than [VariableValue.Absent], so [EventLookup] can fall
+     * through to its own message when [instance] names nothing in this rule.
      */
-    fun value(type: String, name: String): String? = byType[type]?.get(name)
+    fun value(instance: String, name: String): String? = byInstance[instance]?.get(name)
 
     companion object {
         val EMPTY = ActionOutputs()
@@ -638,6 +668,32 @@ class EventLookup(
      * rather than being read once.
      */
     private val actionOutputs: ActionOutputs = ActionOutputs.EMPTY,
+    /**
+     * The namespace of the trigger leaf that actually fired, from
+     * [componentInstanceNames]. Null when the caller has no tree to number,
+     * which is every caller that is not the engine.
+     *
+     * The engine knows this and nothing else does: `startRule` already carries
+     * the fired leaf's path through the merge, because `resolveHolds` needs it.
+     * Numbering the leaves turns that path into the one namespace allowed to
+     * read the payload. Every other leaf namespace is refused, however well
+     * configured it is, because a leaf that did not fire has no payload.
+     *
+     * When null the bare trigger type is treated as the fired instance, which
+     * is what `{{bluetooth_connected.name}}` meant before instances existed.
+     */
+    private val firedTriggerInstance: String? = null,
+    /**
+     * `{{local.*}}`: what this firing has written so far. A snapshot taken
+     * immediately before this action, the same as [appVariables] and for the
+     * same reason. See [RunScope] for where the live values sit.
+     */
+    private val localVariables: Map<String, String> = emptyMap(),
+    /**
+     * `{{mine.*}}`: this rule's own persisted values, read fresh before every
+     * action for the reason [appVariables] is.
+     */
+    private val ruleVariables: Map<String, String> = emptyMap(),
 ) : VariableLookup {
 
     override fun value(ref: VariableRef): VariableValue = when (ref.scope) {
@@ -662,20 +718,46 @@ class EventLookup(
         VariableScope.APP -> appVariables[ref.name]?.let(VariableValue::Present)
             ?: VariableValue.Absent("'${ref.name}' is not set.")
 
+        VariableScope.LOCAL -> localVariables[ref.name]?.let(VariableValue::Present)
+            ?: VariableValue.Absent(
+                "'${ref.name}' has not been set in this run. A run value is gone " +
+                    "when the run ends, so an action before this one has to write it."
+            )
+
+        VariableScope.MINE -> ruleVariables[ref.name]?.let(VariableValue::Present)
+            ?: VariableValue.Absent("'${ref.name}' is not set for this rule.")
+
         VariableScope.ACTION -> actionOutputs.value(ref.name)
 
-        // A trigger type. It reads only when it is the leaf that fired.
-        event.triggerType -> fromPayload(ref.name, event.triggerType)
+        // The leaf that fired, under its own namespace. Numbered by position,
+        // so a rule holding two of one trigger type can say which it means.
+        firedTriggerInstance ?: event.triggerType -> fromPayload(ref.name, ref.scope)
 
-        // An action type. It reads only what an action of that type has
-        // produced so far in this run, whether or not it is the type this
-        // event's trigger happens to share a name with.
+        // An action instance. It reads only what that action produced earlier
+        // in this run, whether or not its namespace looks like a trigger type.
         else -> actionOutputs.value(ref.scope, ref.name)?.let(VariableValue::Present)
-            ?: VariableValue.Absent(
-                "'${ref.scope}' is not what started this rule, and no action of " +
-                    "that name has produced '${ref.name}' yet in this run. " +
-                    "'${event.triggerType}' started this run."
-            )
+            ?: VariableValue.Absent(unavailableScope(ref))
+    }
+
+    /**
+     * Why a namespace gave nothing, said as the different things it can mean.
+     * One message covering all of them would leave the person guessing which
+     * they hit, and they are fixed in different ways: pick a different trigger,
+     * move the action, or correct the name.
+     */
+    private fun unavailableScope(ref: VariableRef): String {
+        val fired = firedTriggerInstance ?: event.triggerType
+        val looksLikeThisTriggerType = ref.scope == event.triggerType ||
+            ref.scope.substringBeforeLast('_') == event.triggerType
+        return if (looksLikeThisTriggerType) {
+            "'${ref.scope}' is a trigger of the right type, but it is not the one " +
+                "that fired. '$fired' fired this time, so only " +
+                "{{$fired.${ref.name}}} has a value."
+        } else {
+            "'${ref.scope}' is not what started this rule, and no action of that " +
+                "name has produced '${ref.name}' yet in this run. '$fired' " +
+                "started this run."
+        }
     }
 
     private fun fromPayload(name: String, type: String): VariableValue =
@@ -710,48 +792,62 @@ class SampleLookup(private val available: List<ScopedVariable>) : VariableLookup
  * The variables a rule can read, given the trigger tree it has. What the
  * editor's picker lists and what its validation checks against.
  *
- * The engine's own variables come first, because they work whatever fired. Then
- * the union of every leaf's declarations under [VariableScope.TRIGGER], which is
- * the form to reach for: one name that keeps working when the person changes
- * which trigger the rule has.
+ * The engine's own variables come first, because they work whatever fired.
+ * What follows depends on how many leaves the tree has, and the two cases are
+ * deliberately exclusive rather than additive.
  *
- * The type-qualified form is offered **only when the tree has more than one
- * leaf**, because that is the only time it says anything the short form does
- * not. Listing both for a one-trigger rule would double the picker to no
- * purpose.
+ * **One leaf: the short form only.** `{{trigger.title}}` reads the leaf that
+ * fired, and with one leaf there is nothing else it could mean. It is the form
+ * to write, because it keeps working when the person swaps which trigger the
+ * rule has.
+ *
+ * **Two or more leaves: the instance forms only, and not the short form.**
+ * With two leaves `{{trigger.title}}` cannot say *which* payload arrives, and
+ * this function's contract is to offer exactly what is available at this
+ * point. So each leaf is offered under its own namespace from
+ * [componentInstanceNames]: `notification_posted` and `notification_posted_2`
+ * for two leaves of one type, which is the whole point of numbering them.
+ *
+ * The consequence is real and is accepted: a rule saved with
+ * `{{trigger.title}}` that later gains a second leaf holds a reference this no
+ * longer offers, so save-time validation refuses it. The editor rewrites that
+ * reference when the second leaf is added, which is what keeps the refusal
+ * from ever reaching a person who did nothing wrong. See
+ * `rewriteShortFormForNewLeaf`. The engine still *resolves* the short form,
+ * so an imported rule keeps running rather than dying on an event.
  *
  * [VariableSpec.alwaysPresent] is recomputed rather than copied, and that is the
- * point of doing this here instead of in the screen. A key is always present
- * under [VariableScope.TRIGGER] only if *every* leaf that could fire declares
- * it, and a key read from one named leaf of several is never always present,
- * because another leaf may be what fired. The editor can then mark it, and the
- * person finds out while writing the rule rather than from a failed run.
+ * point of doing this here instead of in the screen. Under the short form a key
+ * is always present only if the single leaf declares it so. Under an instance
+ * form it is never always present once there are two leaves, because another
+ * leaf may be the one that fired. The editor can then mark it, and the person
+ * finds out while writing the rule rather than from a failed run.
  */
 fun availableVariables(
     trigger: TriggerNode?,
     variablesOf: (String) -> List<VariableSpec>,
 ): List<ScopedVariable> {
     val leaves = trigger?.leaves().orEmpty()
-    val types = leaves.map { it.type }.distinct()
-    val declarations = types.associateWith(variablesOf)
 
-    val shared = declarations.values.flatten().distinctBy { it.key }.map { spec ->
-        val everyLeafHasIt = declarations.values.all { specs -> specs.any { it.key == spec.key } }
-        ScopedVariable(
-            VariableScope.TRIGGER,
-            spec.copy(alwaysPresent = spec.alwaysPresent && everyLeafHasIt),
-        )
+    if (leaves.size <= 1) {
+        // One leaf, so the short form is unambiguous and is the only form
+        // offered. The declaration's own mark is honest here: there is no
+        // other leaf that could have fired instead.
+        val declared = leaves.singleOrNull()?.let { variablesOf(it.type) }.orEmpty()
+        return VariableScope.engineVariables +
+            declared.map { ScopedVariable(VariableScope.TRIGGER, it) }
     }
 
-    val qualified = if (types.size < 2) {
-        emptyList()
-    } else {
-        types.flatMap { type ->
-            declarations.getValue(type).map { ScopedVariable(type, it.copy(alwaysPresent = false)) }
+    // Two or more leaves: one namespace per leaf, numbered by position, and no
+    // short form. Never always-present, because only one leaf fires per run.
+    val instances = componentInstanceNames(leaves.map { it.type })
+    val perInstance = leaves.mapIndexed { index, leaf ->
+        variablesOf(leaf.type).map { spec ->
+            ScopedVariable(instances[index], spec.copy(alwaysPresent = false))
         }
-    }
+    }.flatten()
 
-    return VariableScope.engineVariables + shared + qualified
+    return VariableScope.engineVariables + perInstance
 }
 
 /**
@@ -766,11 +862,24 @@ fun availableVariables(
  * fails every time it fires, and finding that out from a fault log is finding
  * out too late.
  *
- * **An app-scope reference is accepted on sight, and that is deliberate.** It is
- * the one place where checking harder would be wrong. App variables are written
- * by rules, so the rule that reads `{{app.trip_count}}` is very often saved
- * before the rule that first sets it, and refusing that save would make the two
- * rules impossible to write in either order.
+ * **The three writable scopes are accepted on sight, and that is deliberate.**
+ * They are the one place where checking harder would be wrong. App variables are
+ * written by rules, so the rule that reads `{{app.trip_count}}` is very often
+ * saved before the rule that first sets it, and refusing that save would make
+ * the two rules impossible to write in either order. `{{mine.*}}` has the same
+ * shape inside one rule: the action that reads a value is often written before
+ * the action that sets it, and a rule is saved half-built all the time.
+ *
+ * `{{local.*}}` is accepted for a different and weaker reason: this function
+ * *cannot* know. A run-scope name exists only because some action earlier in
+ * the same run writes it, and finding that out would mean knowing which action
+ * type writes variables and which of its config keys holds the name. That is
+ * one component's identity in a shared file, which the plugin rule forbids for
+ * the reason `Rule.appVariablesRead` gives about the same temptation. Being
+ * lenient here is honest about the gap. `docs/todo.md` holds the item that
+ * would close it: a declaration on the factory saying "I write a variable, and
+ * its name is in this key", which would let the picker offer run-scope names
+ * and let this be exact.
  *
  * Nor is there a name left to check. [variableNameProblem] asks whether a name
  * can be read back by a rule, and it asks it by round-tripping the name through
@@ -779,6 +888,9 @@ fun availableVariables(
  * ever agree. The check belongs where a name is *typed*, which is the writing
  * action, not where one is read.
  */
+private val WRITABLE_SCOPES =
+    setOf(VariableScope.APP, VariableScope.MINE, VariableScope.LOCAL)
+
 fun variableProblems(value: String, available: List<ScopedVariable>): List<String> {
     val template = parseTemplate(value)
     val lookup = SampleLookup(available)
@@ -786,7 +898,7 @@ fun variableProblems(value: String, available: List<ScopedVariable>): List<Strin
     val malformed = template.malformed.map { "'${it.raw}' is not a variable. ${it.reason}" }
 
     val unresolvable = template.references
-        .filterNot { it.scope == VariableScope.APP }
+        .filterNot { it.scope in WRITABLE_SCOPES }
         .filter { lookup.value(it) is VariableValue.Absent }
         .map { "There is no variable named ${it.reference} in this rule." }
 
@@ -795,10 +907,10 @@ fun variableProblems(value: String, available: List<ScopedVariable>): List<Strin
 
 /**
  * What an action can read from the actions that run before it, per
- * [ActionOutputs]. The action-scope half of what the editor's picker lists
- * and what its validation checks against, and the reason a declared output is
- * reachable at all: [availableVariables] walks a trigger tree, so on its own
- * it makes every `{{action.*}}` reference a name nobody offers.
+ * [ActionOutputs]. The action half of what the editor's picker lists and what
+ * its validation checks against, and the reason a declared output is reachable
+ * at all: [availableVariables] walks a trigger tree, so on its own it makes
+ * every `{{action.*}}` reference a name nobody offers.
  *
  * [index] is the position of the action doing the reading, and only
  * [actionTypes] before it are considered. That is not a nicety. The engine
@@ -807,44 +919,134 @@ fun variableProblems(value: String, available: List<ScopedVariable>): List<Strin
  * exactly the dead end `ConfigSchemaContractTest` refuses for a trigger that
  * never fires: pickable, saveable, and empty for ever.
  *
- * **Nothing here is ever [VariableSpec.alwaysPresent], whatever the
- * declaration says.** This is the opposite of [availableVariables]'s rule for
- * a trigger, which can promise a key when every leaf declares it, and the
- * reason is that an earlier action running is not the same as it producing.
- * It can fail before it gets that far, and a mode can succeed while producing
- * nothing: `set_variable`'s clear mode stores no value, so it reports none.
- * The declaration says what an action produces when it produces anything at
- * all, which is a weaker promise than "this will be there", so the mark is
- * forced off rather than trusted.
+ * **Every producing instance gets its own namespace**, from
+ * [componentInstanceNames], so two `set_variable` actions above this one are
+ * `{{set_variable.value}}` and `{{set_variable_2.value}}` rather than one name
+ * whose meaning depends on which ran last. The numbering is positional, and
+ * the editor rewrites these references when a delete or a reorder moves an
+ * action; see [rewriteInstanceReferences].
  *
- * The type-qualified form follows [availableVariables]'s rule exactly, for
- * the same reason and with the same consequence for a repeat. It is offered
- * only once two *distinct* earlier types declare something, because with one
- * producer the short form already names it unambiguously. Two earlier actions
- * of the same type collapse to one type, so they are offered only under
- * [VariableScope.ACTION], which is honest: the engine keeps the most recent
- * value per key, so neither form can tell those two apart.
+ * The unnumbered [VariableScope.ACTION] form is offered as well, and means
+ * "whichever action produced this most recently". It is the form to write when
+ * a rule has one producer and the person does not want the reference to care
+ * which action it was.
+ *
+ * **Nothing here is ever [VariableSpec.alwaysPresent]**, whatever the
+ * declaration says. This is the opposite of [availableVariables]'s rule for a
+ * single trigger leaf, and the reason is that an earlier action running is not
+ * the same as it producing. It can fail before it gets that far, and a mode can
+ * succeed while producing nothing: `set_variable`'s clear mode stores no value,
+ * so it reports none.
  */
 fun availableActionOutputs(
     actionTypes: List<String>,
     index: Int,
     variablesOf: (String) -> List<VariableSpec>,
 ): List<ScopedVariable> {
-    val earlier = actionTypes.take(index.coerceAtLeast(0)).distinct()
-    val declarations = earlier.associateWith(variablesOf).filterValues { it.isNotEmpty() }
-    if (declarations.isEmpty()) return emptyList()
+    val earlierCount = index.coerceIn(0, actionTypes.size)
+    // Numbered across the whole rule, not just the part above this action, so
+    // an action's namespace does not change depending on who is reading it.
+    val instances = componentInstanceNames(actionTypes)
 
-    val shared = declarations.values.flatten().distinctBy { it.key }.map { spec ->
-        ScopedVariable(VariableScope.ACTION, spec.copy(alwaysPresent = false))
-    }
-
-    val qualified = if (declarations.size < 2) {
-        emptyList()
-    } else {
-        declarations.flatMap { (type, specs) ->
-            specs.map { ScopedVariable(type, it.copy(alwaysPresent = false)) }
+    val perInstance = (0 until earlierCount).flatMap { position ->
+        variablesOf(actionTypes[position]).map { spec ->
+            ScopedVariable(instances[position], spec.copy(alwaysPresent = false))
         }
     }
+    if (perInstance.isEmpty()) return emptyList()
 
-    return shared + qualified
+    val shared = perInstance
+        .distinctBy { it.spec.key }
+        .map { ScopedVariable(VariableScope.ACTION, it.spec) }
+
+    return shared + perInstance
+}
+
+/**
+ * The namespace each component instance answers to, for [types] in the order
+ * they appear in the rule. The first instance of a type is the bare type
+ * string, the second is `<type>_2`, the third `<type>_3`.
+ *
+ * One function, called by everything, because the numbering is a *contract*
+ * between three places that must never disagree: the picker offering
+ * `{{notification_posted_2.title}}`, save-time validation accepting it, and
+ * the engine resolving it at run time. Two of those computing the number their
+ * own way would produce a rule that saves and then reads the wrong trigger,
+ * which is the failure this whole area exists to avoid.
+ *
+ * The first instance keeps the bare type string on purpose. It is what
+ * `{{bluetooth_connected.name}}` already meant in every rule saved before
+ * instances existed, so those references keep their meaning rather than
+ * needing a migration.
+ *
+ * **The number is a position, and positions move.** Deleting the first of
+ * three `notification_posted` leaves makes the old third one the second, so a
+ * saved `_2` would quietly start reading a different trigger. Nothing in the
+ * grammar can detect that, because the reference still resolves. The editor is
+ * what closes it: see [rewriteInstanceReferences], which rewrites a rule's
+ * references whenever a delete or a reorder changes this mapping. Positional
+ * numbering without that rewrite is not safe.
+ */
+fun componentInstanceNames(types: List<String>): List<String> {
+    val seen = mutableMapOf<String, Int>()
+    return types.map { type ->
+        val ordinal = (seen[type] ?: 0) + 1
+        seen[type] = ordinal
+        if (ordinal == 1) type else "${type}_$ordinal"
+    }
+}
+
+/**
+ * Where a `{{local.*}}` value lives: one firing of one rule, and nothing else.
+ *
+ * A coroutine context element rather than a store, for the reason
+ * `TriggerEngine`'s run chain is one. [Action.execute] takes only a
+ * [TriggerEvent], so a run-scoped write has no store to go to and no parameter
+ * to arrive by. It does, however, happen on the one coroutine that is running
+ * this firing, so the engine puts the map on that coroutine and `set_variable`
+ * reads it back out. A field on the engine would mix two rules firing at the
+ * same time into one namespace.
+ *
+ * Mutable, deliberately, unlike [ActionOutputs] which the engine rebuilds
+ * between actions. An action writes here itself, so there is nothing for the
+ * engine to rebuild it from: the write has to reach the next action without
+ * the engine ever being told it happened.
+ *
+ * **A `run_rule` chain shares one of these.** The engine sets it once, at the
+ * base of a firing, and a nested run does not replace it, so a rule can hand a
+ * value to a rule it calls. That is the honest reading of "this run": the whole
+ * chain is one firing, started by one event. `{{mine.*}}` is the opposite, and
+ * has to be, because that scope is keyed by rule id and a called rule is a
+ * different rule.
+ */
+class RunScope(
+    /**
+     * The rule this firing belongs to, so an action can write a value keyed to
+     * it without being told which rule it is in.
+     *
+     * Carried here rather than passed to the action, for the reason the values
+     * are: [Action.execute] takes only a [TriggerEvent]. A `run_rule` chain is
+     * the one case where this and the shared values part company. The values
+     * are shared down the chain, because the chain is one firing; this is
+     * replaced for a called rule, because `{{mine.*}}` belongs to whichever
+     * rule is running now and a called rule is a different rule.
+     */
+    val ruleId: String,
+    private val values: MutableMap<String, String> = mutableMapOf(),
+) : AbstractCoroutineContextElement(Key) {
+
+    /** The same values, for a called rule that keeps them but changes owner. */
+    fun forRule(otherRuleId: String): RunScope = RunScope(otherRuleId, values)
+
+    fun snapshot(): Map<String, String> = values.toMap()
+
+    fun set(name: String, value: String) {
+        values[name] = value
+    }
+
+    fun remove(name: String) {
+        values.remove(name)
+    }
+
+    companion object Key : CoroutineContext.Key<RunScope>
 }

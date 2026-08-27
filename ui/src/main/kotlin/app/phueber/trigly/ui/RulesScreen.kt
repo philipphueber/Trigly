@@ -14,6 +14,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -22,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -118,8 +121,6 @@ fun RulesScreen(
             ignoringBatteryOptimizations = ignoringBatteryOptimizations,
             onFix = onFixBatteryOptimization,
         )
-
-        SavedValuesEntry(count = savedValueCount, onOpen = onSavedValues)
 
         // Same reasoning as Export All above: search is pointless with nothing
         // to search, so it is hidden rather than offered disabled.
@@ -225,6 +226,7 @@ fun RulesScreen(
                 onClick = onNewRule,
                 modifier = Modifier.weight(1f),
             )
+            MoreMenu(savedValueCount = savedValueCount, onSavedValues = onSavedValues)
         }
     }
 }
@@ -590,48 +592,65 @@ private fun BatteryOptimizationNotice(
 }
 
 /**
- * The way in to the saved values screen.
+ * Everything the rules screen offers that is not "make a rule". Today that is
+ * one entry, "Saved values".
  *
- * **It used to be a third button in the header, and that broke the header.**
+ * **The three homes this has had, because each move was caused by the last.**
+ * It began as a third action in `BlockHeader`, which broke the header:
  * `BlockHeader` gives the title the remaining width and lays the actions after
- * it, so a third action does not wrap or collapse, it runs off the edge of the
- * screen. "Saved values" is a long label next to "Import" and "Export all", and
- * on a phone it reached the edge with the rule list still empty. With rules
- * present, "Export all" appeared as well and was pushed off entirely.
+ * it, so a third one neither wraps nor collapses, it runs off the edge. It
+ * became a full-width row beside the battery notice, which fitted and said how
+ * many values were stored, at the cost of vertical space above the rule list on
+ * every visit, forever, for something a person opens rarely.
  *
- * A row rather than an overflow menu, because a menu would have hidden Import
- * and Export all to make room for the newcomer, which is a worse trade than
- * spending a little vertical space. The row also does what a header button
- * could not: it says how many values are stored, so a person learns that a rule
- * wrote one without opening anything.
+ * An overflow menu was rejected at that point, and the reason it was rejected
+ * no longer applies. The objection was that a menu in the *header* would have
+ * had to swallow Import and Export all to make room, which is a worse trade
+ * than a little vertical space. Here the menu sits beside the primary action in
+ * the bottom bar, so it displaces nothing: the header keeps both its actions,
+ * and the list keeps the row's worth of height.
  *
- * Placed beside [BatteryOptimizationNotice] for the reason stated there: both
- * are true of the whole screen rather than of any rule on it. Unlike search and
- * "Export all", it is shown with no rules at all, because somebody who has not
- * built a rule yet is exactly who needs to find out that saved values exist.
+ * The count moves into the entry itself rather than being lost. A menu entry
+ * can carry it as well as a row could, and it is the thing worth saying: that a
+ * rule has written a value is how a person finds out this screen exists at all.
  */
 @Composable
-private fun SavedValuesEntry(count: Int, onOpen: () -> Unit, modifier: Modifier = Modifier) {
-    Box(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-        BlockCard(onClick = onOpen) {
-            // No trailing chevron. A rule's own row is a tappable block with
-            // nothing on its right either, and this is the same kind of thing.
-            Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-                Text(
-                    text = stringResource(R.string.rules_saved_values).uppercase(),
-                    style = MaterialTheme.typography.labelMedium,
-                )
-                Text(
-                    text = if (count == 0) {
-                        stringResource(R.string.saved_values_entry_empty)
-                    } else {
-                        pluralStringResource(R.plurals.saved_values_entry_count, count, count)
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
+private fun MoreMenu(savedValueCount: Int, onSavedValues: () -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box {
+        BlockButton(
+            text = stringResource(R.string.rules_more),
+            onClick = { expanded = true },
+        )
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = {
+                    Column {
+                        Text(
+                            text = stringResource(R.string.rules_saved_values),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            text = if (savedValueCount == 0) {
+                                stringResource(R.string.saved_values_menu_empty)
+                            } else {
+                                pluralStringResource(
+                                    R.plurals.saved_values_entry_count,
+                                    savedValueCount,
+                                    savedValueCount,
+                                )
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+                onClick = {
+                    expanded = false
+                    onSavedValues()
+                },
+            )
         }
     }
 }

@@ -9,9 +9,11 @@ import app.phueber.trigly.core.Registry
 import app.phueber.trigly.core.RequirementChecker
 import app.phueber.trigly.core.RuleRepository
 import app.phueber.trigly.core.RuleRunnerHandle
+import app.phueber.trigly.core.RuleVariableStore
 import app.phueber.trigly.core.UiController
 import app.phueber.trigly.core.VariableStore
 import app.phueber.trigly.core.storage.ruleRepository
+import app.phueber.trigly.core.storage.ruleVariableStore
 import app.phueber.trigly.core.storage.variableStore
 import app.phueber.trigly.triggers.AlarmManagerScheduler
 import app.phueber.trigly.triggers.accessibility.ServiceUiController
@@ -154,10 +156,18 @@ class AppContainer(context: Context) {
      */
     val variableStore: VariableStore = variableStore(context)
 
+    /**
+     * The `{{mine.*}}` store: each rule's own private values. Beside
+     * [variableStore] rather than replacing it, because the two scopes are two
+     * keyspaces and only `set_variable` needs to know both.
+     */
+    val ruleVariableStore: RuleVariableStore = ruleVariableStore(context)
+
     val registry: Registry = Registry(
         triggerFactories = triggerFactories(context, scheduler, variableStore),
         actionFactories = actionFactories(
             context, scheduler, ruleRunner, notifications, ui, ruleRepository, variableStore,
+            ruleVariableStore,
         ),
     )
 

@@ -244,7 +244,9 @@ Trigly's actions cover:
 - Device state: volume, ringer mode, clipboard, Do Not Disturb.
 - Other apps' notifications: dismiss one, or press one of its buttons.
 - Turning one of your own rules on or off, or running one now.
-- Saving a value for later, and computing a new value from it.
+- Saving a value for later, and computing a new value from it. You choose
+  where the value lives: in this run only, in this rule, or shared with
+  every rule.
 - Waiting, before the rest of the rule runs.
 - HTTP requests, for webhooks and home automation.
 

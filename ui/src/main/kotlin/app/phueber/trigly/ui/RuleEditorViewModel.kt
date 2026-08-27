@@ -23,6 +23,9 @@ import app.phueber.trigly.core.leaves
 import app.phueber.trigly.core.parseTemplate
 import app.phueber.trigly.core.scoped
 import app.phueber.trigly.core.substitute
+import app.phueber.trigly.core.RuleVariableStore
+import app.phueber.trigly.core.RunScope
+import app.phueber.trigly.core.scopedFor
 import app.phueber.trigly.core.variableProblems
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,6 +34,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class EditorState(
     val draft: RuleDraft,
@@ -67,6 +71,16 @@ data class EditorState(
      * variable until the store happened to emit again.
      */
     val appVariables: List<ScopedVariable> = emptyList(),
+    /**
+     * This rule's own `{{mine.*}}` values, as of the store's last emission.
+     * Collected the same way [appVariables] is and carried across a reset for
+     * the same reason.
+     *
+     * Only this rule's. That is the scope's whole point, and it is why this is
+     * keyed by the rule being edited rather than being the whole table filtered
+     * in the screen.
+     */
+    val ruleVariables: List<ScopedVariable> = emptyList(),
 )
 
 class RuleEditorViewModel(
@@ -74,6 +88,7 @@ class RuleEditorViewModel(
     private val registry: Registry,
     val checker: RequirementChecker,
     private val variableStore: VariableStore,
+    private val ruleVariableStore: RuleVariableStore,
     private val ruleId: String?,
 ) : ViewModel() {
 
@@ -126,7 +141,8 @@ class RuleEditorViewModel(
         get() {
             val state = _state.value
             return registry.availableVariables(state.draft.trigger?.toNodeIgnoringEmptyGroups()) +
-                state.appVariables
+                state.appVariables +
+                state.ruleVariables
         }
 
     /**
@@ -160,6 +176,16 @@ class RuleEditorViewModel(
         viewModelScope.launch {
             variableStore.scoped().collect { scoped ->
                 _state.update { it.copy(appVariables = scoped) }
+            }
+        }
+        // Only for a rule that exists. A draft has no id until it is saved, so
+        // there is nothing to key a rule-scope value to and nothing to offer:
+        // the first save is what makes this scope reachable at all.
+        ruleId?.let { id ->
+            viewModelScope.launch {
+                ruleVariableStore.scopedFor(id).collect { scoped ->
+                    _state.update { it.copy(ruleVariables = scoped) }
+                }
             }
         }
     }
@@ -573,7 +599,24 @@ class RuleEditorViewModel(
 
         _state.update { it.copy(testing = index, testResult = null) }
         testJob = viewModelScope.launch {
-            val outcome = runCatching { action.execute(testEvent()) }
+            // A run scope, so an action writing to `this run` or `this rule`
+            // does the real thing here instead of reporting that no rule is
+            // running. The Test button exists to answer "does this work", and a
+            // scope that only works outside the editor would make it answer a
+            // narrower question than the person is asking.
+            //
+            // Only for a saved rule. A draft has no id, so a rule-scope write
+            // has nothing to key to and the foreign key would refuse it; the
+            // action's own "only exists while a rule is running" failure is the
+            // honest answer then, and it points at the fix, which is to save.
+            val runScope = _state.value.draft.id?.let { RunScope(it) }
+            val outcome = runCatching {
+                if (runScope == null) {
+                    action.execute(testEvent())
+                } else {
+                    withContext(runScope) { action.execute(testEvent()) }
+                }
+            }
             val message = outcome.fold(
                 onSuccess = { result ->
                     when (result) {
@@ -718,9 +761,32 @@ class RuleEditorViewModel(
 
     private fun fail(message: String) = _state.update { it.copy(error = message) }
 
+    /**
+     * Applies one change to the draft, and repairs the rule's references
+     * afterwards. See [repairReferences].
+     *
+     * **The repair belongs here, in the one funnel, and not at the handful of
+     * call sites that can actually move the numbering.** A component's
+     * namespace comes from its position among the components of its type, so a
+     * delete, a reorder or a type change can alter what an existing
+     * `{{...}}` reference means without touching the reference. A mutation
+     * added later that forgets to ask for the repair would reintroduce that
+     * silently, and silently is the whole problem: the rule still saves and
+     * still runs, and reads the wrong component. Doing it for every edit
+     * cannot be forgotten.
+     *
+     * It costs a walk of the trigger tree and two small list comparisons per
+     * edit, including the edits that cannot possibly move anything, such as a
+     * keystroke in a text field. That is bounded by the size of one rule and
+     * is not measurable next to the recomposition the same update triggers.
+     * [repairReferences] returns the draft unchanged when nothing moved, which
+     * is nearly always.
+     */
     private fun edit(block: RuleDraft.() -> RuleDraft) = _state.update {
+        val before = it.draft
+        val after = before.block()
         // Any edit clears a stale error, so the message never outlives its cause.
-        it.copy(draft = it.draft.block(), error = null)
+        it.copy(draft = repairReferences(before, after, registry), error = null)
     }
 
     /** Requirements for everything currently in the draft, for inline warnings. */
@@ -733,10 +799,13 @@ class RuleEditorViewModel(
             registry: Registry,
             checker: RequirementChecker,
             variableStore: VariableStore,
+            ruleVariableStore: RuleVariableStore,
             ruleId: String?,
         ) = viewModelFactory {
             initializer {
-                RuleEditorViewModel(repository, registry, checker, variableStore, ruleId)
+                RuleEditorViewModel(
+                    repository, registry, checker, variableStore, ruleVariableStore, ruleId,
+                )
             }
         }
     }

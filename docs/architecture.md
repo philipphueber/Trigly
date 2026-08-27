@@ -831,7 +831,18 @@ had nothing to offer until some rule had already written something. A working
 feature that cannot be found is the failure this project keeps designing against,
 and this was an instance of it.
 
-Reached from the rules list header, beside "Export all", because a saved value
+Reached from the overflow beside "New rule". That is its third home, and each
+move was caused by the last: a third header action broke `BlockHeader`, which
+lays actions after a title that takes the remaining width; a full-width row
+fixed that and charged the rule list a row of height on every visit, for a
+screen a person opens rarely. An overflow was rejected at the row stage because
+a menu *in the header* would have had to swallow Import and Export all to make
+room. In the bottom bar it displaces nothing. The count came along into the menu
+entry, because a rule having written a value is how a person finds the screen at
+all.
+
+It was previously reached from the rules list header, beside "Export all", and
+the reasoning for putting it near neither rule nor list still holds: a saved value
 belongs to no rule: any rule can read it and any rule can write it. It is offered
 even when there are no rules at all, unlike export, because somebody arriving
 before their first rule is exactly who needs to learn what a saved value is. The
@@ -973,6 +984,82 @@ discovered: a kill during the wait loses the rest of the rule with nothing to
 retry it, and a second event reaching the same rule while it waits queues behind
 the wait rather than running beside it, because a rule runs its actions in one
 coroutine.
+
+#### One namespace per component
+
+Two leaves of one trigger type used to share a namespace, filled by whichever
+fired, and two actions of one type shared one too, won by whoever wrote last. So
+a rule watching two chats could not say which chat it read. Each component
+instance now has its own namespace, numbered by position among the components of
+its own type: the first is the bare type string, the second is `<type>_2`.
+
+`componentInstanceNames` in `:core` is the **single** definition of that
+numbering, and that matters more than it looks. Three separate places have to
+agree on it exactly: the picker that offers a name, the save-time validation
+that accepts it, and the engine that resolves it. Any two of them counting
+independently would produce a rule that saves cleanly and then reads the wrong
+component, which is the class of bug this codebase spends the most effort
+avoiding.
+
+**The engine already knew which leaf fired.** `startRule` carries the fired
+leaf's path through the merged flow, because `resolveHolds` needs it to evaluate
+the tree. Numbering the leaves turns that path into the one namespace allowed to
+read the payload; every other leaf namespace is refused with a reason that names
+the leaf that did fire. `TriggerEvent` still cannot say which leaf produced it,
+and did not need to change.
+
+**Positional numbering is only safe because the editor repairs references.**
+Deleting the first of three leaves of one type makes the old third the second,
+so a saved `_2` silently starts reading a different trigger. Nothing downstream
+can catch it: the reference still resolves, so the grammar is satisfied and
+validation sees a name it offers. `docs/variables.md` section 12 has the four
+decisions that make the repair correct, of which the two easiest to get wrong
+are matching old components to new **by object identity** rather than by
+position or value, and applying the renames in **one pass** so a shifting
+rename cannot chain two references onto one component.
+
+The short form `{{trigger.x}}` is offered only for a one-leaf rule, since with
+two leaves it cannot say which payload arrives. The engine still resolves it, so
+an imported rule keeps running, and adding a second leaf rewrites it into the
+first leaf's own name rather than leaving a save to be refused.
+
+#### Three places a value can live
+
+`set_variable` chooses between one firing, one rule, and every rule.
+
+**One firing** is `{{local.*}}`, and it cannot live in a store.
+`Action.execute` takes only a `TriggerEvent`, so a run-scoped write has no store
+to reach and no parameter to arrive by. It lives on the coroutine running the
+firing, exactly as the `run_rule` chain does and for the same reason. That also
+answered the question a chain raises: run values are shared down a chain,
+because a chain is one firing started by one event, while `{{mine.*}}` follows
+whichever rule is running now.
+
+**One rule** is `{{mine.*}}`, a table keyed by rule id and name, added as
+database version 6. The obvious cheaper design, a prefixed name in the shared
+`variables` table, was rejected for three specific failures rather than on
+taste: the saved values screen would bury a person's own names under
+bookkeeping they never wrote; a deleted rule would leave its values behind for
+ever, because nothing joins a name to a rule; and two rules could collide on the
+same prefix, which is the one thing the scope exists to prevent. A keyed table
+with a foreign key gets all three right by construction.
+
+**Every rule** is `{{app.*}}`, unchanged, and it is the default for a config
+with no `scope` key. It has to be: that is where every `set_variable` saved
+before the field existed put its value.
+
+An unrecognised scope also falls back there, which is the opposite call from an
+unrecognised *mode*. A mode this build cannot perform refuses, because guessing
+would do the wrong thing to a stored value. A scope from a newer build is most
+likely one this build never had, and the honest answer to "where does this go"
+is where it has always gone.
+
+Rule-scope values are listed on the saved values screen under their own heading.
+State this app persists with no way to see it and no way to clear it would be
+the exact failure that screen was built to fix. Delete is offered and
+hand-editing is not: deleting is the recovery path for a rule that wrote
+nonsense into its own scope, while adding one by hand needs a rule as well as a
+name.
 
 ### Rule storage and the portable format
 

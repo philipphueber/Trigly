@@ -282,6 +282,7 @@ class MainActivity : ComponentActivity() {
         val savedValues: SavedValuesViewModel = viewModel(
             factory = SavedValuesViewModel.factory(
                 variableStore = container.variableStore,
+                ruleVariableStore = container.ruleVariableStore,
                 ruleRepository = container.ruleRepository,
                 substitutionsFor = container.registry::substitutionsFor,
             ),
@@ -290,6 +291,8 @@ class MainActivity : ComponentActivity() {
 
         SavedValuesScreen(
             values = state.values,
+            ruleValues = state.ruleValues,
+            onDeleteRuleValue = savedValues::deleteRuleValue,
             // One ViewModel method for both: an edit is an ordinary write, with
             // no ceremony beyond what adding a value already gets. See
             // `SavedValuesViewModel.setValue`.
@@ -321,6 +324,7 @@ class MainActivity : ComponentActivity() {
                 registry = container.registry,
                 checker = container.requirementChecker,
                 variableStore = container.variableStore,
+                ruleVariableStore = container.ruleVariableStore,
                 ruleId = ruleId,
             ),
         )

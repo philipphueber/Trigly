@@ -239,4 +239,147 @@ class EventLookupTest {
 
         assertTrue(value.reason.contains("set_rule_enabled"))
     }
+    // --- instance namespaces: which leaf, and which action ---------------------------
+
+    /**
+     * The point of numbering. Two leaves of one type, and a reference has to be
+     * able to say which of them it means. Only the leaf that fired resolves;
+     * the other one has no payload to give, however well configured it is.
+     */
+    @Test
+    fun `a numbered leaf namespace reads only when that leaf fired`() {
+        val event = TriggerEvent("notification_posted", 1L, mapOf("title" to "From the second"))
+        val lookup = EventLookup(
+            rule,
+            event,
+            firedTriggerInstance = "notification_posted_2",
+        )
+
+        assertEquals(
+            VariableValue.Present("From the second"),
+            lookup.value(VariableRef("notification_posted_2", "title")),
+        )
+        assertTrue(
+            lookup.value(VariableRef("notification_posted", "title")) is VariableValue.Absent,
+        )
+    }
+
+    /**
+     * And the reason names the fix rather than merely reporting emptiness: a
+     * person who wrote the wrong number needs to be told which number fired.
+     */
+    @Test
+    fun `the wrong leaf number says which one fired`() {
+        val event = TriggerEvent("notification_posted", 1L, mapOf("title" to "x"))
+        val lookup = EventLookup(rule, event, firedTriggerInstance = "notification_posted_2")
+
+        val absent = lookup.value(VariableRef("notification_posted", "title"))
+
+        assertTrue(absent is VariableValue.Absent)
+        assertTrue(
+            "was: ${(absent as VariableValue.Absent).reason}",
+            absent.reason.contains("notification_posted_2"),
+        )
+    }
+
+    /**
+     * With no tree to number, the bare type is the fired instance. That is what
+     * `{{bluetooth_connected.name}}` meant before instances existed, so a rule
+     * saved then keeps working with no migration.
+     */
+    @Test
+    fun `without a fired instance the bare type still reads the payload`() {
+        val event = TriggerEvent("notification_posted", 1L, mapOf("title" to "Hello"))
+
+        val value = EventLookup(rule, event).value(VariableRef("notification_posted", "title"))
+
+        assertEquals(VariableValue.Present("Hello"), value)
+    }
+
+    @Test
+    fun `two actions of one type keep their outputs apart`() {
+        val event = TriggerEvent("notification_posted", 1L)
+        val outputs = ActionOutputs.EMPTY
+            .plus("set_variable", mapOf("value" to "first"))
+            .plus("set_variable_2", mapOf("value" to "second"))
+        val lookup = EventLookup(rule, event, actionOutputs = outputs)
+
+        assertEquals(
+            VariableValue.Present("first"),
+            lookup.value(VariableRef("set_variable", "value")),
+        )
+        assertEquals(
+            VariableValue.Present("second"),
+            lookup.value(VariableRef("set_variable_2", "value")),
+        )
+        // The unnumbered form is the most recent producer, which is the second.
+        assertEquals(
+            VariableValue.Present("second"),
+            lookup.value(VariableRef(VariableScope.ACTION, "value")),
+        )
+    }
+
+    // --- the run and rule scopes ------------------------------------------------------
+
+    @Test
+    fun `local scope reads what this run has written`() {
+        val event = TriggerEvent("notification_posted", 1L)
+        val lookup = EventLookup(rule, event, localVariables = mapOf("total" to "12"))
+
+        assertEquals(VariableValue.Present("12"), lookup.value(VariableRef("local", "total")))
+    }
+
+    /**
+     * A run value that was never written says so in the terms that make it
+     * fixable: it is not "missing", it is "nothing above this action wrote it".
+     */
+    @Test
+    fun `an unset local value explains that a run value has to be written first`() {
+        val event = TriggerEvent("notification_posted", 1L)
+
+        val value = EventLookup(rule, event).value(VariableRef("local", "total"))
+
+        assertTrue(value is VariableValue.Absent)
+        assertTrue((value as VariableValue.Absent).reason.contains("this run"))
+    }
+
+    @Test
+    fun `mine scope reads this rule's own values`() {
+        val event = TriggerEvent("notification_posted", 1L)
+        val lookup = EventLookup(rule, event, ruleVariables = mapOf("count" to "3"))
+
+        assertEquals(VariableValue.Present("3"), lookup.value(VariableRef("mine", "count")))
+    }
+
+    @Test
+    fun `an unset mine value says it is unset for this rule`() {
+        val event = TriggerEvent("notification_posted", 1L)
+
+        val value = EventLookup(rule, event).value(VariableRef("mine", "count"))
+
+        assertTrue(value is VariableValue.Absent)
+        assertTrue((value as VariableValue.Absent).reason.contains("this rule"))
+    }
+
+    /**
+     * The three writable scopes are separate namespaces, not three views of one
+     * store. A rule keeping its own `count` must not see another rule's, and
+     * must not see the shared one either.
+     */
+    @Test
+    fun `the three writable scopes do not see each other`() {
+        val event = TriggerEvent("notification_posted", 1L)
+        val lookup = EventLookup(
+            rule,
+            event,
+            appVariables = mapOf("count" to "app"),
+            localVariables = mapOf("count" to "run"),
+            ruleVariables = mapOf("count" to "rule"),
+        )
+
+        assertEquals(VariableValue.Present("app"), lookup.value(VariableRef("app", "count")))
+        assertEquals(VariableValue.Present("run"), lookup.value(VariableRef("local", "count")))
+        assertEquals(VariableValue.Present("rule"), lookup.value(VariableRef("mine", "count")))
+    }
+
 }

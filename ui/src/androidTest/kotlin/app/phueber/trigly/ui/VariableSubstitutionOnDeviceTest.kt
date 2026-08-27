@@ -1,5 +1,6 @@
 package app.phueber.trigly.ui
 
+import app.phueber.trigly.core.InMemoryRuleVariableStore
 import android.Manifest
 import android.app.Notification
 import android.app.NotificationManager
@@ -152,6 +153,7 @@ class VariableSubstitutionOnDeviceTest {
         val engine = TriggerEngine(
             registry = registry,
             store = InMemoryVariableStore(),
+            ruleStore = InMemoryRuleVariableStore(),
             scope = scope,
             onOutcome = { _, _, _, result -> outcomes.trySend(result) },
         )

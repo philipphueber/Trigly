@@ -6,6 +6,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.phueber.trigly.core.ComponentSpec
 import app.phueber.trigly.core.RuleRepository
+import app.phueber.trigly.core.RuleVariableStore
 import app.phueber.trigly.core.Substitution
 import app.phueber.trigly.core.VariableStore
 import app.phueber.trigly.core.normalizeVariableName
@@ -21,9 +22,34 @@ import kotlinx.coroutines.launch
 // SavedValueRow itself is declared in SavedValuesScreen.kt, owned by the
 // screen: it is the screen's own rendering shape, sorted and filled in here.
 
+/**
+ * One value a rule keeps to itself: the `{{mine.*}}` scope.
+ *
+ * Carries the rule's name as well as its id, because a rule id is a UUID and
+ * says nothing to a person. The id is what a delete needs; the name is what the
+ * row shows.
+ */
+data class RuleValueRow(
+    val ruleId: String,
+    val ruleName: String,
+    val name: String,
+    val value: String,
+    val lastChangedMillis: Long,
+)
+
 data class SavedValuesState(
     /** Sorted by name, so the order does not move under a finger while a rule writes a value. */
     val values: List<SavedValueRow> = emptyList(),
+    /**
+     * Every rule-scope value, sorted by rule name and then by value name.
+     *
+     * Listed here at all because this screen's promise is to show what is
+     * saved, and a rule-scope value is saved. Leaving it out would make it the
+     * one kind of stored state with no way to see it and no way to clear it,
+     * which is the "working feature nobody can find" failure this screen exists
+     * to fix.
+     */
+    val ruleValues: List<RuleValueRow> = emptyList(),
     /** Set when [SavedValuesViewModel.setValue] was refused. Cleared on the next attempt. */
     val error: String? = null,
 )
@@ -35,6 +61,8 @@ data class SavedValuesState(
  */
 class SavedValuesViewModel(
     private val variableStore: VariableStore,
+    /** The `{{mine.*}}` scope, listed beside the shared one. */
+    private val ruleVariableStore: RuleVariableStore,
     private val ruleRepository: RuleRepository,
     /**
      * How to ask which config keys of a component are substitutable, so
@@ -69,6 +97,50 @@ class SavedValuesViewModel(
                 _state.update { it.copy(values = rows) }
             }
         }
+
+        // Its own collection rather than a third flow in the combine above: a
+        // rule-scope row needs the rule's name and nothing else from a rule, so
+        // folding it into the same combine would recompute every app-scope
+        // row's "read by" list whenever any rule wrote a private value.
+        viewModelScope.launch {
+            combine(
+                ruleVariableStore.historyByRule(),
+                ruleRepository.rules(),
+            ) { byRule, rules ->
+                val namesById = rules.associate { it.id to it.name }
+                byRule.entries
+                    .flatMap { (ruleId, values) ->
+                        values.map { (name, record) ->
+                            RuleValueRow(
+                                ruleId = ruleId,
+                                // A value whose rule is gone should not appear,
+                                // and cannot: the foreign key deletes it with
+                                // the rule. This name is the honest fallback if
+                                // one ever does, rather than a blank row.
+                                ruleName = namesById[ruleId] ?: "A deleted rule",
+                                name = name,
+                                value = record.value,
+                                lastChangedMillis = record.updatedAtMillis,
+                            )
+                        }
+                    }
+                    .sortedWith(compareBy({ it.ruleName }, { it.name }))
+            }.collect { rows ->
+                _state.update { it.copy(ruleValues = rows) }
+            }
+        }
+    }
+
+    /**
+     * Removes one rule's private value.
+     *
+     * No confirmation naming the rules that read it, unlike [deleteValue] for
+     * the shared scope. Only one rule can read this, and its name is on the row
+     * being deleted, so the dialog would tell the person what they are already
+     * looking at.
+     */
+    fun deleteRuleValue(ruleId: String, name: String) {
+        viewModelScope.launch { ruleVariableStore.remove(ruleId, name) }
     }
 
     /**
@@ -111,11 +183,14 @@ class SavedValuesViewModel(
     companion object {
         fun factory(
             variableStore: VariableStore,
+            ruleVariableStore: RuleVariableStore,
             ruleRepository: RuleRepository,
             substitutionsFor: (ComponentSpec) -> Map<String, Substitution>,
         ) = viewModelFactory {
             initializer {
-                SavedValuesViewModel(variableStore, ruleRepository, substitutionsFor)
+                SavedValuesViewModel(
+                    variableStore, ruleVariableStore, ruleRepository, substitutionsFor,
+                )
             }
         }
     }

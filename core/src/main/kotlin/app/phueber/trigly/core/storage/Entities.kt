@@ -119,6 +119,41 @@ data class VariableEntity(
     val updatedAtMillis: Long,
 )
 
+/**
+ * One rule-scope variable: the `{{mine.*}}` scope. See `RuleVariableStore` in
+ * the parent package for why this is a table of its own rather than a naming
+ * convention inside `variables`.
+ *
+ * The primary key is the pair, so two rules can both keep a `count` without
+ * agreeing on anything. That is the whole point of the scope, and a composite
+ * key is what makes it true in storage rather than by convention.
+ *
+ * The foreign key is the other half. A deleted rule's private values are
+ * unreachable the moment it is gone, since nothing but that rule could name
+ * them, so `CASCADE` deletes what nothing could ever read again. Leaving them
+ * would accumulate rows no screen lists and no rule can use, which is exactly
+ * the leak a shared table with prefixed names would have had.
+ */
+@Entity(
+    tableName = "rule_variables",
+    primaryKeys = ["ruleId", "name"],
+    foreignKeys = [
+        ForeignKey(
+            entity = RuleEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["ruleId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("ruleId")],
+)
+data class RuleVariableEntity(
+    val ruleId: String,
+    val name: String,
+    val value: String,
+    val updatedAtMillis: Long,
+)
+
 /** A rule with its components, as Room returns it from a single query. */
 data class RuleWithComponents(
     @Embedded val rule: RuleEntity,

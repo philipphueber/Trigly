@@ -26,6 +26,10 @@
       them.
     -->
     <string name="rules_saved_values">Saved values</string>
+    <!-- The overflow beside "New rule". Three dots, not a word, because the
+         menu holds one entry today and a label would claim more than it has. -->
+    <string name="rules_more">\u2026</string>
+    <string name="saved_values_menu_empty">Nothing saved yet</string>
     <!-- Under the row that opens the saved values screen. -->
     <string name="saved_values_entry_empty">Nothing saved yet. A rule can store a value here for any rule to read.</string>
     <plurals name="saved_values_entry_count">
