@@ -120,5 +120,7 @@ fun actionFactories(
     // Other apps' notifications, via the listener service
     DismissNotificationActionFactory(notifications),
     TriggerNotificationButtonActionFactory(notifications, ui),
+    CaptureNotificationButtonActionFactory(notifications),
+    PressCapturedButtonActionFactory(notifications),
     SetDndActionFactory(context),
 )

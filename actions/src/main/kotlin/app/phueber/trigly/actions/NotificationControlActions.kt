@@ -3,6 +3,7 @@ package app.phueber.trigly.actions
 import app.phueber.trigly.core.Action
 import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ActionResult
+import app.phueber.trigly.core.NotificationButton
 import app.phueber.trigly.core.chooseButton
 import app.phueber.trigly.core.chooseNotification
 import app.phueber.trigly.core.ComponentTool
@@ -152,6 +153,112 @@ class DismissNotificationActionFactory(
 }
 
 /**
+ * Which button of which notification an action should act on, or why it cannot.
+ *
+ * Extracted because two actions need exactly this and then diverge on one
+ * point. `notification_button` presses, and can fall back to the notification
+ * shade when the system exposes no `PendingIntent`. `capture_notification_button`
+ * keeps the token for later, so for it a button with no `PendingIntent` is not a
+ * fallback but a dead end: there is nothing to keep. Both still have to tell a
+ * missing notification apart from a notification whose app draws its own
+ * buttons apart from a button that simply does not match apart from a reply box,
+ * and each of those is a different sentence a person can act on.
+ *
+ * The cases are separate types rather than one failure string so the caller can
+ * make that decision. Collapsing them would force the screen fallback and the
+ * capture to share a policy they do not share.
+ */
+internal sealed interface ButtonTarget {
+
+    /** A real button with a real intent behind it. */
+    data class Ready(val key: String, val button: NotificationButton) : ButtonTarget
+
+    /**
+     * The custom-RemoteViews case: the buttons on screen are real and the system
+     * offers a `PendingIntent` for none of them.
+     */
+    data class NoExposedButtons(val reason: String) : ButtonTarget
+
+    /** Buttons exist, and none of them is the one the rule asked for. */
+    data class NoMatch(val reason: String) : ButtonTarget
+
+    /**
+     * No notification to act on, no access, or a button a rule must not press.
+     * Nothing reaches these by another route, so there is nothing to fall back
+     * to and [reason] is the answer.
+     */
+    data class Refused(val reason: String) : ButtonTarget
+}
+
+/**
+ * Resolves [ButtonTarget] against the notifications showing right now.
+ *
+ * Reads the live list once, so the target and its buttons come from the same
+ * snapshot: asking twice could choose a notification and then find its buttons
+ * belonged to a newer one.
+ */
+internal fun resolveButtonTarget(
+    controller: NotificationController,
+    event: TriggerEvent,
+    targetPackage: String?,
+    buttonLabel: String?,
+    semanticAction: Int?,
+    legacyIndex: Int?,
+): ButtonTarget {
+    val active = controller.activeNotifications()
+    if (active.isEmpty() && !controller.isConnected) {
+        return ButtonTarget.Refused(
+            "Notification access is not granted, or the listener is not bound yet."
+        )
+    }
+
+    val target = chooseNotification(
+        active = active,
+        wantedPackage = targetPackage,
+        triggeringKey = event.payload[SharedPayloadKeys.NOTIFICATION_KEY],
+    ) ?: return ButtonTarget.Refused(
+        if (targetPackage != null) {
+            "No notification from '$targetPackage' is showing."
+        } else {
+            "There is no notification to act on. Choose an app, or use " +
+                "this action on a rule triggered by a notification."
+        }
+    )
+
+    if (target.buttons.isEmpty()) {
+        return ButtonTarget.NoExposedButtons(
+            "That notification exposes no buttons to the system. " +
+                "Its app draws them itself."
+        )
+    }
+
+    val button = chooseButton(
+        buttons = target.buttons,
+        wantedSemantic = semanticAction,
+        wantedLabel = buttonLabel,
+        storedIndex = legacyIndex,
+    ) ?: return ButtonTarget.NoMatch(
+        "That notification has no button matching " +
+            "'${buttonLabel ?: legacyIndex ?: "anything configured"}'. " +
+            "It has ${target.buttons.size} buttons: " +
+            "${target.buttons.joinToString { it.label ?: "?" }}."
+    )
+
+    // Refused rather than attempted. Firing a reply button's intent with no text
+    // attached does not send a reply: it does nothing, or opens the app, and
+    // reporting success for that is the failure mode this whole area is trying
+    // not to have. Capturing one is no better, so this is refused for both.
+    if (button.takesText) {
+        return ButtonTarget.Refused(
+            "'${button.label}' is a reply box. It needs text typed into it, " +
+                "which a rule cannot supply."
+        )
+    }
+
+    return ButtonTarget.Ready(target.key, button)
+}
+
+/**
  * Presses one of a notification's own buttons — "Reply", "Snooze", "Archive".
  *
  * **The target is not always the notification that fired the rule.** With a
@@ -185,63 +292,27 @@ class TriggerNotificationButtonAction(
     private val useScreenFallback: Boolean = false,
 ) : Action {
 
-    override suspend fun execute(event: TriggerEvent): ActionResult {
-        val active = controller.activeNotifications()
-        if (active.isEmpty() && !controller.isConnected) {
-            return ActionResult.Failure(
-                "Notification access is not granted, or the listener is not bound yet."
+    override suspend fun execute(event: TriggerEvent): ActionResult =
+        when (
+            val found = resolveButtonTarget(
+                controller = controller,
+                event = event,
+                targetPackage = targetPackage,
+                buttonLabel = buttonLabel,
+                semanticAction = semanticAction,
+                legacyIndex = legacyIndex,
             )
+        ) {
+            is ButtonTarget.Ready -> controller.triggerActionButton(found.key, found.button.index)
+
+            // The two cases where the system offers no `PendingIntent` are the
+            // two the screen can still reach, because the buttons are on screen
+            // whatever the API says about them.
+            is ButtonTarget.NoExposedButtons -> pressOnScreen(found.reason)
+            is ButtonTarget.NoMatch -> pressOnScreen(found.reason)
+
+            is ButtonTarget.Refused -> ActionResult.Failure(found.reason)
         }
-
-        val target = chooseNotification(
-            active = active,
-            wantedPackage = targetPackage,
-            triggeringKey = event.payload[SharedPayloadKeys.NOTIFICATION_KEY],
-        ) ?: return ActionResult.Failure(
-            if (targetPackage != null) {
-                "No notification from '$targetPackage' is showing."
-            } else {
-                "There is no notification to act on. Choose an app, or use " +
-                    "this action on a rule triggered by a notification."
-            }
-        )
-
-        // A notification with no exposed actions at all is the custom-RemoteViews
-        // case: the buttons on screen are real, and the system offers no
-        // PendingIntent for any of them. There is nothing here to choose from, so
-        // go straight to the screen if the rule allows it.
-        if (target.buttons.isEmpty()) {
-            return pressOnScreen(
-                reason = "That notification exposes no buttons to the system. " +
-                    "Its app draws them itself."
-            )
-        }
-
-        val button = chooseButton(
-            buttons = target.buttons,
-            wantedSemantic = semanticAction,
-            wantedLabel = buttonLabel,
-            storedIndex = legacyIndex,
-        ) ?: return pressOnScreen(
-            reason = "That notification has no button matching " +
-                "'${buttonLabel ?: legacyIndex ?: "anything configured"}'. " +
-                "It has ${target.buttons.size} buttons: " +
-                "${target.buttons.joinToString { it.label ?: "?" }}."
-        )
-
-        // Refused rather than attempted. Firing a reply button's intent with no
-        // text attached does not send a reply — it does nothing, or opens the app
-        // — and reporting success for that is the failure mode this whole action
-        // is trying not to have.
-        if (button.takesText) {
-            return ActionResult.Failure(
-                "'${button.label}' is a reply box. It needs text typed into it, " +
-                    "which a rule cannot supply."
-            )
-        }
-
-        return controller.triggerActionButton(target.key, button.index)
-    }
 
     /**
      * The screen route, or an honest refusal.
