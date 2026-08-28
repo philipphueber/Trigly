@@ -78,7 +78,10 @@ class SettingsScreenTest {
         ).assertIsDisplayed()
     }
 
-    /** Shown with the switch off too. The choice already made is not a reason to stop explaining it. */
+    /**
+     * Shown with the switch off too. The choice already made is not a
+     * reason to stop explaining it.
+     */
     @Test
     fun the_warning_still_shows_with_the_switch_off() {
         composeRule.setContent { Screen(cloudBackupEnabled = false) }

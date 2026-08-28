@@ -24,10 +24,22 @@ import java.io.File
  * `fullBackupOnly` set the system never calls either one, for backup or for
  * restore.
  *
- * A full-backup restore does not call this agent at all. The platform
- * unpacks files straight into the data directory, the same as if nobody had
+ * A full-backup restore does call this class, once per file, through
+ * `onRestoreFile(ParcelFileDescriptor, long, File, int, long, long)`, which
+ * this class does not override. `BackupAgent` declares that method
+ * non-abstract, so the platform default runs instead, and it unpacks the
+ * file straight into the data directory, the same as if nobody had
  * customised anything. So the only decision this class makes is which files
  * reach the *next* backup pass, and [onFullBackup] is the whole class.
+ *
+ * That decision leans on one assumption that is not public API: see
+ * `sharedPreferencesFilePath`. If a future platform ever moved that file,
+ * `fullBackupFile` would find nothing to read there. Android's own native
+ * code returns a plain error code for a missing file, and `fullBackupFile`
+ * does not check it: nothing is thrown, and nothing is written for that one
+ * entry. So the failure this assumption can cause is narrow: the "off"
+ * choice stops travelling into the next backup, and nothing more. It is not
+ * a crash, and it is not a backup that writes more than the setting allows.
  */
 class TriglyBackupAgent : BackupAgent() {
 
@@ -50,15 +62,16 @@ class TriglyBackupAgent : BackupAgent() {
      * always meant.
      *
      * The setting itself is written even while everything else is withheld.
-     * A restore never calls this class, see the class KDoc, so an "off"
-     * choice can only survive into whatever the *next* device finds already
-     * sitting in its data directory after a restore. Withholding the setting
-     * along with the database would mean a phase with nothing backed up at
-     * all looks, to a later restore, identical to an app that was never
-     * backed up. That reads back as the on-by-default answer, flipping a
-     * deliberate "no" back to "yes" the moment it is least visible. Writing
-     * only this one small file, which names no rule and carries no token,
-     * costs nothing and keeps that from happening.
+     * This class does not act on a restore: see the class KDoc for why a
+     * restore runs the platform default instead. So an "off" choice can only
+     * survive by way of what the *previous* backup pass wrote, since that is
+     * what a restore copies back verbatim. Withholding the setting along
+     * with the database would mean a phase with nothing backed up at all
+     * looks, to a later restore, identical to an app that was never backed
+     * up. That reads back as the on-by-default answer, flipping a deliberate
+     * "no" back to "yes" the moment it is least visible. Writing only this
+     * one small file, which names no rule and carries no token, costs
+     * nothing and keeps that from happening.
      */
     override fun onFullBackup(data: FullBackupDataOutput) {
         val deviceToDeviceTransfer = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
@@ -72,8 +85,9 @@ class TriglyBackupAgent : BackupAgent() {
     }
 
     // Never called: fullBackupOnly="true" on the manifest's <application>
-    // routes both backup and restore through onFullBackup instead. Required
-    // anyway, because BackupAgent declares both abstract.
+    // routes backup through onFullBackup and restore through onRestoreFile
+    // instead, per the class KDoc. Required anyway, because BackupAgent
+    // declares both abstract.
     override fun onBackup(
         oldState: ParcelFileDescriptor?,
         data: BackupDataOutput,

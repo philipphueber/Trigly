@@ -17,7 +17,10 @@ interface BackupSettings {
     fun setCloudBackupEnabled(enabled: Boolean)
 }
 
-/** `SharedPreferences` file and key, named once so the two files that read them cannot drift apart. */
+/**
+ * `SharedPreferences` file and key, named once so the two files that read
+ * them cannot drift apart.
+ */
 internal const val BACKUP_PREFS_NAME = "backup_settings"
 private const val KEY_CLOUD_BACKUP_ENABLED = "cloud_backup_enabled"
 

@@ -13,12 +13,17 @@ class BackupPolicyTest {
 
     @Test
     fun `backup runs when the user has not turned it off`() {
-        assertEquals(true, shouldWriteFullBackup(cloudBackupEnabled = true, isDeviceToDeviceTransfer = false))
+        assertEquals(
+            true,
+            shouldWriteFullBackup(cloudBackupEnabled = true, isDeviceToDeviceTransfer = false),
+        )
     }
 
     @Test
     fun `backup is withheld once the user turns it off`() {
-        assertFalse(shouldWriteFullBackup(cloudBackupEnabled = false, isDeviceToDeviceTransfer = false))
+        assertFalse(
+            shouldWriteFullBackup(cloudBackupEnabled = false, isDeviceToDeviceTransfer = false),
+        )
     }
 
     @Test
@@ -26,12 +31,18 @@ class BackupPolicyTest {
         // It does not put anything in an account: it moves data straight onto
         // the user's own next phone, which is not the exposure the switch
         // guards against.
-        assertEquals(true, shouldWriteFullBackup(cloudBackupEnabled = false, isDeviceToDeviceTransfer = true))
+        assertEquals(
+            true,
+            shouldWriteFullBackup(cloudBackupEnabled = false, isDeviceToDeviceTransfer = true),
+        )
     }
 
     @Test
     fun `a device-to-device transfer running is not conditional on the switch`() {
-        assertEquals(true, shouldWriteFullBackup(cloudBackupEnabled = true, isDeviceToDeviceTransfer = true))
+        assertEquals(
+            true,
+            shouldWriteFullBackup(cloudBackupEnabled = true, isDeviceToDeviceTransfer = true),
+        )
     }
 
     @Test
