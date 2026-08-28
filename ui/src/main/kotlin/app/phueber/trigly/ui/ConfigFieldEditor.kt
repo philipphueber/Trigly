@@ -380,6 +380,9 @@ private fun TextField(
  * by that label text and type into. "Insert variable" and the preview sit
  * underneath, alongside where the blank-meaning hint already lands, rather
  * than disturbing the box a field's tests already know.
+ *
+ * One field is drawn as code rather than as text: the one whose value is about
+ * to be *run*. See [rememberExpressionHighlight] and `docs/expressions.md`.
  */
 @Composable
 private fun SubstitutableTextField(
@@ -392,6 +395,15 @@ private fun SubstitutableTextField(
     describeComponent: (String) -> String = { it },
 ) {
     val acceptsVariables = field.substitution != Substitution.NONE
+
+    // Coloured when the field is configured to *run* what is in it, which is
+    // [previewEncoding]'s answer and deliberately not the declaration's: the
+    // `set_variable` value field is declared as plain text and becomes an
+    // expression only once its mode is "evaluate". So the colour arriving the
+    // moment that mode changes is the clearest available way to say that this
+    // box stopped being text and became code.
+    val isExpression = previewEncoding == Substitution.EXPRESSION
+    val highlight = rememberExpressionHighlight(enabled = isExpression)
 
     // Tracked locally so a picked reference is inserted at the cursor rather
     // than always appended. [value] stays the source of truth for the config;
@@ -437,7 +449,20 @@ private fun SubstitutableTextField(
             placeholder = field.placeholder?.let { { Text(it) } },
             singleLine = !field.multiline,
             minLines = if (field.multiline) 2 else 1,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+            visualTransformation = highlight,
+            keyboardOptions = if (isExpression) {
+                KeyboardOptions(
+                    keyboardType = KeyboardType.Text,
+                    // Code, not prose. Capitalising `and` breaks the keyword and
+                    // "correcting" {{app.count}} breaks the reference, and both
+                    // are on by default. The same pair TextPatternField turns
+                    // off for a regex, for the same reason.
+                    capitalization = KeyboardCapitalization.None,
+                    autoCorrectEnabled = false,
+                )
+            } else {
+                KeyboardOptions(keyboardType = KeyboardType.Text)
+            },
             modifier = Modifier.fillMaxWidth(),
         )
 

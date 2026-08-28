@@ -179,6 +179,40 @@ it fails the action with the reason.
 
 Everything below applies to both fields.
 
+### The editor draws it as code
+
+Both fields colour what you type, and only while the field is set to run it.
+"Set a variable" shows an ordinary text box until you choose the mode "compute
+it". The colour is the signal that the box stopped holding text and started
+holding code: from that moment a stray word in it is a failure, not a word.
+
+Each part gets its own colour:
+
+- A `{{...}}` reference, whole, in the brand accent.
+- A piece of text in quotes, and a number, in two different colours.
+- A keyword (`and`, `or`, `not`, `true`, `false`) and each of the six
+  functions, in bold.
+- The operators and the brackets, dimmer than the values they work on.
+- Everything else plain.
+
+Two of those tell you something you cannot see otherwise:
+
+- **A number and a piece of text are different colours**, because they are
+  different types and they never compare equal. A reference that arrives as a
+  number where you expected text is visible before you save the rule.
+- **A reference keeps its colour inside quotes.** Substitution does not respect
+  quotes, so `"{{app.state}}"` still resolves, and it makes the error the next
+  section describes. The colour there is the warning.
+
+A word Trigly does not know stays plain. The editor does not mark it as wrong,
+because plain is what "does nothing" looks like everywhere else in the app. A
+message under the field is the right place to say more, and there is none yet.
+
+The box also stops the keyboard from capitalising the first word and from
+correcting what you type. Both are on by default, and both break an
+expression: `And` is not a keyword, and a corrected `{{app.count}}` is not a
+reference.
+
 ### The order of the two steps
 
 1. Every `{{...}}` is replaced, as a **literal** this language can read.
@@ -266,7 +300,7 @@ words are `and`, `or` and `not`.
 
 There are six, and a rule cannot define a seventh. Each one is a fixed piece of
 behaviour that a shared rule can invoke on a stranger's phone, which is why the
-list is short and stays short.
+list is short and stays short. One of the six takes an optional third argument.
 
 | Call | Takes | Gives |
 | --- | --- | --- |
@@ -275,6 +309,7 @@ list is short and stays short.
 | `trim(text)` | text | the text without leading or trailing whitespace |
 | `length(text)` | text | a number, the count of characters |
 | `contains(text, text)` | two texts | true or false, **case sensitive** |
+| `contains(text, pattern, mode)` | two texts and a mode word | true or false. See the next section |
 | `round(number, places)` | a number and a whole number | the number rounded half up |
 
 A wrong argument count and a wrong argument type both fail with a message
@@ -288,6 +323,79 @@ naming the function. Two notes worth knowing before you use them:
   arithmetic rather than from this language, and a very large one makes the
   expression do a great deal of work. Keep it small: two or three is what a
   person reading a value wants. `docs/todo.md` T22 covers tightening this.
+
+### A pattern inside `contains`
+
+`contains` takes a third argument, the mode. It is the same pair of words a
+trigger's text filter uses:
+
+| Mode | What the second argument is |
+| --- | --- |
+| `"contains"` | a piece of text to look for. The default |
+| `"regex"` | a regular expression to search with |
+
+    contains({{trigger.title | }}, "code", "regex")
+
+**Two arguments keep their old meaning exactly.** `contains(a, b)` looks for
+text, and a `.` in it is a dot. A pattern is a pattern only where you ask for
+one, so every rule saved before the mode existed still does what it did.
+
+**The mode word has to be exact.** `"Regex"` and `"rexeg"` both fail with a
+message naming the two words the function accepts. This is stricter than a
+trigger's stored mode, which reads an unknown word as `contains` so that an
+imported rule still loads. An expression is code you typed a moment ago, and a
+typo that quietly became a text search would give you a wrong answer that looks
+like a right one.
+
+**A pattern is searched anywhere in the text.** This is `containsMatchIn`, the
+same as a trigger's filter: it reads like grep. `^` anchors it to the start and
+`$` to the end, so `"^\d{6}$"` asks for six digits and nothing else.
+
+**A pattern is case sensitive here.** A trigger's regex filter is not, and this
+one is, because the two-argument `contains` always was. Use `lower(...)` around
+the text, or put `(?i)` at the front of the pattern.
+
+**A backslash reaches the pattern.** `\d` stays `\d`, because this language
+keeps the backslash on an escape it does not know. You do not have to double a
+backslash in a pattern. `\\` also works, and gives one backslash.
+
+**A pattern that does not compile fails the action**, with the message from the
+regex engine, which names the position in the pattern.
+
+**A number is not text.** `contains` needs text, and a stored value that reads
+as a number goes into the expression as a number. Join an empty string to it
+first: `contains({{app.code}} + "", "^\d+$", "regex")`.
+
+There is no other regular expression anywhere in the language. There is no
+capture group you can read, no replace, and no split. `contains` answers one
+question: is it in there.
+
+### The work a pattern may do
+
+A regular expression is the one thing in this language that can do a great deal
+of work on a small piece of text. So there is a bound, and the bound is a rate:
+**a pattern may read 10000 characters for every character of the text it
+searches**, and never more than 20 million characters in total. Over that, the
+action fails with a message that names the position of the pattern.
+
+It is a rate because the honest cost of a search is not flat. `contains`
+searches from every position in the text, so an ordinary pattern such as `.*b`
+costs about the square of the length: over 1800 characters that is 4.9 million
+character reads, and there is nothing wrong with that pattern. A rate allows
+work that grows with the square of the text, and refuses work that grows faster.
+`.*.*b` over the same 1800 characters reads more than 400 million.
+
+Two things to know if you meet the message:
+
+- **A leading `.*` is never needed.** `contains` already searches the whole
+  text. `.*Alice.*` and `Alice` find the same notifications, and the first one
+  costs far more.
+- **An anchor makes a search cheap.** `^a+b` over 1800 characters reads 3599
+  characters, because it can only start in one place.
+
+The bound counts characters read, not time. A bound in milliseconds would let a
+rule work on a fast phone and fail on a slow one, which is the failure this
+project works hardest to avoid.
 
 ### Numbers behave like a calculator, not like a float
 
@@ -308,22 +416,28 @@ in binary floating point.
 - 2000 characters of expression.
 - 64 levels of nesting, counting a parenthesis, a function call, a ternary
   branch, or a chain of `-`, `+` or `not`.
+- 10000 characters read per character of text searched by one regular
+  expression, and 20 million in total. See "The work a pattern may do" above.
 
-There is no timeout and no thread, and none is needed: with no loops, no
-recursion a person can write, and no call that reaches outside the string it
-was given, an expression does a bounded amount of work and returns. **This
-holds only while the grammar stays this small.** The day it gains a loop, a
-variable of its own, or anything that reads state, those two bounds stop being
-the whole safety story.
+There is no timeout and no thread, and none is needed. The language has no
+loops, no recursion you can write, and no call that reaches outside the text it
+was given. The first two bounds protect the reader's own call stack. The third
+exists because a regex engine is the one part of this that is not the
+language's own work: it can do an unbounded amount of work on a bounded input,
+so it got a bound of its own before it shipped.
+
+**This holds only while the grammar stays this small.** The day it gains a
+loop, a variable of its own, or anything that reads state, all three bounds
+stop being the whole safety story.
 
 ### What an expression cannot do, deliberately
 
 No variables of its own, no assignment, no loops, no functions you define, and
 no recursion. Nothing that reads or writes anything outside the string it was
 given: no clock, no random number, no file, no network, and no other variable
-except through a `{{...}}` that step 1 already resolved. No regular
-expressions, no string indexing or slicing, no list, no date arithmetic, and no
-comments.
+except through a `{{...}}` that step 1 already resolved. No string indexing or
+slicing, no list, no date arithmetic, and no comments. A regular expression
+only inside `contains`, and only to answer yes or no.
 
 A rule is a file someone else can import onto their own phone. An embedded
 script language would let a shared rule carry arbitrary code onto a stranger's
@@ -390,6 +504,18 @@ a `count` that a "Set a variable" action in the target rule adds to:
 
     {{mine.count | 0}} < 3
 
+**One pattern instead of three `contains` calls.** Three words, one search:
+
+    contains(lower({{trigger.text | }}), "delivered|shipped|out for delivery", "regex")
+
+**A pattern that checks the shape of a value.** Six digits and nothing else:
+
+    contains({{trigger.title | }} + "", "^\d{6}$", "regex") ? "a code" : "not a code"
+
+The `+ ""` is not decoration. A stored value that reads as a number goes into
+the expression as a number, and `contains` needs text. The value that most
+wants a digit pattern is exactly the value this happens to.
+
 **A guard, with a fallback on every reference.** `and` short circuits, so the
 call on the right never runs when the left answer is false. Both references
 carry a fallback, because step 1 resolves both whatever `and` decides:
@@ -402,6 +528,7 @@ carry a fallback, because step 1 resolves both whatever `and` decides:
 | --- | --- |
 | The `{{...}}` grammar, the scopes, what a field offers | `core/.../Variables.kt` |
 | The expression language | `core/.../Expression.kt` |
+| The colours in the editor | `ui/.../ExpressionHighlight.kt` |
 | Writing, and the four modes | `actions/.../SetVariableAction.kt` |
 | The "only if" field, and what `true` means there | `actions/.../RunRuleAction.kt` |
 | The condition and its seven comparisons | `triggers/.../VariableCheck.kt` |

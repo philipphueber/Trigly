@@ -8,6 +8,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.compose.runtime.CompositionLocalProvider
 import app.phueber.trigly.core.ConfigField
@@ -57,8 +58,24 @@ class SubstitutableTextFieldEditorTest {
         suggests = TextSuggestions.KEPT_BUTTON_NAMES,
     )
 
+    /**
+     * As `set_variable` declares its value field: plain text in the
+     * declaration, and an expression only once the mode says "evaluate". What
+     * makes it code is the configuration, which is what `previewEncoding`
+     * carries. See [ConfigFieldEditor].
+     */
+    private val expressionField = ConfigField.Text(
+        key = "value",
+        label = "Value",
+        required = true,
+        substitution = Substitution.TEXT,
+    )
+
     /** What the chooser's own button says. See [suggestionWording]. */
     private val chooserLabel = "Choose a kept button"
+
+    /** Quotes and brackets, which is what a transformation is likeliest to break. */
+    private val typed = "upper(\"a\") == \"A\""
 
     /** The first sentence of [VariableRow]'s mark for `alwaysPresent = false`. */
     private val sometimesEmptyMark = "This value is sometimes empty."
@@ -113,6 +130,7 @@ class SubstitutableTextFieldEditorTest {
         variables: List<ScopedVariable> = listOf(titleVariable, triggerTypeVariable),
         describeComponent: (String) -> String = { it },
         kept: List<KeptButton> = emptyList(),
+        previewEncoding: Substitution = field.substitution,
     ) {
         composeRule.setContent {
             TriglyTheme {
@@ -126,6 +144,7 @@ class SubstitutableTextFieldEditorTest {
                             text = it
                         },
                         availableVariables = variables,
+                        previewEncoding = previewEncoding,
                         describeComponent = describeComponent,
                     )
                 }
@@ -290,6 +309,41 @@ class SubstitutableTextFieldEditorTest {
 
         composeRule.onNodeWithText("No name to offer yet", substring = true).assertIsDisplayed()
         composeRule.onNodeWithText("type the name yourself", substring = true).assertIsDisplayed()
+    }
+
+    // --- The field whose value is about to be run --------------------------------------
+
+    /**
+     * The one thing colouring a field can break, and the reason this pair is on
+     * a device rather than on the tokenizer: the transformation inserts and
+     * removes nothing, so what is typed must reach the config exactly as typed.
+     * An offset mapping that lied would show up here as dropped or reordered
+     * characters.
+     */
+    @Test
+    fun typing_an_expression_reaches_the_config_unchanged() {
+        setField(expressionField, value = null, previewEncoding = Substitution.EXPRESSION)
+
+        composeRule.onNodeWithText("VALUE", substring = true, ignoreCase = true)
+            .performTextInput(typed)
+
+        assertEquals(typed, edits.last())
+    }
+
+    /**
+     * The same field, drawn as prose because the mode above it says so. Both
+     * ways have to type through identically: the colour is the only difference
+     * between them, and a difference in what is stored would be a bug that only
+     * one mode shows.
+     */
+    @Test
+    fun the_same_field_types_the_same_when_it_is_not_code() {
+        setField(expressionField, value = null)
+
+        composeRule.onNodeWithText("VALUE", substring = true, ignoreCase = true)
+            .performTextInput(typed)
+
+        assertEquals(typed, edits.last())
     }
 
     @Test

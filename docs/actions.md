@@ -625,8 +625,11 @@ what that implies for persistence or debugging. The safety question it does
 carry is the one this catalogue keeps coming back to: a rule is a file somebody
 else can import onto their own phone. An embedded interpreter would be a way to
 put arbitrary code on a stranger's device, and a closed grammar of reviewed
-operations is not. `docs/variables.md` section 6 has the grammar, the two
+operations is not. `docs/variables.md` section 6 has the grammar, the
 bounds that make the claim true, and the note saying where the claim ends.
+`docs/expressions.md` is the complete reference, including the one function
+that can search with a regular expression, and the rate that bounds how much
+work a pattern may do.
 
 ---
 

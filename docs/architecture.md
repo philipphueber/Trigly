@@ -871,7 +871,8 @@ is the reason the value exists.
 
 `set_variable`'s evaluate mode and `run_rule`'s "only if" condition both run the
 same small expression language, in `core/Expression.kt`. Arithmetic, comparison,
-a ternary, `and`/`or`/`not`, and six string or number functions.
+a ternary, `and`/`or`/`not`, and six string or number functions, one of which
+takes a match mode and can search with a regular expression.
 
 **It runs after substitution, never instead of it.** A field declared
 `Substitution.EXPRESSION` is substituted first, which turns every `{{...}}`
@@ -894,6 +895,35 @@ own call stack. The parser bounds the input length and the nesting depth, and
 nothing else stands between an expression and the evaluator. The bound is on the
 grammar staying this small, and `Expression.kt` says so where somebody would add
 the feature that ends it.
+
+**A regular expression is the one part that is not the language's own work, so
+it has a bound of its own.** `contains` takes a match mode, `"contains"` or
+`"regex"`, the same pair `TextFilter` uses. A backtracking engine can do an
+unbounded amount of work on a bounded input, which is exactly the property the
+paragraph above depends on not existing, so the feature could not ship without
+the replacement bound the file had already promised.
+
+That bound is a **rate**, and the reason is worth keeping: the honest cost of a
+search is not flat. `contains` searches from every position, so an ordinary
+`.*b` over 1800 characters reads 4.9 million characters, while a genuinely bad
+`.*.*.*b` over sixty characters reads only 1.9 million. No single number can
+separate those two, because the good pattern over long text costs more than the
+bad pattern over short text. A rate of 10000 reads per character of text allows
+work that grows with the square of the length, which is what an unanchored
+pattern costs, and refuses anything that grows faster. An absolute ceiling sits
+above it, so one search stays bounded whatever fed it the text.
+
+Reads rather than milliseconds, for the reason that decides most things here: a
+timeout would make a rule work on a fast phone and fail on a slow one. The count
+is taken by handing the engine a `CharSequence` that counts what it reads, which
+is also why the numbers above are measurements and not estimates.
+
+Note which pattern is *not* the threat. The textbook `(a+)+b` reads 1741
+characters over thirty `a`s on the JDK these numbers came from, because that
+engine optimizes that shape away. That is one engine's optimization of one
+shape, the pattern arrives inside a rule somebody else wrote, and ART is not
+that engine. The bound is what makes the claim, not the engine's good behaviour
+on the famous example.
 
 Arithmetic is `BigDecimal`, the same choice `set_variable`'s add mode made and
 for the same reason: a running total built from repeated fractional additions
@@ -2078,6 +2108,25 @@ while the cursor is still next to the mistake. The highlighter is a hand-rolled
 scan rather than a regex over a regex, for the reason that matters most here: it
 is asked to read half-typed, invalid input on every keystroke, and anything that
 throws on bad input is useless in exactly the moments highlighting helps.
+
+**An expression field is coloured the same way, by `ExpressionHighlight`, and
+the switch is the configuration rather than the declaration.** `set_variable`
+declares its value field as plain text, and it becomes an expression only when
+the mode says "evaluate", so the editor keys the colouring off
+`substitutionsFor`'s answer through `ConfigFieldEditor`'s `previewEncoding`.
+That is not a shortcut: the colour arriving the moment the mode changes is the
+clearest available way to tell somebody that the box stopped holding text and
+started holding code, and the same field has to keep drawing as prose in the
+mode where it is prose.
+
+Two choices in that highlighter are load-bearing rather than cosmetic. A number
+and a piece of text get **different** colours, because the language has no
+casts and `5` never equals `"5"`, so which one a substituted value turned into
+decides the answer, and the colour is the only place it is visible before
+saving. And a `{{...}}` reference keeps its colour **inside** quotes, because
+substitution does not respect quotes: `"{{app.state}}"` resolves anyway and
+produces `""on""`, a syntax error nobody typed. A reference that lost its
+colour in there would read as if the quotes had made it safe.
 
 ## Testing posture
 
