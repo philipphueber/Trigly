@@ -135,8 +135,22 @@ class RulesViewModel(
      * The message says the rules arrived off. Someone who imports a rule and
      * finds it inert, with no reason given, will conclude the app is broken
      * rather than that it is being careful.
+     *
+     * Takes an [ImportRead] rather than the file's text directly, because
+     * [MainActivity] can fail before there is any text: a revoked permission,
+     * a deleted file, or a file over [MAX_IMPORT_BYTES]. [ImportRead.readFailureMessage]
+     * reports that failure as itself. `RuleJson.decode`'s own message is kept
+     * for the case that function cannot see: text that was read successfully
+     * and is not valid JSON.
      */
-    fun import(text: String) {
+    fun import(read: ImportRead) {
+        val text = when (read) {
+            is ImportRead.Read -> read.text
+            ImportRead.CouldNotRead, ImportRead.TooLarge -> {
+                _message.value = read.readFailureMessage()
+                return
+            }
+        }
         viewModelScope.launch {
             try {
                 val imported = RuleJson.decode(text).map { it.imported(registry) }
