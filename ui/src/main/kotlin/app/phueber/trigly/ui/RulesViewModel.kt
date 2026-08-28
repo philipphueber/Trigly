@@ -11,7 +11,7 @@ import app.phueber.trigly.core.RequirementChecker
 import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.RuleJson
 import app.phueber.trigly.core.RuleRepository
-import app.phueber.trigly.core.withFreshIds
+import app.phueber.trigly.core.imported
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -126,19 +126,39 @@ class RulesViewModel(
     fun exportOne(rule: Rule): String = RuleJson.encode(rule)
 
     /**
-     * Imported rules arrive alongside existing ones rather than replacing them:
-     * fresh ids mean an import can never silently overwrite something the user
-     * built by hand.
+     * Imported rules arrive alongside existing ones, switched off, and with
+     * every generated id minted again. See [Rule.imported] for why: a rule
+     * file is a program written by whoever exported it, who may not be this
+     * device's owner, and this is the one place that turns it into something
+     * safe to hand to the repository unattended.
+     *
+     * The message says the rules arrived off. Someone who imports a rule and
+     * finds it inert, with no reason given, will conclude the app is broken
+     * rather than that it is being careful.
+     *
+     * Takes an [ImportRead] rather than the file's text directly, because
+     * [MainActivity] can fail before there is any text: a revoked permission,
+     * a deleted file, or a file over [MAX_IMPORT_BYTES]. [ImportRead.readFailureMessage]
+     * reports that failure as itself. `RuleJson.decode`'s own message is kept
+     * for the case that function cannot see: text that was read successfully
+     * and is not valid JSON.
      */
-    fun import(text: String) {
+    fun import(read: ImportRead) {
+        val text = when (read) {
+            is ImportRead.Read -> read.text
+            ImportRead.CouldNotRead, ImportRead.TooLarge -> {
+                _message.value = read.readFailureMessage()
+                return
+            }
+        }
         viewModelScope.launch {
             try {
-                val imported = RuleJson.decode(text).withFreshIds()
+                val imported = RuleJson.decode(text).map { it.imported(registry) }
                 imported.forEach { repository.upsert(it) }
                 _message.value = when (imported.size) {
                     0 -> "That file contained no rules."
-                    1 -> "Imported 1 rule."
-                    else -> "Imported ${imported.size} rules."
+                    1 -> "Imported 1 rule. It is switched off."
+                    else -> "Imported ${imported.size} rules. They are switched off."
                 }
             } catch (invalid: IllegalArgumentException) {
                 // Deliberately shows the codec's own message: it names the rule

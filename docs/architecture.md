@@ -213,6 +213,33 @@ gives a rule it has not seen the next free position. Placing it beside the
 original would mean shifting the position of every rule below it, and a list that
 reorders itself around a copy is a bigger surprise than a copy at the bottom.
 
+The walk that mints fresh generated ids, `Rule.withFreshGeneratedIds`, lives in
+`:core` rather than beside `duplicated()` in `:ui`. It moved there once
+importing a rule file needed the exact same walk, and `Registry` already lives
+in `:core`.
+
+### Importing a rule
+
+Importing shares the fresh-id walk with duplicating, and is stricter than it in
+every way duplicating is not, because a rule file did not necessarily come from
+this device's owner. Anyone who can hand someone a file, or who can get a copy
+of a rule someone else exported and shared, can hand them a working program:
+`INTERNET` is an install-time permission this app already holds, and
+notification access is a grant a Trigly user has usually already given for some
+other rule. An imported rule that arrived enabled could act the moment it lands,
+before anyone has looked at it, with no new prompt to notice.
+
+So `Rule.imported` disables the rule regardless of what the file's `enabled` key
+said, and mints a fresh id for the rule itself on top of the fresh generated ids
+the shared walk already mints. A shortcut's `shortcutId` is not a secret inside
+the file. Anyone holding a copy of that file, or of a rule shared by any other
+means, could otherwise start the exported shortcut activity with the id read
+straight out of it, whether or not they ever imported the rule themselves. The
+name is the one thing import leaves untouched: this is not a copy, and a name
+somebody else chose is not this app's to edit. `RulesViewModel.import`'s message
+says the rules arrived switched off, so turning them on again reads as a choice
+rather than as the app not working.
+
 ### A control that does not fit
 
 A button label given no line limit wraps to whatever width it is handed, and a

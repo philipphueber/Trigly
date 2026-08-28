@@ -29,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.core.net.toUri
 import app.phueber.trigly.actions.declaredKeptButtons
@@ -39,6 +40,9 @@ import app.phueber.trigly.core.SpecialAccessKind
 import app.phueber.trigly.core.all
 import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.variableNameProblem
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
 
@@ -95,7 +99,11 @@ class MainActivity : ComponentActivity() {
 
     private val openDocument =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-            uri?.let { listViewModel.import(readText(it)) }
+            uri?.let { picked ->
+                // Launched rather than awaited inline: reading the file is
+                // suspending, and an activity-result callback is not.
+                lifecycleScope.launch { listViewModel.import(readImportFile(picked)) }
+            }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -585,11 +593,30 @@ class MainActivity : ComponentActivity() {
         ).show()
     }
 
-    private fun readText(uri: Uri): String =
-        runCatching {
-            contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }
-                ?: error("could not open that file")
-        }.getOrElse { "" }
+    /**
+     * Reads a chosen file for import.
+     *
+     * Off the main thread, on [Dispatchers.IO]: the document picker can be
+     * backed by a cloud provider, so opening and reading its stream can block
+     * for as long as a network call, and this used to run inline in the
+     * activity-result callback with nothing to say otherwise.
+     *
+     * Bounded by [readAtMost] while reading rather than checked afterward, so
+     * a file bigger than [MAX_IMPORT_BYTES] is never read whole into memory
+     * just to be refused. Every failure becomes its own [ImportRead] instead
+     * of an empty string, which used to reach `RuleJson.decode` and be
+     * reported as "not valid JSON" whatever the real cause was.
+     */
+    private suspend fun readImportFile(uri: Uri): ImportRead = withContext(Dispatchers.IO) {
+        val bytes = try {
+            val stream = contentResolver.openInputStream(uri)
+                ?: return@withContext ImportRead.CouldNotRead
+            stream.use { it.readAtMost(MAX_IMPORT_BYTES) }
+        } catch (_: Exception) {
+            return@withContext ImportRead.CouldNotRead
+        }
+        if (bytes == null) ImportRead.TooLarge else ImportRead.Read(bytes.decodeToString())
+    }
 
     private fun resolve(requirement: ComponentRequirement) {
         when (requirement) {
