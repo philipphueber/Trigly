@@ -150,6 +150,13 @@ import java.math.RoundingMode
  * (`docs/todo.md` T22). [MAX_REGEX_READS] is the ceiling that keeps one search
  * bounded whatever fed it.
  *
+ * **The third number does not hold on Android today. See `docs/todo.md` T24.**
+ * The platform's `Matcher` stringifies its input, so the read counting never
+ * runs on a phone. Two of the three bounds are real everywhere. The one that
+ * bounds a regular expression is real only where these tests run, which is the
+ * opposite of where it matters. Nothing here is safe to describe as bounded
+ * until T24 is closed.
+ *
  * **This claim is only true while the grammar stays this small.** The day
  * this language gains a loop, a user-defined function, or anything that reads
  * or writes state across one evaluation, all three bounds stop being the whole

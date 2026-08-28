@@ -397,6 +397,14 @@ The bound counts characters read, not time. A bound in milliseconds would let a
 rule work on a fast phone and fail on a slow one, which is the failure this
 project works hardest to avoid.
 
+**This bound does not work on Android yet.** Android's regex engine copies the
+text before it searches, which stops Trigly from counting what the search
+reads. So the limit above is real on the machine the tests run on, and it is
+not real on your phone. A pattern with two of `.*` in it can still make one
+rule busy for a long time. `docs/todo.md` T24 records this and the ways to
+close it. Until then, treat the advice about a leading `.*` as advice you have
+to follow, not as a limit the app applies for you.
+
 This is also the bound a trigger's text filter uses for its own `regex` mode.
 `TextFilter` in `:core` runs the identical rate, over the identical counting
 `CharSequence`, so a pattern that is fine here is fine there and a pattern

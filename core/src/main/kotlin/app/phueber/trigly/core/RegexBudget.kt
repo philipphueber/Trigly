@@ -22,6 +22,12 @@ package app.phueber.trigly.core
  * it once and both paths change together, rather than one of them drifting
  * into allowing what the other refuses.
  *
+ * **This bound holds on the JVM and not on Android. See `docs/todo.md` T24.**
+ * The platform's `Matcher` converts its input to a `String` when it is handed
+ * anything else, so [BudgetedText.get] is never called on a phone and no read
+ * is ever counted. Every test of this file passes, because they run on the JVM.
+ * That is the trap, not a reassurance. T24 holds the three ways out.
+ *
  * **Characters read, not milliseconds.** A bound has to mean the same thing on
  * a fast phone and a slow one. A timeout would let a rule work on one device
  * and fail on another, which is the failure this project spends most of its
@@ -106,4 +112,20 @@ internal class BudgetedText(private val text: String, private var allowance: Int
 
     override fun subSequence(startIndex: Int, endIndex: Int): CharSequence =
         text.subSequence(startIndex, endIndex)
+
+    /**
+     * **Load-bearing for correctness, not a convenience.** Android's
+     * `java.util.regex.Matcher` converts its input to a `String` when it is
+     * handed anything that is not already one. Without this override that
+     * conversion produced `Object.toString()`, so a pattern searched
+     * "app.phueber.trigly.core.BudgetedText@1a2b3c4d" rather than the text, and
+     * matched or missed on the hex digits of a hash code. Found on a device: a
+     * six-character sample reported a match at index 37.
+     *
+     * The same conversion is why the read counting in [get] does nothing on
+     * Android. [get] is never called there. See `docs/todo.md` T24: the bound
+     * these classes describe holds on the JVM, where the tests run, and not on
+     * the phone, where it matters.
+     */
+    override fun toString(): String = text
 }

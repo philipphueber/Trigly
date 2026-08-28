@@ -443,7 +443,8 @@ Arithmetic, comparison, string functions, date formats.
   depth. The third number arrived with `contains`'s regex mode, which is the one
   operation here that is not the language's own work: a backtracking engine can
   do an unbounded amount of work on a bounded input, so a pattern may read only
-  10000 characters per character of text, up to a ceiling. That claim is true
+  10000 characters per character of text, up to a ceiling. **That third number
+  does not hold on Android today: see `docs/todo.md` T24.** That claim is true
   only while the grammar stays this small, and `Expression.kt` says so at the
   point where somebody would add the feature that ends it.
 - **Date formats are still not here.** The evaluate mode does arithmetic,

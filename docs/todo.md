@@ -518,6 +518,73 @@ that every registered `type` string is still present, which is check 2 of the
 smoke test and the one failure that would break every saved rule at once.
 
 
+### T24 The regex read bound does not work on Android
+
+**Evidence.** `BudgetedText` in `core/RegexBudget.kt` bounds a search by counting
+the characters the regex engine reads through `CharSequence.get`. On the JVM that
+works, and `TextFilterTest`, `MatchRangesTest` and `ExpressionTest` all prove it
+works. On Android it does nothing at all.
+
+Android's `java.util.regex.Matcher` converts its input to a `String` when it is
+handed anything that is not already one. So `get` is never called, no read is
+ever counted, and no search is ever refused.
+
+Found by running the pattern tester's own device tests, which failed in a way
+that named the cause exactly: a `[0-9]+` search over the six-character sample
+`12 and 34` reported a match at index 37. The text being searched was
+`Object.toString()`, `app.phueber.trigly.core.BudgetedText@1a2b3c4d`, and the
+match was on the hex digits of a hash code. That second half was a live
+correctness bug in both regex paths, and it is fixed: `BudgetedText` now
+overrides `toString`. The bound itself is still missing.
+
+**What this costs today.** Two claims in this repository are true on the JVM and
+false on a phone:
+
+- `Expression.kt`'s "Safety is exactly three numbers". The third number does not
+  hold on a device, so `contains(a, b, "regex")` can be given a pattern that
+  occupies a core with no end.
+- `TextFilter`'s "Matching is also bounded". `screen_content` can run a pattern
+  against on-screen text as often as every hundred milliseconds, and nothing
+  stops a backtracking pattern there.
+
+The `.*.*.*b` refusal test in `PatternTesterTest` is `@Ignore`d for this reason
+and names this item. `TextFilter.Outcome.BUDGET_SPENT` and the tester's fourth
+verdict state are both reachable only on the JVM today. They stay, because they
+are the shape a working bound needs, and because deleting them would lose the
+tests that prove the counting itself is right.
+
+**This is the trap this project's testing posture exists for.** The suite runs
+1852 JVM tests, every one of them green, on a mechanism that does nothing on the
+device the app ships to. "Works on the JVM, fails on the phone" is exactly the
+failure `CLAUDE.md` says instrumented tests carry the weight for, and the
+instrumented tests are what caught it.
+
+**Three ways forward, none of them free.**
+
+1. **Refuse the pattern when it is saved, not when it runs.** A static check for
+   the shapes that cost unbounded work: two adjacent unbounded quantifiers
+   (`.*.*`), or an unbounded quantifier inside a quantified group (`(a+)+`).
+   `TextFilter.of` already throws on a pattern that does not compile, and the
+   editor already shows that failure at the moment of typing, so this needs no
+   new plumbing and gives a person something to act on. It is incomplete in
+   theory: a crafted pattern outside those shapes can still backtrack. It covers
+   every case measured here.
+2. **Match on one shared thread with a real timeout.** Bounds the wall clock
+   rather than the work, and a blocking regex cannot be interrupted, so the
+   thread keeps burning until the pattern finishes. One shared single-thread
+   executor keeps that to one runaway thread, and a search that arrives while it
+   is busy answers "no match" at once. Real work: `TextFilter.matches` is
+   synchronous and called from inside five triggers' flows.
+3. **Say the bound is not there.** Retract both claims, keep the counting for the
+   JVM, and document that a regular expression on a device is unbounded. Honest,
+   free, and leaves the review finding open.
+
+Option 1 is the recommendation. It is the only one that tells the person who
+wrote the pattern, at the moment they wrote it, and a bound that reports itself
+beats a bound that silently answers "no match".
+
+---
+
 ### T22 `round`'s second argument is not bounded
 
 `round(number, places)` reads `places` with `intValueExact`, and nothing checks

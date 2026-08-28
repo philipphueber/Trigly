@@ -52,6 +52,11 @@ enum class TextMatchMode(val configValue: String) {
  * `RegexBudget.kt` are the same bound `Expression.kt`'s `contains(a, b,
  * "regex")` uses, and for the same reason: read that file's "Safety is exactly
  * three numbers" for where the numbers came from.
+ *
+ * **That bound does not work on Android. See `docs/todo.md` T24.** So the
+ * paragraph above describes what this is built to do, not what a phone does
+ * today: on a device a backtracking pattern can still occupy the collector
+ * thread. [Outcome.BUDGET_SPENT] is reachable on the JVM only.
  */
 class TextFilter private constructor(
     private val predicate: (String?) -> Outcome,

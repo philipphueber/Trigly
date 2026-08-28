@@ -959,6 +959,22 @@ shape, the pattern arrives inside a rule somebody else wrote, and ART is not
 that engine. The bound is what makes the claim, not the engine's good behaviour
 on the famous example.
 
+**And then ART turned out to defeat the bound as well.** Android's `Matcher`
+converts its input to a `String` when it is handed anything else, so the
+counting `CharSequence` is never read on a phone and nothing is ever refused
+there. Worse, before `BudgetedText` overrode `toString`, the search ran against
+`Object.toString()`: a pattern matched the hex digits of a hash code, and a
+device test reported a match at index 37 of a six-character sample. The
+correctness half is fixed. The bound is not, and `docs/todo.md` T24 holds the
+options.
+
+Two lessons worth keeping, because they cost a full day between them. The
+paragraph above was right that one engine's behaviour is not a safety argument,
+and it was written while depending on another engine's behaviour without
+checking it. And 1852 green JVM tests said the bound worked. The instrumented
+tests are what said otherwise, which is the whole reason this project weighs
+them the way the testing section says it does.
+
 Arithmetic is `BigDecimal`, the same choice `set_variable`'s add mode made and
 for the same reason: a running total built from repeated fractional additions
 drifts visibly in binary floating point, and a rule that computes a total is
