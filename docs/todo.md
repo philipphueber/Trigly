@@ -415,6 +415,42 @@ going to reach anyway.
 **Done when.** Either it is built, or this item is moved to Rejected with the
 reason.
 
+### T23 A refused regex leaves no trace once it is not a save-time error
+
+**Evidence.** `TextFilter`'s `regex` mode now runs every search through
+`BudgetedText` (`core/RegexBudget.kt`), the same bound `Expression.kt`'s
+`contains(a, b, "regex")` uses, so a pattern that backtracks without end cannot
+occupy `screen_content`'s collector thread forever. `TextFilter.matches`
+cannot throw, though: it is called from five triggers' event flows and none of
+them has anywhere to send an exception. So a refused search,
+`TextFilter.Outcome.BUDGET_SPENT`, is folded into `false` and the rule behaves
+exactly like a pattern that compiled fine and simply never matches anything.
+`TextFilter`'s own KDoc names this decision at the point it is made.
+
+The pattern tester catches this at edit time, if the person testing happens to
+try a sample long or adversarial enough to spend the budget. It does nothing
+for a pattern that is fine against every sample tried in the tester and only
+turns pathological against real on-screen text later, or for a rule imported
+from someone else's phone and never opened in the tester at all. There, the
+only symptom is a rule that looks correctly configured and does not fire,
+which is indistinguishable from a dozen other reasons a rule goes quiet.
+
+**Decide first.** Whether this is worth a channel at all: it needs an
+adversarial or accidentally expensive pattern to reach, not ordinary use, and
+the fix for the pattern is always the same one the tester already teaches
+(drop a leading `.*`, add an anchor). If it is worth one, `RuleFaultLog` and
+T8's `RuleFault.Kind` are the existing place a rule already explains a run
+that did not go as configured, and `BUDGET_SPENT` firing would be a fourth
+kind alongside `ACTION_FAILED`, `UNDECIDED` and `COULD_NOT_START`.
+That means threading a result out of a trigger's `events()` flow instead of a
+plain boolean, which today's `matchesUiEvent` and its four siblings do not do
+for any other reason a filter says no, so this is not a small addition to that
+path.
+
+**Done when.** Either the channel is built and a refused search reaches
+`RuleFaultLog` once per rule rather than once per event, or this item is moved
+to Rejected with the reason it is not worth building.
+
 ---
 
 ## Priority 3, and each needs a decision first

@@ -397,6 +397,12 @@ The bound counts characters read, not time. A bound in milliseconds would let a
 rule work on a fast phone and fail on a slow one, which is the failure this
 project works hardest to avoid.
 
+This is also the bound a trigger's text filter uses for its own `regex` mode.
+`TextFilter` in `:core` runs the identical rate, over the identical counting
+`CharSequence`, so a pattern that is fine here is fine there and a pattern
+refused here is refused there. One rate, in one place, kept in
+`core/RegexBudget.kt` rather than copied.
+
 ### Numbers behave like a calculator, not like a float
 
 Arithmetic and comparison use decimal arithmetic, the same choice "add to it"
