@@ -369,14 +369,22 @@ class ExpressionTest {
 
     // --- the work one regular expression may do -------------------------------------
     //
-    // Every test here has a timeout, because a bound that stops working does not
-    // give a wrong answer: it hangs. A timeout turns that into a failure.
+    // Every test here has a timeout well above RegexGuard's own five seconds,
+    // because a bound that stops working does not give a wrong answer: it
+    // hangs. A timeout turns that into a failure instead of a suite that never
+    // finishes. RegexBudget.kt has the measurements behind the patterns below.
+    //
+    // A pattern that is actually refused is tested in ExpressionRegexRefusalTest,
+    // not here, for the same reason TextFilterTest keeps that test out of its
+    // own file: the search keeps running on RegexGuard's one shared thread for
+    // an unmeasured time after this test would have moved on, and a class with
+    // nothing else in it is what keeps that from reaching any other test.
 
     /**
      * An ordinary unanchored pattern over the longest text an expression can
-     * hold. It reads 4.9 million characters, because `contains` searches from
-     * every position, and it has to be allowed: there is nothing wrong with it.
-     * See [MAX_REGEX_READS_PER_CHARACTER].
+     * hold. Measured at 18 to 46 ms for the same two patterns in
+     * `TextFilterTest`, against a five-second bound, and it has to be
+     * allowed: there is nothing wrong with it.
      */
     @Test(timeout = 60_000)
     fun `an ordinary pattern over long text is allowed`() {
@@ -385,30 +393,6 @@ class ExpressionTest {
         assertEquals("false", ok("contains(\"$text\", \".*b\", \"regex\")"))
         assertEquals("false", ok("contains(\"$text\", \".*Alice.*\", \"regex\")"))
         assertEquals("false", ok("contains(\"$text\", \"^a+b\", \"regex\")"))
-    }
-
-    /**
-     * Two of `.*` is where the cost stops growing with the square of the text
-     * and starts growing faster. Over 1800 characters this pattern reads more
-     * than four hundred million, so it is refused instead of run.
-     */
-    @Test(timeout = 60_000)
-    fun `a pattern that does too much work is refused`() {
-        val reason = failed("contains(\"${"a".repeat(1800)}\", \".*.*b\", \"regex\")")
-
-        assertTrue(reason, reason.contains("too much work"))
-    }
-
-    /**
-     * Why the bound is a rate and not a flat number: this reads 1.9 million
-     * characters, *less* than the ordinary pattern above reads at 4.9 million.
-     * Any single number that allowed that one would allow this one.
-     */
-    @Test(timeout = 60_000)
-    fun `short text does not buy a worse pattern`() {
-        val reason = failed("contains(\"${"a".repeat(60)}\", \".*.*.*b\", \"regex\")")
-
-        assertTrue(reason, reason.contains("too much work"))
     }
 
     @Test

@@ -934,46 +934,76 @@ That bound now lives in `core/RegexBudget.kt`, not in `Expression.kt`, because
 `TextFilter`'s `regex` mode turned out to need the identical one: see "Matching
 text, and matching it loosely" below for why a trigger's text filter can run
 into the same unbounded engine on a hotter path than an expression ever does.
-The two constants, the counting `CharSequence` and the exception that signals
-"budget spent" are shared code, not two copies that happened to agree.
+The number, the shared thread and the type that reports a refusal are shared
+code, not two copies that happened to agree.
 
-That bound is a **rate**, and the reason is worth keeping: the honest cost of a
-search is not flat. `contains` searches from every position, so an ordinary
-`.*b` over 1800 characters reads 4.9 million characters, while a genuinely bad
-`.*.*.*b` over sixty characters reads only 1.9 million. No single number can
-separate those two, because the good pattern over long text costs more than the
-bad pattern over short text. A rate of 10000 reads per character of text allows
-work that grows with the square of the length, which is what an unanchored
-pattern costs, and refuses anything that grows faster. An absolute ceiling sits
-above it, so one search stays bounded whatever fed it the text.
+**The first version of that bound was a rate, counted in characters read, and
+it never worked on the platform this app ships to.** The reasoning for a rate
+over a flat number was sound and is worth keeping: the honest cost of a search
+is not flat. `contains` searches from every position, so an ordinary `.*b` over
+1800 characters reads 4.9 million characters, while a genuinely bad `.*.*.*b`
+over sixty characters reads only 1.9 million. No single number can separate
+those two, because the good pattern over long text costs more than the bad
+pattern over short text. Reads rather than milliseconds, for the reason that
+decides most things here: a timeout would make a rule work on a fast phone and
+fail on a slow one. The count was taken by handing the engine a `CharSequence`
+that counted what it read.
 
-Reads rather than milliseconds, for the reason that decides most things here: a
-timeout would make a rule work on a fast phone and fail on a slow one. The count
-is taken by handing the engine a `CharSequence` that counts what it reads, which
-is also why the numbers above are measurements and not estimates.
+Android's `Matcher` converts its input to a `String` when it is handed anything
+else, so that counting `CharSequence` was never read on a phone and nothing was
+ever refused there. Worse, before the wrapper overrode `toString`, the search
+ran against `Object.toString()`: a pattern matched the hex digits of a hash
+code, and a device test reported a match at index 37 of a six-character
+sample. The correctness half was fixed by overriding `toString`. The bound
+itself needed a different mechanism entirely, because there is no way to make
+Android's engine read a custom `CharSequence` one character at a time: it
+copies to a `String` first, always.
 
-Note which pattern is *not* the threat. The textbook `(a+)+b` reads 1741
-characters over thirty `a`s on the JDK these numbers came from, because that
-engine optimizes that shape away. That is one engine's optimization of one
-shape, the pattern arrives inside a rule somebody else wrote, and ART is not
-that engine. The bound is what makes the claim, not the engine's good behaviour
-on the famous example.
+**What replaced it bounds the wall clock instead, on one shared thread.**
+`RegexGuard` in `core/RegexBudget.kt` runs every bounded search on a single
+background thread and waits up to five seconds for an answer. A regular
+expression search cannot be interrupted, so the thread that runs a pathological
+pattern keeps burning CPU for as long as that pattern's own backtracking takes,
+whatever the waiting caller decides. One thread, never more, is what keeps that
+to at most one runaway thread however many searches are asked for: a second
+search asked for while the first is still running is refused at once, not
+queued behind it, because `screen_content` can ask for a new one every hundred
+milliseconds and a queue in front of a stuck search would grow without end.
 
-**And then ART turned out to defeat the bound as well.** Android's `Matcher`
-converts its input to a `String` when it is handed anything else, so the
-counting `CharSequence` is never read on a phone and nothing is ever refused
-there. Worse, before `BudgetedText` overrode `toString`, the search ran against
-`Object.toString()`: a pattern matched the hex digits of a hash code, and a
-device test reported a match at index 37 of a six-character sample. The
-correctness half is fixed. The bound is not, and `docs/todo.md` T24 holds the
-options.
+Five seconds is measured, not guessed, on an emulator whose CPU is the host
+machine's and is likely faster than a mid-range phone. A notification-sized
+pattern answers in under a tenth of a millisecond. The most expensive honest
+pattern measured, an unanchored search missing over 1800 characters, answers in
+18 to 46 milliseconds, so five seconds is more than a hundred times that. A
+pattern built to be refused, three or four of `.*` chained together, does not
+finish in ten to fifteen seconds on the same devices, so refusing at five costs
+nothing an honest pattern needed.
 
-Two lessons worth keeping, because they cost a full day between them. The
-paragraph above was right that one engine's behaviour is not a safety argument,
-and it was written while depending on another engine's behaviour without
-checking it. And 1852 green JVM tests said the bound worked. The instrumented
-tests are what said otherwise, which is the whole reason this project weighs
-them the way the testing section says it does.
+**The honest limit of a wall-clock bound is that it does not grow with the
+text, and a character-count bound did.** `screen_content`'s haystack is
+`visibleScreenText`, which has no length cap, and the same two honest patterns
+measured above take 2.3 to 2.8 seconds over 20000 characters on that same
+emulator, only about twice under the five-second bound rather than a hundred
+times. A haystack large enough, on a device slow enough, could still see an
+honest pattern refused. `docs/todo.md` T24 has the full account of that
+trade-off, including the rejected alternative that does not have it.
+
+Note which pattern is *not* the threat, whichever mechanism bounds it. The
+textbook `(a+)+b` reads 1741 characters over thirty `a`s on the JDK these
+numbers first came from, and finishes in under a millisecond on the JVM these
+numbers were remeasured on, because that engine optimizes that shape away.
+That is one engine's optimization of one shape, the pattern arrives inside a
+rule somebody else wrote, and ART is not that engine. The bound is what makes
+the claim, not the engine's good behaviour on the famous example.
+
+Two lessons worth keeping, because they cost a full day between them and a
+second design besides. The paragraph above was right that one engine's
+behaviour is not a safety argument, and it was written while depending on
+another engine's behaviour without checking it. And 1852 green JVM tests said
+the first bound worked. The instrumented tests are what said otherwise, which
+is the whole reason this project weighs them the way the testing section says
+it does: a mechanism that only an instrumented test can disprove is exactly the
+kind of bug this project's testing posture exists to catch, and it did.
 
 Arithmetic is `BigDecimal`, the same choice `set_variable`'s add mode made and
 for the same reason: a running total built from repeated fractional additions
@@ -2154,15 +2184,15 @@ uncapped, flattened accessibility tree on every content-change event, and the
 service config asks Android for one as often as every hundred milliseconds, on
 the engine's own collector thread. A pattern that backtracks without end there
 does not answer slowly, it occupies that thread forever. `core/RegexBudget.kt`
-holds `MAX_REGEX_READS_PER_CHARACTER`, `MAX_REGEX_READS` and the counting
-`CharSequence` that enforces them, the "A value that computes" section above
-has the measurements behind the numbers, and `TextFilter.of` and
+holds `RegexGuard`, the single shared background thread every bounded search in
+this app runs on with a five-second wait, and the "A value that computes"
+section above has the measurements behind that number. `TextFilter.of` and
 `matchRangesIn` both run the search through it. `TextFilter.matches` cannot
-throw, so a refused search reads as `Outcome.BUDGET_SPENT` folded into "no
-match": `TextFilter`'s own KDoc names that decision and its cost, which is that
-a rule built around a runaway pattern then never fires, silently, with no
-channel back to the person who wrote it. `docs/todo.md` has that as an open
-item rather than something built here.
+throw, so a refused search reads as `Outcome.REFUSED` folded into "no match":
+`TextFilter`'s own KDoc names that decision and its cost, which is that a rule
+built around a runaway pattern then never fires, silently, with no channel back
+to the person who wrote it. `docs/todo.md`'s T23 has that as an open item
+rather than something built here.
 
 **A pattern can be tested, not just compiled.** `regexErrorOrNull` catches a
 stray bracket and nothing else: a pattern can compile perfectly and match the
@@ -2177,24 +2207,26 @@ rather than `matches` so the dialog can also see the one answer `matches` folds
 into "no". What the dialog says is what will happen, including the
 case-insensitivity and the `containsMatchIn` semantics that are both easy to
 assume the other way round. `matchRangesIn` supplies only the highlight, and
-mirrors those two modes exactly, including running through the same read
-budget; a tester whose highlight disagreed with its own verdict would teach
-people to trust neither, which is why one unit test checks the two against
-each other over a spread of patterns rather than asserting them separately.
+mirrors those two modes exactly, including running through the same
+`RegexGuard`; a tester whose highlight disagreed with its own verdict would
+teach people to trust neither, which is why one unit test checks the two
+against each other over a spread of patterns rather than asserting them
+separately.
 
 **And the states that are neither yes nor no are named.** An empty pattern reads
 "matches anything", because an empty filter has no opinion and calling that a
 mismatch would misdescribe the rule. A pattern that will not compile says so
 rather than reporting a failed match. A zero-width match (`a*` against "bbb")
 says it matched *and* that there is nothing to highlight, because both halves are
-true and either alone misleads. A pattern refused for doing too much work says
+true and either alone misleads. A pattern refused for taking too long says
 that too, rather than reporting a match that never ran: that is the fourth
 state, and the reason the verdict runs off the main thread now, on
 `Dispatchers.Default`, behind a `LaunchedEffect` keyed on the pattern, the mode
-and the sample. `BudgetedText` bounds the work a search may do, not the wall
-time it takes to do it, so a bounded search is still not owed to the thread the
-dialog is drawn on, and coroutine cancellation cannot make a stuck
-`Matcher.find()` stop early even if it were.
+and the sample. `RegexGuard` bounds how long the dialog waits for an answer,
+not how long the search itself runs, so a bounded search is still not owed to
+the thread the dialog is drawn on: cancelling the coroutine cannot reach the
+`RegexGuard` background thread, the same reason a coroutine timeout could not
+either.
 
 **The editor earns the mode's keep.** The mode toggle sits in the field's label
 row, because it changes what the box below it means. In regex mode two things

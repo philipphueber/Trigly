@@ -48,15 +48,15 @@ enum class TextMatchMode(val configValue: String) {
  * against on-screen text on every accessibility event, as often as every
  * hundred milliseconds, on the engine's own collector thread. A pattern that
  * backtracks without end there does not just answer slowly, it occupies that
- * thread forever. [Outcome.BUDGET_SPENT] and [MAX_REGEX_READS_PER_CHARACTER] in
- * `RegexBudget.kt` are the same bound `Expression.kt`'s `contains(a, b,
- * "regex")` uses, and for the same reason: read that file's "Safety is exactly
- * three numbers" for where the numbers came from.
+ * thread forever. [Outcome.REFUSED] and [RegexGuard] in `RegexBudget.kt` are
+ * the same bound `Expression.kt`'s `contains(a, b, "regex")` uses, and for
+ * the same reason: read that file's "Safety is exactly three numbers" for
+ * where the number came from, and `RegexBudget.kt` for the mechanism.
  *
- * **That bound does not work on Android. See `docs/todo.md` T24.** So the
- * paragraph above describes what this is built to do, not what a phone does
- * today: on a device a backtracking pattern can still occupy the collector
- * thread. [Outcome.BUDGET_SPENT] is reachable on the JVM only.
+ * This bound holds on the JVM and on Android alike: it is a wall clock on one
+ * shared thread, not a count of characters read, so nothing about how the
+ * regex engine reads its input matters to it. See `docs/todo.md` T24 for the
+ * mechanism this replaced, which held only on the JVM.
  */
 class TextFilter private constructor(
     private val predicate: (String?) -> Outcome,
@@ -66,25 +66,25 @@ class TextFilter private constructor(
 ) {
 
     /**
-     * The three things one match can be. [BUDGET_SPENT] only happens in
-     * [TextMatchMode.REGEX]: a substring search is linear and never spends the
-     * budget.
+     * The three things one match can be. [REFUSED] only happens in
+     * [TextMatchMode.REGEX]: a substring search is linear and never asks
+     * [RegexGuard] for anything.
      */
-    enum class Outcome { MATCHED, NOT_MATCHED, BUDGET_SPENT }
+    enum class Outcome { MATCHED, NOT_MATCHED, REFUSED }
 
     /**
      * Whether this filter matches, for the five triggers that call it per event
      * and cannot handle anything but yes or no.
      *
-     * [Outcome.BUDGET_SPENT] reads as `false` here. That is a real decision, not
+     * [Outcome.REFUSED] reads as `false` here. That is a real decision, not
      * an oversight: the alternative is throwing out of a trigger's collector on
-     * whichever event happened to spend the budget, which this project does not
-     * do to its own engine. The honest cost is that a rule built around a
-     * pattern that does too much work then never fires, silently, and this
-     * function has no channel to say why. [outcome] is that channel for a
-     * caller that can use one, such as the pattern tester. Whether the engine
-     * itself needs a way to surface this to the person who wrote the rule is
-     * `docs/todo.md`'s question, not this function's.
+     * whichever event happened to run into the bound, which this project does
+     * not do to its own engine. The honest cost is that a rule built around a
+     * pattern that overran then never fires, silently, and this function has no
+     * channel to say why. [outcome] is that channel for a caller that can use
+     * one, such as the pattern tester. Whether the engine itself needs a way to
+     * surface this to the person who wrote the rule is `docs/todo.md`'s
+     * question, not this function's.
      */
     fun matches(candidate: String?): Boolean = predicate(candidate) == Outcome.MATCHED
 
@@ -173,17 +173,14 @@ class TextFilter private constructor(
          * to anyone who wants the whole string, and requiring it by default
          * would surprise everyone else.
          *
-         * BudgetedText bounds the search the same way Expression.kt's regex
-         * mode does; see RegexBudget.kt for why and for the numbers.
+         * RegexGuard bounds the search the same way Expression.kt's regex
+         * mode does; see RegexBudget.kt for why and for the number.
          */
-        private fun regexOutcome(compiled: Regex, candidate: String): Outcome {
-            val budgeted = BudgetedText(candidate, regexReadAllowance(candidate.length))
-            return try {
-                if (compiled.containsMatchIn(budgeted)) Outcome.MATCHED else Outcome.NOT_MATCHED
-            } catch (spent: RegexBudgetSpent) {
-                Outcome.BUDGET_SPENT
+        private fun regexOutcome(compiled: Regex, candidate: String): Outcome =
+            when (val run = RegexGuard.runBounded { compiled.containsMatchIn(candidate) }) {
+                is RegexRun.Completed -> if (run.value) Outcome.MATCHED else Outcome.NOT_MATCHED
+                RegexRun.Refused -> Outcome.REFUSED
             }
-        }
     }
 }
 
@@ -199,21 +196,21 @@ class TextFilter private constructor(
  *
  * The two modes are mirrored exactly as [TextFilter.of] builds them, including
  * the case-insensitivity that both use — get that wrong and the highlight drifts
- * from the verdict on the first capital letter. That includes the same read
- * budget: `findAll` backtracks the same way `containsMatchIn` does, over the
- * same [BudgetedText], so a pattern the filter refuses is refused here too
- * rather than left to search unbounded just because this call only draws a
- * highlight.
+ * from the verdict on the first capital letter. That includes the same bound:
+ * `findAll` backtracks the same way `containsMatchIn` does, and this runs it
+ * through the same [RegexGuard], so a pattern the filter refuses is refused
+ * here too rather than left to search unbounded just because this call only
+ * draws a highlight.
  *
  * Zero-width matches are dropped. A pattern like `a*` matches "b" and matches it
  * *nowhere*, so there is no span to draw; the verdict still says it matched,
  * which is the honest pair of answers.
  *
- * An empty list also means "refused for cost" or "does not compile". Both are
- * caught by name rather than by a blanket `runCatching`, so that a future
- * change to what this searches cannot make either case silent by accident: a
- * caller that wants to tell those two apart from an honest non-match, such as
- * the pattern tester, reads [TextFilter.outcome] instead.
+ * An empty list also means "refused" or "does not compile". Both are handled
+ * as their own named case rather than folded into a blanket `runCatching`, so
+ * that a future change to what this searches cannot make either case silent
+ * by accident: a caller that wants to tell those two apart from an honest
+ * non-match, such as the pattern tester, reads [TextFilter.outcome] instead.
  */
 fun matchRangesIn(pattern: String?, mode: TextMatchMode, candidate: String): List<IntRange> {
     if (pattern.isNullOrEmpty() || candidate.isEmpty()) return emptyList()
@@ -231,20 +228,20 @@ fun matchRangesIn(pattern: String?, mode: TextMatchMode, candidate: String): Lis
 
         TextMatchMode.REGEX -> try {
             val compiled = Regex(pattern, RegexOption.IGNORE_CASE)
-            val budgeted = BudgetedText(candidate, regexReadAllowance(candidate.length))
-            compiled.findAll(budgeted)
-                .map { it.range }
-                .filterNot { it.isEmpty() }
-                .toList()
+            when (val run = RegexGuard.runBounded { compiled.findAll(candidate).map { it.range }.toList() }) {
+                is RegexRun.Completed -> run.value.filterNot { it.isEmpty() }
+                RegexRun.Refused -> {
+                    // Refused, the same as TextFilter.matches. There is
+                    // nothing to highlight either way, and matches() already
+                    // reads this as "no match", so an empty list here keeps
+                    // this function agreeing with the verdict rather than
+                    // contradicting it.
+                    emptyList()
+                }
+            }
         } catch (invalid: IllegalArgumentException) {
             // Does not compile. The tester shows that separately; this must
             // not blow up while someone is halfway through typing a bracket.
-            emptyList()
-        } catch (spent: RegexBudgetSpent) {
-            // Refused for cost, the same as TextFilter.matches. There is
-            // nothing to highlight either way, and matches() already reads
-            // this as "no match", so an empty list here keeps this function
-            // agreeing with the verdict rather than contradicting it.
             emptyList()
         }
     }

@@ -12,11 +12,11 @@ import org.junit.runner.RunWith
  *
  * **This file exists because of a bug the JVM tests could not see.** Both regex
  * paths, `contains(a, b, "regex")` in [evaluateExpression] and
- * [TextFilter]'s `regex` mode, hand the engine a [BudgetedText] rather than the
- * text itself, to count the characters a search reads. Android's `Matcher`
- * converts its input to a `String` when it is handed anything else, and before
- * [BudgetedText] overrode `toString` that conversion produced
- * `Object.toString()`. So on a device every pattern searched
+ * [TextFilter]'s `regex` mode, used to hand the engine a `BudgetedText`
+ * wrapper rather than the text itself, to count the characters a search read.
+ * Android's `Matcher` converts its input to a `String` when it is handed
+ * anything else, and before that wrapper overrode `toString` that conversion
+ * produced `Object.toString()`. So on a device every pattern searched
  * "app.phueber.trigly.core.BudgetedText@1a2b3c4d" instead of the text, and
  * matched or missed on the hex digits of a hash code. A `[0-9]+` search over
  * `12 and 34` reported a match at index 37.
@@ -26,9 +26,15 @@ import org.junit.runner.RunWith
  * only that a search on ART answers what the same search answers on the JVM,
  * which is the one property the JVM cannot check for itself.
  *
- * They deliberately do **not** assert the read bound. It does not work on
- * Android at all, for the same reason: `BudgetedText.get` is never called
- * there. See `docs/todo.md` T24.
+ * That wrapper is gone now: `RegexGuard` in `RegexBudget.kt` hands the engine
+ * the real `String`, on both platforms, and bounds the wall clock instead of
+ * counting characters. See `docs/todo.md` T24 for why the counting mechanism
+ * could never work on Android and what replaced it. `RegexOnDeviceRefusalTest`
+ * is the assertion T24 could not make before: that a pattern which never
+ * finishes is actually refused here, not just on the JVM these tests happen
+ * to also run on. It is a separate class, with nothing else in it, because
+ * that assertion leaves a search running in the background for an unmeasured
+ * time afterward, on this same device process: see that file's KDoc.
  */
 @RunWith(AndroidJUnit4::class)
 class RegexOnDeviceTest {
