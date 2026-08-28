@@ -400,8 +400,92 @@ object RuleJson {
 }
 
 /**
- * Fresh ids for imported rules, so importing never overwrites something the user
- * already has. Merging by id is a deliberate feature, not a default — a rule set
- * from another phone should arrive alongside, not on top.
+ * The same rule, with every [ConfigField.GeneratedId] value in its trigger tree
+ * and its actions replaced by a freshly minted id.
+ *
+ * Lives here, next to [Registry] rather than in `:ui` where it started, because
+ * a second caller needs the exact same walk: `ui`'s `duplicated()` mints fresh
+ * ids for a copy of a rule the user already owns, and importing a rule file
+ * mints fresh ids for a rule that came from outside the app. A rule is a
+ * program either way, and the reasoning that follows applies to both callers,
+ * not only to the one it was written for.
+ *
+ * A generated id identifies the rule to something outside it. A home screen
+ * shortcut carries the `shortcutId` its trigger listens for, and that trigger
+ * fires on any tap whose id matches. A shortcut's own id can be read out of an
+ * exported file by anyone who has that file: the file is plain JSON with no
+ * secret in it. Keeping the id on import would let anyone who has read the
+ * file fire the rule, not only the person who imported it.
+ * [ConfigField.GeneratedId] is already the declared marker for "the editor
+ * mints this, a person never types it", so this walks every component and
+ * mints each one again. Declared rather than a list of known keys, for the
+ * reason the field type exists: a new component with an id of its own must not
+ * have to edit this function.
+ *
+ * A component the registry does not know keeps its config unchanged. That is
+ * the honest answer rather than the safe-looking one: with no schema there is
+ * no way to tell which of its keys is an identity, and inventing a value for a
+ * key this build does not understand would corrupt a rule that a build with
+ * the component installed could still run.
  */
-fun List<Rule>.withFreshIds(): List<Rule> = map { it.copy(id = RuleJson.newId()) }
+fun Rule.withFreshGeneratedIds(registry: Registry): Rule = copy(
+    trigger = trigger.withFreshGeneratedIds(registry),
+    actions = actions.map { it.withFreshGeneratedIds(registry.actionDescriptor(it.type)) },
+)
+
+private fun TriggerNode.withFreshGeneratedIds(registry: Registry): TriggerNode = when (this) {
+    is TriggerNode.One ->
+        TriggerNode.One(spec.withFreshGeneratedIds(registry.triggerDescriptor(spec.type)))
+
+    is TriggerNode.Group ->
+        copy(children = children.map { it.withFreshGeneratedIds(registry) })
+}
+
+private fun ComponentSpec.withFreshGeneratedIds(
+    descriptor: ComponentDescriptor?,
+): ComponentSpec {
+    val generated = descriptor?.configFields
+        ?.filterIsInstance<ConfigField.GeneratedId>()
+        ?.map { it.key }
+        .orEmpty()
+    if (generated.isEmpty()) return this
+
+    return copy(
+        config = config.mapValues { (key, value) ->
+            if (key in generated) RuleJson.newId() else value
+        }
+    )
+}
+
+/**
+ * This rule as it should exist on this device once accepted from a rule file.
+ *
+ * A rule file is a program: an enabled rule with notification access and the
+ * internet permission can act on arrival with no new prompt, since those are
+ * either an install-time permission this app already holds or a grant its user
+ * has likely already given some other rule. So this is stricter than a plain
+ * duplicate, in the two ways that matter for a file written by somebody else
+ * rather than a copy of a rule the user already had running:
+ *
+ * **Always switched off, whatever the file says.** A duplicate is already
+ * switched off for the same reason. See `duplicated()` in `:ui`. But here the
+ * choice is not even the exporter's to make. `RuleJson.decode` reads a missing
+ * `enabled` key as true, on the theory that "a rule someone chose to export is
+ * one they use". That is a fair reading of *their* intent. It says nothing
+ * about whether *this* device's owner has looked at the rule yet. This
+ * function is the one place that turns that reading back off before the rule
+ * ever reaches storage.
+ *
+ * **A fresh rule id, on top of the fresh generated ids [withFreshGeneratedIds]
+ * already mints.** Fresh ids mean an import can never silently overwrite
+ * something the user already has. Merging by id is a deliberate feature, not
+ * a default: a rule set from another phone should arrive alongside, not on
+ * top.
+ *
+ * **The name is left exactly as it came.** This is not a copy, and a name
+ * somebody else chose is not this function's to edit.
+ */
+fun Rule.imported(registry: Registry): Rule = withFreshGeneratedIds(registry).copy(
+    id = RuleJson.newId(),
+    enabled = false,
+)

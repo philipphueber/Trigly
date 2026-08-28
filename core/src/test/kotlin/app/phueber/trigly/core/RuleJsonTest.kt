@@ -181,11 +181,19 @@ class RuleJsonTest {
     }
 
     @Test
-    fun `importing assigns fresh ids so it never overwrites existing rules`() {
-        val imported = RuleJson.decode(RuleJson.encode(rule)).withFreshIds()
+    fun `importing assigns a fresh id, keeps the name, and switches the rule off`() {
+        // A fresh id means import never overwrites an existing rule. The name
+        // is left alone because it is not this app's to edit. Off whatever the
+        // file said, because a file is a program written by someone this
+        // device has not necessarily met. See `Rule.imported` for the reasons
+        // in full; an empty registry is enough here, since none of them
+        // depend on a real component schema.
+        val imported = RuleJson.decode(RuleJson.encode(rule))
+            .map { it.imported(Registry(emptyList(), emptyList())) }
 
         assertNotEquals(rule.id, imported.single().id)
         assertEquals(rule.name, imported.single().name)
+        assertFalse(imported.single().enabled)
     }
 
     @Test

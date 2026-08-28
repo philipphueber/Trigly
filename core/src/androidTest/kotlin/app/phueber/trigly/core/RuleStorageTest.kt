@@ -186,7 +186,11 @@ class RuleStorageTest {
         repository.delete("b")
         assertTrue(repository.rules().first().isEmpty())
 
-        RuleJson.decode(document).withFreshIds().forEach { repository.upsert(it) }
+        // An empty registry is enough here: this test is about storage
+        // surviving the round trip, not about what `imported()` changes,
+        // which `RuleJsonTest` and the fresh-id tests already cover.
+        val registry = Registry(emptyList(), emptyList())
+        RuleJson.decode(document).map { it.imported(registry) }.forEach { repository.upsert(it) }
 
         val restored = repository.rules().first()
         assertEquals(listOf("First", "Second"), restored.map { it.name })
