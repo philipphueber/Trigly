@@ -144,22 +144,7 @@ class TextFilter private constructor(
                             if (candidate == null) {
                                 Outcome.NOT_MATCHED
                             } else {
-                                try {
-                                    // containsMatchIn, not matches: a regex filter
-                                    // reads like grep, finding the pattern
-                                    // anywhere. Anchoring with ^ and $ is
-                                    // available to anyone who wants the whole
-                                    // string, and requiring it by default would
-                                    // surprise everyone else.
-                                    //
-                                    // BudgetedText bounds the search the same way
-                                    // Expression.kt's regex mode does; see
-                                    // RegexBudget.kt for why and for the numbers.
-                                    val budgeted = BudgetedText(candidate, regexReadAllowance(candidate.length))
-                                    if (compiled.containsMatchIn(budgeted)) Outcome.MATCHED else Outcome.NOT_MATCHED
-                                } catch (spent: RegexBudgetSpent) {
-                                    Outcome.BUDGET_SPENT
-                                }
+                                regexOutcome(compiled, candidate)
                             }
                         },
                         pattern = pattern,
@@ -172,6 +157,28 @@ class TextFilter private constructor(
         /** Builds from raw config, the form a factory has. */
         fun fromConfig(pattern: String?, rawMode: String?): TextFilter =
             of(pattern, TextMatchMode.parse(rawMode))
+
+        /**
+         * The regex half of [of]'s predicate, pulled out so the closure that
+         * builds the filter is not indented past the point of reading its own
+         * comments.
+         *
+         * containsMatchIn, not matches: a regex filter reads like grep,
+         * finding the pattern anywhere. Anchoring with ^ and $ is available
+         * to anyone who wants the whole string, and requiring it by default
+         * would surprise everyone else.
+         *
+         * BudgetedText bounds the search the same way Expression.kt's regex
+         * mode does; see RegexBudget.kt for why and for the numbers.
+         */
+        private fun regexOutcome(compiled: Regex, candidate: String): Outcome {
+            val budgeted = BudgetedText(candidate, regexReadAllowance(candidate.length))
+            return try {
+                if (compiled.containsMatchIn(budgeted)) Outcome.MATCHED else Outcome.NOT_MATCHED
+            } catch (spent: RegexBudgetSpent) {
+                Outcome.BUDGET_SPENT
+            }
+        }
     }
 }
 
@@ -238,6 +245,12 @@ fun matchRangesIn(pattern: String?, mode: TextMatchMode, candidate: String): Lis
     }
 }
 
+/**
+ * Whether [pattern] compiles, for an editor that wants to say so while typing.
+ *
+ * Returns null when it is fine, and the engine's complaint when it is not. Only
+ * meaningful for [TextMatchMode.REGEX]; a substring is always valid.
+ */
 fun regexErrorOrNull(pattern: String): String? =
     if (pattern.isEmpty()) {
         null

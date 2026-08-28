@@ -1,5 +1,6 @@
 package app.phueber.trigly.ui
 
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -31,6 +32,12 @@ import org.junit.runner.RunWith
  * racing the answer rather than reading it; [awaitText] is that race made
  * explicit and safe, in place of the plain [assertIsDisplayed] this file used
  * before that move.
+ *
+ * That same gap is also where a stale verdict could hide: the answer already
+ * on screen has to stop being shown the moment it no longer belongs to the
+ * current pattern, mode and sample, not merely get replaced once the new
+ * answer lands. `changing_the_sample_never_leaves_the_old_verdict_on_screen`
+ * checks that directly, and does not wait to do it.
  */
 @RunWith(AndroidJUnit4::class)
 class PatternTesterTest {
@@ -168,6 +175,37 @@ class PatternTesterTest {
         open(".*.*.*b")
 
         composeRule.onNodeWithText("SAMPLE TEXT").performTextReplacement("a".repeat(60))
+
+        awaitText("REFUSED · TOO MUCH WORK ON THIS SAMPLE")
+        composeRule.onNodeWithText("REFUSED · TOO MUCH WORK ON THIS SAMPLE").assertIsDisplayed()
+    }
+
+    /**
+     * The regression this file exists to catch. `result` used to be
+     * remembered with no key, so it was never cleared when the sample
+     * changed, and the verdict shown right after an edit was still the
+     * previous edit's answer until the new search landed. Editing the sample
+     * must never leave the old verdict on screen, whether or not the new
+     * answer has arrived yet.
+     *
+     * `.*.*b` over a small sample containing 'b' matches cheaply. The same
+     * pattern over 1800 `a`s has no 'b' and reads far more than
+     * `MAX_REGEX_READS_PER_CHARACTER` allows (`MatchRangesTest` in `:core`
+     * measures it at over 400 million unbudgeted), so `TextFilter` refuses
+     * it. The assertion right after the edit does not wait for anything:
+     * `TestResult`'s freshness check runs synchronously on recomposition, so
+     * the stale "MATCHES" verdict must already be gone, however long the
+     * refusal itself takes to compute.
+     */
+    @Test
+    fun changing_the_sample_never_leaves_the_old_verdict_on_screen() {
+        open(".*.*b")
+
+        composeRule.onNodeWithText("SAMPLE TEXT").performTextReplacement("xb")
+        awaitText("MATCHES · 1 HIT")
+
+        composeRule.onNodeWithText("SAMPLE TEXT").performTextReplacement("a".repeat(1800))
+        composeRule.onNodeWithText("MATCHES · 1 HIT").assertDoesNotExist()
 
         awaitText("REFUSED · TOO MUCH WORK ON THIS SAMPLE")
         composeRule.onNodeWithText("REFUSED · TOO MUCH WORK ON THIS SAMPLE").assertIsDisplayed()

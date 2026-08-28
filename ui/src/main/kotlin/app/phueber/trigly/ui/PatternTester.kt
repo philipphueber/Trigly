@@ -36,8 +36,26 @@ import app.phueber.trigly.core.regexErrorOrNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** The background search's answer for one pattern, mode and sample: see [PatternTesterDialog]. */
-private data class TestResult(val outcome: TextFilter.Outcome?, val ranges: List<IntRange>)
+/**
+ * The background search's answer for one exact pattern, mode and sample: see
+ * [PatternTesterDialog].
+ *
+ * Carries the inputs it was computed for, [forCurrent], [forMode] and
+ * [forSample], rather than only the answer. A result that no longer matches
+ * the pattern, mode and sample on screen is stale, and a stale verdict is
+ * worse than none: it is what the fourth verdict state exists to rule out for
+ * a refused pattern, and it would be just as misleading for an ordinary
+ * match. Comparing the result to the current input, rather than trusting that
+ * a newer computation always lands before the input changes again, is what
+ * makes a stale verdict impossible to display rather than merely unlikely.
+ */
+private data class TestResult(
+    val forCurrent: String,
+    val forMode: TextMatchMode,
+    val forSample: String,
+    val outcome: TextFilter.Outcome?,
+    val ranges: List<IntRange>,
+)
 
 /**
  * Try a pattern against text you type, and see exactly what the rule will.
@@ -93,26 +111,41 @@ fun PatternTesterDialog(
     // behind a frame, because this reruns on every keystroke in either field.
     // TextFilter.outcome is TextFilter.matches' own code, just with the third
     // answer TextFilter.matches folds into "no": see TextFilter's KDoc for why
-    // that fold happens and what it costs. LaunchedEffect is keyed on the
-    // values that decide the answer, so Compose cancels a stale computation
-    // before it can overwrite a fresher one, and a cancelled search still
-    // finishes in bounded time because BudgetedText bounds it regardless of
-    // cancellation, the same reason a timeout could not.
+    // that fold happens and what it costs.
+    //
+    // LaunchedEffect is keyed on the values that decide the answer, so Compose
+    // cancels a stale computation before it can overwrite `result` with a
+    // stale one, and a cancelled search still finishes in bounded time because
+    // BudgetedText bounds it regardless of cancellation, the same reason a
+    // timeout could not. That only protects the write, though: it says
+    // nothing about the value already on screen while a newer one is still
+    // being computed, which is why `fresh` below re-checks `result` against
+    // this exact recomposition's inputs rather than trusting the write to
+    // have already happened. See TestResult's KDoc for why that check exists.
     var result by remember { mutableStateOf<TestResult?>(null) }
     LaunchedEffect(filter, current, mode, sample) {
         val computed = withContext(Dispatchers.Default) {
-            TestResult(outcome = filter?.outcome(sample), ranges = matchRangesIn(current, mode, sample))
+            TestResult(
+                forCurrent = current,
+                forMode = mode,
+                forSample = sample,
+                outcome = filter?.outcome(sample),
+                ranges = matchRangesIn(current, mode, sample),
+            )
         }
         result = computed
     }
-    val outcome = result?.outcome
+    val fresh = result?.takeIf {
+        it.forCurrent == current && it.forMode == mode && it.forSample == sample
+    }
+    val outcome = fresh?.outcome
     val budgetSpent = outcome == TextFilter.Outcome.BUDGET_SPENT
     val matches = when {
         filter == null -> null // does not compile; known without running anything
-        outcome == null -> null // still computing the first answer for this input
+        outcome == null -> null // no fresh answer yet for this exact input
         else -> outcome == TextFilter.Outcome.MATCHED
     }
-    val ranges = result?.ranges.orEmpty()
+    val ranges = fresh?.ranges.orEmpty()
 
     AlertDialog(
         onDismissRequest = onDismiss,
