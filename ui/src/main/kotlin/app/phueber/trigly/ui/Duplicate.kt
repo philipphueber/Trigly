@@ -9,7 +9,7 @@ import app.phueber.trigly.core.withFreshGeneratedIds
  * A copy of this rule, ready to be edited into the one the person actually
  * wants.
  *
- * Two decisions are worth stating, because a copy is not a memcpy of a rule.
+ * Three decisions are worth stating, because a copy is not a memcpy of a rule.
  *
  * **A generated id is minted again, not copied.** Some config values identify
  * the rule to something outside it. A home screen shortcut carries the
