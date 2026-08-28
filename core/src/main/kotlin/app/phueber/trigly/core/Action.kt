@@ -42,6 +42,18 @@ interface Action {
  * for actions — see [TriggerFactory] for the rule it follows.
  */
 interface ActionFactory : ComponentFactory {
+    /**
+     * **Must not block, and must not do I/O.** `TriggerEngine.startRule` calls
+     * this once per action while it holds its own monitor, for the same
+     * reason [TriggerFactory.create] must not block: a reader on Android's
+     * main thread can be waiting on that same monitor through
+     * `TriggerEngine.runningRuleIds`, and a slow [create] here is a slow main
+     * thread on that path. This is also called again whenever a templated
+     * field resolves to a changed value; see `TriggerEngine.ActionSlot`. Read
+     * a value already held in memory, or in a field passed to the factory's
+     * own constructor; do not open a file, a socket or a system-service call
+     * to answer this.
+     */
     fun create(config: Map<String, String>): Action
 
     /**
