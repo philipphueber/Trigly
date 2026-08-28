@@ -137,6 +137,15 @@ Design lines held deliberately:
 - **`play_alert` custom sounds are `content:`/`file:` only.** A remote sound URI
   in an imported rule would be a beacon: it would report to a stranger's server
   every time the rule fired. Same reasoning as https-only `http_request`.
+- **Every action bounds its own wait; the engine does not.** `TriggerEngine`
+  calls an action with no timeout around it, on purpose: no single number
+  fits both `delay`, which waits on purpose for as long as an hour, and
+  everything else, which wants a bound of seconds, and a blocking platform
+  call ignores a timeout wrapped around it anyway. `docs/todo.md`'s Rejected
+  section has the finding. `play_sound` is the example that needed fixing:
+  `MediaPlayer.prepare()` blocks the calling thread with no bound of its own,
+  so it now waits on `prepareAsync()` instead, behind a fifteen-second
+  timeout that can actually cancel it.
 
 ### Pressing a button on a notification that is not the trigger's
 
@@ -536,6 +545,14 @@ almost nothing, `play_sound` by the silent switch.
 The sound's own length is how long the rule waits, capped at two minutes. The
 picker can reach a podcast as easily as a chime, and this action holds the rule
 while the sound plays.
+
+Getting to that length costs a wait of its own: `MediaPlayer` has to prepare
+the file before it can report a duration, and a content URI from a cloud
+document provider can make that a network read rather than a disk read. That
+wait is capped too, at fifteen seconds, the same bound `http_request`'s
+default timeout and the `location` trigger's position read already use for
+the same kind of read. A provider that never answers loses the rule fifteen
+seconds, not indefinitely.
 
 **One trap this does not solve.** A Bluetooth rule fires on the ACL connect, and
 the audio route is a separate, later event: an ACL link, an A2DP link and an HFP

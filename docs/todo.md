@@ -559,3 +559,32 @@ Trigly is, and a dead watchdog reports all fine by saying nothing".
 
 Nothing to build. One thing to add to the honesty: the watchdog polls, so T1
 also decides how late its detection is after a Doze window.
+
+### R5 A generic timeout on `TriggerEngine.run`'s call to `action.execute`
+
+The review asked for one timeout wrapped around every action, on the grounds
+that `TriggerEngine.run` calls `action.execute(event)` with no bound at all.
+
+Rejected for two reasons.
+
+`withTimeout` cannot interrupt a blocking platform call. A thread stuck inside
+one keeps running after the coroutine around it is marked cancelled, because
+the thread never checks. The timeout would report a failure to the engine
+while the thread stayed stuck, which is a false sense of safety, not a fix.
+
+No single number fits every action. `delay` waits on purpose, for as long as
+the person who built the rule asked for, up to an hour. Everything else wants
+a bound of seconds. A number big enough for `delay` is not a bound on
+anything else, and a number small enough for everything else would cut
+`delay` short. `delay` would then need an exemption from the engine's own
+timeout, and carving out one component's behaviour inside the engine is the
+same mistake `CLAUDE.md` already names: adding a component must not mean
+editing an existing one.
+
+What was done instead: each action bounds its own waiting, stated as the
+contract on `Action.execute` in `:core`. `PlaySoundAction` is the one action
+this review found that did not follow it. `MediaPlayer.prepare()` is
+synchronous blocking I/O, so cancelling its rule could not free the thread
+until `prepare()` returned on its own. It now uses `prepareAsync()` with a
+suspension a fifteen-second `withTimeout` can actually cancel, and a real
+cancellation now reaches it too.

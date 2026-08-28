@@ -20,6 +20,18 @@ sealed interface ActionResult {
  *
  * Implementations live in `:actions`, never here. [execute] is suspending and
  * must be cancellable: the engine cancels it when its rule is disabled.
+ *
+ * **[execute] bounds its own waiting. The engine does not.**
+ * `TriggerEngine.run` calls this with no timeout, and that is deliberate: a
+ * generic bound cannot tell a call that is stuck from `delay`, which waits on
+ * purpose and can legitimately wait a long time, and `withTimeout` cannot
+ * interrupt a blocking platform call anyway, since a blocked thread does not
+ * notice a cancelled coroutine. `docs/todo.md`'s Rejected section has the
+ * finding and why it was turned down. So a call into a platform API that can
+ * hang, such as `MediaPlayer.prepare()`, is this action's own problem to
+ * solve, the way `PlaySoundAction` in `:actions` solves it: move the wait
+ * behind a suspension a timeout can actually cancel, rather than behind a
+ * blocking call one cannot.
  */
 interface Action {
     suspend fun execute(event: TriggerEvent): ActionResult

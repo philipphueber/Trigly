@@ -8,9 +8,13 @@ import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.TriggerEvent
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 
 /**
  * How long this action holds the rule open for, given the length
@@ -105,8 +109,12 @@ fun soundUriProblem(raw: String?): String? {
  * `play_alert` uses, for the same reason: a rule can arrive from an import, and
  * an `http:` sound URI would make it phone home on every firing.
  *
- * The action suspends while the sound plays, so cancelling the rule stops it,
- * and the `finally` releases the player on that path too.
+ * **The action suspends for both halves of its work, preparing and playing,
+ * so cancelling the rule stops it at either point**, and the `finally`
+ * releases the player on that path too. Preparing is bounded by
+ * [PREPARE_TIMEOUT_MILLIS], for the reason [awaitPrepared] gives: an engine
+ * with nothing configured on it, unlike `play_alert`'s, has no other way to
+ * be stopped short of that bound or a cancelled rule.
  */
 class PlaySoundAction(
     private val context: Context,
@@ -119,26 +127,73 @@ class PlaySoundAction(
 
         val player = MediaPlayer()
         return try {
-            // prepare() reads the file, so it is I/O and must not run on the
-            // caller's thread. No setAudioAttributes call: see the class KDoc.
+            // setDataSource opens a descriptor through the ContentResolver,
+            // which for a cloud document provider can block on its own, so
+            // this stays on the IO dispatcher. No setAudioAttributes call:
+            // see the class KDoc.
             withContext(Dispatchers.IO) {
                 player.setDataSource(context, Uri.parse(raw))
-                player.prepare()
             }
+            awaitPrepared(player)
 
             player.start()
             delay(soundSoundingMillis(player.duration))
             ActionResult.Success()
         } catch (failure: Exception) {
-            // An unreadable file, a codec the device lacks, a content URI whose
-            // owner is gone. Reported rather than thrown, so one broken action
-            // does not take down the rest of the rule.
+            // An unreadable file, a codec the device lacks, a content URI
+            // whose owner is gone, or a prepare that ran past its bound.
+            // Reported rather than thrown, so one broken action does not
+            // take down the rest of the rule.
             ActionResult.Failure("Trigly could not play the sound. ${failure.message}", failure)
         } finally {
-            // Reached on cancellation too, which is what makes disabling the
-            // rule a stop button. stop() throws if the player never started.
+            // Reached on cancellation too, and promptly: preparing is now a
+            // suspension rather than a blocking call held on some thread, so
+            // cancelling this coroutine unwinds straight here instead of
+            // waiting for prepare to finish on its own. That is what makes
+            // disabling the rule a real stop button. stop() throws if the
+            // player never started.
             runCatching { player.stop() }
             player.release()
+        }
+    }
+
+    /**
+     * Waits for [player] to finish preparing, bounded by
+     * [PREPARE_TIMEOUT_MILLIS].
+     *
+     * **Why not `prepare()`.** `prepare()` is synchronous blocking I/O, and a
+     * blocking platform call does not notice a cancelled coroutine: the
+     * thread runs it to completion regardless, so a `withTimeout` wrapped
+     * around it would report a failure while the thread stayed stuck inside
+     * `prepare()` for as long as the platform took. `docs/todo.md`'s
+     * rejected engine-wide timeout finding is this same trap at the
+     * engine's level. `prepareAsync()` starts the same work off this thread
+     * and calls back when it is done, so waiting for it here is a real
+     * suspension: [withTimeout] can actually give up on it, and a cancelled
+     * rule actually interrupts the wait rather than merely disowning it.
+     *
+     * [PREPARE_TIMEOUT_MILLIS] picks the same bound this codebase already
+     * gives a read that can reach the network before it can answer:
+     * `HttpRequestAction`'s default timeout and the `location` trigger's
+     * position-read budget are both fifteen seconds, for the same reason a
+     * cloud document provider's descriptor can be one. Fifteen seconds is
+     * long enough for that provider to answer and short enough that a
+     * provider that never will does not hold the rule indefinitely.
+     */
+    private suspend fun awaitPrepared(player: MediaPlayer) = withTimeout(PREPARE_TIMEOUT_MILLIS) {
+        suspendCancellableCoroutine { continuation ->
+            player.setOnPreparedListener {
+                if (continuation.isActive) continuation.resume(Unit)
+            }
+            player.setOnErrorListener { _, what, extra ->
+                if (continuation.isActive) {
+                    continuation.resumeWithException(
+                        IllegalStateException("the player reported error $what/$extra")
+                    )
+                }
+                true
+            }
+            player.prepareAsync()
         }
     }
 
@@ -156,6 +211,9 @@ class PlaySoundAction(
          * rule. [alertSoundingMillis] makes the same call for the same reason.
          */
         const val UNKNOWN_LENGTH_MILLIS = 5_000L
+
+        /** See [awaitPrepared] for what this bounds and why fifteen seconds. */
+        const val PREPARE_TIMEOUT_MILLIS = 15_000L
     }
 }
 
