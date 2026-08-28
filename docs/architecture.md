@@ -1011,9 +1011,20 @@ exemption, a refused foreground-service start.
 
 What that costs is stated in the action's own warning rather than left to be
 discovered: a kill during the wait loses the rest of the rule with nothing to
-retry it, and a second event reaching the same rule while it waits queues behind
-the wait rather than running beside it, because a rule runs its actions in one
-coroutine.
+retry it, and a second event reaching the same rule while it waits never runs
+beside the wait, because a rule runs its actions in one coroutine and
+`TriggerEngine.startRule` collects that rule's whole trigger tree as one merged
+flow that nothing reads again until the wait, and every action after it,
+returns.
+
+That is a promise about ordering, not about delivery. Nothing collects the
+merged flow while `delay` waits, so a later event sits in whichever trigger
+produced it, and every trigger's own hold on it is bounded: a bus-backed
+trigger's `ServiceEventBus` keeps 64 events and drops the oldest past that (see
+"Services the system owns" below), and a broadcast-backed trigger keeps its own
+bounded buffer and drops the new arrival instead once that fills. A wait long
+enough, or a trigger bursty enough, empties either one, and the events past
+that point are lost, not merely delayed.
 
 #### One namespace per component
 

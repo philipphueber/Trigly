@@ -210,8 +210,10 @@ has both, and `docs/variables.md` section 11 has the loop the guard prevents.
 `delay` is the third, and its subject is narrower still: this one rule's own
 timing. It waits on the scheduler port rather than on a coroutine `delay`, so
 Doze cannot sleep through it, and it deliberately does not use the port's durable
-form. Its warning text says what a wait costs, because a rule that pauses is a
-rule whose next event queues behind the pause.
+form. Its warning text says what a wait costs: a rule that pauses never runs two
+events at once, but a wait long enough, against a trigger firing often enough,
+can still lose an event outright, because the trigger's own buffer that holds it
+is not unbounded.
 
 Two consequences documented in the action's own warning, because both are
 discovered by confusion otherwise:
