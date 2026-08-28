@@ -179,6 +179,40 @@ it fails the action with the reason.
 
 Everything below applies to both fields.
 
+### The editor draws it as code
+
+Both fields colour what you type, and only while the field is set to run it.
+"Set a variable" shows an ordinary text box until you choose the mode "compute
+it". The colour is the signal that the box stopped holding text and started
+holding code: from that moment a stray word in it is a failure, not a word.
+
+Each part gets its own colour:
+
+- A `{{...}}` reference, whole, in the brand accent.
+- A piece of text in quotes, and a number, in two different colours.
+- A keyword (`and`, `or`, `not`, `true`, `false`) and each of the six
+  functions, in bold.
+- The operators and the brackets, dimmer than the values they work on.
+- Everything else plain.
+
+Two of those tell you something you cannot see otherwise:
+
+- **A number and a piece of text are different colours**, because they are
+  different types and they never compare equal. A reference that arrives as a
+  number where you expected text is visible before you save the rule.
+- **A reference keeps its colour inside quotes.** Substitution does not respect
+  quotes, so `"{{app.state}}"` still resolves, and it makes the error the next
+  section describes. The colour there is the warning.
+
+A word Trigly does not know stays plain. The editor does not mark it as wrong,
+because plain is what "does nothing" looks like everywhere else in the app. A
+message under the field is the right place to say more, and there is none yet.
+
+The box also stops the keyboard from capitalising the first word and from
+correcting what you type. Both are on by default, and both break an
+expression: `And` is not a keyword, and a corrected `{{app.count}}` is not a
+reference.
+
 ### The order of the two steps
 
 1. Every `{{...}}` is replaced, as a **literal** this language can read.
@@ -494,6 +528,7 @@ carry a fallback, because step 1 resolves both whatever `and` decides:
 | --- | --- |
 | The `{{...}}` grammar, the scopes, what a field offers | `core/.../Variables.kt` |
 | The expression language | `core/.../Expression.kt` |
+| The colours in the editor | `ui/.../ExpressionHighlight.kt` |
 | Writing, and the four modes | `actions/.../SetVariableAction.kt` |
 | The "only if" field, and what `true` means there | `actions/.../RunRuleAction.kt` |
 | The condition and its seven comparisons | `triggers/.../VariableCheck.kt` |

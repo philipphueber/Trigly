@@ -2109,6 +2109,25 @@ scan rather than a regex over a regex, for the reason that matters most here: it
 is asked to read half-typed, invalid input on every keystroke, and anything that
 throws on bad input is useless in exactly the moments highlighting helps.
 
+**An expression field is coloured the same way, by `ExpressionHighlight`, and
+the switch is the configuration rather than the declaration.** `set_variable`
+declares its value field as plain text, and it becomes an expression only when
+the mode says "evaluate", so the editor keys the colouring off
+`substitutionsFor`'s answer through `ConfigFieldEditor`'s `previewEncoding`.
+That is not a shortcut: the colour arriving the moment the mode changes is the
+clearest available way to tell somebody that the box stopped holding text and
+started holding code, and the same field has to keep drawing as prose in the
+mode where it is prose.
+
+Two choices in that highlighter are load-bearing rather than cosmetic. A number
+and a piece of text get **different** colours, because the language has no
+casts and `5` never equals `"5"`, so which one a substituted value turned into
+decides the answer, and the colour is the only place it is visible before
+saving. And a `{{...}}` reference keeps its colour **inside** quotes, because
+substitution does not respect quotes: `"{{app.state}}"` resolves anyway and
+produces `""on""`, a syntax error nobody typed. A reference that lost its
+colour in there would read as if the quotes had made it safe.
+
 ## Testing posture
 
 Instrumented tests on real devices matter more here than unit tests. The real
