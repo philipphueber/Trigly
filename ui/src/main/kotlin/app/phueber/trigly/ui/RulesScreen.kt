@@ -73,6 +73,8 @@ fun RulesScreen(
      * person notices that a rule wrote a value while they were not looking.
      */
     savedValueCount: Int,
+    /** Opens the settings screen. See [Screen.Settings] and [MoreMenu]. */
+    onSettings: () -> Unit,
     onExportRule: (Rule) -> Unit,
     /** Saves a copy of the rule. See [RulesViewModel.duplicate]. */
     onDuplicateRule: (Rule) -> Unit = {},
@@ -226,7 +228,11 @@ fun RulesScreen(
                 onClick = onNewRule,
                 modifier = Modifier.weight(1f),
             )
-            MoreMenu(savedValueCount = savedValueCount, onSavedValues = onSavedValues)
+            MoreMenu(
+                savedValueCount = savedValueCount,
+                onSavedValues = onSavedValues,
+                onSettings = onSettings,
+            )
         }
     }
 }
@@ -592,16 +598,17 @@ private fun BatteryOptimizationNotice(
 }
 
 /**
- * Everything the rules screen offers that is not "make a rule". Today that is
- * one entry, "Saved values".
+ * Everything the rules screen offers that is not "make a rule". Two entries
+ * today: "Saved values" and "Settings".
  *
- * **The three homes this has had, because each move was caused by the last.**
- * It began as a third action in `BlockHeader`, which broke the header:
- * `BlockHeader` gives the title the remaining width and lays the actions after
- * it, so a third one neither wraps nor collapses, it runs off the edge. It
- * became a full-width row beside the battery notice, which fitted and said how
- * many values were stored, at the cost of vertical space above the rule list on
- * every visit, forever, for something a person opens rarely.
+ * **The three homes "Saved values" has had, because each move was caused by
+ * the last.** It began as a third action in `BlockHeader`, which broke the
+ * header: `BlockHeader` gives the title the remaining width and lays the
+ * actions after it, so a third one neither wraps nor collapses, it runs off
+ * the edge. It became a full-width row beside the battery notice, which
+ * fitted and said how many values were stored, at the cost of vertical space
+ * above the rule list on every visit, forever, for something a person opens
+ * rarely.
  *
  * An overflow menu was rejected at that point, and the reason it was rejected
  * no longer applies. The objection was that a menu in the *header* would have
@@ -613,9 +620,16 @@ private fun BatteryOptimizationNotice(
  * The count moves into the entry itself rather than being lost. A menu entry
  * can carry it as well as a row could, and it is the thing worth saying: that a
  * rule has written a value is how a person finds out this screen exists at all.
+ *
+ * **"Settings" landed here rather than earning a third home of its own.**
+ * This menu is already the answer to "where does something belong that is
+ * about the whole app rather than one rule", which a backup switch is. A menu
+ * that already holds one such entry costs nothing to hold a second, and the
+ * settings screen behind it has room for a third setting later without this
+ * menu needing to grow past two rows first.
  */
 @Composable
-private fun MoreMenu(savedValueCount: Int, onSavedValues: () -> Unit) {
+private fun MoreMenu(savedValueCount: Int, onSavedValues: () -> Unit, onSettings: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
 
     Box {
@@ -649,6 +663,18 @@ private fun MoreMenu(savedValueCount: Int, onSavedValues: () -> Unit) {
                 onClick = {
                     expanded = false
                     onSavedValues()
+                },
+            )
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text = stringResource(R.string.rules_settings),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                },
+                onClick = {
+                    expanded = false
+                    onSettings()
                 },
             )
         }

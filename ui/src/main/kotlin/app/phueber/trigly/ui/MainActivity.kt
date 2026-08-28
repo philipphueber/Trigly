@@ -269,6 +269,7 @@ class MainActivity : ComponentActivity() {
                     // list and not a header action: see `SavedValuesEntry`.
                     onSavedValues = { onNavigate(Screen.SavedValues) },
                     savedValueCount = savedValues.size,
+                    onSettings = { onNavigate(Screen.Settings) },
                     describeComponent = container.registry::displayNameOf,
                     ignoringBatteryOptimizations = ignoringBatteryOptimizations,
                     onFixBatteryOptimization = ::requestIgnoreBatteryOptimizations,
@@ -284,6 +285,10 @@ class MainActivity : ComponentActivity() {
 
             Screen.SavedValues -> {
                 SavedValuesHost(onDone = { onNavigate(Screen.RuleList) })
+            }
+
+            Screen.Settings -> {
+                SettingsHost(onDone = { onNavigate(Screen.RuleList) })
             }
         }
     }
@@ -319,6 +324,25 @@ class MainActivity : ComponentActivity() {
             // synchronous and side-effect free already, so there is nothing to
             // wait for and no reason to round-trip a keystroke through state.
             nameProblem = ::variableNameProblem,
+            onBack = onDone,
+        )
+    }
+
+    /**
+     * A single instance for the life of the activity, the same reasoning
+     * [SavedValuesHost] gives for itself: one switch, no per-rule draft to key
+     * on.
+     */
+    @androidx.compose.runtime.Composable
+    private fun SettingsHost(onDone: () -> Unit) {
+        val settings: SettingsViewModel = viewModel(
+            factory = SettingsViewModel.factory(backupSettings = container.backupSettings),
+        )
+        val cloudBackupEnabled by settings.cloudBackupEnabled.collectAsStateWithLifecycle()
+
+        SettingsScreen(
+            cloudBackupEnabled = cloudBackupEnabled,
+            onCloudBackupEnabledChange = settings::setCloudBackupEnabled,
             onBack = onDone,
         )
     }

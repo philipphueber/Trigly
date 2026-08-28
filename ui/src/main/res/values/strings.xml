@@ -30,6 +30,7 @@
          menu holds one entry today and a label would claim more than it has. -->
     <string name="rules_more">\u2026</string>
     <string name="saved_values_menu_empty">Nothing saved yet</string>
+    <string name="rules_settings">Settings</string>
     <!-- Under the row that opens the saved values screen. -->
     <string name="saved_values_entry_empty">Nothing saved yet. A rule can store a value here for any rule to read.</string>
     <plurals name="saved_values_entry_count">
@@ -115,4 +116,20 @@
     <string name="battery_optimization_title">Android can stop Trigly</string>
     <string name="battery_optimization_body">This can happen when the phone is idle. No rule runs then. This setting prevents it. A force-stop is different. If you stop Trigly in Settings, no rule runs until you open Trigly again.</string>
     <string name="battery_optimization_action">Allow</string>
+
+    <!--
+      The settings screen. One switch today: see TriglyBackupAgent and
+      SettingsScreen.kt.
+
+      settings_backup_warning_body says four things and stops there, in the
+      order a person needs them: what backup can copy, where the copy goes,
+      what happens with no Google account, and what still works with the
+      switch off. It must not talk a person out of a switch that is on by
+      default for a real reason, and it must not hide what turning it on
+      actually does.
+    -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_backup_title">Back up to your account</string>
+    <string name="settings_backup_warning_title">What backup shares</string>
+    <string name="settings_backup_warning_body">Backup can copy your rules and your saved values. A webhook URL often carries a token. Backup copies that token too. The copy goes to the account signed in on this phone. A phone with no Google account and no backup service sends nothing. Moving data straight to your next phone still works with this off.</string>
 </resources>

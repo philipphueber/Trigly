@@ -11,12 +11,13 @@ import java.util.UUID
  * Serves two jobs deliberately, so there is one format to get right rather than
  * two that can disagree:
  *
- *  - **Export and import**, which is how rules survive a new phone. Android's
- *    Auto Backup cannot be relied on for that — it needs a Google account and
- *    does not run on de-Googled devices, which is exactly the audience the rest
- *    of this project bends over backwards for. An explicit file the user owns is
- *    the only mechanism that always works, and it doubles as a way to share a
- *    rule with someone else.
+ *  - **Export and import**, which is how rules survive a new phone. Auto Backup
+ *    needs a Google account and a backup transport, and neither exists on a
+ *    de-Googled device, which is exactly the audience the rest of this project
+ *    bends over backwards for. An explicit file the user owns is the only
+ *    mechanism that always works there, whatever the app's own backup setting
+ *    says. See `TriglyBackupAgent` in `:ui` for that setting. It doubles as a
+ *    way to share a rule with someone else.
  *  - **The `config` column** in the local database, via [encodeConfig], and the
  *    trigger-tree column, via [encodeNode].
  *
