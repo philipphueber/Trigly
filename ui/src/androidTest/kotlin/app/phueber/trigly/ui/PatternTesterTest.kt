@@ -2,6 +2,7 @@ package app.phueber.trigly.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
@@ -17,9 +18,19 @@ import org.junit.runner.RunWith
  * The pattern tester, driven through the field that opens it.
  *
  * What is worth asserting is the reporting, because that is the whole feature: a
- * regex that compiles tells you nothing about whether it matches, and the states
- * that are neither "yes" nor "no" — an empty pattern, a pattern that will not
- * compile — are the ones a naive tester gets wrong by calling them failures.
+ * regex that compiles tells you nothing about whether it matches. The states
+ * that are neither "yes" nor "no", an empty pattern, a pattern that will not
+ * compile, a pattern refused for doing too much work, are the ones a naive
+ * tester gets wrong by calling them failures.
+ *
+ * **Verdicts arrive after a frame, not within one.** `PatternTesterDialog` runs
+ * the match on `Dispatchers.Default`, not on the composition that reads the
+ * text field, because `BudgetedText` bounds a search's work but not its wall
+ * time, and that work is not owed to the main thread just because it is
+ * bounded. So a test that changed the sample and asserted immediately would be
+ * racing the answer rather than reading it; [awaitText] is that race made
+ * explicit and safe, in place of the plain [assertIsDisplayed] this file used
+ * before that move.
  */
 @RunWith(AndroidJUnit4::class)
 class PatternTesterTest {
@@ -43,6 +54,20 @@ class PatternTesterTest {
         composeRule.onNodeWithText("TEST").performClick()
     }
 
+    /**
+     * Waits for [text] to appear, rather than asserting it is there already.
+     * The verdict is computed off the main thread now, so it lands some time
+     * after the keystroke that caused it, and a fixed timeout that is generous
+     * on a test device is still a bound, not a promise that nothing regressed
+     * to hanging: `RegexBudget.kt`'s `MAX_REGEX_READS` is what keeps a search
+     * finite even when the pattern under test is deliberately expensive.
+     */
+    private fun awaitText(text: String, timeoutMillis: Long = 5_000) {
+        composeRule.waitUntil(timeoutMillis) {
+            composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
     @Test
     fun the_tester_opens_from_the_field() {
         open("[0-9]+")
@@ -64,6 +89,7 @@ class PatternTesterTest {
 
         composeRule.onNodeWithText("SAMPLE TEXT").performTextReplacement("12 and 34")
 
+        awaitText("MATCHES · 2 HITS")
         composeRule.onNodeWithText("MATCHES · 2 HITS").assertIsDisplayed()
     }
 
@@ -73,6 +99,7 @@ class PatternTesterTest {
 
         composeRule.onNodeWithText("SAMPLE TEXT").performTextReplacement("only 7")
 
+        awaitText("MATCHES · 1 HIT")
         composeRule.onNodeWithText("MATCHES · 1 HIT").assertIsDisplayed()
     }
 
@@ -82,6 +109,7 @@ class PatternTesterTest {
 
         composeRule.onNodeWithText("SAMPLE TEXT").performTextReplacement("no digits here")
 
+        awaitText("NO MATCH")
         composeRule.onNodeWithText("NO MATCH").assertIsDisplayed()
     }
 
@@ -112,6 +140,7 @@ class PatternTesterTest {
 
         composeRule.onNodeWithText("SAMPLE TEXT").performTextReplacement("Hello there")
 
+        awaitText("MATCHES · 1 HIT")
         composeRule.onNodeWithText("MATCHES · 1 HIT").assertIsDisplayed()
     }
 
@@ -122,7 +151,26 @@ class PatternTesterTest {
 
         composeRule.onNodeWithText("SAMPLE TEXT").performTextReplacement("hello world")
 
+        awaitText("MATCHES · 1 HIT")
         composeRule.onNodeWithText("MATCHES · 1 HIT").assertIsDisplayed()
+    }
+
+    /**
+     * The fourth state, alongside an empty pattern, a pattern that will not
+     * compile and a zero-width match. `.*.*.*b` over sixty characters costs 1.9
+     * million reads, which `MAX_REGEX_READS_PER_CHARACTER` refuses at that
+     * length: see `TextFilterTest` in `:core` for the measurement. Refused, not
+     * "no match": those two look the same from the outside, and only this
+     * message tells a person which one they got.
+     */
+    @Test
+    fun a_pattern_that_does_too_much_work_says_so_instead_of_pretending_to_miss() {
+        open(".*.*.*b")
+
+        composeRule.onNodeWithText("SAMPLE TEXT").performTextReplacement("a".repeat(60))
+
+        awaitText("REFUSED · TOO MUCH WORK ON THIS SAMPLE")
+        composeRule.onNodeWithText("REFUSED · TOO MUCH WORK ON THIS SAMPLE").assertIsDisplayed()
     }
 
     @Test

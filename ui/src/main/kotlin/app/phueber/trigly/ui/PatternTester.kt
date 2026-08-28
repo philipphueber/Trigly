@@ -14,6 +14,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,6 +33,11 @@ import app.phueber.trigly.core.TextFilter
 import app.phueber.trigly.core.TextMatchMode
 import app.phueber.trigly.core.matchRangesIn
 import app.phueber.trigly.core.regexErrorOrNull
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+/** The background search's answer for one pattern, mode and sample: see [PatternTesterDialog]. */
+private data class TestResult(val outcome: TextFilter.Outcome?, val ranges: List<IntRange>)
 
 /**
  * Try a pattern against text you type, and see exactly what the rule will.
@@ -42,13 +48,15 @@ import app.phueber.trigly.core.regexErrorOrNull
  * wrong thing, or nothing, and the only way that surfaces today is a rule that
  * silently never fires.
  *
- * **The verdict comes from the engine's own code.** `TextFilter.of(...).matches`
- * is what the trigger will call, so what this says is what will happen —
- * including the case-insensitivity and the "contains a match" rather than "matches
- * the whole string" semantics that are easy to assume the other way round. The
- * highlight is decoration on top of that answer, from [matchRangesIn]; nothing
- * here re-implements matching, because a tester that disagrees with the engine
- * would be worse than none.
+ * **The verdict comes from the engine's own code.** `TextFilter.of(...)` builds
+ * the same filter a trigger would, and its `outcome` is `matches` with the one
+ * extra answer `matches` folds into "no": whether the pattern was refused for
+ * doing too much work rather than actually failing to match. So what this says
+ * is what will happen, including the case-insensitivity and the "contains a
+ * match" rather than "matches the whole string" semantics that are easy to
+ * assume the other way round. The highlight is decoration on top of that
+ * answer, from [matchRangesIn]; nothing here re-implements matching, because a
+ * tester that disagrees with the engine would be worse than none.
  *
  * The pattern is editable here on purpose. Testing is iterating, and a dialog
  * that showed you the pattern was wrong but made you close it to fix it would
@@ -68,6 +76,9 @@ fun PatternTesterDialog(
 
     val isRegex = mode == TextMatchMode.REGEX
     val current = pattern.orEmpty()
+    // Compiling only costs what the pattern itself is long, never what the
+    // sample is, so this stays synchronous: it is what a bracket left open
+    // shows instantly, and it is not the unbounded half of this feature.
     val compileError = if (isRegex) regexErrorOrNull(current) else null
     val highlight = rememberRegexHighlight(enabled = isRegex)
 
@@ -76,8 +87,32 @@ fun PatternTesterDialog(
     val filter = remember(current, mode) {
         runCatching { TextFilter.of(current.ifEmpty { null }, mode) }.getOrNull()
     }
-    val matches = filter?.matches(sample)
-    val ranges = remember(current, mode, sample) { matchRangesIn(current, mode, sample) }
+
+    // Running the pattern against the sample is the unbounded half: it is what
+    // BudgetedText bounds, not what makes it free. Off the main thread and
+    // behind a frame, because this reruns on every keystroke in either field.
+    // TextFilter.outcome is TextFilter.matches' own code, just with the third
+    // answer TextFilter.matches folds into "no": see TextFilter's KDoc for why
+    // that fold happens and what it costs. LaunchedEffect is keyed on the
+    // values that decide the answer, so Compose cancels a stale computation
+    // before it can overwrite a fresher one, and a cancelled search still
+    // finishes in bounded time because BudgetedText bounds it regardless of
+    // cancellation, the same reason a timeout could not.
+    var result by remember { mutableStateOf<TestResult?>(null) }
+    LaunchedEffect(filter, current, mode, sample) {
+        val computed = withContext(Dispatchers.Default) {
+            TestResult(outcome = filter?.outcome(sample), ranges = matchRangesIn(current, mode, sample))
+        }
+        result = computed
+    }
+    val outcome = result?.outcome
+    val budgetSpent = outcome == TextFilter.Outcome.BUDGET_SPENT
+    val matches = when {
+        filter == null -> null // does not compile; known without running anything
+        outcome == null -> null // still computing the first answer for this input
+        else -> outcome == TextFilter.Outcome.MATCHED
+    }
+    val ranges = result?.ranges.orEmpty()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -136,6 +171,8 @@ fun PatternTesterDialog(
                 Verdict(
                     matches = matches,
                     hasPattern = current.isNotEmpty(),
+                    compileError = compileError != null,
+                    budgetSpent = budgetSpent,
                     hasSample = sample.isNotEmpty(),
                     hits = ranges.size,
                 )
@@ -175,19 +212,40 @@ fun PatternTesterDialog(
 }
 
 /**
- * The answer, in words, including the two states that are neither yes nor no.
+ * The answer, in words, including the states that are neither yes nor no.
  *
  * A blank pattern is not a failed match — it is a filter with no opinion, which
  * lets everything through. Saying "no match" there would be a lie about what the
- * rule does.
+ * rule does. [budgetSpent] is the fourth such state: the pattern compiled, but
+ * running it against [hasSample]'s text would do more work than
+ * `MAX_REGEX_READS_PER_CHARACTER` allows, so `TextFilter` refused to run it
+ * rather than occupy a core. A rule built on that pattern would just never
+ * fire, silently; this is the one place that says why. See `RegexBudget.kt`
+ * in `:core` for the bound itself.
+ *
+ * [matches] being null and neither [compileError] nor a missing sample being
+ * the reason means the answer for this exact pattern and sample has not come
+ * back from the background search yet. That gap is real now that the search
+ * runs off the main thread instead of every recomposition; showing nothing
+ * wrong for a frame is the honest alternative to blocking the thread the
+ * dialog is drawn on.
  */
 @Composable
-private fun Verdict(matches: Boolean?, hasPattern: Boolean, hasSample: Boolean, hits: Int) {
+private fun Verdict(
+    matches: Boolean?,
+    hasPattern: Boolean,
+    compileError: Boolean,
+    budgetSpent: Boolean,
+    hasSample: Boolean,
+    hits: Int,
+) {
     val (text, colour) = when {
         !hasPattern -> "EMPTY PATTERN — MATCHES ANYTHING" to
             MaterialTheme.colorScheme.onSurfaceVariant
-        matches == null -> "PATTERN DOES NOT COMPILE" to MaterialTheme.colorScheme.error
+        compileError -> "PATTERN DOES NOT COMPILE" to MaterialTheme.colorScheme.error
         !hasSample -> "TYPE SOME SAMPLE TEXT" to MaterialTheme.colorScheme.onSurfaceVariant
+        budgetSpent -> "REFUSED · TOO MUCH WORK ON THIS SAMPLE" to MaterialTheme.colorScheme.error
+        matches == null -> "CHECKING" to MaterialTheme.colorScheme.onSurfaceVariant
         // `extra.accent` rather than `colorScheme.primary` throughout: primary
         // is a fill colour and fails AA contrast as label text. See Palette.kt.
         matches && hits > 0 -> "MATCHES · $hits ${if (hits == 1) "HIT" else "HITS"}" to
