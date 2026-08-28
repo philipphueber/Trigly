@@ -43,15 +43,48 @@ enum class TextMatchMode(val configValue: String) {
  * filter throughout the app — `blankMeaning` on these fields says so — and it is
  * why the constructor is private: [of] is the only way in, and it is the thing
  * that turns "nothing entered" into "no opinion".
+ *
+ * **Matching is also bounded.** `screen_content` can run its `regex` mode
+ * against on-screen text on every accessibility event, as often as every
+ * hundred milliseconds, on the engine's own collector thread. A pattern that
+ * backtracks without end there does not just answer slowly, it occupies that
+ * thread forever. [Outcome.BUDGET_SPENT] and [MAX_REGEX_READS_PER_CHARACTER] in
+ * `RegexBudget.kt` are the same bound `Expression.kt`'s `contains(a, b,
+ * "regex")` uses, and for the same reason: read that file's "Safety is exactly
+ * three numbers" for where the numbers came from.
  */
 class TextFilter private constructor(
-    private val predicate: (String?) -> Boolean,
+    private val predicate: (String?) -> Outcome,
     /** What the user typed, kept for error messages and equality. */
     val pattern: String?,
     val mode: TextMatchMode,
 ) {
 
-    fun matches(candidate: String?): Boolean = predicate(candidate)
+    /**
+     * The three things one match can be. [BUDGET_SPENT] only happens in
+     * [TextMatchMode.REGEX]: a substring search is linear and never spends the
+     * budget.
+     */
+    enum class Outcome { MATCHED, NOT_MATCHED, BUDGET_SPENT }
+
+    /**
+     * Whether this filter matches, for the five triggers that call it per event
+     * and cannot handle anything but yes or no.
+     *
+     * [Outcome.BUDGET_SPENT] reads as `false` here. That is a real decision, not
+     * an oversight: the alternative is throwing out of a trigger's collector on
+     * whichever event happened to spend the budget, which this project does not
+     * do to its own engine. The honest cost is that a rule built around a
+     * pattern that does too much work then never fires, silently, and this
+     * function has no channel to say why. [outcome] is that channel for a
+     * caller that can use one, such as the pattern tester. Whether the engine
+     * itself needs a way to surface this to the person who wrote the rule is
+     * `docs/todo.md`'s question, not this function's.
+     */
+    fun matches(candidate: String?): Boolean = predicate(candidate) == Outcome.MATCHED
+
+    /** The full answer behind [matches], for a caller that wants to tell the three cases apart. */
+    fun outcome(candidate: String?): Outcome = predicate(candidate)
 
     /** True when this filter has no opinion — an empty pattern. */
     val isEmpty: Boolean get() = pattern.isNullOrEmpty()
@@ -67,7 +100,7 @@ class TextFilter private constructor(
     companion object {
 
         /** A filter that lets everything through. */
-        val Any: TextFilter = TextFilter({ true }, null, TextMatchMode.CONTAINS)
+        val Any: TextFilter = TextFilter({ Outcome.MATCHED }, null, TextMatchMode.CONTAINS)
 
         /**
          * Builds a filter, compiling the pattern if it is a regex.
@@ -82,8 +115,17 @@ class TextFilter private constructor(
             if (pattern.isNullOrEmpty()) return Any
 
             return when (mode) {
+                // A linear substring search, so there is nothing here for a
+                // pattern to spend an unbounded amount of work on: the cost is
+                // exactly the length of the candidate, once. No bound needed.
                 TextMatchMode.CONTAINS -> TextFilter(
-                    predicate = { it?.contains(pattern, ignoreCase = true) == true },
+                    predicate = {
+                        if (it?.contains(pattern, ignoreCase = true) == true) {
+                            Outcome.MATCHED
+                        } else {
+                            Outcome.NOT_MATCHED
+                        }
+                    },
                     pattern = pattern,
                     mode = mode,
                 )
@@ -98,11 +140,28 @@ class TextFilter private constructor(
                         )
                     }
                     TextFilter(
-                        // containsMatchIn, not matches: a regex filter reads like
-                        // grep, finding the pattern anywhere. Anchoring with ^ and
-                        // $ is available to anyone who wants the whole string, and
-                        // requiring it by default would surprise everyone else.
-                        predicate = { it != null && compiled.containsMatchIn(it) },
+                        predicate = { candidate ->
+                            if (candidate == null) {
+                                Outcome.NOT_MATCHED
+                            } else {
+                                try {
+                                    // containsMatchIn, not matches: a regex filter
+                                    // reads like grep, finding the pattern
+                                    // anywhere. Anchoring with ^ and $ is
+                                    // available to anyone who wants the whole
+                                    // string, and requiring it by default would
+                                    // surprise everyone else.
+                                    //
+                                    // BudgetedText bounds the search the same way
+                                    // Expression.kt's regex mode does; see
+                                    // RegexBudget.kt for why and for the numbers.
+                                    val budgeted = BudgetedText(candidate, regexReadAllowance(candidate.length))
+                                    if (compiled.containsMatchIn(budgeted)) Outcome.MATCHED else Outcome.NOT_MATCHED
+                                } catch (spent: RegexBudgetSpent) {
+                                    Outcome.BUDGET_SPENT
+                                }
+                            }
+                        },
                         pattern = pattern,
                         mode = mode,
                     )
@@ -117,12 +176,6 @@ class TextFilter private constructor(
 }
 
 /**
- * Whether [pattern] compiles, for an editor that wants to say so while typing.
- *
- * Returns null when it is fine, and the engine's complaint when it is not. Only
- * meaningful for [TextMatchMode.REGEX]; a substring is always valid.
- */
-/**
  * Where [candidate] is matched by [pattern] under [mode] — the spans a tester
  * highlights.
  *
@@ -134,11 +187,21 @@ class TextFilter private constructor(
  *
  * The two modes are mirrored exactly as [TextFilter.of] builds them, including
  * the case-insensitivity that both use — get that wrong and the highlight drifts
- * from the verdict on the first capital letter.
+ * from the verdict on the first capital letter. That includes the same read
+ * budget: `findAll` backtracks the same way `containsMatchIn` does, over the
+ * same [BudgetedText], so a pattern the filter refuses is refused here too
+ * rather than left to search unbounded just because this call only draws a
+ * highlight.
  *
  * Zero-width matches are dropped. A pattern like `a*` matches "b" and matches it
  * *nowhere*, so there is no span to draw; the verdict still says it matched,
  * which is the honest pair of answers.
+ *
+ * An empty list also means "refused for cost" or "does not compile". Both are
+ * caught by name rather than by a blanket `runCatching`, so that a future
+ * change to what this searches cannot make either case silent by accident: a
+ * caller that wants to tell those two apart from an honest non-match, such as
+ * the pattern tester, reads [TextFilter.outcome] instead.
  */
 fun matchRangesIn(pattern: String?, mode: TextMatchMode, candidate: String): List<IntRange> {
     if (pattern.isNullOrEmpty() || candidate.isEmpty()) return emptyList()
@@ -154,13 +217,24 @@ fun matchRangesIn(pattern: String?, mode: TextMatchMode, candidate: String): Lis
             }
         }
 
-        TextMatchMode.REGEX -> runCatching {
-            Regex(pattern, RegexOption.IGNORE_CASE)
-                .findAll(candidate)
+        TextMatchMode.REGEX -> try {
+            val compiled = Regex(pattern, RegexOption.IGNORE_CASE)
+            val budgeted = BudgetedText(candidate, regexReadAllowance(candidate.length))
+            compiled.findAll(budgeted)
                 .map { it.range }
                 .filterNot { it.isEmpty() }
                 .toList()
-        }.getOrDefault(emptyList())
+        } catch (invalid: IllegalArgumentException) {
+            // Does not compile. The tester shows that separately; this must
+            // not blow up while someone is halfway through typing a bracket.
+            emptyList()
+        } catch (spent: RegexBudgetSpent) {
+            // Refused for cost, the same as TextFilter.matches. There is
+            // nothing to highlight either way, and matches() already reads
+            // this as "no match", so an empty list here keeps this function
+            // agreeing with the verdict rather than contradicting it.
+            emptyList()
+        }
     }
 }
 

@@ -82,6 +82,57 @@ class MatchRangesTest {
         assertTrue(matchRangesIn("[unclosed", TextMatchMode.REGEX, "abc").isEmpty())
     }
 
+    // --- the work a highlight may do --------------------------------------------
+    //
+    // matchRangesIn runs the same bounded search TextFilter.matches does, over
+    // the same BudgetedText, so a pattern the filter refuses cannot still be
+    // searched here just because this call only draws a highlight. Every test
+    // below has a timeout: a bound that stops working hangs, it does not answer
+    // wrongly. See TextFilterTest for the sibling tests and where the numbers
+    // were measured.
+
+    /**
+     * An ordinary pattern over 1800 characters, the size `screen_content` can
+     * hand this. `a+` over that text is one match spanning the whole string,
+     * and has to come back rather than being refused: there is nothing wrong
+     * with this search.
+     */
+    @Test(timeout = 60_000)
+    fun `an ordinary pattern over long text is still highlighted`() {
+        val text = "a".repeat(1800)
+
+        assertEquals(listOf(0..1799), matchRangesIn("a+", TextMatchMode.REGEX, text))
+    }
+
+    /**
+     * Two of `.*` over the same 1800 characters costs far more than the budget
+     * allows (measured in TextFilterTest). The highlight comes back empty, the
+     * same answer a pattern that simply does not match would give, and the
+     * filter's own [TextFilter.Outcome] is what tells the two apart.
+     */
+    @Test(timeout = 60_000)
+    fun `a pattern that does too much work highlights nothing, rather than hanging`() {
+        val text = "a".repeat(1800)
+
+        assertTrue(matchRangesIn(".*.*b", TextMatchMode.REGEX, text).isEmpty())
+        assertEquals(
+            TextFilter.Outcome.BUDGET_SPENT,
+            TextFilter.of(".*.*b", TextMatchMode.REGEX).outcome(text),
+        )
+    }
+
+    /** Same rate, same reason as TextFilterTest's test of the same name. */
+    @Test(timeout = 60_000)
+    fun `short text does not buy a worse pattern`() {
+        val text = "a".repeat(60)
+
+        assertTrue(matchRangesIn(".*.*.*b", TextMatchMode.REGEX, text).isEmpty())
+        assertEquals(
+            TextFilter.Outcome.BUDGET_SPENT,
+            TextFilter.of(".*.*.*b", TextMatchMode.REGEX).outcome(text),
+        )
+    }
+
     /**
      * The one that would catch a drift between the highlight and the truth: any
      * pattern producing a span must be a pattern the filter matches, and any

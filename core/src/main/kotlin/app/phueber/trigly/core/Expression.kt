@@ -108,13 +108,20 @@ import java.math.RoundingMode
  * - [MAX_EXPRESSION_LENGTH] characters of input.
  * - [MAX_EXPRESSION_DEPTH] levels of nesting: a parenthesis, a function call,
  *   a ternary branch, or a chain of unary `-`, `+` or `not`.
- * - What one regular expression may read: [MAX_REGEX_READS_PER_CHARACTER] for
+ * - What one regular expression may read: `MAX_REGEX_READS_PER_CHARACTER` for
  *   every character of the text it searches, and never more than
- *   [MAX_REGEX_READS] in total. A backtracking engine is the one thing here
+ *   `MAX_REGEX_READS` in total. A backtracking engine is the one thing here
  *   that can do an unbounded amount of work on a bounded input, so it is the
  *   one thing here that needed a bound of its own. The paragraph below used to
  *   say that whoever added a feature like that had to design the replacement
  *   bound before shipping it. This is that bound.
+ *
+ *   The bound itself lives in `RegexBudget.kt`, not in this file: [TextFilter]'s
+ *   `regex` mode needed the identical bound for the identical reason, so the
+ *   two constants, the counting [CharSequence] and the exception that signals
+ *   "budget spent" are shared rather than kept as two copies that could drift
+ *   apart. What follows is why the numbers are what they are; where they live
+ *   does not change that.
  *
  * **The third bound is a rate because the cost of an honest pattern is not
  * flat.** `contains` searches anywhere in the text, so the engine starts over
@@ -167,37 +174,9 @@ const val MAX_EXPRESSION_LENGTH: Int = 2_000
 /** The nesting depth this language accepts. See the "Safety" section above. */
 const val MAX_EXPRESSION_DEPTH: Int = 64
 
-/**
- * What one regular expression may read, per character of the text it searches.
- * See the "Safety" section above for why this is a rate.
- *
- * **Characters read, not milliseconds.** A bound has to mean the same thing on
- * a fast phone and a slow one. A timeout would let a rule work on one device
- * and fail on another, which is the failure this project spends most of its
- * effort avoiding. The engine reads its input one character at a time and
- * backtracking reads the same characters again, so counting reads counts work.
- *
- * Ten thousand is between three and four times what the most expensive honest
- * pattern measured needs (`.*b` over 1800 characters: 4.9 million reads, so
- * 2700 per character), and far below the cheapest bad one (`.*.*.*b` over sixty
- * characters: 31000 per character).
- */
-const val MAX_REGEX_READS_PER_CHARACTER: Int = 10_000
-
-/**
- * What one regular expression may read in total, whatever the length of the
- * text. See the "Safety" section above.
- *
- * The ceiling on [MAX_REGEX_READS_PER_CHARACTER], and the reason a single
- * search stays bounded even if a future function hands it more text than the
- * expression that asked for it. Twenty million reads is about eighty
- * milliseconds on a desktop JVM, and it is a ceiling on the pathological case
- * rather than a cost anything ordinary comes near. Over a notification-sized
- * piece of text every pattern measured cost a few thousand reads, and the most
- * expensive honest case measured, an unanchored pattern missing over 1800
- * characters, cost 4.9 million.
- */
-const val MAX_REGEX_READS: Int = 20_000_000
+// MAX_REGEX_READS_PER_CHARACTER, MAX_REGEX_READS, BudgetedText and
+// RegexBudgetSpent live in RegexBudget.kt. See the "Safety" section above for
+// why this file's own bound and TextFilter's are the same bound.
 
 const val FUNCTION_UPPER = "upper"
 const val FUNCTION_LOWER = "lower"
@@ -246,18 +225,6 @@ private val NUMBER_PATTERN = Regex("""-?\d+(\.\d+)?""")
 
 /** Thrown only inside this file, and caught at [evaluateExpression]'s boundary. */
 private class ExpressionError(val reason: String) : Exception(reason)
-
-/**
- * Thrown out of the middle of the regex engine when a search has read
- * everything it is allowed to, and turned into an [ExpressionError] by the call
- * that started it. See [MAX_REGEX_READS_PER_CHARACTER].
- *
- * Its own type rather than [ExpressionError] because it is thrown from
- * [CharSequence.get], through code this project does not own. Something in
- * there catching a passing [Exception] would swallow a bound; a distinct
- * unchecked type keeps that from being silent.
- */
-private class RegexBudgetSpent : RuntimeException()
 
 // --- Lexing ------------------------------------------------------------------------
 
@@ -844,15 +811,10 @@ private object Evaluator {
                     "expression: ${invalid.message}"
             )
         }
-        // Grows with the text, because the honest cost of a search does too.
-        // See MAX_REGEX_READS_PER_CHARACTER. The + 1 keeps an empty candidate
-        // from being given an allowance of nothing.
-        val allowance = MAX_REGEX_READS_PER_CHARACTER.toLong() * (candidate.length + 1)
-
         return try {
-            compiled.containsMatchIn(
-                BudgetedText(candidate, minOf(allowance, MAX_REGEX_READS.toLong()).toInt())
-            )
+            // regexReadAllowance and BudgetedText are RegexBudget.kt's, shared
+            // with TextFilter's regex mode. See that file for the numbers.
+            compiled.containsMatchIn(BudgetedText(candidate, regexReadAllowance(candidate.length)))
         } catch (spent: RegexBudgetSpent) {
             throw ExpressionError(
                 "The regular expression at position $position does too much work on " +
@@ -863,31 +825,4 @@ private object Evaluator {
             )
         }
     }
-}
-
-/**
- * [text], with a hard cap on how many characters a regular expression may read
- * from it.
- *
- * The engine reads its input through [CharSequence.get] one character at a
- * time, and a backtracking pattern reads the same character over and over. So
- * counting reads counts the *work*, which is the only way to bound a pattern
- * that does four hundred million reads over eighteen hundred characters.
- *
- * [subSequence] is not counted, and does not need to be: nothing here calls it.
- * It is how a match group would be read, and this only ever asks whether a
- * match exists at all.
- */
-private class BudgetedText(private val text: String, private var allowance: Int) : CharSequence {
-
-    override val length: Int get() = text.length
-
-    override fun get(index: Int): Char {
-        if (allowance <= 0) throw RegexBudgetSpent()
-        allowance--
-        return text[index]
-    }
-
-    override fun subSequence(startIndex: Int, endIndex: Int): CharSequence =
-        text.subSequence(startIndex, endIndex)
 }

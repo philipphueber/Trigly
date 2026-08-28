@@ -903,6 +903,13 @@ unbounded amount of work on a bounded input, which is exactly the property the
 paragraph above depends on not existing, so the feature could not ship without
 the replacement bound the file had already promised.
 
+That bound now lives in `core/RegexBudget.kt`, not in `Expression.kt`, because
+`TextFilter`'s `regex` mode turned out to need the identical one: see "Matching
+text, and matching it loosely" below for why a trigger's text filter can run
+into the same unbounded engine on a hotter path than an expression ever does.
+The two constants, the counting `CharSequence` and the exception that signals
+"budget spent" are shared code, not two copies that happened to agree.
+
 That bound is a **rate**, and the reason is worth keeping: the honest cost of a
 search is not flat. `contains` searches from every position, so an ordinary
 `.*b` over 1800 characters reads 4.9 million characters, while a genuinely bad
@@ -2076,6 +2083,22 @@ is what makes `^` anchor to the start of the *title*. That is worth knowing, bec
 is the one place where the text being matched is not a thing the user can see as
 a single string.
 
+**The search is bounded, the same bound `contains(a, b, "regex")` uses.**
+`screen_content` can run its `regex` mode against `visibleScreenText`'s
+uncapped, flattened accessibility tree on every content-change event, and the
+service config asks Android for one as often as every hundred milliseconds, on
+the engine's own collector thread. A pattern that backtracks without end there
+does not answer slowly, it occupies that thread forever. `core/RegexBudget.kt`
+holds `MAX_REGEX_READS_PER_CHARACTER`, `MAX_REGEX_READS` and the counting
+`CharSequence` that enforces them, the "A value that computes" section above
+has the measurements behind the numbers, and `TextFilter.of` and
+`matchRangesIn` both run the search through it. `TextFilter.matches` cannot
+throw, so a refused search reads as `Outcome.BUDGET_SPENT` folded into "no
+match": `TextFilter`'s own KDoc names that decision and its cost, which is that
+a rule built around a runaway pattern then never fires, silently, with no
+channel back to the person who wrote it. `docs/todo.md` has that as an open
+item rather than something built here.
+
 **A pattern can be tested, not just compiled.** `regexErrorOrNull` catches a
 stray bracket and nothing else: a pattern can compile perfectly and match the
 wrong thing, or nothing at all, and until there was a tester the only place that
@@ -2084,20 +2107,29 @@ toggle opens a dialog with the pattern and a scratch sample, and reports the
 verdict as you type.
 
 Two decisions make it trustworthy rather than merely present. **The verdict comes
-from `TextFilter.of(...).matches`**: the engine's own code path, so what the
-dialog says is what will happen, including the case-insensitivity and the
-`containsMatchIn` semantics that are both easy to assume the other way round.
-`matchRangesIn` supplies only the highlight, and mirrors those two modes exactly;
-a tester whose highlight disagreed with its own verdict would teach people to
-trust neither, which is why one unit test checks the two against each other over
-a spread of patterns rather than asserting them separately.
+from `TextFilter.of(...)`**: the engine's own code path, through `outcome`
+rather than `matches` so the dialog can also see the one answer `matches` folds
+into "no". What the dialog says is what will happen, including the
+case-insensitivity and the `containsMatchIn` semantics that are both easy to
+assume the other way round. `matchRangesIn` supplies only the highlight, and
+mirrors those two modes exactly, including running through the same read
+budget; a tester whose highlight disagreed with its own verdict would teach
+people to trust neither, which is why one unit test checks the two against
+each other over a spread of patterns rather than asserting them separately.
 
 **And the states that are neither yes nor no are named.** An empty pattern reads
 "matches anything", because an empty filter has no opinion and calling that a
 mismatch would misdescribe the rule. A pattern that will not compile says so
 rather than reporting a failed match. A zero-width match (`a*` against "bbb")
 says it matched *and* that there is nothing to highlight, because both halves are
-true and either alone misleads.
+true and either alone misleads. A pattern refused for doing too much work says
+that too, rather than reporting a match that never ran: that is the fourth
+state, and the reason the verdict runs off the main thread now, on
+`Dispatchers.Default`, behind a `LaunchedEffect` keyed on the pattern, the mode
+and the sample. `BudgetedText` bounds the work a search may do, not the wall
+time it takes to do it, so a bounded search is still not owed to the thread the
+dialog is drawn on, and coroutine cancellation cannot make a stuck
+`Matcher.find()` stop early even if it were.
 
 **The editor earns the mode's keep.** The mode toggle sits in the field's label
 row, because it changes what the box below it means. In regex mode two things

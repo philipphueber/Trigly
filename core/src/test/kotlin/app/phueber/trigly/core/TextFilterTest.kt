@@ -157,4 +157,71 @@ class TextFilterTest {
             regexErrorOrNull(prefix)
         }
     }
+
+    // --- the work a regex mode filter may do ------------------------------------
+    //
+    // Every test here has a timeout, because a bound that stops working does not
+    // give a wrong answer: it hangs. A timeout turns that into a failure. The
+    // patterns and lengths are measured, the same way Expression.kt's are: see
+    // that file's ExpressionTest for the sibling of these three tests, and
+    // RegexBudget.kt for where the two bounds live now that both share them.
+
+    /**
+     * An ordinary unanchored pattern over a screen-content-sized piece of text.
+     * Measured at 4.86 million reads with [RegexOption.IGNORE_CASE], against an
+     * allowance of 18 million for 1800 characters, and it has to be let through:
+     * there is nothing wrong with this pattern.
+     */
+    @Test(timeout = 60_000)
+    fun `an ordinary pattern over long text is allowed`() {
+        val filter = TextFilter.of(".*b", TextMatchMode.REGEX)
+        val text = "a".repeat(1800)
+
+        assertEquals(TextFilter.Outcome.NOT_MATCHED, filter.outcome(text))
+        assertFalse(filter.matches(text))
+    }
+
+    /**
+     * Two of `.*` over the same 1800 characters. `matchRangesIn`'s test file has
+     * the exact count; here it is only the outcome that matters, and it must be
+     * [TextFilter.Outcome.BUDGET_SPENT], not a thrown exception and not a false
+     * "no match" that looks the same as an honest miss from the outside.
+     */
+    @Test(timeout = 60_000)
+    fun `a pattern that does too much work is refused rather than matched`() {
+        val filter = TextFilter.of(".*.*b", TextMatchMode.REGEX)
+        val text = "a".repeat(1800)
+
+        assertEquals(TextFilter.Outcome.BUDGET_SPENT, filter.outcome(text))
+        // matches() never throws and never claims a match it could not verify.
+        assertFalse(filter.matches(text))
+    }
+
+    /**
+     * Why the bound is a rate and not a flat number, restated for this filter:
+     * `.*.*.*b` over sixty characters measures 1.87 million reads, which is
+     * *less* than the ordinary pattern above reads at 4.86 million over 1800
+     * characters. A flat number sized to allow the first would allow this one.
+     */
+    @Test(timeout = 60_000)
+    fun `short text does not buy a worse pattern`() {
+        val filter = TextFilter.of(".*.*.*b", TextMatchMode.REGEX)
+        val text = "a".repeat(60)
+
+        assertEquals(TextFilter.Outcome.BUDGET_SPENT, filter.outcome(text))
+        assertFalse(filter.matches(text))
+    }
+
+    @Test(timeout = 60_000)
+    fun `contains never spends a budget it does not need`() {
+        // CONTAINS is a linear substring search: there is no backtracking
+        // engine underneath it, so there is nothing for a pattern to spend an
+        // unbounded amount of work on, and BUDGET_SPENT can never come out of
+        // this mode. The literal metacharacters make sure this is really
+        // running as a substring, not silently falling through to a regex.
+        val filter = TextFilter.of(".*.*.*b", TextMatchMode.CONTAINS)
+        val text = "a".repeat(1800)
+
+        assertEquals(TextFilter.Outcome.NOT_MATCHED, filter.outcome(text))
+    }
 }
