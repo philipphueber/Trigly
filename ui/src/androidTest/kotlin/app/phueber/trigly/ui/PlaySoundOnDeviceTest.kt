@@ -7,7 +7,9 @@ import app.phueber.trigly.actions.PlaySoundAction
 import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.TriggerEvent
 import java.io.File
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -44,12 +46,22 @@ class PlaySoundOnDeviceTest {
         written.forEach { it.delete() }
     }
 
+    /**
+     * Run on [Dispatchers.Default], not on `runTest`'s own dispatcher, and that
+     * is load-bearing rather than tidy. `runTest` drives a *virtual* clock, and
+     * the action now bounds its prepare wait with `withTimeout`. Under a virtual
+     * clock the scheduler sees a coroutine waiting on a callback it does not
+     * know about, jumps the clock to the next scheduled event, and the fifteen
+     * second bound expires instantly. Real playback needs real time.
+     */
     @Test
     fun a_real_sound_plays_and_reports_success() = runTest {
         val sound = silentWav(millis = 200)
 
-        val result = PlaySoundAction(context, soundUri = "file://${sound.absolutePath}")
-            .execute(event)
+        val result = withContext(Dispatchers.Default) {
+            PlaySoundAction(context, soundUri = "file://${sound.absolutePath}")
+                .execute(event)
+        }
 
         assertEquals(ActionResult.Success(), result)
     }
