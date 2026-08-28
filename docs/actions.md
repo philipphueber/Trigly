@@ -137,6 +137,15 @@ Design lines held deliberately:
 - **`play_alert` custom sounds are `content:`/`file:` only.** A remote sound URI
   in an imported rule would be a beacon: it would report to a stranger's server
   every time the rule fired. Same reasoning as https-only `http_request`.
+- **Every action bounds its own wait; the engine does not.** `TriggerEngine`
+  calls an action with no timeout around it, on purpose: no single number
+  fits both `delay`, which waits on purpose for as long as an hour, and
+  everything else, which wants a bound of seconds, and a blocking platform
+  call ignores a timeout wrapped around it anyway. `docs/todo.md`'s Rejected
+  section has the finding. `play_sound` and `play_alert` are the two actions
+  that needed fixing: `MediaPlayer.prepare()` blocks the calling thread with
+  no bound of its own, so both now wait on `prepareAsync()` instead, behind a
+  fifteen-second timeout that can actually cancel it.
 
 ### Pressing a button on a notification that is not the trigger's
 
@@ -201,8 +210,10 @@ has both, and `docs/variables.md` section 11 has the loop the guard prevents.
 `delay` is the third, and its subject is narrower still: this one rule's own
 timing. It waits on the scheduler port rather than on a coroutine `delay`, so
 Doze cannot sleep through it, and it deliberately does not use the port's durable
-form. Its warning text says what a wait costs, because a rule that pauses is a
-rule whose next event queues behind the pause.
+form. Its warning text says what a wait costs: a rule that pauses never runs two
+events at once, but a wait long enough, against a trigger firing often enough,
+can still lose an event outright, because the trigger's own buffer that holds it
+is not unbounded.
 
 Two consequences documented in the action's own warning, because both are
 discovered by confusion otherwise:
@@ -505,6 +516,13 @@ which reads as a broken feature rather than a quiet one.
 over music wants the music quieter for a moment, and pausing it is what a phone
 call does.
 
+Preparing the sound is capped too, at fifteen seconds, the same bound
+`play_sound` uses and for the same reason: `MediaPlayer` has to prepare a file
+before it can play it, and a custom sound is a `content:` or `file:` URI whose
+provider might be slow or gone. The default tone comes from
+`RingtoneManager.getDefaultUri`, a local resource, so this bound mostly
+matters for a custom sound rather than the tone picker above it.
+
 ### And a plain sound, which is a different job
 
 `play_sound` plays one sound, once, and has one field: which sound. It exists
@@ -536,6 +554,14 @@ almost nothing, `play_sound` by the silent switch.
 The sound's own length is how long the rule waits, capped at two minutes. The
 picker can reach a podcast as easily as a chime, and this action holds the rule
 while the sound plays.
+
+Getting to that length costs a wait of its own: `MediaPlayer` has to prepare
+the file before it can report a duration, and a content URI from a cloud
+document provider can make that a network read rather than a disk read. That
+wait is capped too, at fifteen seconds, the same bound `http_request`'s
+default timeout and the `location` trigger's position read already use for
+the same kind of read. A provider that never answers loses the rule fifteen
+seconds, not indefinitely.
 
 **One trap this does not solve.** A Bluetooth rule fires on the ACL connect, and
 the audio route is a separate, later event: an ACL link, an A2DP link and an HFP

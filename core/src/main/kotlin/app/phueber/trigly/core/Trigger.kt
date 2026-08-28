@@ -55,6 +55,16 @@ interface Trigger {
  * editing `:core` or any sibling trigger.
  */
 interface TriggerFactory : ComponentFactory {
+    /**
+     * **Must not block, and must not do I/O.** `TriggerEngine.startRule` calls
+     * this once per distinct leaf while holding its own monitor, and a reader
+     * on Android's main thread can be waiting on that same monitor through
+     * `TriggerEngine.runningRuleIds`. A slow [create] is therefore a slow main
+     * thread, on every device where a rule happens to change while the system
+     * asks `EngineService.onStartCommand` to run. Read a value already held in
+     * memory, or in a field passed to the factory's own constructor; do not
+     * open a file, a socket or a system-service call to answer this.
+     */
     fun create(config: Map<String, String>): Trigger
 
     /**

@@ -428,10 +428,16 @@ class TriggerEngineTest {
      * coroutine collecting the rule store, on `Dispatchers.Default` — while
      * `onStartCommand`, which Android delivers on the **main thread**, reads
      * `runningRuleIds` to label its notification. Every rule change triggers both
-     * at once, because the app re-starts the service on each change. An
-     * unsynchronised map there means iterating one thread's `HashMap` while
-     * another restructures it: a `ConcurrentModificationException` on the main
-     * thread, or a count that is simply wrong.
+     * at once, because the app re-starts the service on each change.
+     *
+     * `runningRuleIds` reads a `@Volatile` snapshot rather than the live map,
+     * written under the engine's monitor and read without it, precisely so the
+     * main thread here is never the thing waiting on that monitor while `sync`
+     * is inside a factory call. This test is what stays honest if that ever
+     * regresses back to a shared, unguarded `HashMap`: an unsynchronised map
+     * read while another thread restructures it throws a
+     * `ConcurrentModificationException` or hands back a torn view, neither of
+     * which this loop should ever see.
      *
      * Real threads rather than a test dispatcher, because a single-threaded
      * dispatcher is exactly the condition that hides this.
@@ -446,6 +452,7 @@ class TriggerEngineTest {
         // the map is genuinely restructured rather than merely written to.
         val even = listOf(idleRule("a"), idleRule("b"))
         val odd = listOf(idleRule("b"), idleRule("c"))
+        val knownIds = setOf("a", "b", "c")
 
         val writer = Thread {
             runCatching {
@@ -458,9 +465,11 @@ class TriggerEngineTest {
         val reader = Thread {
             runCatching {
                 repeat(STRESS_ROUNDS) {
-                    // .size forces the snapshot to be built, which is where an
-                    // unguarded map throws.
-                    engine.runningRuleIds.size
+                    // Not just "does not throw": a torn read that invented an
+                    // id nobody started would pass a throw-only check and
+                    // still be wrong.
+                    val seen = engine.runningRuleIds
+                    check(knownIds.containsAll(seen)) { "saw an id outside $knownIds: $seen" }
                 }
             }.onFailure(failures::add)
         }

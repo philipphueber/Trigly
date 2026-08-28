@@ -76,22 +76,52 @@ class TriggerEngine(
      *
      * The hosting service calls [sync] from the coroutine collecting the rule
      * store, while Android delivers `onStartCommand` on the main thread — and
-     * that reads [runningRuleIds] to label the service's notification. Both
-     * happen on every rule change, so an unguarded `HashMap` here means
-     * iterating it on one thread while the other restructures it: a
-     * `ConcurrentModificationException` on the main thread, or a count that is
-     * quietly wrong. Intermittent, which is the worst way for this to show up.
+     * that used to read [runningRuleIds] straight through this same monitor to
+     * label the service's notification. Both happen on every rule change, so
+     * an unguarded `HashMap` here means iterating it on one thread while the
+     * other restructures it: a `ConcurrentModificationException` on the main
+     * thread, or a count that is quietly wrong. Intermittent, which is the
+     * worst way for this to show up.
      *
      * A monitor rather than a concurrent map, because [sync] is not one
      * operation: "stop what is gone, then start what is new" has to be atomic as
      * a whole or a reader can observe a moment where a rule is neither. Monitors
      * are reentrant, which is what lets [sync] call [stopRule] while holding it.
+     *
+     * **This monitor is also held for the length of [startRule]'s calls into
+     * [registry], not only for the map edits either side of them.** Both
+     * `TriggerFactory.create` and `ActionFactory.create` promise not to block,
+     * so today that stretch is short. But it is real work done under a lock a
+     * main-thread caller can wait on, which is exactly why [runningRuleIds] no
+     * longer reads through this monitor at all: see [runningIdsSnapshot].
      */
     private val lock = Any()
 
     private val jobs = mutableMapOf<String, Running>()
 
-    val runningRuleIds: Set<String> get() = synchronized(lock) { jobs.keys.toSet() }
+    /**
+     * The keys of [jobs], the moment they were last written.
+     *
+     * [runningRuleIds] reads this instead of [jobs] itself, without taking
+     * [lock], so that `EngineService.onStartCommand`, which Android delivers on
+     * the **main thread**, is never the thing waiting on a monitor [startRule]
+     * holds for as long as [registry] takes to build a rule's triggers and
+     * actions. `@Volatile` is enough on its own: every write happens under
+     * [lock] in [startRule] and [stopRule], and Kotlin's `Set` returned by
+     * `toSet()` is immutable, so a reader here can never see a half-written
+     * collection, only a whole one that might be one change behind the true
+     * state.
+     *
+     * **That staleness is deliberate and harmless, not an oversight.** The one
+     * reader that matters is a notification that says how many rules are
+     * watching. "Watching 4 rules" reading as 3 or 5 for the instant between a
+     * write here and the next one is not a bug worth a lock on the main
+     * thread to close.
+     */
+    @Volatile
+    private var runningIdsSnapshot: Set<String> = emptySet()
+
+    val runningRuleIds: Set<String> get() = runningIdsSnapshot
 
     /**
      * Makes what is running match [rules]: starts what is newly enabled, stops
@@ -153,6 +183,16 @@ class TriggerEngine(
      * leaf's fire — see [TriggerNode.holds] — and constructing a fresh one
      * each time would pay the factory's cost repeatedly, and for anything
      * holding a resource, do so needlessly.
+     *
+     * **All of this runs inside [lock].** [sync] calls this while holding the
+     * engine's own monitor, so every [registry]`.createTrigger` and
+     * `registry.createAction` call below runs with that monitor held. Nothing
+     * on the main thread waits for them: see [runningIdsSnapshot] for why
+     * that reader was moved off this lock rather than trusted to wait a short
+     * time. What still relies on [TriggerFactory.create] and
+     * [ActionFactory.create] keeping their promise not to block is [sync]
+     * itself, called from `EngineService`'s own coroutine, and [startRule]
+     * called directly by anything that wants one rule started right away.
      */
     fun startRule(rule: Rule) = synchronized(lock) {
         stopRule(rule.id)
@@ -207,7 +247,7 @@ class TriggerEngine(
                 }
         }
         jobs[rule.id] = Running(rule, job)
-        Unit
+        runningIdsSnapshot = jobs.keys.toSet()
     }
 
     /**
@@ -747,7 +787,7 @@ class TriggerEngine(
 
     fun stopRule(ruleId: String) = synchronized(lock) {
         jobs.remove(ruleId)?.job?.cancel()
-        Unit
+        runningIdsSnapshot = jobs.keys.toSet()
     }
 
     fun stop() = synchronized(lock) {

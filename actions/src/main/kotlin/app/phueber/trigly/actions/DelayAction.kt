@@ -80,10 +80,23 @@ fun delayDurationMillis(raw: String?): Long {
  *
  * **What it costs even when nothing is killed.** A rule runs its actions one
  * at a time, in one coroutine. This action's whole point is to hold that
- * coroutine, so the actions after it really do wait, but a second event
- * reaching the same rule while it waits queues behind this one rather than
- * running alongside it. The factory's [ActionFactory.warning] says so, which
- * is where a person building the rule actually reads it.
+ * coroutine, so the actions after it really do wait, and a second event
+ * reaching the same rule while it waits never runs alongside this one. That
+ * part is a promise: `TriggerEngine.startRule` collects the whole trigger
+ * tree as one merged flow, and nothing collects that flow again until this
+ * wait, and every action after it, returns.
+ *
+ * **"Queues behind this one" is not a promise, though, and must not be read
+ * as one.** What actually holds a second event is whichever trigger
+ * produced it, not this action, and every trigger's hold is bounded. A
+ * bus-backed trigger's `ServiceEventBus` keeps 64 events and drops the
+ * oldest past that; a broadcast-backed trigger keeps its own bounded buffer
+ * and drops the new arrival instead once that fills. A wait long enough, or
+ * a trigger bursty enough, empties either one, and the events past that
+ * point are lost outright, not merely late. The factory's
+ * [ActionFactory.warning] states the part that always holds, which is where
+ * a person building the rule actually reads it: two events for one rule
+ * never run at the same time.
  *
  * **Cancellation needs no handling of its own.** [AlarmScheduler] promises
  * that cancelling the coroutine calling [AlarmScheduler.waitFor] is the whole
@@ -139,12 +152,14 @@ class DelayActionFactory(private val scheduler: AlarmScheduler) : ActionFactory 
 
     override val warning: String =
         "This action pauses this rule. The actions after it wait until the " +
-            "delay ends. If this rule fires again while it is waiting, that " +
-            "run waits its turn behind this one. It does not run at the same " +
-            "time. A long wait can be off by a few minutes. If the app is " +
-            "killed while this action waits, the rest of the rule does not " +
-            "run, and nothing retries it later. Turning off this rule cancels " +
-            "a wait in progress."
+            "delay ends. If this rule fires again while it is waiting, two " +
+            "runs never happen at the same time. But Trigly can only hold so " +
+            "many waiting events. If a long wait lets too many pile up, " +
+            "Trigly drops some of them instead of running them all. A long " +
+            "wait can be off by a few minutes. If the app is killed while " +
+            "this action waits, the rest of the rule does not run, and " +
+            "nothing retries it later. Turning off this rule cancels a wait " +
+            "in progress."
 
     override fun create(config: Map<String, String>): Action = DelayAction(
         scheduler = scheduler,

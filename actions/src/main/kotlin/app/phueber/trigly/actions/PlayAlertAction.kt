@@ -246,9 +246,14 @@ suspend fun awaitNotificationGone(
  *  · **Do Not Disturb can still suppress it**, unless the user has allowed
  *    alarms through, which is the default on most devices.
  *
- * The action suspends for the duration so the engine can cancel it — disabling
- * the rule mid-alert stops the sound. With [stopWhenGone] on there is a second,
- * far more natural stop: swiping away the notification that caused the alert.
+ * The action suspends for the whole of its work, preparing and sounding, so
+ * cancelling the rule stops it at either point: disabling the rule mid-alert
+ * stops the sound. Preparing is bounded by [PREPARE_TIMEOUT_MILLIS] too, and
+ * that bound mainly guards a custom sound whose content provider turns out
+ * to be slow or gone; the default tone comes from
+ * `RingtoneManager.getDefaultUri`, which is a local resource and prepares
+ * fast regardless. With [stopWhenGone] on there is a second, far more
+ * natural stop: swiping away the notification that caused the alert.
  */
 /**
  * Which audio route a sound takes, which decides far more than how loud it is.
@@ -363,15 +368,18 @@ class PlayAlertAction(
         if (focus != null && audio != null) audio.requestAudioFocus(focus)
 
         return try {
-            // prepare() reads the file, so it is I/O and must not run on the
-            // caller's thread.
+            // setDataSource opens a descriptor through the ContentResolver,
+            // which for a custom sound pointing at a slow or absent content
+            // provider can block on its own, so this stays on the IO
+            // dispatcher. The default tone from RingtoneManager is a local
+            // resource and returns fast.
             withContext(Dispatchers.IO) {
                 player.setAudioAttributes(audioAttributes(route))
                 player.setDataSource(context, uri)
                 player.isLooping = playback == AlertPlayback.REPEAT
                 player.setVolume(volumeGain, volumeGain)
-                player.prepare()
             }
+            awaitPrepared(player, PREPARE_TIMEOUT_MILLIS)
 
             player.start()
             val soundingMillis = alertSoundingMillis(playback, durationMillis, player.duration)
@@ -392,13 +400,18 @@ class PlayAlertAction(
                 else -> ActionResult.Success()
             }
         } catch (failure: Exception) {
-            // A bad custom URI, an unreadable file, a codec the device lacks.
-            // Reported rather than thrown: one broken action must not take down
-            // the rest of the rule.
+            // A bad custom URI, an unreadable file, a codec the device lacks,
+            // or a prepare that ran past its bound. Reported rather than
+            // thrown: one broken action must not take down the rest of the
+            // rule.
             ActionResult.Failure("Trigly could not play the alert. ${failure.message}", failure)
         } finally {
-            // Reached on cancellation too, which is what makes disabling the rule
-            // an actual stop button. stop() throws if the player never started.
+            // Reached on cancellation too, and promptly: preparing is now a
+            // suspension rather than a blocking call held on some thread, so
+            // cancelling this coroutine unwinds straight here instead of
+            // waiting for prepare to finish on its own. That is what makes
+            // disabling the rule an actual stop button. stop() throws if the
+            // player never started.
             runCatching { player.stop() }
             player.release()
             if (focus != null && audio != null) audio.abandonAudioFocusRequest(focus)
@@ -436,6 +449,17 @@ class PlayAlertAction(
          * not to need a cleverer mechanism.
          */
         const val PRESENCE_POLL_MILLIS = 500L
+
+        /**
+         * How long to wait for the player to finish preparing before giving
+         * up. Fifteen seconds: the same bound, for the same reason, as
+         * [PlaySoundAction.PREPARE_TIMEOUT_MILLIS], since both share
+         * [awaitPrepared]. What this mainly guards against here is a custom
+         * sound whose content provider is slow or gone. The default tone
+         * comes from `RingtoneManager.getDefaultUri`, a local resource, so
+         * this bound rarely matters for it.
+         */
+        const val PREPARE_TIMEOUT_MILLIS = 15_000L
     }
 }
 
