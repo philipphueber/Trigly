@@ -1207,13 +1207,24 @@ instead. Schemas are exported to `core/schemas/` for that reason.
 
 `RuleJson` is the portable format, and it serves two jobs so there is one format
 to get right rather than two that can disagree: export/import, and the `config`
-column itself. Export exists because Android's Auto Backup needs a Google
-account and does not run on de-Googled devices (the audience the rest of this
-project bends over backwards for). An explicit file the user owns is the only
-phone-switch mechanism that always works, and it doubles as a way to share one
-rule with someone else. The format is versioned, and a file from a *newer*
-version is refused rather than half-read: failing to import is better than
-losing a rule silently.
+column itself. Export exists because Auto Backup needs a Google account and a
+backup transport, and neither exists on a de-Googled device. That is exactly
+the audience the rest of this project bends over backwards for. An explicit
+file the user owns is the only phone-switch mechanism that always works
+there, and it doubles as a way to share one rule with someone else. The
+format is versioned, and a file from a *newer* version is refused rather than
+half-read: failing to import is better than losing a rule silently.
+
+That was the whole story until backup became a setting rather than a fixed
+"never". `TriglyBackupAgent` is what makes `android:allowBackup="true"` a
+question the user actually answers instead of a build-time constant: the
+manifest attribute cannot become a runtime setting on its own, so a custom
+`BackupAgent` is the hook that can still say no when the stored preference
+says to. See that class and `BackupSettings` for the mechanism, and
+`SettingsScreen` for where a person sees and changes it. Export is still the
+*only* mechanism on a de-Googled phone, and the only one that survives a
+choice to keep the database off Auto Backup entirely; it is no longer the
+only mechanism, period.
 
 A rule can optionally carry a `folder`: a user-typed name the rule list
 groups by, with ungrouped rules collecting under "Other". It is a single

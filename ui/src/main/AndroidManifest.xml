@@ -62,9 +62,26 @@
     -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!--
+      allowBackup stays true, and the rule database's exposure sits behind a
+      user-controlled switch instead of behind a static "no": TriglyBackupAgent
+      obeys it, and SettingsScreen is where a person sees it and can turn it
+      off. allowBackup itself is read once when the APK is built and cannot
+      become a runtime setting on its own, which is the whole reason
+      backupAgent exists here.
+
+      fullBackupOnly keeps the system calling TriglyBackupAgent's full-backup
+      method rather than switching to the older key/value contract just
+      because a custom agent is now declared. See that class's own KDoc.
+      There is deliberately no fullBackupContent or dataExtractionRules
+      resource: the agent's runtime check replaces what those static files
+      would otherwise have to say.
+    -->
     <application
         android:name=".TriglyApp"
         android:allowBackup="true"
+        android:backupAgent=".TriglyBackupAgent"
+        android:fullBackupOnly="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"

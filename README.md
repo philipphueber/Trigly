@@ -272,6 +272,13 @@ log, or send this data anywhere: the app checks each event on the device,
 then discards it. Both services do nothing until you turn them on in system
 settings, and no function needs them unless you build a rule that does.
 
+Trigly does store your rules, your saved values, and any token in a webhook
+URL, in a database on the phone. Android's backup can copy that database to
+the account signed in on the phone. Settings has a switch for this, on by
+default. Turn it off to keep this database out of that backup. A phone with
+no Google account and no backup service does not back up this data either
+way.
+
 The list below states what Trigly does not yet do, and known limits of what
 it does do. Trigly states each limit here so you do not have to discover it
 yourself. Each missing function has a `TODO` comment at the relevant place

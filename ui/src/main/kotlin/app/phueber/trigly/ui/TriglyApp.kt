@@ -172,4 +172,15 @@ class AppContainer(context: Context) {
     )
 
     val requirementChecker: RequirementChecker = RequirementChecker(context)
+
+    /**
+     * Whether Android's backup may carry the rules, the saved values, and any
+     * webhook token. This is the one setting `SettingsScreen` offers. Read by
+     * [TriglyBackupAgent] too, but that class asks its own `SharedPreferences`
+     * directly rather than reaching through this container: the system can
+     * start the agent in a process where nothing here has been built yet, and
+     * a fresh, cheap read cannot depend on that having happened first. See
+     * `BackupSettings`'s own KDoc.
+     */
+    val backupSettings: BackupSettings = backupSettings(context)
 }

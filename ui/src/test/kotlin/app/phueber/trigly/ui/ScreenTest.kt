@@ -34,11 +34,19 @@ class ScreenTest {
     }
 
     @Test
+    fun `back from saved values or settings returns to the list`() {
+        assertEquals(Screen.RuleList, backTarget(Screen.SavedValues))
+        assertEquals(Screen.RuleList, backTarget(Screen.Settings))
+    }
+
+    @Test
     fun `the destination survives a configuration change`() {
         listOf(
             Screen.RuleList,
             Screen.RuleEditor("rule-1"),
             Screen.RuleEditor(null),
+            Screen.SavedValues,
+            Screen.Settings,
         ).forEach { screen ->
             val saved = with(ScreenSaver) { scope.save(screen) }
             assertEquals(screen, ScreenSaver.restore(requireNotNull(saved)))

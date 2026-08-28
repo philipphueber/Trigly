@@ -49,6 +49,7 @@ class RulesScreenTest {
     private var importTaps = 0
     private var savedValuesTaps = 0
     private var savedValueCount = 0
+    private var settingsTaps = 0
     private val duplicated = mutableListOf<String>()
     private var batteryFixTaps = 0
 
@@ -84,6 +85,7 @@ class RulesScreenTest {
             onExportAll = { exported += "all" },
             onSavedValues = { savedValuesTaps++ },
             savedValueCount = savedValueCount,
+            onSettings = { settingsTaps++ },
             onExportRule = { exported += it.id },
             onDuplicateRule = { duplicated += it.id },
             onImport = { importTaps++ },
@@ -415,6 +417,22 @@ class RulesScreenTest {
         composeRule.onNodeWithText("Saved values").performClick()
 
         assertEquals(1, savedValuesTaps)
+    }
+
+    /**
+     * "Settings" shares the same overflow as "Saved values", which is the
+     * whole point of putting it there: a second whole-app entry costs the menu
+     * nothing. Offered with no rules at all, for the same reason saved values
+     * is \u2014 a backup switch has nothing to do with whether a rule exists yet.
+     */
+    @Test
+    fun settings_is_reachable_from_the_same_overflow_as_saved_values() {
+        composeRule.setContent { Screen(emptyList()) }
+
+        composeRule.onNodeWithText("\u2026").performClick()
+        composeRule.onNodeWithText("Settings").performClick()
+
+        assertEquals(1, settingsTaps)
     }
 
     /**
