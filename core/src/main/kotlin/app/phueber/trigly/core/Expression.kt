@@ -57,6 +57,31 @@ import java.math.RoundingMode
  * shared rule can invoke on someone else's phone, which is a different safety
  * question from a field that merely inserts a value.
  *
+ * ### The one function that takes a mode
+ *
+ * [FUNCTION_CONTAINS] accepts a third argument, the match mode, and it is the
+ * same [TextMatchMode] a trigger's text filter uses: `"contains"` is a literal
+ * substring and stays the default, `"regex"` searches with a regular
+ * expression. An argument on the function rather than a seventh function,
+ * because every rule already saved says `contains(a, b)` and has to keep
+ * meaning exactly that. A pattern is only a pattern where somebody asked for
+ * one; `contains({{app.name}}, "a.b")` looks for a dot.
+ *
+ * The mode word is matched exactly, and an unknown one fails. [TextMatchMode.parse]
+ * is lenient because it reads stored config, where a rule from a newer build
+ * has to load anyway. That is the wrong answer here: an expression is text
+ * somebody typed a moment ago, and reading `"rexeg"` as a literal substring
+ * would give a wrong answer that looks like a right one.
+ *
+ * Both modes are case *sensitive*, where a trigger's filter is not. The
+ * two-argument `contains` always was, and [FUNCTION_UPPER] and [FUNCTION_LOWER]
+ * are how this language says otherwise. `(?i)` at the front of a pattern is the
+ * regex way to ask for the same thing.
+ *
+ * A regex is searched with `containsMatchIn`, not `matches`, exactly as
+ * [TextFilter.of] does it: a pattern reads like grep, and `^` and `$` are there
+ * for anyone who wants the whole string.
+ *
  * ### Arithmetic
  *
  * `+ - * %` and comparisons use [BigDecimal], the same choice
@@ -71,23 +96,56 @@ import java.math.RoundingMode
  * so `5` reads as `5` and not `5.0`, the first time a counter passes through
  * an expression as much as the tenth.
  *
- * ### Safety is exactly two numbers
+ * ### Safety is exactly three numbers
  *
- * There is no timeout and no thread. With no loops, no recursion a person can
- * write, and no call that reaches outside the string it was given, nothing in
- * this language can run away: every expression does a bounded amount of work
- * and returns. The only way a small piece of text can still hurt the process
- * that reads it is the parser's own call stack, so the parser enforces two
- * bounds and nothing else stands between an expression and the interpreter
- * that reads it:
+ * There is no timeout and no thread. This language cannot run away on its own:
+ * no loops, no recursion a person can write, and no call that reaches outside
+ * the string it was given. Two of the three numbers are there because a small
+ * piece of text can still hurt the process that *reads* it through its own
+ * call stack. The third is there because one function is not this language's
+ * own work.
  *
  * - [MAX_EXPRESSION_LENGTH] characters of input.
  * - [MAX_EXPRESSION_DEPTH] levels of nesting: a parenthesis, a function call,
  *   a ternary branch, or a chain of unary `-`, `+` or `not`.
+ * - What one regular expression may read: [MAX_REGEX_READS_PER_CHARACTER] for
+ *   every character of the text it searches, and never more than
+ *   [MAX_REGEX_READS] in total. A backtracking engine is the one thing here
+ *   that can do an unbounded amount of work on a bounded input, so it is the
+ *   one thing here that needed a bound of its own. The paragraph below used to
+ *   say that whoever added a feature like that had to design the replacement
+ *   bound before shipping it. This is that bound.
+ *
+ * **The third bound is a rate because the cost of an honest pattern is not
+ * flat.** `contains` searches anywhere in the text, so the engine starts over
+ * at every position, which makes an ordinary unanchored pattern cost about the
+ * square of the length: `.*b` over 1800 characters holding no `b` reads 4.9
+ * million characters, and there is nothing wrong with that pattern. A rate
+ * allows work that grows with the square of the text and refuses work that
+ * grows faster. `.*.*b` over those same 1800 characters reads more than 400
+ * million, and `.*.*.*b` over *sixty* characters reads 1.9 million, which is
+ * why no flat number can tell the two apart: the honest pattern over long text
+ * costs more than the bad pattern over short text.
+ *
+ * **The textbook example is not the threat, and must not be read as
+ * reassurance.** `(a+)+b` over thirty `a`s reads 1741 characters on the JDK
+ * these numbers were measured on, because that engine optimizes that exact
+ * shape away. That is one engine's optimization of one shape; the pattern
+ * arrives in a rule somebody else wrote, and ART is not that engine. What makes
+ * the claim is the bound, not the engine's good behaviour on the famous case.
+ *
+ * **One search being bounded is not one evaluation being bounded**, and the
+ * text is what connects the two. Every haystack is a literal by the time this
+ * runs, so all the text all the searches in one expression can look at comes
+ * out of the same [MAX_EXPRESSION_LENGTH] characters, which caps a whole
+ * evaluation at about twenty million reads. The hole in that argument is a
+ * function that returns more text than it was given, which [FUNCTION_ROUND] can
+ * (`docs/todo.md` T22). [MAX_REGEX_READS] is the ceiling that keeps one search
+ * bounded whatever fed it.
  *
  * **This claim is only true while the grammar stays this small.** The day
  * this language gains a loop, a user-defined function, or anything that reads
- * or writes state across one evaluation, both bounds stop being the whole
+ * or writes state across one evaluation, all three bounds stop being the whole
  * safety story, and whoever adds that feature has to design what replaces
  * them before shipping it, not after.
  */
@@ -108,6 +166,38 @@ const val MAX_EXPRESSION_LENGTH: Int = 2_000
 
 /** The nesting depth this language accepts. See the "Safety" section above. */
 const val MAX_EXPRESSION_DEPTH: Int = 64
+
+/**
+ * What one regular expression may read, per character of the text it searches.
+ * See the "Safety" section above for why this is a rate.
+ *
+ * **Characters read, not milliseconds.** A bound has to mean the same thing on
+ * a fast phone and a slow one. A timeout would let a rule work on one device
+ * and fail on another, which is the failure this project spends most of its
+ * effort avoiding. The engine reads its input one character at a time and
+ * backtracking reads the same characters again, so counting reads counts work.
+ *
+ * Ten thousand is between three and four times what the most expensive honest
+ * pattern measured needs (`.*b` over 1800 characters: 4.9 million reads, so
+ * 2700 per character), and far below the cheapest bad one (`.*.*.*b` over sixty
+ * characters: 31000 per character).
+ */
+const val MAX_REGEX_READS_PER_CHARACTER: Int = 10_000
+
+/**
+ * What one regular expression may read in total, whatever the length of the
+ * text. See the "Safety" section above.
+ *
+ * The ceiling on [MAX_REGEX_READS_PER_CHARACTER], and the reason a single
+ * search stays bounded even if a future function hands it more text than the
+ * expression that asked for it. Twenty million reads is about eighty
+ * milliseconds on a desktop JVM, and it is a ceiling on the pathological case
+ * rather than a cost anything ordinary comes near. Over a notification-sized
+ * piece of text every pattern measured cost a few thousand reads, and the most
+ * expensive honest case measured, an unanchored pattern missing over 1800
+ * characters, cost 4.9 million.
+ */
+const val MAX_REGEX_READS: Int = 20_000_000
 
 const val FUNCTION_UPPER = "upper"
 const val FUNCTION_LOWER = "lower"
@@ -156,6 +246,18 @@ private val NUMBER_PATTERN = Regex("""-?\d+(\.\d+)?""")
 
 /** Thrown only inside this file, and caught at [evaluateExpression]'s boundary. */
 private class ExpressionError(val reason: String) : Exception(reason)
+
+/**
+ * Thrown out of the middle of the regex engine when a search has read
+ * everything it is allowed to, and turned into an [ExpressionError] by the call
+ * that started it. See [MAX_REGEX_READS_PER_CHARACTER].
+ *
+ * Its own type rather than [ExpressionError] because it is thrown from
+ * [CharSequence.get], through code this project does not own. Something in
+ * there catching a passing [Exception] would swallow a bound; a distinct
+ * unchecked type keeps that from being silent.
+ */
+private class RegexBudgetSpent : RuntimeException()
 
 // --- Lexing ------------------------------------------------------------------------
 
@@ -613,13 +715,17 @@ private object Evaluator {
     private fun evalCall(node: Node.Call): Value {
         val args = node.args.map(::eval)
         fun arg(index: Int) = args[index]
-        fun requireArity(count: Int) {
-            if (args.size != count) {
-                throw ExpressionError(
-                    "'${node.name}' takes $count argument${if (count == 1) "" else "s"}, " +
-                        "got ${args.size}, at position ${node.position}."
-                )
+        fun requireArity(count: Int, upTo: Int = count) {
+            if (args.size in count..upTo) return
+            val takes = if (count == upTo) {
+                "$count argument${if (count == 1) "" else "s"}"
+            } else {
+                "$count or $upTo arguments"
             }
+            throw ExpressionError(
+                "'${node.name}' takes $takes, got ${args.size}, " +
+                    "at position ${node.position}."
+            )
         }
 
         return when (node.name) {
@@ -644,10 +750,25 @@ private object Evaluator {
             }
 
             FUNCTION_CONTAINS -> {
-                requireArity(2)
+                requireArity(2, 3)
                 val haystack = asString(arg(0), FUNCTION_CONTAINS)
                 val needle = asString(arg(1), FUNCTION_CONTAINS)
-                Value.Bool(haystack.contains(needle))
+                val mode = if (args.size == 3) {
+                    matchMode(asString(arg(2), FUNCTION_CONTAINS), node.position)
+                } else {
+                    // What every rule saved before the mode existed means, and
+                    // what a two-argument call keeps meaning.
+                    TextMatchMode.CONTAINS
+                }
+                Value.Bool(
+                    when (mode) {
+                        // Case sensitive, unlike the same mode on a trigger's
+                        // text filter. See the file KDoc: upper() and lower()
+                        // are how this language asks for the other thing.
+                        TextMatchMode.CONTAINS -> haystack.contains(needle)
+                        TextMatchMode.REGEX -> regexFinds(needle, haystack, node.position)
+                    }
+                )
             }
 
             FUNCTION_ROUND -> {
@@ -688,4 +809,85 @@ private object Evaluator {
     }
 
     private fun describeValue(value: Value): String = "${typeName(value)} ('${format(value)}')"
+
+    /**
+     * [FUNCTION_CONTAINS]'s third argument. Exact, and deliberately not
+     * [TextMatchMode.parse]: see the file KDoc for why leniency is right for
+     * stored config and wrong for a word somebody just typed.
+     */
+    private fun matchMode(raw: String, position: Int): TextMatchMode =
+        TextMatchMode.entries.firstOrNull { it.configValue == raw }
+            ?: throw ExpressionError(
+                "'$FUNCTION_CONTAINS' takes \"${TextMatchMode.CONTAINS.configValue}\" or " +
+                    "\"${TextMatchMode.REGEX.configValue}\" as its third argument, found " +
+                    "${describeValue(Value.Str(raw))}, at position $position."
+            )
+
+    /**
+     * Whether [pattern] is found anywhere in [candidate].
+     *
+     * Compiled on every evaluation, where [TextFilter] compiles once when the
+     * rule is built. The difference is deliberate rather than an oversight: a
+     * text filter is matched against every event a hot trigger sees, and an
+     * expression is lexed and parsed from scratch each time it runs anyway, so
+     * caching the compile would save a small part of a cost already paid.
+     */
+    private fun regexFinds(pattern: String, candidate: String, position: Int): Boolean {
+        val compiled = try {
+            Regex(pattern)
+        } catch (invalid: IllegalArgumentException) {
+            // The engine's own message, which names the offending position in
+            // the pattern and is better than anything this could invent. The
+            // same choice TextFilter.of makes.
+            throw ExpressionError(
+                "'$pattern' at position $position is not a valid regular " +
+                    "expression: ${invalid.message}"
+            )
+        }
+        // Grows with the text, because the honest cost of a search does too.
+        // See MAX_REGEX_READS_PER_CHARACTER. The + 1 keeps an empty candidate
+        // from being given an allowance of nothing.
+        val allowance = MAX_REGEX_READS_PER_CHARACTER.toLong() * (candidate.length + 1)
+
+        return try {
+            compiled.containsMatchIn(
+                BudgetedText(candidate, minOf(allowance, MAX_REGEX_READS.toLong()).toInt())
+            )
+        } catch (spent: RegexBudgetSpent) {
+            throw ExpressionError(
+                "The regular expression at position $position does too much work on " +
+                    "${candidate.length} characters of text. A pattern with two of '.*' " +
+                    "in it, such as '.*a.*b', costs that much: 'contains' already " +
+                    "searches the whole text, so a leading '.*' is never needed, and " +
+                    "'^' anchors the search when you do want the start."
+            )
+        }
+    }
+}
+
+/**
+ * [text], with a hard cap on how many characters a regular expression may read
+ * from it.
+ *
+ * The engine reads its input through [CharSequence.get] one character at a
+ * time, and a backtracking pattern reads the same character over and over. So
+ * counting reads counts the *work*, which is the only way to bound a pattern
+ * that does four hundred million reads over eighteen hundred characters.
+ *
+ * [subSequence] is not counted, and does not need to be: nothing here calls it.
+ * It is how a match group would be read, and this only ever asks whether a
+ * match exists at all.
+ */
+private class BudgetedText(private val text: String, private var allowance: Int) : CharSequence {
+
+    override val length: Int get() = text.length
+
+    override fun get(index: Int): Char {
+        if (allowance <= 0) throw RegexBudgetSpent()
+        allowance--
+        return text[index]
+    }
+
+    override fun subSequence(startIndex: Int, endIndex: Int): CharSequence =
+        text.subSequence(startIndex, endIndex)
 }

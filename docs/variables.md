@@ -431,15 +431,21 @@ Arithmetic, comparison, string functions, date formats.
   `core/Expression.kt`, which has no variables of its own, no loops, no
   functions a person can define, and no call that reads or writes anything
   outside the string it is given. Six functions, each one fixed and reviewed.
-- **The safety argument is exactly two numbers.** A rule is a file somebody else
-  can import onto their own phone, so an embedded interpreter would be a way to
-  carry arbitrary code onto a stranger's device. With no loops, and no recursion
-  a person can write, every expression does a bounded amount of work and
-  returns. The only thing a small piece of text can still damage is the parser's
-  own call stack, so the parser bounds the input length and the nesting depth,
-  and nothing else stands between an expression and the evaluator. That claim is
-  true only while the grammar stays this small, and `Expression.kt` says so at
-  the point where somebody would add the feature that ends it.
+  One of them, `contains`, takes a match mode and can search with a regular
+  expression. See `docs/expressions.md` for the mode and for the rate that
+  bounds it.
+- **The safety argument is exactly three numbers.** A rule is a file somebody
+  else can import onto their own phone, so an embedded interpreter would be a
+  way to carry arbitrary code onto a stranger's device. With no loops, and no
+  recursion a person can write, every expression does a bounded amount of work
+  and returns. The only thing a small piece of text can still damage is the
+  parser's own call stack, so the parser bounds the input length and the nesting
+  depth. The third number arrived with `contains`'s regex mode, which is the one
+  operation here that is not the language's own work: a backtracking engine can
+  do an unbounded amount of work on a bounded input, so a pattern may read only
+  10000 characters per character of text, up to a ceiling. That claim is true
+  only while the grammar stays this small, and `Expression.kt` says so at the
+  point where somebody would add the feature that ends it.
 - **Date formats are still not here.** The evaluate mode does arithmetic,
   comparison, and six string or number functions. A formatted timestamp is still
   phase 3's derived variable rather than a format string in this language.
@@ -952,6 +958,12 @@ Phase 4 added, JVM:
 - The expression language: each operator and its precedence, the short-circuit,
   the six functions, division rounding, the length and depth bounds, and a
   named failure for each way an expression can be malformed.
+- `contains`'s match mode: that two arguments stay a literal substring, that
+  `regex` searches anywhere and is case sensitive, that a backslash class
+  survives the string escapes, and that an unknown mode word fails rather than
+  falling back. Each bound on the work a pattern may do has a test with a
+  timeout, because a bound that stops working hangs rather than answering
+  wrongly.
 - The `EXPRESSION` encoding, including the case every other encoding exempts: a
   field that is exactly one reference is still encoded as a literal.
 - `availableActionOutputs`: the first action is offered nothing, an action is

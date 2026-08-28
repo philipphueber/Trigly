@@ -500,12 +500,22 @@ neither of them is what the language promises:
   bounded amount of work and returns", and that claim is what this breaks: the
   bound exists, but it is set by heap size rather than by the language.
 
-The fix is small and belongs with the other two bounds: read `places` as a
-whole number and refuse anything outside a sane range, with an
+The fix is small and belongs with the other bounds: read `places` as a whole
+number and refuse anything outside a sane range, with an
 `ExpressionOutcome.Failed` naming the argument. A range like -6 to 12 covers
 every use a person reading a value has. It is deliberately not urgent: the
 damage is a slow action and an ugly message, not a wrong value or a crash, and
 only a hand-written expression can reach it.
+
+One more reason to fix it, added when `contains` gained a regex mode. That
+mode's bound is a rate on the length of the text searched, and the argument for
+why a whole *evaluation* stays bounded is that all the text every search can
+look at comes out of the same 2000 characters of source. `round` with a huge
+`places` is the one thing that breaks that argument, because it returns more
+text than it was given. The regex bound has an absolute ceiling as well as a
+rate, so a single search is bounded whatever feeds it, and nothing here is
+exploitable today. It is the composition argument that is untidy while this
+stands.
 
 ---
 

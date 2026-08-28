@@ -105,6 +105,61 @@ class ExpressionExamplesTest {
         assertEquals("false", evaluate(source, "app.device" to "Sony headset"))
     }
 
+    /**
+     * Two things worth knowing meet in this one example.
+     *
+     * A pattern is typed inside a quoted string, so `\d` has to survive this
+     * language's own escapes. It does: an escape the language does not
+     * recognise keeps its backslash, which is the whole reason a person does
+     * not have to double every backslash in a pattern.
+     *
+     * And `+ ""` is not decoration. A stored value that reads as a number is
+     * inserted *as* a number, so the value that most wants a digit pattern is
+     * exactly the one that reaches `contains` as the wrong type. Joining an
+     * empty string to it makes it text. See the test below this one.
+     */
+    @Test
+    fun `a pattern decides whether a title is a six-digit code`() {
+        val source = "contains({{trigger.title | }} + \"\", \"^\\d{6}\$\", \"regex\") " +
+            "? \"a code\" : \"not a code\""
+
+        assertEquals("a code", evaluate(source, "trigger.title" to "123456"))
+        assertEquals("not a code", evaluate(source, "trigger.title" to "12345"))
+        assertEquals("not a code", evaluate(source, "trigger.title" to "1234567"))
+        // The fallback keeps the field working when nothing is stored yet.
+        assertEquals("not a code", evaluate(source))
+    }
+
+    /**
+     * The trap the example above works around, on its own so it is impossible
+     * to miss: the same reference is a number to the language and text to the
+     * person who stored it.
+     */
+    @Test
+    fun `a numeric value has to be joined before a pattern can match it`() {
+        val digits = "\"^\\d+\$\""
+
+        val problem = failure("contains({{app.code}}, $digits, \"regex\")", "app.code" to "123456")
+        assertTrue(problem, problem.contains("needs text"))
+
+        assertEquals(
+            "true",
+            evaluate("contains({{app.code}} + \"\", $digits, \"regex\")", "app.code" to "123456"),
+        )
+    }
+
+    /** One pattern where three `contains` calls joined by `or` used to be needed. */
+    @Test
+    fun `one pattern replaces three contains calls`() {
+        val source = "contains(lower({{trigger.text | }}), " +
+            "\"delivered|shipped|out for delivery\", \"regex\")"
+
+        assertEquals("true", evaluate(source, "trigger.text" to "Your parcel was SHIPPED"))
+        assertEquals("true", evaluate(source, "trigger.text" to "Out for delivery today"))
+        assertEquals("false", evaluate(source, "trigger.text" to "Order received"))
+        assertEquals("false", evaluate(source))
+    }
+
     // --- The claims the page makes about the two steps -----------------------------
 
     /**

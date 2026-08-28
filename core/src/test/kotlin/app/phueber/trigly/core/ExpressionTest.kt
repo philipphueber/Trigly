@@ -277,6 +277,140 @@ class ExpressionTest {
         assertEquals("false", ok("contains(\"hello world\", \"bye\")"))
     }
 
+    // --- contains and its match mode ------------------------------------------------
+
+    /**
+     * The mode is an argument on `contains` rather than a seventh function, so
+     * this is the case that must never change: every rule saved before the mode
+     * existed says `contains(a, b)`, and a dot in it is a dot.
+     */
+    @Test
+    fun `two arguments stay a literal substring`() {
+        assertEquals("true", ok("contains(\"a.b\", \".\")"))
+        assertEquals("false", ok("contains(\"axb\", \"a.b\")"))
+    }
+
+    @Test
+    fun `naming the contains mode is the same as leaving it out`() {
+        assertEquals("false", ok("contains(\"axb\", \"a.b\", \"contains\")"))
+        assertEquals("true", ok("contains(\"a.b\", \".\", \"contains\")"))
+    }
+
+    @Test
+    fun `regex mode reads the second argument as a pattern`() {
+        assertEquals("true", ok("contains(\"axb\", \"a.b\", \"regex\")"))
+        assertEquals("false", ok("contains(\"ab\", \"a.b\", \"regex\")"))
+    }
+
+    /**
+     * `containsMatchIn`, not `matches`, the same as a trigger's text filter: a
+     * pattern reads like grep, and an anchor is how to ask for the whole string.
+     */
+    @Test
+    fun `regex mode searches anywhere, and an anchor asks for the start`() {
+        assertEquals("true", ok("contains(\"hello\", \"ell\", \"regex\")"))
+        assertEquals("false", ok("contains(\"hello\", \"^ell\", \"regex\")"))
+        assertEquals("true", ok("contains(\"hello\", \"^hell\", \"regex\")"))
+    }
+
+    /**
+     * Both modes are case sensitive here, where a trigger's filter is not. The
+     * two-argument form always was, and this language has `lower` for the rest.
+     */
+    @Test
+    fun `regex mode is case sensitive`() {
+        assertEquals("false", ok("contains(\"Hello\", \"hello\", \"regex\")"))
+        assertEquals("true", ok("contains(lower(\"Hello\"), \"hello\", \"regex\")"))
+    }
+
+    @Test
+    fun `an inline flag is how a pattern asks to ignore case`() {
+        assertEquals("true", ok("contains(\"Hello\", \"(?i)hello\", \"regex\")"))
+    }
+
+    /**
+     * A backslash class is what a person writes, and it survives because this
+     * language keeps the backslash on an escape it does not recognise. If that
+     * ever changed, every pattern in every rule would quietly stop matching.
+     */
+    @Test
+    fun `a backslash class reaches the pattern intact`() {
+        assertEquals("true", ok("contains(\"abc123\", \"\\d+\", \"regex\")"))
+        assertEquals("false", ok("contains(\"abc\", \"\\d+\", \"regex\")"))
+    }
+
+    @Test
+    fun `a pattern that does not compile fails and says so`() {
+        val reason = failed("contains(\"a\", \"[\", \"regex\")")
+        assertTrue(reason, reason.contains("not a valid regular expression"))
+    }
+
+    /**
+     * Strict, where [TextMatchMode.parse] is lenient. Reading a typo as a
+     * literal substring would give a wrong answer that looks like a right one.
+     */
+    @Test
+    fun `an unknown mode fails and names both words it accepts`() {
+        val reason = failed("contains(\"a\", \"a\", \"rexeg\")")
+        assertTrue(reason, reason.contains("\"contains\""))
+        assertTrue(reason, reason.contains("\"regex\""))
+    }
+
+    @Test
+    fun `a mode that is not text fails`() {
+        assertTrue(failed("contains(\"a\", \"a\", true)").contains("text"))
+    }
+
+    @Test
+    fun `contains says it takes two or three arguments`() {
+        assertTrue(failed("contains(\"a\")").contains("2 or 3"))
+        assertTrue(failed("contains(\"a\", \"b\", \"regex\", \"c\")").contains("2 or 3"))
+    }
+
+    // --- the work one regular expression may do -------------------------------------
+    //
+    // Every test here has a timeout, because a bound that stops working does not
+    // give a wrong answer: it hangs. A timeout turns that into a failure.
+
+    /**
+     * An ordinary unanchored pattern over the longest text an expression can
+     * hold. It reads 4.9 million characters, because `contains` searches from
+     * every position, and it has to be allowed: there is nothing wrong with it.
+     * See [MAX_REGEX_READS_PER_CHARACTER].
+     */
+    @Test(timeout = 60_000)
+    fun `an ordinary pattern over long text is allowed`() {
+        val text = "a".repeat(1800)
+
+        assertEquals("false", ok("contains(\"$text\", \".*b\", \"regex\")"))
+        assertEquals("false", ok("contains(\"$text\", \".*Alice.*\", \"regex\")"))
+        assertEquals("false", ok("contains(\"$text\", \"^a+b\", \"regex\")"))
+    }
+
+    /**
+     * Two of `.*` is where the cost stops growing with the square of the text
+     * and starts growing faster. Over 1800 characters this pattern reads more
+     * than four hundred million, so it is refused instead of run.
+     */
+    @Test(timeout = 60_000)
+    fun `a pattern that does too much work is refused`() {
+        val reason = failed("contains(\"${"a".repeat(1800)}\", \".*.*b\", \"regex\")")
+
+        assertTrue(reason, reason.contains("too much work"))
+    }
+
+    /**
+     * Why the bound is a rate and not a flat number: this reads 1.9 million
+     * characters, *less* than the ordinary pattern above reads at 4.9 million.
+     * Any single number that allowed that one would allow this one.
+     */
+    @Test(timeout = 60_000)
+    fun `short text does not buy a worse pattern`() {
+        val reason = failed("contains(\"${"a".repeat(60)}\", \".*.*.*b\", \"regex\")")
+
+        assertTrue(reason, reason.contains("too much work"))
+    }
+
     @Test
     fun `round`() {
         assertEquals("3.14", ok("round(3.14159, 2)"))

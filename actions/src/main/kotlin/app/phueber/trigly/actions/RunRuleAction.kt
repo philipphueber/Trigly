@@ -129,7 +129,9 @@ class RunRuleActionFactory(
             help = "An expression such as {{app.mode}} == \"home\". The target " +
                 "rule's actions run only while this reads exactly 'true'. A " +
                 "condition that reads as false is not a failure: the 'Ran' " +
-                "output below says which way it went.",
+                "output below says which way it went. A third argument to " +
+                "contains searches with a regular expression: " +
+                "contains({{trigger.title}}, \"^Bus \\d+\", \"regex\").",
         ),
     )
 

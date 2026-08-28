@@ -332,7 +332,9 @@ class SetVariableActionFactory(
             help = "This can include another variable, such as {{trigger.name}}. " +
                 "Adding needs a value that is a plain number. Evaluating runs this " +
                 "as an expression, such as {{app.count}} + 1 or " +
-                "upper({{trigger.name}}).",
+                "upper({{trigger.name}}). A third argument searches with a " +
+                "regular expression: contains({{trigger.name}}, \"^Bus \\d+\", " +
+                "\"regex\").",
             // Gone entirely when the mode is clear, rather than shown with a
             // sentence explaining that it does nothing: clearing needs no value.
             shownWhen = FieldCondition(
