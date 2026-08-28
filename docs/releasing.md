@@ -11,10 +11,16 @@ Both live in `ui/build.gradle.kts` under `defaultConfig`, which is the single
 place they are declared. The release tag matches the `versionName` prefixed with
 `v`, so `0.0.1` is tagged `v0.0.1`.
 
-`0.0.x` is deliberate for now: the portable rule JSON is versioned separately
-and independently (see the storage section of `architecture.md`), so a leading
-zero here is a statement about the app's surface being unsettled, not about
-whether saved rules survive an update: they must, at every version.
+The leading zero stays, and the minor number moved to `0.1.0` at the first
+beta. Both numbers say the same thing they always did. A leading zero is a
+statement about the app's surface being unsettled, and the app is still before
+its first stable release. The move from `0.0.x` says the shape has settled
+enough to ask people to use it and report what breaks.
+
+Neither number says anything about saved rules. The portable rule JSON is
+versioned separately and independently, in the storage section of
+`architecture.md`, and rules survive an update at every version. That is not a
+promise this file can weaken by changing a number.
 
 ## Signing
 

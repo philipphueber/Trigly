@@ -89,8 +89,8 @@ val releaseStoreFile = keystoreProperties.getProperty("storeFile")
  * A second literal in the task would be a version the build could disagree with
  * itself about, and the only symptom would be an APK whose name lies.
  */
-val triglyVersionName = "0.0.11"
-val triglyVersionCode = 11
+val triglyVersionName = "0.1.0"
+val triglyVersionCode = 12
 
 android {
     namespace = "app.phueber.trigly.ui"
