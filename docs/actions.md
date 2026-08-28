@@ -142,10 +142,10 @@ Design lines held deliberately:
   fits both `delay`, which waits on purpose for as long as an hour, and
   everything else, which wants a bound of seconds, and a blocking platform
   call ignores a timeout wrapped around it anyway. `docs/todo.md`'s Rejected
-  section has the finding. `play_sound` is the example that needed fixing:
-  `MediaPlayer.prepare()` blocks the calling thread with no bound of its own,
-  so it now waits on `prepareAsync()` instead, behind a fifteen-second
-  timeout that can actually cancel it.
+  section has the finding. `play_sound` and `play_alert` are the two actions
+  that needed fixing: `MediaPlayer.prepare()` blocks the calling thread with
+  no bound of its own, so both now wait on `prepareAsync()` instead, behind a
+  fifteen-second timeout that can actually cancel it.
 
 ### Pressing a button on a notification that is not the trigger's
 
@@ -515,6 +515,13 @@ which reads as a broken feature rather than a quiet one.
 `AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK`, not a full transient gain: a short chime
 over music wants the music quieter for a moment, and pausing it is what a phone
 call does.
+
+Preparing the sound is capped too, at fifteen seconds, the same bound
+`play_sound` uses and for the same reason: `MediaPlayer` has to prepare a file
+before it can play it, and a custom sound is a `content:` or `file:` URI whose
+provider might be slow or gone. The default tone comes from
+`RingtoneManager.getDefaultUri`, a local resource, so this bound mostly
+matters for a custom sound rather than the tone picker above it.
 
 ### And a plain sound, which is a different job
 

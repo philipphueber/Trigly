@@ -29,9 +29,9 @@ sealed interface ActionResult {
  * notice a cancelled coroutine. `docs/todo.md`'s Rejected section has the
  * finding and why it was turned down. So a call into a platform API that can
  * hang, such as `MediaPlayer.prepare()`, is this action's own problem to
- * solve, the way `PlaySoundAction` in `:actions` solves it: move the wait
- * behind a suspension a timeout can actually cancel, rather than behind a
- * blocking call one cannot.
+ * solve, the way `PlaySoundAction` and `PlayAlertAction` in `:actions` solve
+ * it: move the wait behind a suspension a timeout can actually cancel,
+ * rather than behind a blocking call one cannot.
  */
 interface Action {
     suspend fun execute(event: TriggerEvent): ActionResult

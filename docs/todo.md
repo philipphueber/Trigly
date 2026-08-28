@@ -582,9 +582,14 @@ same mistake `CLAUDE.md` already names: adding a component must not mean
 editing an existing one.
 
 What was done instead: each action bounds its own waiting, stated as the
-contract on `Action.execute` in `:core`. `PlaySoundAction` is the one action
-this review found that did not follow it. `MediaPlayer.prepare()` is
-synchronous blocking I/O, so cancelling its rule could not free the thread
-until `prepare()` returned on its own. It now uses `prepareAsync()` with a
+contract on `Action.execute` in `:core`. `PlaySoundAction` and
+`PlayAlertAction` were the two actions this review found that did not follow
+it, both for the same call: `MediaPlayer.prepare()` is synchronous blocking
+I/O, so cancelling either action's rule could not free the thread until
+`prepare()` returned on its own. Both now use `prepareAsync()` with a
 suspension a fifteen-second `withTimeout` can actually cancel, and a real
-cancellation now reaches it too.
+cancellation now reaches both. The wait is shared between them as
+`awaitPrepared` in `:actions`, since the bridge from the platform's callback
+to a suspension is identical; only the timeout's own reasoning differs, since
+`PlayAlertAction`'s default tone is a local resource and its custom sound is
+the part actually at risk.

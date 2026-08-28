@@ -112,9 +112,10 @@ fun soundUriProblem(raw: String?): String? {
  * **The action suspends for both halves of its work, preparing and playing,
  * so cancelling the rule stops it at either point**, and the `finally`
  * releases the player on that path too. Preparing is bounded by
- * [PREPARE_TIMEOUT_MILLIS], for the reason [awaitPrepared] gives: an engine
- * with nothing configured on it, unlike `play_alert`'s, has no other way to
- * be stopped short of that bound or a cancelled rule.
+ * [PREPARE_TIMEOUT_MILLIS], for the reason [awaitPrepared] gives: a picked
+ * sound is a `content:` or `file:` URI, and nothing here guarantees the
+ * provider behind it answers. `PlayAlertAction` shares [awaitPrepared] and
+ * bounds its own prepare the same way, for the same reason.
  */
 class PlaySoundAction(
     private val context: Context,
@@ -134,7 +135,7 @@ class PlaySoundAction(
             withContext(Dispatchers.IO) {
                 player.setDataSource(context, Uri.parse(raw))
             }
-            awaitPrepared(player)
+            awaitPrepared(player, PREPARE_TIMEOUT_MILLIS)
 
             player.start()
             delay(soundSoundingMillis(player.duration))
@@ -157,46 +158,6 @@ class PlaySoundAction(
         }
     }
 
-    /**
-     * Waits for [player] to finish preparing, bounded by
-     * [PREPARE_TIMEOUT_MILLIS].
-     *
-     * **Why not `prepare()`.** `prepare()` is synchronous blocking I/O, and a
-     * blocking platform call does not notice a cancelled coroutine: the
-     * thread runs it to completion regardless, so a `withTimeout` wrapped
-     * around it would report a failure while the thread stayed stuck inside
-     * `prepare()` for as long as the platform took. `docs/todo.md`'s
-     * rejected engine-wide timeout finding is this same trap at the
-     * engine's level. `prepareAsync()` starts the same work off this thread
-     * and calls back when it is done, so waiting for it here is a real
-     * suspension: [withTimeout] can actually give up on it, and a cancelled
-     * rule actually interrupts the wait rather than merely disowning it.
-     *
-     * [PREPARE_TIMEOUT_MILLIS] picks the same bound this codebase already
-     * gives a read that can reach the network before it can answer:
-     * `HttpRequestAction`'s default timeout and the `location` trigger's
-     * position-read budget are both fifteen seconds, for the same reason a
-     * cloud document provider's descriptor can be one. Fifteen seconds is
-     * long enough for that provider to answer and short enough that a
-     * provider that never will does not hold the rule indefinitely.
-     */
-    private suspend fun awaitPrepared(player: MediaPlayer) = withTimeout(PREPARE_TIMEOUT_MILLIS) {
-        suspendCancellableCoroutine { continuation ->
-            player.setOnPreparedListener {
-                if (continuation.isActive) continuation.resume(Unit)
-            }
-            player.setOnErrorListener { _, what, extra ->
-                if (continuation.isActive) {
-                    continuation.resumeWithException(
-                        IllegalStateException("the player reported error $what/$extra")
-                    )
-                }
-                true
-            }
-            player.prepareAsync()
-        }
-    }
-
     companion object {
         const val TYPE = "play_sound"
         const val CONFIG_SOUND_URI = "soundUri"
@@ -216,6 +177,50 @@ class PlaySoundAction(
         const val PREPARE_TIMEOUT_MILLIS = 15_000L
     }
 }
+
+/**
+ * Waits for [player] to finish preparing, bounded by [timeoutMillis].
+ *
+ * Shared between [PlaySoundAction] and [PlayAlertAction], which both call
+ * `MediaPlayer.setDataSource` from a URI that can point at a slow or absent
+ * content provider, and both need the same bridge from a platform callback
+ * to a suspension for a bound on that wait to mean anything. `internal`
+ * because this is the seam the two actions share to do that, not a concept
+ * either one's own KDoc, its factory, or a rule needs to know about.
+ *
+ * **Why not `prepare()`.** `prepare()` is synchronous blocking I/O, and a
+ * blocking platform call does not notice a cancelled coroutine: the thread
+ * runs it to completion regardless, so a `withTimeout` wrapped around it
+ * would report a failure while the thread stayed stuck inside `prepare()`
+ * for as long as the platform took. `docs/todo.md`'s rejected engine-wide
+ * timeout finding is this same trap at the engine's level. `prepareAsync()`
+ * starts the same work off this thread and calls back when it is done, so
+ * waiting for it here is a real suspension: `withTimeout` can actually give
+ * up on it, and a cancelled rule actually interrupts the wait rather than
+ * merely disowning it.
+ *
+ * [timeoutMillis] is each caller's own call, stated next to its own constant:
+ * see [PlaySoundAction.PREPARE_TIMEOUT_MILLIS] and
+ * [PlayAlertAction.PREPARE_TIMEOUT_MILLIS] for what each one actually guards
+ * against, since the two are not the same risk.
+ */
+internal suspend fun awaitPrepared(player: MediaPlayer, timeoutMillis: Long) =
+    withTimeout(timeoutMillis) {
+        suspendCancellableCoroutine { continuation ->
+            player.setOnPreparedListener {
+                if (continuation.isActive) continuation.resume(Unit)
+            }
+            player.setOnErrorListener { _, what, extra ->
+                if (continuation.isActive) {
+                    continuation.resumeWithException(
+                        IllegalStateException("the player reported error $what/$extra")
+                    )
+                }
+                true
+            }
+            player.prepareAsync()
+        }
+    }
 
 class PlaySoundActionFactory(private val context: Context) : ActionFactory {
     override val type = PlaySoundAction.TYPE
