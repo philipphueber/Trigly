@@ -403,6 +403,105 @@ now about something other than an action, so it is `RuleFaultLog` and holds
 `RuleFault`, which carries the kind explicitly rather than encoding it in a null
 action type.
 
+#### A trace of the last evaluation, for the case that is not a fault at all
+
+Every case above is a fault: an action failed, a component could not answer, a
+rule never started. None of them cover the plainest way a rule does nothing.
+An `ALL` group whose fourth condition is simply false, right now, is a rule
+working exactly as written, and until this existed it produced no fault, no
+log line and nothing on screen. "My rule does nothing and I do not know which
+part of it is holding it back" had no answer the app could give.
+
+`StateReader` inside `TriggerEngine.resolveHolds` already computed every
+consulted leaf's answer, true, false or unreadable, before this arrived. It
+was thrown away the moment `resolveHolds` collapsed it to the single `Boolean`
+`TriggerNode.holds` returns. `TriggerTrace`, in `core/Gate.kt`, is that same
+answer kept as a tree instead: a `Group` for every `TriggerNode.Group` and a
+`Leaf` for every `TriggerNode.One`, each leaf marked `FIRED`, `YES`, `NO`,
+`UNREADABLE` or `NOT_CONSULTED`. This is exposing what the engine already
+computes, not computing something new.
+
+**`TriggerNode.holds`'s signature is unchanged.** `holds` still takes a
+`firedPath` and a `stateOf` lookup and returns a plain `Boolean`, and every
+existing caller, `GateTest` and `TriggerEngineTest` included, calls it exactly
+as before. Underneath, `holds` now delegates to the same `holdsAt` that builds
+a full `TriggerTrace`, reading `TriggerTrace.held` off the root and discarding
+the rest. The alternative was a second, hand-written traversal that only
+computes a `Boolean`, kept beside the first. Short-circuiting a group's
+children is a promise this codebase makes deliberately, not an optimisation,
+so two independent copies of that promise would be two places for it to
+quietly drift apart. One traversal, built once, is what `GateTest`'s existing
+short-circuit and empty-case tests now exercise directly, since `holds` calls
+into it.
+
+**A leaf the evaluation never reached is not the same claim as a leaf that
+said no.** An `ALL` group short-circuits on its first failing child, so a
+sibling further along is never asked at all, not even for the fact of whether
+it is the leaf that fired. `notConsulted()` walks the unreached subtree and
+marks every leaf under it `NOT_CONSULTED`, without calling `stateOf` on any of
+them: asking anyway, only to throw the answer away, would still pay the read
+the short-circuit exists to avoid. This is the single most important honesty
+property of the trace. Without it, a rule whose second condition sank an
+`ALL` would show its third and fourth conditions as though they had also
+failed, when the truth is that the tree already had its answer and never
+looked.
+
+**The leaf that fired is its own outcome, not a `YES`.** It is true by
+construction and was never read, the same reason `TriggerNode.holds` never
+calls `stateOf` on it either. And, in exactly the case above, the leaf that
+fired can itself end up `NOT_CONSULTED`: traversal order follows the tree's
+own shape, left to right, not which leaf produced the event, so an earlier
+sibling that already decides an `ANY` skips every leaf behind it, the one
+that fired included. Reporting it as `FIRED` regardless would be true of the
+event and false about this evaluation.
+
+**A firing that held is recorded too, not only one that did not.** Someone
+debugging why an `ANY` fires *this* often, and not on some other condition
+they expected, needs to see which leaf carried it on a run that succeeded;
+limiting the trace to failures would answer only half of "why did my rule do
+what it did". `TriggerEngine.onEvaluated` is called once per event, whichever
+way the tree came out, alongside `onOutcome`, `onStartFailure` and
+`onSuppressed`.
+
+**The trace kept across a retry is the last completed one, not necessarily
+the last attempted one.** `resolveHolds` updates a `lastTrace` after every
+finished call to `evaluateTrace`, so a retry that itself times out mid-read
+still leaves the previous, fully-formed trace in place. That is the common
+case, since it is usually the waiting between tries that spends the budget,
+not one single read. The one gap that leaves is the very first try hanging
+past the whole twenty-second budget, with no completed try at all to fall
+back on. `approximateTrace` covers it, rebuilding a trace from the same
+`answers` map `StateReader` already kept for `unreadable`. It is not a second
+traversal engine: it does not re-run the short-circuit logic, only labels
+each leaf from what was already recorded. That is safe specifically because
+there is at most one incomplete attempt behind the map in this call path;
+reusing it across several completed retries would not carry the same
+guarantee, since a later round's different short-circuit path could leave an
+earlier round's stale answer for a leaf this round never touched.
+
+**`RuleTraceLog`, in `:ui`, holds the result the same shape `RuleFaultLog`
+holds a fault: one slot per rule id, overwritten, and not persisted, for the
+same reason.** A trace describes a run under conditions that existed at the
+time; a trace from a dead process describes a run whose conditions are gone.
+It is a separate sink from `RuleFaultLog` rather than a fourth `RuleFault.Kind`,
+because a fault is a claim that something is wrong and a held evaluation is
+not one; folding it in would mean either inventing a "kind" that names no
+fault, or dropping the held case to keep the class honest about its own name,
+which is exactly the case this exists to stop dropping. One overwritten `Map`
+entry is also the answer to the volume question `docs/todo.md`'s trace entry
+raises: `screen_content` can drive ten evaluations a second, and overwriting
+one field that often costs nothing, where a history or a ring buffer would
+not.
+
+**The screen is a dialog, not a destination**, the same shape the notification
+inspector chose and for the same reason: a tree several levels deep wants the
+width a full-bleed `Dialog` gives it, and `RulesScreen`'s `RuleBlock` already
+has somewhere to open it from. `LastFaultCell` renders one sentence; a tree is
+not a sentence, so "Last check" opens `TriggerTraceScreen` instead of trying
+to fit the tree into that cell. It follows the inspector's own convention of
+no string resources for its labels, the same developer-facing register that
+screen already uses for "Title" and "Text".
+
 ### A hidden field must not decide the answer
 
 The Bluetooth trigger identifies a device by address or by name, and the choice
