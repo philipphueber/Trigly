@@ -23,39 +23,66 @@ import androidx.compose.ui.graphics.Color
  *
  *  ── HOW THE FIVE NEW RAMPS WERE MADE ─────────────────────────────────────
  *
+ *  These five ramps replace an earlier version. The earlier version rotated
+ *  hue in HSL at fixed saturation and fixed lightness. HSL lightness is not
+ *  perceptual: the same number lands at a different apparent brightness and
+ *  a different apparent colourfulness at every hue. That is why the old Lime
+ *  read as neon and the old Azure and Violet read as muddy next to a good
+ *  Orange - the numbers matched, the eye did not agree.
+ *
  *  No colour maths runs in the app. `material-color-utilities` is not a
  *  dependency, and Material 3's own copy of it is not public API. So every
  *  ramp below is a hand-written literal, produced once by a throwaway script
  *  and pasted in. The script no longer exists; this paragraph is how to
  *  reproduce it.
  *
- *   1. Read `Tone.Orange10/30/40/50/60/70/80/90` as HSL.
- *   2. For each of the five other presets, add a fixed hue offset - 60, 120,
- *      180, 240 or 300 degrees - to all eight hues, and convert each back to
- *      sRGB hex. Saturation and lightness carry over unchanged, so a preset
- *      is the orange ramp turned to a different angle, not a different shape.
- *   3. One exception: Magenta's plain +300 rotation put tone 60 (its
- *      `primary`) where neither ink nor white text clears WCAG AA against it
- *      (4.48:1 and 4.20:1). Its lightness was nudged up by 1.4 percentage
- *      points across the whole ramp - the smallest step that cleared 4.5:1
- *      with headroom (4.72:1) - before step 2's rotation, so the ramp stayed
- *      one coherent shape instead of one patched tone.
- *   4. `onPrimary` was picked per preset: whichever of ink (`Tone.Ink`) or
- *      white clears WCAG AA against that preset's tone-60 fill. Five presets
- *      keep ink, the same as Default; Violet's fill is dark enough that only
- *      white clears it (7.62:1 against ink's 2.47:1).
- *   5. `TriglyExtraColors.accent`, the ink-only role Palette.kt explains, is a
- *      ramp step picked the same way: the first of tone 50/40/30 (light) or
- *      70/80/90 (dark) that clears WCAG AA against the page. Most presets
- *      keep the Default scheme's own 50/70; Lime and Green needed 30 for
- *      light, Violet needed 80 for dark.
+ *   1. Convert each of `Tone.Orange10/30/40/50/60/70/80/90` from sRGB to
+ *      OKLCH (Björn Ottosson's OKLab, turned to cylindrical L/C/H the usual
+ *      way: `C = hypot(a, b)`, `H = atan2(b, a)`). Keep only each tone's `L`.
+ *      This is the lightness ladder every preset below holds to; it is not
+ *      eight equal steps; it is whatever Orange's own hand-picked ramp
+ *      already uses. Measured: tone 10 = 0.2016, 30 = 0.3586, 40 = 0.4378,
+ *      50 = 0.5280, 60 = 0.6618, 70 = 0.7500, 80 = 0.8069, 90 = 0.9041.
+ *   2. Give each of the five other presets one fixed hue, in OKLCH degrees:
+ *      Lime 118, Green 152, Azure 240, Violet 295, Magenta 345. These are not
+ *      60-degree steps. Each was checked against known swatches at that name
+ *      (Material's own tonal colours, and the pure sRGB primaries/secondaries)
+ *      converted through the same OKLCH math, so the hue picked for "Lime"
+ *      sits where a lime-coloured swatch actually sits, not at a mechanical
+ *      offset from Orange's 44.57 degrees.
+ *   3. For each of the eight tones, hold `L` to step 1's value for that tone
+ *      and `H` to step 2's value for that preset, and solve for the largest
+ *      `C` whose OKLab-to-linear-sRGB conversion still lands every channel in
+ *      [0, 1] - bisection on `C` between 0 and 0.5, 60 iterations, which
+ *      settles the boundary to far better precision than 8-bit sRGB can show.
+ *      This is the step that must not be skipped: the most colourful colour
+ *      sRGB can hold at one `L, H` is a different number at every hue, so
+ *      solving for it per hue is what step 4 checks and what a single shared
+ *      saturation would have gotten wrong again.
+ *   4. Round-trip every result hex back through step 1's conversion. Every
+ *      preset's `L` at every one of the eight tones lands within 0.0014 of
+ *      Orange's own `L` at that tone - see the commit message for the full
+ *      8-tone-by-5-preset table. That is the check the earlier ramps would
+ *      have failed had anyone run it.
+ *   5. Map the eight tones onto the roles Orange's own ramp already uses:
+ *      tone 60 is `primary` in both schemes; tone 90 is light's
+ *      `primaryContainer` and dark's `onPrimaryContainer`; tone 10 is light's
+ *      `onPrimaryContainer`; tone 30 is dark's `primaryContainer`; tone 80 is
+ *      light's `inversePrimary`; tone 40 is dark's `inversePrimary`; tone 50
+ *      is [TriglyExtraColors.accent] in light; tone 70 is the same in dark.
+ *   6. `onPrimary`: every preset's tone 60 clears WCAG AA against `Tone.Ink`
+ *      (5.27:1 to 6.59:1, against Orange's own 5.66:1), so every preset uses
+ *      `Tone.Ink`, the same as Default. The earlier ramps needed white for
+ *      Violet only because its HSL-rotated tone 60 was accidentally darker
+ *      than the other five at the same nominal lightness; holding `L` level
+ *      in step 1 removes that case rather than working around it.
  *
- *  Checked by eye against the fixed caution amber (`Tone.Amber40`/`Amber80`,
- *  hue ~40 degrees, unrelated to any of these): Lime, the preset next to
- *  Orange one way round the wheel, sits at hue 84 - 44 degrees off amber,
- *  further than Orange's own default hue already sits (16 degrees). Magenta,
- *  the preset next to Orange the other way, sits 76 degrees off. Neither
- *  reads as the caution colour, so nothing was reshuffled to dodge it.
+ *  Checked against the fixed caution amber (`Tone.Amber40`/`Amber80`, hue
+ *  76.06/80.44 degrees in the same OKLCH space): every preset's tone-60 hue
+ *  sits further from amber than Orange's own 31.49 degrees does. Lime is
+ *  closest at 37.5 (against Amber80) to 41.9 (against Amber40) degrees; Green
+ *  71.4 to 75.8; Magenta 91.0 to 95.4; Violet 140.8 to 145.2; Azure 159.7 to
+ *  164.1. None reads as the caution colour.
  *
  *  ── ADDING A SEVENTH PRESET ──────────────────────────────────────────────
  *
@@ -112,101 +139,101 @@ internal val ColorPresets: List<ColorPreset> = listOf(
         id = "lime",
         displayName = "Lime",
         light = LightScheme.copy(
-            primary = hex("#90EC06"),
+            primary = hex("#8B9E00"),
             onPrimary = Tone.Ink,
-            primaryContainer = hex("#E4FFBB"),
-            onPrimaryContainer = hex("#1E2A00"),
-            inversePrimary = hex("#C1FF6B"),
+            primaryContainer = hex("#D4F000"),
+            onPrimaryContainer = hex("#151900"),
+            inversePrimary = hex("#B6CF00"),
         ),
         dark = DarkScheme.copy(
-            primary = hex("#90EC06"),
+            primary = hex("#8B9E00"),
             onPrimary = Tone.Ink,
-            primaryContainer = hex("#4B6B00"),
-            onPrimaryContainer = hex("#E4FFBB"),
-            inversePrimary = hex("#628E00"),
+            primaryContainer = hex("#394200"),
+            onPrimaryContainer = hex("#D4F000"),
+            inversePrimary = hex("#4D5900"),
         ),
-        accentLight = hex("#4B6B00"),
-        accentDark = hex("#B2FF3D"),
+        accentLight = hex("#657400"),
+        accentDark = hex("#A5BB00"),
     ),
     ColorPreset(
         id = "green",
         displayName = "Green",
         light = LightScheme.copy(
-            primary = hex("#06EC62"),
+            primary = hex("#00B059"),
             onPrimary = Tone.Ink,
-            primaryContainer = hex("#BBFFD6"),
-            onPrimaryContainer = hex("#002A0C"),
-            inversePrimary = hex("#6BFFA9"),
+            primaryContainer = hex("#7DFFA6"),
+            onPrimaryContainer = hex("#001D09"),
+            inversePrimary = hex("#00E577"),
         ),
         dark = DarkScheme.copy(
-            primary = hex("#06EC62"),
+            primary = hex("#00B059"),
             onPrimary = Tone.Ink,
-            primaryContainer = hex("#006B20"),
-            onPrimaryContainer = hex("#BBFFD6"),
-            inversePrimary = hex("#008E2C"),
+            primaryContainer = hex("#004A22"),
+            onPrimaryContainer = hex("#7DFFA6"),
+            inversePrimary = hex("#006330"),
         ),
-        accentLight = hex("#006B20"),
-        accentDark = hex("#3DFF8A"),
+        accentLight = hex("#008140"),
+        accentDark = hex("#00D06B"),
     ),
     ColorPreset(
         id = "azure",
         displayName = "Azure",
         light = LightScheme.copy(
-            primary = hex("#0690EC"),
+            primary = hex("#009CE5"),
             onPrimary = Tone.Ink,
-            primaryContainer = hex("#BBE4FF"),
-            onPrimaryContainer = hex("#001E2A"),
-            inversePrimary = hex("#6BC1FF"),
+            primaryContainer = hex("#C1E5FF"),
+            onPrimaryContainer = hex("#001929"),
+            inversePrimary = hex("#7BC9FF"),
         ),
         dark = DarkScheme.copy(
-            primary = hex("#0690EC"),
+            primary = hex("#009CE5"),
             onPrimary = Tone.Ink,
-            primaryContainer = hex("#004B6B"),
-            onPrimaryContainer = hex("#BBE4FF"),
-            inversePrimary = hex("#00628E"),
+            primaryContainer = hex("#004163"),
+            onPrimaryContainer = hex("#C1E5FF"),
+            inversePrimary = hex("#005883"),
         ),
-        accentLight = hex("#00628E"),
-        accentDark = hex("#3DB2FF"),
+        accentLight = hex("#0072A9"),
+        accentDark = hex("#46B9FF"),
     ),
     ColorPreset(
         id = "violet",
         displayName = "Violet",
         light = LightScheme.copy(
-            primary = hex("#6206EC"),
-            onPrimary = Tone.White,
-            primaryContainer = hex("#D6BBFF"),
-            onPrimaryContainer = hex("#0C002A"),
-            inversePrimary = hex("#A96BFF"),
+            primary = hex("#9F71FF"),
+            onPrimary = Tone.Ink,
+            primaryContainer = hex("#E1D9FF"),
+            onPrimaryContainer = hex("#1D0042"),
+            inversePrimary = hex("#C5B2FF"),
         ),
         dark = DarkScheme.copy(
-            primary = hex("#6206EC"),
-            onPrimary = Tone.White,
-            primaryContainer = hex("#20006B"),
-            onPrimaryContainer = hex("#D6BBFF"),
-            inversePrimary = hex("#2C008E"),
+            primary = hex("#9F71FF"),
+            onPrimary = Tone.Ink,
+            primaryContainer = hex("#4A0096"),
+            onPrimaryContainer = hex("#E1D9FF"),
+            inversePrimary = hex("#6300C4"),
         ),
-        accentLight = hex("#3A00B8"),
-        accentDark = hex("#A96BFF"),
+        accentLight = hex("#8100FB"),
+        accentDark = hex("#B59AFF"),
     ),
     ColorPreset(
         id = "magenta",
         displayName = "Magenta",
         light = LightScheme.copy(
-            primary = hex("#F30694"),
+            primary = hex("#FD00B9"),
             onPrimary = Tone.Ink,
-            primaryContainer = hex("#FFC2E7"),
-            onPrimaryContainer = hex("#310023"),
-            inversePrimary = hex("#FF72C4"),
+            primaryContainer = hex("#FFCFE9"),
+            onPrimaryContainer = hex("#2E001F"),
+            inversePrimary = hex("#FF9AD4"),
         ),
         dark = DarkScheme.copy(
-            primary = hex("#F30694"),
+            primary = hex("#FD00B9"),
             onPrimary = Tone.Ink,
-            primaryContainer = hex("#720050"),
-            onPrimaryContainer = hex("#FFC2E7"),
-            inversePrimary = hex("#950067"),
+            primaryContainer = hex("#6E004E"),
+            onPrimaryContainer = hex("#FFCFE9"),
+            inversePrimary = hex("#910069"),
         ),
-        accentLight = hex("#BF0083"),
-        accentDark = hex("#FF44B5"),
+        accentLight = hex("#BB0088"),
+        accentDark = hex("#FF74C9"),
     ),
 )
 

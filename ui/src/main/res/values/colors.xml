@@ -33,9 +33,9 @@
       of their own here. Also not overridden in values-night, for the same
       reason ic_launcher_background is not.
     -->
-    <color name="ic_launcher_background_lime">#90EC06</color>
-    <color name="ic_launcher_background_green">#06EC62</color>
-    <color name="ic_launcher_background_azure">#0690EC</color>
-    <color name="ic_launcher_background_violet">#6206EC</color>
-    <color name="ic_launcher_background_magenta">#F30694</color>
+    <color name="ic_launcher_background_lime">#8B9E00</color>
+    <color name="ic_launcher_background_green">#00B059</color>
+    <color name="ic_launcher_background_azure">#009CE5</color>
+    <color name="ic_launcher_background_violet">#9F71FF</color>
+    <color name="ic_launcher_background_magenta">#FD00B9</color>
 </resources>
