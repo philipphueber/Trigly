@@ -385,6 +385,7 @@ class RuleEditorViewModelTest {
         val editor = viewModel(repository)
         editor.setName("Does nothing")
         editor.chooseTrigger("screen_state")
+        editor.setTriggerConfigValue(emptyList(), "state", "on")
 
         editor.save()
 
@@ -404,6 +405,10 @@ class RuleEditorViewModelTest {
         val editor = viewModel()
         editor.setName("Triggerless")
         editor.addAction("toast")
+        // A known starting point: the draft's own switch defaults on, and the
+        // point of this test is a refused *move* from off to on, not the
+        // default's own value.
+        editor.setEnabled(false)
 
         editor.setEnabled(true)
 
@@ -416,6 +421,7 @@ class RuleEditorViewModelTest {
         val editor = viewModel()
         editor.setName("Does nothing")
         editor.chooseTrigger("screen_state")
+        editor.setEnabled(false)
 
         editor.setEnabled(true)
 
@@ -464,6 +470,7 @@ class RuleEditorViewModelTest {
 
         val reopened = viewModel(repository, ruleId = halfBuilt.id)
         reopened.chooseTrigger("screen_state")
+        reopened.setTriggerConfigValue(emptyList(), "state", "on")
         reopened.addAction("toast")
         reopened.setConfigValue(Slot.ACTION, 0, "text", "go")
 
@@ -501,11 +508,48 @@ class RuleEditorViewModelTest {
         assertTrue("nothing should be stored", repository.rules().first().isEmpty())
     }
 
+    /**
+     * A required field nobody has filled in yet is absent, not wrong: the
+     * same "not finished" bucket as no trigger or no actions at all, not the
+     * "genuinely broken" one. This replaced a test with almost the same name
+     * that asserted the opposite (that a missing 'threshold' refused the
+     * save). See `enableRefusal`'s own kdoc for the line and why it moved.
+     */
     @Test
-    fun a_missing_required_field_is_reported_against_the_component_that_wants_it() = runTest {
-        val editor = viewModel()
+    fun a_trigger_with_an_unfilled_required_field_saves_unfinished_and_names_it_in_the_refusal() = runTest {
+        val repository = InMemoryRuleRepository()
+        val editor = viewModel(repository)
         editor.setName("No threshold")
         editor.chooseTrigger("battery_level")
+        editor.addAction("toast")
+        editor.setConfigValue(Slot.ACTION, 0, "text", "low")
+
+        editor.save()
+
+        assertNull("an unfilled field is not a save-time error", editor.state.value.error)
+        val saved = repository.rules().first().single()
+        assertFalse(saved.enabled)
+
+        editor.setEnabled(true)
+
+        assertEquals(
+            "Finish setting up Battery level before switching this on.",
+            editor.state.value.error,
+        )
+    }
+
+    /**
+     * The pair to the test above: a *present* but malformed value on the same
+     * field is still genuinely broken, refused at save time exactly as
+     * before, with the factory's own message. Absent and wrong are different
+     * problems, and this is the "wrong" one.
+     */
+    @Test
+    fun a_malformed_value_on_an_otherwise_filled_in_field_still_refuses_the_save() = runTest {
+        val editor = viewModel()
+        editor.setName("Bad threshold")
+        editor.chooseTrigger("battery_level")
+        editor.setTriggerConfigValue(emptyList(), "threshold", "not-a-number")
         editor.addAction("toast")
         editor.setConfigValue(Slot.ACTION, 0, "text", "low")
 
@@ -514,6 +558,31 @@ class RuleEditorViewModelTest {
         val error = editor.state.value.error
         assertTrue("was: $error", error!!.startsWith("Battery level:"))
         assertTrue("was: $error", error.contains("threshold"))
+        assertFalse(editor.state.value.finished)
+    }
+
+    /** The same absent-versus-wrong line, on an action instead of a trigger. */
+    @Test
+    fun an_action_with_an_unfilled_required_field_saves_unfinished_and_names_it_in_the_refusal() = runTest {
+        val repository = InMemoryRuleRepository()
+        val editor = viewModel(repository)
+        editor.setName("No alarm time")
+        editor.chooseTrigger("screen_state")
+        editor.setTriggerConfigValue(emptyList(), "state", "on")
+        editor.addAction("set_alarm") // "hour" is required and left blank
+
+        editor.save()
+
+        assertNull("an unfilled field is not a save-time error", editor.state.value.error)
+        val saved = repository.rules().first().single()
+        assertFalse(saved.enabled)
+
+        editor.setEnabled(true)
+
+        assertEquals(
+            "Finish setting up Set an alarm (action 1) before switching this on.",
+            editor.state.value.error,
+        )
     }
 
     @Test
@@ -524,7 +593,11 @@ class RuleEditorViewModelTest {
         editor.setTriggerConfigValue(emptyList(), "state", "on")
         editor.addAction("toast")
         editor.setConfigValue(Slot.ACTION, 0, "text", "fine")
-        editor.addAction("set_alarm") // needs an hour
+        editor.addAction("set_alarm")
+        // Present but out of range, not absent: an unfilled 'hour' is now
+        // unfinished rather than broken, so this needs a genuinely wrong
+        // value to still exercise the save-time refusal.
+        editor.setConfigValue(Slot.ACTION, 1, "hour", "25")
 
         editor.save()
 
@@ -1036,6 +1109,7 @@ class RuleEditorViewModelTest {
         editor.addAction("toast")
         editor.setConfigValue(Slot.ACTION, 0, "text", "go")
         editor.chooseTrigger("screen_state")
+        editor.setTriggerConfigValue(emptyList(), "state", "on")
         editor.addTrigger(emptyList(), GROUP_ANY_TYPE)
 
         editor.save()

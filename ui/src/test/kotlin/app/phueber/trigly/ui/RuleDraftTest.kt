@@ -1,9 +1,14 @@
 package app.phueber.trigly.ui
 
+import app.phueber.trigly.core.Action
+import app.phueber.trigly.core.ActionFactory
+import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.ComponentSpec
+import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.NO_TRIGGER
 import app.phueber.trigly.core.Registry
 import app.phueber.trigly.core.Trigger
+import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
 import app.phueber.trigly.core.TriggerNode
 import org.junit.Assert.assertEquals
@@ -26,10 +31,31 @@ class RuleDraftTest {
             error("not built in this test")
     }
 
-    private fun registryOf(vararg types: String) = Registry(
-        triggerFactories = types.map { EdgeTrigger(it) },
-        actionFactories = emptyList(),
-    )
+    /** An edge trigger with one required field, for the "picked but not
+     * filled in" half of `enableRefusal`. */
+    private class RequiredFieldTrigger(override val type: String, override val displayName: String) :
+        TriggerFactory {
+        override val configFields = listOf(ConfigField.Text(key = "value", label = "Value", required = true))
+        override fun create(config: Map<String, String>): Trigger =
+            error("not built in this test")
+    }
+
+    /** An action with one required field, the same shape as [RequiredFieldTrigger]. */
+    private class RequiredFieldAction(override val type: String, override val displayName: String) :
+        ActionFactory {
+        override val configFields = listOf(ConfigField.Text(key = "value", label = "Value", required = true))
+        override fun create(config: Map<String, String>): Action = object : Action {
+            override suspend fun execute(event: TriggerEvent): ActionResult =
+                error("not run in this test")
+        }
+    }
+
+    private fun registryOf(
+        triggers: List<TriggerFactory> = emptyList(),
+        actions: List<ActionFactory> = emptyList(),
+    ) = Registry(triggerFactories = triggers, actionFactories = actions)
+
+    private fun registryOf(vararg types: String) = registryOf(triggers = types.map { EdgeTrigger(it) })
 
     private fun draftOf(
         name: String = "Rule",
@@ -151,6 +177,72 @@ class RuleDraftTest {
         assertEquals(
             "Add a trigger and an action before switching this on.",
             rule.enableRefusal(registryOf()),
+        )
+    }
+
+    // --- absent versus wrong: a picked component nobody has finished --------
+
+    @Test
+    fun `a trigger with an unfilled required field is named, not folded into 'add a trigger'`() {
+        val draft = draftOf(
+            trigger = leaf("needs_value"),
+            actions = listOf(ComponentDraft("toast")),
+        )
+        val registry = registryOf(
+            triggers = listOf(RequiredFieldTrigger("needs_value", "Needs a value")),
+        )
+
+        assertEquals(
+            "Finish setting up Needs a value before switching this on.",
+            draft.enableRefusal(registry),
+        )
+    }
+
+    @Test
+    fun `an action with an unfilled required field is named, not folded into 'add an action'`() {
+        val draft = draftOf(
+            trigger = leaf("edge"),
+            actions = listOf(ComponentDraft("needs_value")),
+        )
+        val registry = registryOf(
+            triggers = listOf(EdgeTrigger("edge")),
+            actions = listOf(RequiredFieldAction("needs_value", "Needs a value")),
+        )
+
+        assertEquals(
+            "Finish setting up Needs a value (action 1) before switching this on.",
+            draft.enableRefusal(registry),
+        )
+    }
+
+    @Test
+    fun `filling in the required field lets the rule be switched on`() {
+        val draft = draftOf(
+            trigger = leaf("edge"),
+            actions = listOf(ComponentDraft("needs_value", config = mapOf("value" to "hi"))),
+        )
+        val registry = registryOf(
+            triggers = listOf(EdgeTrigger("edge")),
+            actions = listOf(RequiredFieldAction("needs_value", "Needs a value")),
+        )
+
+        assertNull(draft.enableRefusal(registry))
+    }
+
+    @Test
+    fun `an unfinished trigger and an unfinished action are both named`() {
+        val draft = draftOf(
+            trigger = leaf("needs_value"),
+            actions = listOf(ComponentDraft("also_needs_value")),
+        )
+        val registry = registryOf(
+            triggers = listOf(RequiredFieldTrigger("needs_value", "Trigger name")),
+            actions = listOf(RequiredFieldAction("also_needs_value", "Action name")),
+        )
+
+        assertEquals(
+            "Finish setting up Trigger name and Action name (action 1) before switching this on.",
+            draft.enableRefusal(registry),
         )
     }
 }

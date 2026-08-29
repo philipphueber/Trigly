@@ -26,6 +26,7 @@ import app.phueber.trigly.core.substitute
 import app.phueber.trigly.core.RuleVariableStore
 import app.phueber.trigly.core.RunScope
 import app.phueber.trigly.core.scopedFor
+import app.phueber.trigly.core.unfilled
 import app.phueber.trigly.core.variableProblems
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -513,7 +514,20 @@ class RuleEditorViewModel(
 
         viewModelScope.launch {
             repository.upsert(toSave)
-            _state.update { it.copy(finished = true, error = null) }
+            // The draft's own switch is kept truthful to what was actually
+            // persisted, not just left showing whatever it did before the
+            // clamp above. Without this, a rule saved with its switch
+            // clamped off would still show on in this same editor instance
+            // until the rule was closed and reopened, and a switch that
+            // looks on with nothing backing it is exactly the inconsistency
+            // this feature exists to avoid.
+            _state.update {
+                it.copy(
+                    draft = it.draft.copy(enabled = toSave.enabled),
+                    finished = true,
+                    error = null,
+                )
+            }
         }
     }
 
@@ -677,14 +691,23 @@ class RuleEditorViewModel(
         // the common one-leaf rule so its message reads exactly as it always
         // has; only a tree with several leaves needs to say which one is at
         // fault.
+        //
+        // A component with a required field nobody has filled in yet is
+        // skipped here rather than built. Calling `create()` on it would
+        // refuse for the same reason [ConfigField.unfilled] exists to name:
+        // "absent" and "wrong" are different problems, and only the second
+        // one is genuinely broken. `enableRefusal` is what still stops such a
+        // rule being switched on, and names the same component.
         val leaves = rule.trigger.leaves()
         leaves.forEachIndexed { index, spec ->
+            if (isUnfinished(Slot.TRIGGER, spec)) return@forEachIndexed
             runCatching { registry.createTrigger(spec) }
                 .exceptionOrNull()
                 ?.let { return describe(it, triggerLabel(spec, index, leaves.size)) }
         }
 
         rule.actions.forEachIndexed { index, spec ->
+            if (isUnfinished(Slot.ACTION, spec)) return@forEachIndexed
             runCatching { registry.createAction(spec) }
                 .exceptionOrNull()
                 ?.let {
@@ -724,6 +747,15 @@ class RuleEditorViewModel(
 
         return null
     }
+
+    /**
+     * Whether [spec] still has a required field with no value, per its own
+     * schema. See [ConfigField.unfilled]: this is the "absent" half of the
+     * absent-versus-wrong line, and it is asked here, of the exact spec about
+     * to be built, rather than guessed from whatever `create()` throws.
+     */
+    private fun isUnfinished(slot: Slot, spec: ComponentSpec): Boolean =
+        descriptorFor(slot, spec.type)?.configFields?.unfilled(spec.config)?.isNotEmpty() == true
 
     /** A trigger leaf's label for a validation message: plain when it is the
      * rule's only trigger, numbered once a tree has more than one. */

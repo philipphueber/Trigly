@@ -13,7 +13,9 @@ import app.phueber.trigly.core.canStart
 import app.phueber.trigly.core.companionKeys
 import app.phueber.trigly.core.defaultValue
 import app.phueber.trigly.core.isUnset
+import app.phueber.trigly.core.leaves
 import app.phueber.trigly.core.normalizeFolder
+import app.phueber.trigly.core.unfilled
 
 /**
  * Which half of a rule a component belongs to.
@@ -240,37 +242,46 @@ fun TriggerDraft?.toNode(): TriggerNode = when (this) {
 /**
  * Why [this] rule cannot be switched on right now, or null if it can.
  *
- * Two different problems share this one gate, and they are told apart because
- * they read differently to someone looking at the switch:
+ * Three different problems share this one gate, told apart because they read
+ * differently to someone looking at the switch, and because a person fixes
+ * each one a different way:
  *
  * - **Nothing there yet**: no trigger, no actions, or both. This is exactly
  *   what [RuleDraft.toRuleOrNull] now lets through at save time: a rule
  *   mid-thought, savable, just not runnable yet. The message names what is
  *   missing, because "add a trigger" is something a person can act on and
  *   "this rule is not valid" is not.
- * - **A trigger that is there, but can never fire.** [TriggerNode.canStart]
- *   catches this: two components that only ever produce events sitting
- *   together under one `ALL`, or a leaf whose own "only check, never watch"
- *   setting was turned on after it was already the rule's one trigger. This
- *   used to be a save-time refusal. It moves here because the trigger is not
- *   *incomplete* in this case, only unable to start the rule it is attached
- *   to, and that is an enable question, a person can only act on it by
- *   changing what is already there, not by adding something.
+ * - **Something is there, but not filled in.** A trigger or action a person
+ *   picked, with a required field still empty. Also unfinished, not broken,
+ *   which is why `RuleEditorViewModel.validate` no longer refuses the save
+ *   over it either. Named by component here rather than folded into "add a
+ *   trigger" or "add an action": a person who already added an action and is
+ *   then told to add one would reasonably think the app is broken.
+ * - **A trigger that is there and filled in, but can never fire.**
+ *   [TriggerNode.canStart] catches this: two components that only ever
+ *   produce events sitting together under one `ALL`, or a leaf whose own
+ *   "only check, never watch" setting was turned on after it was already the
+ *   rule's one trigger. This used to be a save-time refusal. It moves here
+ *   because the trigger is not *incomplete* in this case, only unable to
+ *   start the rule it is attached to, and that is an enable question, a
+ *   person can only act on it by changing what is already there, not by
+ *   adding or finishing something. Checked last, because a component that is
+ *   not even filled in yet cannot usefully be judged by this question.
  *
  * See the [RuleDraft] overload for the one place that has to ask this before
  * anything has been saved: the editor's own "enabled" switch.
  */
-fun Rule.enableRefusal(registry: Registry): String? = enableRefusal(trigger, actions.size, registry)
+fun Rule.enableRefusal(registry: Registry): String? = enableRefusal(trigger, actions, registry)
 
 /** The same question [Rule.enableRefusal] answers, asked of a draft that may
  * not have been saved yet: what the editor's own "enabled" switch checks
  * before it lets itself move. */
 fun RuleDraft.enableRefusal(registry: Registry): String? =
-    enableRefusal(trigger.toNode(), actions.size, registry)
+    enableRefusal(trigger.toNode(), actions.map { ComponentSpec(it.type, it.config) }, registry)
 
-private fun enableRefusal(trigger: TriggerNode, actionCount: Int, registry: Registry): String? {
+private fun enableRefusal(trigger: TriggerNode, actions: List<ComponentSpec>, registry: Registry): String? {
     val hasNoTrigger = trigger.isUnset()
-    val hasNoActions = actionCount == 0
+    val hasNoActions = actions.isEmpty()
 
     if (hasNoTrigger || hasNoActions) {
         val missing = listOfNotNull(
@@ -280,6 +291,14 @@ private fun enableRefusal(trigger: TriggerNode, actionCount: Int, registry: Regi
         return "Add $missing before switching this on."
     }
 
+    val unfinished = listOfNotNull(
+        unfinishedTriggerLabel(trigger, registry),
+        unfinishedActionLabel(actions, registry),
+    )
+    if (unfinished.isNotEmpty()) {
+        return "Finish setting up ${unfinished.joinToString(" and ")} before switching this on."
+    }
+
     if (!trigger.canStart(registry::producesEvents, registry::supportsCondition)) {
         return "This rule can never start. One trigger must start it, and the " +
             "others are only checked when it does. A trigger set to only " +
@@ -287,6 +306,32 @@ private fun enableRefusal(trigger: TriggerNode, actionCount: Int, registry: Regi
     }
 
     return null
+}
+
+/**
+ * The first trigger leaf with a required field nobody has filled in, named
+ * for the enable refusal, or null if every leaf is filled in. See
+ * [ConfigField.unfilled] for what "filled in" means.
+ */
+private fun unfinishedTriggerLabel(trigger: TriggerNode, registry: Registry): String? {
+    val leaves = trigger.leaves()
+    val index = leaves.indexOfFirst { spec ->
+        registry.triggerDescriptor(spec.type)?.configFields?.unfilled(spec.config)?.isNotEmpty() == true
+    }
+    if (index == -1) return null
+    val name = registry.displayNameOf(leaves[index].type)
+    return if (leaves.size > 1) "$name (trigger ${index + 1})" else name
+}
+
+/** [unfinishedTriggerLabel]'s counterpart for actions, always numbered: an
+ * action's own position is meaningful even when there is only one, the same
+ * convention `RuleEditorViewModel.validate` already uses for its labels. */
+private fun unfinishedActionLabel(actions: List<ComponentSpec>, registry: Registry): String? {
+    val index = actions.indexOfFirst { spec ->
+        registry.actionDescriptor(spec.type)?.configFields?.unfilled(spec.config)?.isNotEmpty() == true
+    }
+    if (index == -1) return null
+    return "${registry.displayNameOf(actions[index].type)} (action ${index + 1})"
 }
 
 /**

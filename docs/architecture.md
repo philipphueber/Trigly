@@ -198,6 +198,40 @@ not error-coloured: nothing here is switched on and failing right now, which is
 what the error colour means elsewhere on this screen; this is the ordinary,
 expected shape of a rule nobody has finished yet.
 
+### Absent versus wrong
+
+The first pass at the line above missed one case: an action or trigger a
+person picked and left partly filled in, a required field with nothing typed
+into it yet. `validate` used to call that broken, the same as an unknown
+component or a malformed value, because it decided by calling `create()` and
+reading whatever came back. That conflated two different problems again, one
+level down from the first split. Caught in the connected suite, on two
+devices, by a test that had simply forgotten to configure a trigger.
+
+**Absent** is a required field with no value at all: not filled in yet,
+which is unfinished, not wrong. **Wrong** is everything else `create()` can
+still refuse: a value that is present but malformed, or a combination of
+present values that breaks a cross-field rule such as
+`notification_watchdog`'s "poll must not exceed absence". The two are told
+apart by the schema, not by the factory: `ConfigField.unfilled`
+(`core/ConfigField.kt`) reports the required fields, among the ones a
+sibling's own value currently shows, that still have no value and no
+declared default. `validate` skips a component `unfilled` names entirely
+rather than calling `create()` on it, since building it would only refuse
+for the exact reason already known. `enableRefusal` names the same
+component in its own message, "Finish setting up X", rather than folding it
+into "add a trigger" or "add an action": a person who already added an
+action and is then told to add one would reasonably think the app is
+broken.
+
+A field's declared default matters here for the same reason it matters to
+`shownWith`: a required field the editor is already showing a real value
+for, such as `play_alert`'s "Tone", is not something a person left blank,
+even when nothing has been typed. Only the stored value being absent *and*
+no default existing counts as unfilled. Getting this wrong the other way,
+by reading `required` alone, would have called a fresh, fully-answered
+`play_alert` unfinished over a field nobody had touched.
+
 ### Getting a rule out of the app: share and export
 
 Two controls, two jobs, and they used to be one job under two names. "Share" on
