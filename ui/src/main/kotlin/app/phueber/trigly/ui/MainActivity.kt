@@ -67,6 +67,7 @@ class MainActivity : ComponentActivity() {
             registry = container.registry,
             checker = container.requirementChecker,
             ruleFaults = container.ruleFaults,
+            ruleTraces = container.ruleTraces,
             // Built from the same two ports the app already wires for actions
             // to reach the notification listener and the accessibility
             // service, rather than asking `:triggers` the same question a

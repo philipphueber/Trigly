@@ -136,6 +136,15 @@ class AppContainer(context: Context) {
     val ruleFaults: RuleFaultLog = RuleFaultLog()
 
     /**
+     * The last trigger evaluation for each rule, whichever way it came out.
+     *
+     * Lives here for the same reason [ruleFaults] does: `EngineService` writes
+     * it as rules are evaluated, and the rule list reads it to show which leaf
+     * of an `ALL` or `ANY` decided the last run. See [RuleTraceLog].
+     */
+    val ruleTraces: RuleTraceLog = RuleTraceLog()
+
+    /**
      * Durable storage. Rules are hand-built by the user, so losing them to a
      * process death — which the in-memory stand-in did — was never shippable.
      *

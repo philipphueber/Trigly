@@ -21,6 +21,7 @@ import app.phueber.trigly.core.ComponentSpec
 import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.TriggerEngine
 import app.phueber.trigly.core.TriggerEvent
+import app.phueber.trigly.core.TriggerTrace
 import app.phueber.trigly.triggers.notification.keepNotificationListenerBound
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -95,6 +96,7 @@ class EngineService : Service() {
             onOutcome = ::report,
             onStartFailure = ::reportStartFailure,
             onSuppressed = ::reportSuppressed,
+            onEvaluated = ::reportEvaluated,
         )
         // run_rule's factory was built before this engine existed and holds
         // container.ruleRunner instead; this is where that handle starts
@@ -349,6 +351,21 @@ class EngineService : Service() {
             rule.id,
             getString(R.string.rules_could_not_decide, names),
         )
+    }
+
+    /**
+     * Records how [rule]'s trigger last decided, whichever way it went.
+     *
+     * Unlike [reportSuppressed], this is not a fault report and carries no
+     * message of its own: [trace] is a structured tree, not a sentence, and the
+     * rules list renders it as one rather than asking this service to describe
+     * it in words. Kept raw, [ComponentSpec] and all, rather than resolved
+     * through `Registry.displayNameOf` here, because the reader already has
+     * `describeComponent` for that. Resolving every name twice, once to build
+     * a string nobody reads and once to render the tree, would be pure waste.
+     */
+    private fun reportEvaluated(rule: Rule, event: TriggerEvent, trace: TriggerTrace) {
+        (application as TriglyApp).container.ruleTraces.recorded(rule.id, trace)
     }
 
     /**
