@@ -2346,20 +2346,21 @@ copy each would be several near-identical blocks with no reader who benefits.
 so a page whose content is a link to a licence elsewhere would be useless
 exactly where it matters. The licence text ships in the APK instead.
 
-`shippedDependencies`, in `Attribution.kt`, is a hand-written list today and
-says so in its own KDoc: it cannot see a dependency added or bumped anywhere
-in the project, only what someone remembered to update here. The plan that
-replaces it is `app.cash.licensee`, applied to `:ui` only. Because `:ui`
-depends on every other module as a project dependency, its release runtime
-classpath already holds everything the APK ships, including
+`shippedDependencies`, the list `AttributionScreen` reads, is generated rather
+than hand-written, by `app.cash.licensee`, applied to `:ui` only. Because
+`:ui` depends on every other module as a project dependency, its release
+runtime classpath already holds everything the APK ships, including
 `androidx.compose.material:material-icons-core`, which arrives transitively
 through `material3` and has no entry of its own in
 `gradle/libs.versions.toml`. Licensee checks each artifact's declared licence
 against an allow list and fails the build on anything else, which is the same
-shape as the checks `docs/releasing.md` already keeps for a release. A
-generated task turns its report into the list this screen reads, so a
-dependency that changes licence, or one that is merely added, cannot go
-unnoticed the way a hand-written list can.
+shape as the checks `docs/releasing.md` already keeps for a release. The
+`generateAttributionList` task in `ui/build.gradle.kts` turns licensee's own
+report into a `GeneratedAttribution.kt` under `build/generated/`, compiled
+into `:ui`'s `main` source set; neither that file nor the report is checked
+in, since a committed snapshot would recreate exactly the staleness this
+design exists to prevent. `Attribution.kt` keeps only the `Attribution` data
+class the generated file builds.
 
 `SettingsRow`, in `Blocks.kt`, is the shared shape behind every row on
 `SettingsScreen`: a title, and whatever the row shows or does on its trailing
