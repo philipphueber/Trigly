@@ -7,7 +7,7 @@ import androidx.compose.ui.graphics.Color
 
 /*
  * ─────────────────────────────────────────────────────────────────────────────
- *  EVERY COLOUR IN THE APP IS IN THIS FILE. THIS IS THE ONLY FILE TO EDIT.
+ *  EVERY COLOUR THE APP RENDERS UNTIL SOMEONE OPENS SETTINGS IS IN THIS FILE.
  * ─────────────────────────────────────────────────────────────────────────────
  *
  *  Three sections, in the order you would want them:
@@ -18,8 +18,14 @@ import androidx.compose.ui.graphics.Color
  *                 Change these to move a colour to a different *use*.
  *    3. EXTRAS    the handful of roles Material 3 has no slot for.
  *
- *  Two things live outside this file, and both are unavoidable:
+ *  Three things live outside this file:
  *
+ *    · `PresetSchemes.kt` holds the five other brand hues the colour scheme
+ *      picker offers, and the wallpaper palette the system option reads. Both
+ *      of those replace only the primary group and the two accents this file
+ *      declares; the rest of [LightScheme] and [DarkScheme] is what every
+ *      preset is built from, so this file is still where that shared design
+ *      lives.
  *    · `res/values/colors.xml` and `res/values-night/colors.xml` hold the window
  *      background. The framework paints the window before any Compose code
  *      runs, so it cannot read a value from here — without it a dark-mode launch

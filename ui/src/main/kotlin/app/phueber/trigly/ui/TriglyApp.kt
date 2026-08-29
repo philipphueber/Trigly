@@ -183,4 +183,20 @@ class AppContainer(context: Context) {
      * `BackupSettings`'s own KDoc.
      */
     val backupSettings: BackupSettings = backupSettings(context)
+
+    /**
+     * Which colour scheme `TriglyTheme` renders and `EngineService`'s
+     * notification tints: [ColorSchemeChoice.Default] until `SettingsScreen`
+     * changes it. Its own `SharedPreferences` file, not [backupSettings]'s -
+     * see `ColorSchemeSettings`'s own KDoc for why that split is what makes
+     * the backup switch's answer correct without any code in
+     * `TriglyBackupAgent` naming this setting.
+     */
+    val colorSchemeSettings: ColorSchemeSettings = colorSchemeSettings(context)
+
+    /**
+     * Keeps one launcher-icon `activity-alias` enabled to match
+     * [colorSchemeSettings]'s choice. See `LauncherIconSwitcher.kt`.
+     */
+    val launcherIconEnabler: ComponentEnabler = PackageManagerComponentEnabler(context)
 }

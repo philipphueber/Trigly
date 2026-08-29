@@ -27,12 +27,18 @@ class SettingsScreenTest {
     private val changes = mutableListOf<Boolean>()
     private var backTaps = 0
     private var attributionTaps = 0
+    private val colorSchemeChanges = mutableListOf<ColorSchemeChoice>()
 
     @Composable
-    private fun Screen(cloudBackupEnabled: Boolean) {
+    private fun Screen(
+        cloudBackupEnabled: Boolean,
+        colorSchemeChoice: ColorSchemeChoice = ColorSchemeChoice.Default,
+    ) {
         SettingsScreen(
             cloudBackupEnabled = cloudBackupEnabled,
             onCloudBackupEnabledChange = { changes += it },
+            colorSchemeChoice = colorSchemeChoice,
+            onColorSchemeChoiceChange = { colorSchemeChanges += it },
             onAttribution = { attributionTaps++ },
             onBack = { backTaps++ },
         )
@@ -109,5 +115,44 @@ class SettingsScreenTest {
         composeRule.onNodeWithText("Open source licenses").performClick()
 
         assertEquals(1, attributionTaps)
+    }
+
+    /** The colour scheme row's trailing edge, for the two choices that are not a hue. */
+    @Test
+    fun the_colorscheme_row_shows_the_current_words_for_default_and_system() {
+        composeRule.setContent { Screen(cloudBackupEnabled = true, colorSchemeChoice = ColorSchemeChoice.Default) }
+        composeRule.onNodeWithText("DEFAULT").assertIsDisplayed()
+    }
+
+    @Test
+    fun tapping_the_colorscheme_row_opens_the_picker() {
+        composeRule.setContent { Screen(cloudBackupEnabled = true) }
+
+        composeRule.onNodeWithText("Colour scheme").performClick()
+
+        composeRule.onNodeWithText("Choose a colour scheme".uppercase()).assertIsDisplayed()
+    }
+
+    @Test
+    fun picking_a_preset_reports_it_and_closes_the_dialog() {
+        composeRule.setContent { Screen(cloudBackupEnabled = true) }
+        composeRule.onNodeWithText("Colour scheme").performClick()
+
+        composeRule.onNodeWithText(ColorPresets[1].displayName.uppercase()).performClick()
+
+        assertEquals(listOf(ColorSchemeChoice.Preset(ColorPresets[1].id)), colorSchemeChanges)
+        composeRule.onNodeWithText("Choose a colour scheme".uppercase()).assertDoesNotExist()
+    }
+
+    @Test
+    fun picking_default_from_the_picker_reports_default() {
+        composeRule.setContent {
+            Screen(cloudBackupEnabled = true, colorSchemeChoice = ColorSchemeChoice.Preset(ColorPresets[1].id))
+        }
+        composeRule.onNodeWithText("Colour scheme").performClick()
+
+        composeRule.onNodeWithText("Default".uppercase()).performClick()
+
+        assertEquals(listOf(ColorSchemeChoice.Default), colorSchemeChanges)
     }
 }

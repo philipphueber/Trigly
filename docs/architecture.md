@@ -1971,11 +1971,15 @@ The knock-on is in `MainActivity`: with `primary` no longer inverting, the statu
 bar band behind the clock is the same orange in both themes, so its icon polarity
 is fixed (`SystemBarStyle.light`) rather than derived from the system theme.
 
-**Material You dynamic colour is deliberately off.** It is the right default for
-an app with no colour of its own; here the orange *is* the identity, and an
-automation app whose screenshots and docs look different on every phone is not
-friendlier. Dark mode follows the system, because there is no settings screen yet
-in which a manual override would belong.
+**Material You dynamic colour is off by default, not absent.** It is the right
+default for an app with no colour of its own; here the orange *is* the
+identity, and an automation app whose screenshots and docs look different on
+every phone out of the box is not friendlier. Settings now offers it as an
+explicit choice anyway - "Follow the system" - beside five other fixed brand
+hues a person can pick instead, all resolved through `PresetSchemes.kt`. Dark
+mode still follows the system rather than its own setting: it is a platform
+convention nobody expects an app to override, which is a different question
+from which *hue* renders in either mode.
 
 ### Blocks, not cards
 
