@@ -118,11 +118,40 @@ class GeneratedAttributionTest {
      */
     @Test
     fun `an unmapped groupId is shown under its group id rather than vanishing`() {
-        val withUnknownGroup = shippedDependencies + Attribution("com.example.unmapped", "some-artifact", "Apache-2.0")
+        val withUnknownGroup = shippedDependencies +
+            Attribution("com.example.unmapped", "some-artifact", "Apache-2.0", "https://example.com/unmapped")
 
         val fallbackProject = withUnknownGroup.groupIntoProjects().single { it.name == "com.example.unmapped" }
 
         assertEquals(1, fallbackProject.artifactCount)
         assertEquals("Apache-2.0", fallbackProject.license)
+        assertEquals("https://example.com/unmapped", fallbackProject.url)
+    }
+
+    /**
+     * `projectNameForGroup`'s own KDoc names the trap: four AndroidX artifacts
+     * carry a stale `http://source.android.com` `scm.url`, left over from
+     * before they moved out of AOSP into Jetpack. This is the same trap for
+     * the URL a tap on AndroidX's row opens: it must be the real project page
+     * the other 84 artifacts agree on, not whichever artifact `groupBy`
+     * happens to list first, and not the stale one.
+     */
+    @Test
+    fun `AndroidX links to its own page, not the stale source-android-com url`() {
+        val androidXProject = shippedDependencies.groupIntoProjects().single { it.name == "AndroidX" }
+
+        assertEquals("https://cs.android.com/androidx/platform/frameworks/support", androidXProject.url)
+    }
+
+    /**
+     * A project with only one artifact has nothing to pick a "most common" URL
+     * from; its one URL is simply the answer. Guava is the smallest of the
+     * five known projects, so it is the cheapest real fixture for that case.
+     */
+    @Test
+    fun `a single-artifact project links to its one artifact's url`() {
+        val guavaProject = shippedDependencies.groupIntoProjects().single { it.name == "Guava" }
+
+        assertEquals("https://github.com/google/guava", guavaProject.url)
     }
 }

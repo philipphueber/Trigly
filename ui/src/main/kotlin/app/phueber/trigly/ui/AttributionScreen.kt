@@ -13,39 +13,50 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 
 /**
- * The open source notices: the app's own name, version and licence, then
- * every project it ships code from and the licence text they share.
+ * The used-components notices: the app's own name, version and licence, a
+ * link to Trigly's own repository, every project it ships code from with a
+ * link to that project's own page, and a link to the licence text they
+ * share.
  *
  * Reached from a row on [SettingsScreen], which is why its own back target is
  * [Screen.Settings] and not the rule list — see [Screen.Attribution].
  *
  * Stateless, the same reasoning [SettingsScreen] gives for itself: nothing on
  * this screen changes while it is open, so there is no ViewModel and the
- * instrumented test can drive it with plain values. [projects] and
- * [licenseText] are parameters rather than reads of [shippedDependencies] and
- * the raw resource here, so a dependency bump cannot break this screen's own
- * test — see `AttributionHost`, in `MainActivity.kt`, for where the real
- * values come from: `shippedDependencies.groupIntoProjects()` and the bundled
- * licence file.
+ * instrumented test can drive it with plain values. [projects], [licenseUrl]
+ * and [repositoryUrl] are parameters rather than reads of
+ * [shippedDependencies] and a hardcoded string here, so a dependency bump
+ * cannot break this screen's own test — see `AttributionHost`, in
+ * `MainActivity.kt`, for where the real values come from:
+ * `shippedDependencies.groupIntoProjects()` and the two fixed URLs.
+ *
+ * [onOpenUrl] is one callback for every link this screen offers, not one per
+ * link kind: a project's row, the licence row and the repository row all do
+ * the same thing, open a URL in a browser, and the host is what knows how
+ * (see `MainActivity.openUrl`). Nothing on this screen needs to tell those
+ * three apart.
  *
  * A `Column` with `verticalScroll`, the same shape `PatternTester` uses for
- * its own scrollable prose, and not a `LazyColumn`: a dozen static rows plus
- * one block of licence text do not need lazy layout.
+ * its own scrollable prose, and not a `LazyColumn`: a dozen static rows do
+ * not need lazy layout.
  */
 @Composable
 fun AttributionScreen(
     appVersion: String,
     projects: List<AttributionProject>,
-    licenseText: String,
+    licenseUrl: String,
+    repositoryUrl: String,
+    onOpenUrl: (String) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -85,6 +96,14 @@ fun AttributionScreen(
                 }
             }
 
+            // Trigly is Apache 2.0 itself, the same as every project below;
+            // its own row rather than a line inside the card above, so it is
+            // as tappable as every other link on this screen.
+            SettingsRow(
+                title = stringResource(R.string.attribution_repository_title),
+                onClick = { onOpenUrl(repositoryUrl) },
+            )
+
             BlockCard {
                 Column {
                     Text(
@@ -94,50 +113,53 @@ fun AttributionScreen(
                     )
                     BlockDivider()
                     projects.forEachIndexed { index, project ->
-                        Row(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-                            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                        // enabled = false rather than omitting the click
+                        // handler when a project has no URL: groupIntoProjects
+                        // can still return one, from the soft-degrade path in
+                        // its own KDoc, and a disabled row says so instead of
+                        // silently doing nothing on tap.
+                        Surface(
+                            onClick = { project.url?.let(onOpenUrl) },
+                            enabled = project.url != null,
+                            color = Color.Transparent,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                                Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                                    Text(
+                                        text = project.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                    )
+                                    Text(
+                                        text = pluralStringResource(
+                                            R.plurals.attribution_artifact_count,
+                                            project.artifactCount,
+                                            project.artifactCount,
+                                        ),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                                 Text(
-                                    text = project.name,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                )
-                                Text(
-                                    text = pluralStringResource(
-                                        R.plurals.attribution_artifact_count,
-                                        project.artifactCount,
-                                        project.artifactCount,
-                                    ),
+                                    text = project.license,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            Text(
-                                text = project.license,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
                         }
                         if (index != projects.lastIndex) BlockDivider()
                     }
                 }
             }
 
-            // One copy for every project above, not one per project: they are
-            // all very probably the same licence, so a copy each would be
-            // several near-identical blocks. See Attribution.kt.
-            BlockCard {
-                Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-                    Text(
-                        text = stringResource(R.string.attribution_license_heading).uppercase(),
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                    Text(
-                        text = licenseText,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                }
-            }
+            // One licence row for every project above, not one per project:
+            // they are all Apache 2.0, licensee's own allow-list in
+            // ui/build.gradle.kts enforces that, so a copy each would be
+            // several identical links. See Attribution.kt.
+            SettingsRow(
+                title = stringResource(R.string.attribution_license_link_title),
+                onClick = { onOpenUrl(licenseUrl) },
+            )
         }
     }
 }
