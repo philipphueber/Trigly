@@ -460,17 +460,32 @@ not survive Doze. Use the slowest delay that works, and consider
 between deliveries. These should probably be off by default and carry a warning
 in the UI.
 
-### Time of day / day of week
-`AlarmScheduler` (blocker 2, now built) is what this needs, and it is ready to
-use. Reschedule on boot, on time-zone change (`ACTION_TIMEZONE_CHANGED`), and
-after each firing. The recurring-alarm bug to avoid: computing the next
-occurrence from *now* rather than from the scheduled time, which makes the
-rule drift later on every fire. `SolarTrigger` already gets this right and is
-the pattern to copy, including its T17 half: waiting through
-`waitUntilDurable` rather than `waitUntil`, and reading `AlarmWakeEvents` on a
-fresh collection so an occurrence already due is not skipped for the next
-one. A rule for "every weekday at 8am" has exactly the same failure this
-closes for sunrise or sunset, and no reason to skip the fix.
+### ~~Time of day / day of week~~: done, type `time_of_day`
+
+Built as `time_of_day`. It fires once at a chosen hour and minute, on
+whichever days of the week are selected, so "every weekday at 8am" is one
+rule. The day selection lives on the trigger itself, not on the standalone
+day-of-week condition elsewhere in this file: a condition can only be asked
+once something else has already woken the rule, so nothing wakes this one at
+8am on a Tuesday if the day check lives outside it.
+
+It copies `SolarTrigger`'s pattern: `AlarmScheduler.waitUntilDurable` for the
+T17 reason, and `AlarmWakeEvents` read on a fresh collection so an occurrence
+already due is found rather than skipped for next week's. The next
+occurrence is always built from the hour and minute on a calendar date, never
+from "now plus a day", which is what keeps a late firing from drifting later
+on every fire, and what keeps a daylight-saving change correct: the same
+local time resolves to a different UTC offset on either side of the
+transition, instead of shifting by an hour.
+
+Its zone is read fresh on every wait rather than fixed once, unlike
+`SolarTrigger`'s typed place: this trigger has no place of its own, so "8am"
+means "8am wherever this phone currently is". A live
+`ACTION_TIMEZONE_CHANGED` receiver interrupts an in-flight wait, so a zone
+change mid-wait is corrected at once instead of on the next firing. Boot
+needs no extra code: every trigger is rebuilt fresh from its stored config
+each time the engine starts, so the first pass through `events()` already
+computes from a fresh clock.
 
 ### ~~Sunrise / sunset~~: done, scheduler caveat resolved
 
