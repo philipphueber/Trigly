@@ -2402,7 +2402,7 @@ not `RuleList`. `backTarget`'s KDoc states the exception; `ScreenSaver` and
 back to a default, the same way every other `Screen` case has to.
 
 `AttributionScreen` is stateless, the same reasoning `SettingsScreen` gives for
-itself: nothing on it changes while it is open. It takes its dependency list
+itself: nothing on it changes while it is open. It takes its project list
 and its licence text as parameters rather than reading `shippedDependencies`
 and a raw resource itself, so its own instrumented test can run against fake
 values that a real dependency bump cannot break. `AttributionHost`, beside
@@ -2410,20 +2410,19 @@ values that a real dependency bump cannot break. `AttributionHost`, beside
 `packageManager.getPackageInfo`, since `buildFeatures.buildConfig` is off and
 turning it on for one string is not worth it, and the licence text from
 `res/raw/license_apache_2_0.txt`, read once with `openRawResource`. That file
-is one copy of the Apache 2.0 text for every dependency the screen lists, not
-one copy per library: the shipped set is very probably all one licence, so a
+is one copy of the Apache 2.0 text for every project the screen lists, not
+one copy per project: the shipped set is very probably all one licence, so a
 copy each would be several near-identical blocks with no reader who benefits.
 
 **No network call.** Trigly is meant to run on an offline or de-Googled phone,
 so a page whose content is a link to a licence elsewhere would be useless
 exactly where it matters. The licence text ships in the APK instead.
 
-`shippedDependencies`, the list `AttributionScreen` reads, is generated rather
-than hand-written, by `app.cash.licensee`, applied to `:ui` only. Because
-`:ui` depends on every other module as a project dependency, its release
-runtime classpath already holds everything the APK ships, including
-`androidx.compose.material:material-icons-core`, which arrives transitively
-through `material3` and has no entry of its own in
+`shippedDependencies`, generated rather than hand-written by `app.cash.licensee`,
+applied to `:ui` only. Because `:ui` depends on every other module as a project
+dependency, its release runtime classpath already holds everything the APK
+ships, including `androidx.compose.material:material-icons-core`, which
+arrives transitively through `material3` and has no entry of its own in
 `gradle/libs.versions.toml`. Licensee checks each artifact's declared licence
 against an allow list and fails the build on anything else, which is the same
 shape as the checks `docs/releasing.md` already keeps for a release. The
@@ -2431,8 +2430,47 @@ shape as the checks `docs/releasing.md` already keeps for a release. The
 report into a `GeneratedAttribution.kt` under `build/generated/`, compiled
 into `:ui`'s `main` source set; neither that file nor the report is checked
 in, since a committed snapshot would recreate exactly the staleness this
-design exists to prevent. `Attribution.kt` keeps only the `Attribution` data
-class the generated file builds.
+design exists to prevent. `Attribution.kt` keeps the `Attribution` data class
+the generated file builds, one instance per Maven artifact.
+
+**An artifact is a build output, not a project a reader recognises.** The
+release classpath holds 88 Maven artifacts, and reading `androidx.compose.ui:
+ui-graphics-android` beside 30 more lines that all mean "Jetpack Compose" tells
+a reader nothing. `groupIntoProjects`, also in `Attribution.kt`, folds the
+per-artifact list down into five: AndroidX, Kotlin, Kotlin Coroutines, Guava,
+and JetBrains Java Annotations, each carrying how many artifacts of it this
+build actually ships, so the screen does not read as though Trigly ships one
+file of AndroidX. `AttributionHost` calls it once, on the real
+`shippedDependencies`; `AttributionScreenTest` still passes `AttributionScreen`
+fake `AttributionProject` values directly, so grouping logic is not part of
+what that test can break or be broken by.
+
+The fold is keyed on `groupId`, never on `scm.url` even though every artifact
+in licensee's report carries one: four AndroidX artifacts
+(`androidx.autofill:autofill`, `androidx.concurrent:concurrent-futures`,
+`androidx.interpolator:interpolator`, `androidx.versionedparcelable:versionedparcelable`)
+carry a stale `http://source.android.com` URL left from before they moved out
+of AOSP into Jetpack. Grouping by `scm.url` would split AndroidX in two and
+label part of it as AOSP; `groupId` does not lie for these four.
+
+An artifact whose `groupId` matches none of the five shows up under its own
+`groupId` as the project name, in `groupIntoProjects`, rather than vanishing
+from the page or being folded into the wrong project. Deliberately a soft
+degrade rather than a throw: `AttributionHost` calls `groupIntoProjects` to
+render the screen, so a throw there would crash the app the moment somebody
+opened Open source licenses, taking away the one thing that screen exists to
+show them, in exchange for catching a problem that a row reading a raw
+group id already reports honestly. Nothing vanishes and nothing is
+mislabelled either way; the only difference is whether the app still works.
+
+The strictness that would otherwise be lost lives in the test instead.
+`GeneratedAttributionTest`'s `nothing is unmapped` calls `groupIntoProjects`
+over the real generated `shippedDependencies` and asserts every resulting name
+is one of the five known projects, and that test is part of the merge gate,
+the same drift-guard shape `ConfigSchemaContractTest` already uses for the
+config schema above. A `groupId` the table does not know is caught there,
+before a release, without the production code ever needing to crash to prove
+it.
 
 `SettingsRow`, in `Blocks.kt`, is the shared shape behind every row on
 `SettingsScreen`: a title, and whatever the row shows or does on its trailing

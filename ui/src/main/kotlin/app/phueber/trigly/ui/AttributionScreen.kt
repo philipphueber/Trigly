@@ -16,24 +16,26 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 
 /**
  * The open source notices: the app's own name, version and licence, then
- * every dependency it ships and the licence text they share.
+ * every project it ships code from and the licence text they share.
  *
  * Reached from a row on [SettingsScreen], which is why its own back target is
  * [Screen.Settings] and not the rule list — see [Screen.Attribution].
  *
  * Stateless, the same reasoning [SettingsScreen] gives for itself: nothing on
  * this screen changes while it is open, so there is no ViewModel and the
- * instrumented test can drive it with plain values. [dependencies] and
+ * instrumented test can drive it with plain values. [projects] and
  * [licenseText] are parameters rather than reads of [shippedDependencies] and
  * the raw resource here, so a dependency bump cannot break this screen's own
  * test — see `AttributionHost`, in `MainActivity.kt`, for where the real
- * values come from.
+ * values come from: `shippedDependencies.groupIntoProjects()` and the bundled
+ * licence file.
  *
  * A `Column` with `verticalScroll`, the same shape `PatternTester` uses for
  * its own scrollable prose, and not a `LazyColumn`: a dozen static rows plus
@@ -42,7 +44,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun AttributionScreen(
     appVersion: String,
-    dependencies: List<Attribution>,
+    projects: List<AttributionProject>,
     licenseText: String,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -91,27 +93,37 @@ fun AttributionScreen(
                         modifier = Modifier.padding(16.dp),
                     )
                     BlockDivider()
-                    dependencies.forEachIndexed { index, dependency ->
+                    projects.forEachIndexed { index, project ->
                         Row(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                                Text(
+                                    text = project.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                                Text(
+                                    text = pluralStringResource(
+                                        R.plurals.attribution_artifact_count,
+                                        project.artifactCount,
+                                        project.artifactCount,
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                             Text(
-                                text = dependency.name,
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.weight(1f).padding(end = 12.dp),
-                            )
-                            Text(
-                                text = dependency.license,
+                                text = project.license,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        if (index != dependencies.lastIndex) BlockDivider()
+                        if (index != projects.lastIndex) BlockDivider()
                     }
                 }
             }
 
-            // One copy for every dependency above, not one per library: they
-            // are all very probably the same licence, so a copy each would be
-            // eleven near-identical blocks. See Attribution.kt.
+            // One copy for every project above, not one per project: they are
+            // all very probably the same licence, so a copy each would be
+            // several near-identical blocks. See Attribution.kt.
             BlockCard {
                 Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                     Text(

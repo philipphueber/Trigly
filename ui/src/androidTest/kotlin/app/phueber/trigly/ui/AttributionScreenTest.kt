@@ -17,9 +17,9 @@ import org.junit.runner.RunWith
  * [SettingsScreen]: plain values and a stub callback, no ViewModel and no
  * `Context` behind it.
  *
- * Fed fake entries and a fake version, not [shippedDependencies] and a real
- * `versionName`, so a dependency bump or a version bump cannot break this
- * test.
+ * Fed fake entries and a fake version, not [shippedDependencies] grouped by
+ * [groupIntoProjects] and a real `versionName`, so a dependency bump or a
+ * version bump cannot break this test.
  */
 @RunWith(AndroidJUnit4::class)
 class AttributionScreenTest {
@@ -29,9 +29,9 @@ class AttributionScreenTest {
 
     private var backTaps = 0
 
-    private val fakeDependencies = listOf(
-        Attribution("some-library", "Apache License 2.0"),
-        Attribution("another-library", "Apache License 2.0"),
+    private val fakeProjects = listOf(
+        AttributionProject("Some Project", "Apache License 2.0", artifactCount = 3),
+        AttributionProject("Another Project", "Apache License 2.0", artifactCount = 1),
     )
 
     private val fakeLicenseText = "TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION"
@@ -40,19 +40,27 @@ class AttributionScreenTest {
     private fun Screen() {
         AttributionScreen(
             appVersion = "9.9.9-test",
-            dependencies = fakeDependencies,
+            projects = fakeProjects,
             licenseText = fakeLicenseText,
             onBack = { backTaps++ },
         )
     }
 
     @Test
-    fun every_dependency_name_renders() {
+    fun every_project_name_renders() {
         composeRule.setContent { Screen() }
 
-        fakeDependencies.forEach { dependency ->
-            composeRule.onNodeWithText(dependency.name).assertIsDisplayed()
+        fakeProjects.forEach { project ->
+            composeRule.onNodeWithText(project.name).assertIsDisplayed()
         }
+    }
+
+    @Test
+    fun every_project_artifact_count_renders() {
+        composeRule.setContent { Screen() }
+
+        composeRule.onNodeWithText("3 artifacts", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("1 artifact", substring = true).assertIsDisplayed()
     }
 
     @Test
