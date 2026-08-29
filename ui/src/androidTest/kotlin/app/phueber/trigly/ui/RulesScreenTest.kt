@@ -14,6 +14,7 @@ import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -105,6 +106,10 @@ class RulesScreenTest {
      * language it is translated into. Asserting height rather than presence,
      * because a control squeezed to one letter per line is present and displayed
      * and unreadable.
+     *
+     * Share itself is not in this list any more. It is a fixed-size glyph now,
+     * not a label that a long translation could squeeze onto two lines, so the
+     * crushing this test watches for cannot happen to it.
      */
     @Test
     fun a_rules_controls_are_not_crushed_on_a_narrow_screen() {
@@ -112,7 +117,7 @@ class RulesScreenTest {
             Box(modifier = Modifier.width(320.dp)) { Screen(statusesOf(sampleRule)) }
         }
 
-        listOf("SHARE", "DUPLICATE").forEach { label ->
+        listOf("DUPLICATE").forEach { label ->
             val height = composeRule.onNodeWithText(label)
                 .performScrollTo()
                 .getUnclippedBoundsInRoot()
@@ -362,8 +367,10 @@ class RulesScreenTest {
         composeRule.setContent { Screen(emptyList()) }
 
         composeRule.onNodeWithText("No rules yet. Add one below to get started.").assertIsDisplayed()
-        // Export is pointless with nothing to export, so it is not offered.
-        composeRule.onNodeWithText("EXPORT ALL").assertDoesNotExist()
+        // Export is pointless with nothing to export, so it is not offered,
+        // not even inside the overflow it now lives in.
+        composeRule.onNodeWithText("\u2026").performClick()
+        composeRule.onNodeWithText("Export all").assertDoesNotExist()
     }
 
     @Test
@@ -388,10 +395,28 @@ class RulesScreenTest {
     fun a_rule_can_be_exported_on_its_own_or_with_the_rest() {
         composeRule.setContent { Screen(listOf(RuleStatus(sampleRule, unmet = emptyList()))) }
 
-        composeRule.onNodeWithText("SHARE").performClick()
-        composeRule.onNodeWithText("EXPORT ALL").performClick()
+        // Share is a glyph now, not a label, so it is found by its content
+        // description instead of by text.
+        composeRule.onNodeWithContentDescription("Share").performClick()
+        // Export all moved into the overflow beside "New rule".
+        composeRule.onNodeWithText("\u2026").performClick()
+        composeRule.onNodeWithText("Export all").performClick()
 
         assertEquals(listOf(sampleRule.id, "all"), exported)
+    }
+
+    /**
+     * Share dropped its label for the platform's own share glyph, so the one
+     * thing left to prove is that the glyph still carries a name. Several
+     * other tests already exercise the click; this one is the one that pins
+     * the description itself, the thing a screen reader and an instrumented
+     * test both actually key off.
+     */
+    @Test
+    fun the_share_control_is_reachable_by_its_content_description() {
+        composeRule.setContent { Screen(listOf(RuleStatus(sampleRule, unmet = emptyList()))) }
+
+        composeRule.onNodeWithContentDescription("Share").assertExists()
     }
 
     @Test
@@ -439,27 +464,34 @@ class RulesScreenTest {
     }
 
     /**
-     * The header holds two actions and cannot hold a third. `BlockHeader` gives
-     * the title the remaining width and lays actions after it, so a third one
-     * does not wrap or collapse, it runs off the edge of the screen. That is
-     * what shipped in 0.0.9: "Saved values" reached the edge with the list
-     * empty, and "Export all" was pushed off entirely once there were rules.
+     * The header held two actions and could not hold a third. `BlockHeader`
+     * gives the title the remaining width and lays actions after it, so a
+     * third one does not wrap or collapse, it runs off the edge of the screen.
+     * That is what shipped in 0.0.9: "Saved values" reached the edge with the
+     * list empty, and "Export all" was pushed off entirely once there were
+     * rules.
      *
-     * So the header is asserted to hold what it can hold, and no more. This is
-     * a count rather than a layout measurement on purpose: measuring pixels
-     * here would be the same trap the reorder test fell into, where a bounds
-     * comparison silently answered the wrong way round once a block grew.
+     * Export all has since moved into the overflow beside "New rule" (see
+     * [MoreMenu]'s KDoc), so the header now holds exactly the one action that
+     * needs no rules to exist first: Import. This test pins that the header
+     * is left with only what earns a permanent seat, rather than asserting a
+     * pixel measurement, which would be the same trap the reorder test fell
+     * into, where a bounds comparison silently answered the wrong way round
+     * once a block grew.
      */
     @Test
-    fun the_header_offers_only_import_and_export() {
+    fun the_header_offers_only_import() {
         composeRule.setContent { Screen(listOf(RuleStatus(sampleRule, unmet = emptyList()))) }
 
         composeRule.onNodeWithText("IMPORT").assertExists()
-        composeRule.onNodeWithText("EXPORT ALL").assertExists()
-        // Not in the header, and not on the screen at all until the overflow is
-        // opened. That is the whole point of the move: it costs the header
-        // nothing and the list no height.
+        // Not in the header, and not on the screen at all until the overflow
+        // is opened.
+        composeRule.onNodeWithText("Export all").assertDoesNotExist()
         composeRule.onNodeWithText("Saved values").assertDoesNotExist()
+
+        composeRule.onNodeWithText("\u2026").performClick()
+
+        composeRule.onNodeWithText("Export all").assertExists()
     }
 
     /**
