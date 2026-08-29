@@ -100,23 +100,30 @@ a two-part shape used to guarantee by construction.
 
 ### What a save may not quietly change
 
-The editor works on a `RuleDraft`, and `toNodeOrNull` is the boundary where a
-draft becomes a rule. Two things it used to do there both lost a group without
-saying so, and both are now refusals rather than repairs.
+The editor works on a `RuleDraft`, and `toNode` is the boundary where a draft
+becomes a `TriggerNode`. It is total: nothing about the *shape* of a trigger
+tree can make it refuse, which is new. It replaced `toNodeOrNull`, which
+refused two shapes outright, and both refusals are gone for the reason the next
+section gives: a rule that is not finished yet saves anyway, disabled, rather
+than not saving at all.
 
-A group holding one child is kept. It used to be unwrapped, on the reasoning
-that the editor never builds a singleton group. It does, on the way to every
-group a person makes: a group is picked from the trigger picker and arrives
-empty, so it holds one child for as long as it takes to add the second. Saving
-in that state replaced the group with its child, so someone who built
-`ALL(screen on, ANY(...))`, added the first branch of the OR and saved, reopened
-the rule to find the OR gone. An `ANY` of one evaluates exactly like the child,
-so keeping it costs nothing and keeps what the person built.
+A group holding one child is still kept, unconditionally, the same as before
+this change. It used to be unwrapped, on the reasoning that the editor never
+builds a singleton group. It does, on the way to every group a person makes: a
+group is picked from the trigger picker and arrives empty, so it holds one
+child for as long as it takes to add the second. Unwrapping it mid-build turned
+`ALL(screen on, ANY(...))` into `ALL(screen on, ...)` the moment the first OR
+branch was added, silently, while the person was still filling in the second.
+An `ANY` of one evaluates exactly like the child, so keeping it costs nothing
+and keeps what the person built.
 
-A group holding nothing refuses the save. It used to be pruned out of the tree
-and the rule saved without it. The refusal message existed already but could
-only fire when the root itself was the empty group, which was the one case where
-pruning happened to produce a null tree.
+A group holding nothing is also kept, as exactly that: an empty `TriggerNode.Group`,
+not pruned and not refused. It used to refuse the save outright. The refusal
+message could only fire when the root itself was the empty group, which was
+the one case where the old pruning happened to produce a null tree. But an
+empty group is now exactly how a rule saved before its trigger is finished
+spells "nothing here yet", the same as an entirely absent trigger; see
+"A rule can save before it is finished" below.
 
 A group that loses children to *removal* still collapses, and that is a
 different question. Removing one of two OR branches leaves the other, and an OR
@@ -124,25 +131,72 @@ of one thing is that thing. The difference is intent: one child because a second
 was removed is a finished edit, one child because a second is not added yet is a
 rule in progress.
 
-`transformTrigger` is the other half of that rule, and it was the other half of
-the same bug. It walks to a node and replaces it, and it used to apply the
-un-promotion to the result of *every* edit rather than only to a removal. So a
-group holding one child lost the group the moment anything inside it was
-touched: typing a value into the one trigger in a new OR group deleted the OR
-group while the person was still filling it in. Fixing the save path alone was
-not enough, because the draft had already lost the group before a save was
-reached. Now a removal can collapse a group and no other edit changes the shape
-at all. A group left with no children still disappears, because the last removal
-from a group is the removal of the group, while an *empty* group someone made on
-purpose is kept and refused at save.
+`transformTrigger` is the other half of that rule, unchanged by this: it walks
+to a node and replaces it, and it used to apply the un-promotion to the result
+of *every* edit rather than only to a removal. So a group holding one child
+lost the group the moment anything inside it was touched: typing a value into
+the one trigger in a new OR group deleted the OR group while the person was
+still filling it in. Now a removal can collapse a group and no other edit
+changes the shape at all. A group left with no children still disappears,
+because the last removal from a group is the removal of the group, while an
+*empty* group someone made on purpose is kept, saves, and is refused only at
+the *enable* gate, not the save.
 
 The trigger picker asks a third question and needs a third answer.
 `triggerOptionsFor` converts a candidate tree to test whether it could start, so
 strictness there would empty the picker: with `ALL(screen on, ANY())` on screen,
-every candidate for the root would convert to null and be filtered out,
-including the components that would fill the empty group. It uses
-`toNodeIgnoringEmptyGroups`, which prunes exactly the way `toNodeOrNull` used
-to, and is named so the difference is visible at the call site.
+every candidate for the root would convert to a tree still holding an empty
+group and be filtered out, including the components that would fill it. It
+uses `toNodeIgnoringEmptyGroups`, which prunes, unlike `toNode`, which
+deliberately does not, and is named so the difference is visible at the call
+site.
+
+### A rule can save before it is finished
+
+`RuleEditorViewModel.save` used to conflate two different reasons a rule might
+not be ready: a component that will not build or a `{{...}}` reference to a
+variable the rule does not offer (wrong, and still refused at save time, by
+`validate`), against no trigger, no actions, or an empty group somewhere in the
+tree (not wrong, only unfinished). Only a blank name refuses a save now. Every
+other kind of incompleteness saves, because refusing it is how people lose
+work, and this app has no draft anywhere else.
+
+`Rule.trigger` is a `TriggerNode`, not nullable, so a rule saved with no
+trigger chosen still needs one to hold. `NO_TRIGGER` (`core/Gate.kt`) is that
+value: an `ALL` group with nothing in it, which `TriggerNode.canStart` already
+reads as unable to start a rule, the same as any other unstartable tree, so
+nothing downstream needed a new state to recognise it. `RuleJson.decodeNode`'s
+v3 reader used to refuse an empty `children` array, on the reasoning that the
+editor could never build one on purpose; that guard is gone, because the
+database column and an exported file both now have to carry this value for a
+rule saved unfinished.
+
+`enableRefusal` (`ui/RuleDraft.kt`) is the other half: why a rule *cannot be
+switched on*, checked wherever a rule can be switched on. The toggle on the
+rules list (`RulesViewModel.setEnabled`) and the editor's own switch
+(`RuleEditorViewModel.setEnabled`) both refuse through it and post the same
+kind of message either way, a toast on the list and the editor's own inline
+error surface. No trigger and no actions get a message naming what to add. A
+trigger that is present but cannot start (two edge-only components sharing
+one `ALL`, or a leaf whose "only check" setting was flipped on after it was
+already the rule's one trigger) keeps the older, more specific message that
+`save` used to give, since a person can only fix that by changing what is
+already there, not by adding something. `RuleEditorViewModel.save` asks the
+same question again right before it persists, and forces `enabled` off if the
+answer is still no, whatever the draft's own switch happened to show. That is
+the safety net for a rule that was validly enabled and then had its trigger or
+actions edited away without anyone touching the switch. Without it, a freshly
+opened editor's switch defaulting on would turn every half-written rule into a
+`RuleFault.Kind.COULD_NOT_START` the moment it saved, which is the opposite of
+the point of letting it save at all.
+
+`RulesScreen`'s `UnfinishedRuleCell` shows the same `enableRefusal` message on
+the rules list itself, for a disabled rule, without anyone tapping its switch.
+`LastFaultCell` never runs for a disabled rule, so without this the only way to
+learn a rule is unfinished was to open it or read the toast. Caution-coloured,
+not error-coloured: nothing here is switched on and failing right now, which is
+what the error colour means elsewhere on this screen; this is the ordinary,
+expected shape of a rule nobody has finished yet.
 
 ### Getting a rule out of the app: share and export
 

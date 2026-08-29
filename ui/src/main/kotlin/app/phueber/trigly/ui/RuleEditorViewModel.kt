@@ -243,7 +243,23 @@ class RuleEditorViewModel(
 
     fun setName(name: String) = edit { copy(name = name) }
 
-    fun setEnabled(enabled: Boolean) = edit { copy(enabled = enabled) }
+    /**
+     * Turns the rule's own switch on or off. Turning it off always works.
+     * Turning it on is refused, with a message saying why, when the draft as
+     * it stands right now cannot ever start. See [RuleDraft.enableRefusal].
+     * Checked against the *draft*, not a saved [Rule], because this switch has
+     * to answer before the draft has ever been saved: a new rule with nothing
+     * chosen yet is exactly the case this exists to catch.
+     */
+    fun setEnabled(enabled: Boolean) {
+        if (enabled) {
+            _state.value.draft.enableRefusal(registry)?.let { message ->
+                fail(message)
+                return
+            }
+        }
+        edit { copy(enabled = enabled) }
+    }
 
     /**
      * The rule's own folder name, typed or picked from an existing one — see
@@ -461,6 +477,23 @@ class RuleEditorViewModel(
     /**
      * Validates by construction, then persists.
      *
+     * **Only two things refuse a save**: a blank name, and a component that is
+     * genuinely broken (one that will not build, or a `{{...}}` reference
+     * naming a variable the rule does not offer). Both are wrong rather than
+     * unfinished, which is why refusing them here, while the person is still
+     * looking at the field responsible, is right. See [validate].
+     *
+     * No trigger, no actions, an empty group anywhere in the tree, or a
+     * trigger that cannot start the rule it is attached to are all different
+     * from that: a rule mid-thought, not a mistake. None of them refuse the
+     * save any more. See [RuleDraft.toRuleOrNull]. This is instead the
+     * one place that keeps such a rule from being switched on by accident:
+     * whatever the draft's own switch currently shows, [RuleDraft.enableRefusal]
+     * is asked again here and the save is forced off if it still says no. That
+     * catches the case [RuleEditorViewModel.setEnabled] cannot: a rule that
+     * was validly enabled, whose trigger or actions were then edited away
+     * while the switch itself was never touched.
+     *
      * The factories are the authority on whether config is valid — they hold
      * cross-field rules the schema cannot express, such as the watchdog's
      * "poll must not exceed absence". Their error messages are already written
@@ -470,49 +503,16 @@ class RuleEditorViewModel(
         val draft = _state.value.draft
 
         val rule = draft.toRuleOrNull() ?: run {
-            fail(
-                when {
-                    draft.name.isBlank() -> "Give the rule a name."
-                    draft.trigger == null -> "Choose a trigger."
-                    // A group with nothing in it. Reachable in one tap — a group
-                    // is picked from the trigger picker and arrives empty — so it
-                    // needs its own sentence rather than being told to choose a
-                    // trigger it can see it already has.
-                    else -> "A group has no triggers in it. Add one, or remove the group."
-                }
-            )
-            return
-        }
-        if (rule.actions.isEmpty()) {
-            fail("Add at least one action, or the rule will do nothing.")
-            return
-        }
-
-        // The picker cannot prevent this one. It filters what a slot offers, so
-        // a tree that cannot start is unbuildable *by adding a trigger*. A
-        // setting changed afterwards is a different route to the same tree: the
-        // location component's "only check, never watch" switch turns off the
-        // events of a leaf that is already there, and a rule whose only trigger
-        // is set to check can never fire. Nothing else would say so. The rule
-        // would sit in the list looking enabled and waiting.
-        //
-        // Refused rather than warned, for the same reason the picker filters
-        // rather than warns: a stored rule that can never run is the failure
-        // this whole model exists to make impossible, and a warning someone can
-        // save past is how it gets stored anyway.
-        if (!rule.trigger.canStart(::hasEvents, ::hasState)) {
-            fail(
-                "This rule can never start. One trigger must start it, and the " +
-                    "others are only checked when it does. A trigger set to only " +
-                    "check never starts a rule."
-            )
+            fail("Give the rule a name.")
             return
         }
 
         validate(rule)?.let { fail(it); return }
 
+        val toSave = if (rule.enableRefusal(registry) != null) rule.copy(enabled = false) else rule
+
         viewModelScope.launch {
-            repository.upsert(rule)
+            repository.upsert(toSave)
             _state.update { it.copy(finished = true, error = null) }
         }
     }
