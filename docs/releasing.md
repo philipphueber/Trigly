@@ -228,9 +228,24 @@ place to copy them from by hand any more.
 
 **1. Did R8 keep the components the manifest names?** They are instantiated by
 the platform, by name, so a rename here is fatal and silent until launch. The
-script reads every dex file, not `classes.dex` alone: 0.0.11 fits in one, and
+script reads every dex file, not `classes.dex` alone: 0.1.0 fits in one, and
 the day it does not, a check that reads only the first file would report a
 missing class that is in the second one.
+
+**The list of components is read from the APK's own manifest, not kept here.**
+This section used to name four classes, and by 0.1.0 the manifest named ten, so
+the accessibility service, the notification listener service, the shortcut
+target activity and the backup agent were never checked at all. A list in a
+document is a list somebody has to remember to update, and a component added
+later is now covered without anyone editing anything.
+
+Two details make that reading honest. `android:backupAgent` is a separate
+attribute, so a pattern that reads only `android:name` misses
+`TriglyBackupAgent`, which is how it escaped the old list. And `android:name`
+means a class only inside a component element: on `<action>` it is an intent
+action and on `<uses-permission>` it is a permission. Both of those are strings
+that are in the dex for their own reasons, so reading them as classes reports a
+pass for something the check never verified.
 
 **2. Did the stored `type` strings survive?** This is the check that matters
 most, because a rule names its trigger and its action by string, and R8 cannot

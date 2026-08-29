@@ -220,9 +220,57 @@ echo "== Check 1: R8 kept the components the manifest names =="
 unzip -o -q "${APK}" "classes*.dex" -d "${WORK}/dex" || { fail "no dex in the APK"; exit 1; }
 note "$(ls "${WORK}"/dex/*.dex | wc -l) dex file(s)"
 strings "${WORK}"/dex/*.dex > "${WORK}/dexstrings.txt"
-for c in EngineService BootReceiver TriglyApp MainActivity; do
-    if grep -q "$c" "${WORK}/dexstrings.txt"; then pass "$c present"; else fail "$c MISSING"; fi
-done
+
+# Read the class names out of the APK's own manifest rather than from a list
+# kept here. A list in this file is a list somebody has to remember to update:
+# docs/releasing.md named four classes, and by 0.1.0 the manifest named eleven,
+# so the two accessibility and notification services and the backup agent were
+# never checked at all. Asking the artifact removes that whole class of drift,
+# and a component added later is covered without editing this script.
+#
+# android:name carries the activities, services and receivers. android:backupAgent
+# is a separate attribute and is missed by any pattern that only reads
+# android:name, which is how TriglyBackupAgent escaped the old list.
+# Track which element each attribute belongs to. android:name means a class only
+# inside a component element: on <action> it is an intent action and on
+# <uses-permission> it is a permission, and both of those are strings that live
+# in the dex for their own reasons. Reading them as classes would report a PASS
+# for something this check never verified, which is worse than checking less.
+"${BT}/aapt2" dump xmltree --file AndroidManifest.xml "${APK}" 2>/dev/null \
+    | awk '
+        /^[[:space:]]*E:/ {
+            element = $2
+            sub(/\(.*/, "", element)
+            next
+        }
+        /android:(name|backupAgent)\(/ {
+            if (element !~ /^(application|activity|activity-alias|service|receiver|provider)$/) next
+            if (match($0, /"[^"]*"/) == 0) next
+            value = substr($0, RSTART + 1, RLENGTH - 2)
+            if (value ~ /^app\.phueber\.trigly\./) print value
+        }
+    ' | sort -u > "${WORK}/components.txt"
+
+COMPONENTS="$(wc -l < "${WORK}/components.txt")"
+if [ "${COMPONENTS}" -eq 0 ]; then
+    fail "read no component names from the manifest: the dump or the filter is wrong"
+else
+    note "the manifest names ${COMPONENTS} class(es) of this app"
+    missing_components=0
+    while read -r c; do
+        # Match the class name as the platform stores it, so a partial match on
+        # some other string cannot pass for the component itself.
+        if grep -qF "${c##*.}" "${WORK}/dexstrings.txt"; then
+            pass "${c}"
+        else
+            fail "${c} MISSING: the platform instantiates it by name, so this is fatal"
+            missing_components=$((missing_components + 1))
+        fi
+    done < "${WORK}/components.txt"
+    if [ "${missing_components}" -eq 0 ]; then
+        note "every class the platform instantiates by name survived R8"
+    fi
+fi
 
 echo
 echo "== Check 2: the stored type strings survived =="
