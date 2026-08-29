@@ -304,4 +304,91 @@ class GateTest {
         // asking "is (a and b) true now" needs both a and b to be answerable.
         assertFalse(all(one("time_window"), one("tap")).canHold(::hasState))
     }
+
+    // --- traced: the same evaluation, kept as a tree ------------------------------
+
+    @Test
+    fun `traced marks the leaf that said no in an ALL, and its sibling as yes`() = runTest {
+        val tree = all(one("a"), one("b"))
+
+        val trace = tree.traced(notFired, states("a" to true, "b" to false)) as TriggerTrace.Group
+
+        assertFalse(trace.held!!)
+        val (a, b) = trace.children.map { it as TriggerTrace.Leaf }
+        assertEquals(LeafOutcome.YES, a.outcome)
+        assertEquals(LeafOutcome.NO, b.outcome)
+    }
+
+    @Test
+    fun `traced marks the leaf that carried an ANY, and its sibling as no`() = runTest {
+        val tree = any(one("a"), one("b"))
+
+        val trace = tree.traced(notFired, states("a" to false, "b" to true)) as TriggerTrace.Group
+
+        assertTrue(trace.held!!)
+        val (a, b) = trace.children.map { it as TriggerTrace.Leaf }
+        assertEquals(LeafOutcome.NO, a.outcome)
+        assertEquals(LeafOutcome.YES, b.outcome)
+    }
+
+    @Test
+    fun `traced marks a short-circuited sibling as not consulted, never as no`() = runTest {
+        // ALL(cheap, expensive): cheap fails, so expensive must never be asked.
+        // The trace must say so, rather than reading as a second "no".
+        val tree = all(one("cheap"), one("expensive"))
+
+        val trace = tree.traced(notFired, states("cheap" to false, "expensive" to true)) as TriggerTrace.Group
+
+        val (cheap, expensive) = trace.children.map { it as TriggerTrace.Leaf }
+        assertEquals(LeafOutcome.NO, cheap.outcome)
+        assertEquals(LeafOutcome.NOT_CONSULTED, expensive.outcome)
+        // Not-consulted is not a false answer: it carries no opinion at all.
+        assertEquals(null, expensive.held)
+    }
+
+    @Test
+    fun `traced marks the whole unreached side of an ANY as not consulted`() = runTest {
+        // ANY(cheap, expensive): cheap already holds, so the whole expensive
+        // side (a group of its own) is never reached, not just its top leaf.
+        val tree = any(one("cheap"), all(one("expensive"), one("very-expensive")))
+
+        val trace = tree.traced(notFired, states("cheap" to true)) as TriggerTrace.Group
+
+        val skippedGroup = trace.children[1] as TriggerTrace.Group
+        assertEquals(null, skippedGroup.held)
+        assertTrue(skippedGroup.children.all { (it as TriggerTrace.Leaf).outcome == LeafOutcome.NOT_CONSULTED })
+    }
+
+    @Test
+    fun `traced marks the fired leaf as fired, not as yes`() = runTest {
+        val tree = all(one("notification"), one("time_window"))
+
+        val trace = tree.traced(listOf(0), states("time_window" to true)) as TriggerTrace.Group
+
+        val (notification, timeWindow) = trace.children.map { it as TriggerTrace.Leaf }
+        assertEquals(LeafOutcome.FIRED, notification.outcome)
+        assertEquals(LeafOutcome.YES, timeWindow.outcome)
+        assertTrue(trace.held!!)
+    }
+
+    @Test
+    fun `traced marks a leaf nobody could read as unreadable, not as no`() = runTest {
+        val tree = all(one("wifi_state"), one("sms_received"))
+
+        val trace = tree.traced(notFired, states("wifi_state" to true, "sms_received" to null)) as TriggerTrace.Group
+
+        val sms = trace.children[1] as TriggerTrace.Leaf
+        assertEquals(LeafOutcome.UNREADABLE, sms.outcome)
+        assertFalse(sms.held!!)
+    }
+
+    @Test
+    fun `traced on a nested ALL of ANY reaches the same held answer as holds`() = runTest {
+        val tree = all(one("a"), any(one("b"), one("c")))
+        val lookup = states("a" to true, "b" to false, "c" to true)
+
+        val trace = tree.traced(notFired, lookup)
+
+        assertEquals(tree.holds(notFired, lookup), trace.held)
+    }
 }
