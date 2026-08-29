@@ -261,15 +261,21 @@ fun migrateConfig(
     existing: Map<String, String>,
     newFields: List<ConfigField>,
 ): Map<String, String> {
-    // Companion keys count as the field's own, because they are. A field can own
-    // more than one key when the values are one answer: a latitude and its
-    // longitude, an hour and its minute, a pattern and its match mode, a button
-    // and the notification it belongs to. Keeping only `it.key` kept half of
-    // each of those and dropped the other half without a word, so swapping a
-    // block between two components that share such a field lost the second half
-    // of an answer the person had already given. Found by swapping "Enter or
-    // leave an area" for "Is in an area", which share a `Coordinates` field: the
-    // latitude survived and the longitude came back null.
+    // Companion keys count as the field's own, because they are — with one
+    // exception that does no harm here. A field can own more than one key when
+    // the values are one answer: a latitude and its longitude, an hour and its
+    // minute, a pattern and its match mode, a button and the notification it
+    // belongs to. Keeping only `it.key` kept half of each of those and dropped
+    // the other half without a word, so swapping a block between two components
+    // that share such a field lost the second half of an answer the person had
+    // already given. Found by swapping "Enter or leave an area" for "Is in an
+    // area", which share a `Coordinates` field: the latitude survived and the
+    // longitude came back null. A `ConfigField.Text.helpWhen` key is the one
+    // case that is not owned this way, only read — but it names a sibling that
+    // is already in `newFields` with its own entry, so it is already kept or
+    // dropped on its own account and listing it here a second time changes
+    // nothing.
+
     val allowedKeys = newFields.flatMap { field -> listOf(field.key) + field.companionKeys() }
         .toSet()
     val kept = existing.filterKeys { it in allowedKeys }
