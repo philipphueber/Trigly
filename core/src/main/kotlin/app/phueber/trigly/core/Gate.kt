@@ -124,29 +124,182 @@ fun TriggerNode.mapSpecs(transform: (ComponentSpec) -> ComponentSpec): TriggerNo
  * The empty cases follow from the words: [TriggerNode.Op.ALL] of nothing holds,
  * because nothing failed; [TriggerNode.Op.ANY] of nothing does not, because
  * nothing satisfied it. The editor cannot build either, and an imported file can.
+ *
+ * **This signature is unchanged by [TriggerTrace]'s arrival, on purpose.**
+ * `TriggerEngineTest` and every `GateTest` call [holds] exactly as before; a
+ * rule's own evaluation is still a plain suspend function to a `Boolean`, no
+ * richer type involved. What changed is underneath: this now delegates to
+ * [holdsAt], which builds a full [TriggerTrace] and this simply reads
+ * [TriggerTrace.held] off the root of it, discarding the rest. That was chosen
+ * over a second, hand-written traversal that only computes a `Boolean`,
+ * because short-circuiting here is a promise, not an optimisation — see
+ * [TriggerNode.Group] — and two independent copies of that promise are two
+ * places for it to quietly drift apart. One traversal, built once, is what
+ * [GateTest]'s existing short-circuit and empty-case tests now exercise
+ * directly, since they call [holds], which calls it.
  */
 suspend fun TriggerNode.holds(
     firedPath: NodePath,
     stateOf: suspend (ComponentSpec) -> Boolean?,
-): Boolean = holdsAt(emptyList(), firedPath, stateOf)
+): Boolean = holdsAt(emptyList(), firedPath, stateOf).held == true
+
+/**
+ * The same evaluation [holds] runs, kept as a tree instead of collapsed to one
+ * [Boolean].
+ *
+ * [TriggerEngine.resolveHolds] is the caller that wants this: "the rule did not
+ * fire" used to be the whole story once a leaf plainly answered no, and this is
+ * what lets a person see *which* leaf, in a tree shaped like the rule they
+ * built rather than as a sentence about it. See [TriggerTrace].
+ */
+suspend fun TriggerNode.traced(
+    firedPath: NodePath,
+    stateOf: suspend (ComponentSpec) -> Boolean?,
+): TriggerTrace = holdsAt(emptyList(), firedPath, stateOf)
 
 private suspend fun TriggerNode.holdsAt(
     here: NodePath,
     firedPath: NodePath,
     stateOf: suspend (ComponentSpec) -> Boolean?,
-): Boolean = when (this) {
-    is TriggerNode.One -> here == firedPath || stateOf(spec) == true
+): TriggerTrace = when (this) {
+    is TriggerNode.One -> {
+        val outcome = if (here == firedPath) {
+            LeafOutcome.FIRED
+        } else {
+            when (stateOf(spec)) {
+                true -> LeafOutcome.YES
+                false -> LeafOutcome.NO
+                null -> LeafOutcome.UNREADABLE
+            }
+        }
+        TriggerTrace.Leaf(spec, outcome)
+    }
 
     // Short-circuits, and that is a promise rather than an optimisation: a
     // location check costs a position read, so a group whose earlier child has
-    // already decided the answer must not pay for the rest.
-    is TriggerNode.Group -> when (op) {
-        TriggerNode.Op.ALL ->
-            children.withIndex().all { (i, child) -> child.holdsAt(here + i, firedPath, stateOf) }
-
-        TriggerNode.Op.ANY ->
-            children.withIndex().any { (i, child) -> child.holdsAt(here + i, firedPath, stateOf) }
+    // already decided the answer must not pay for the rest. A child this loop
+    // never reaches is marked with notConsulted() rather than asked — see its
+    // own KDoc for why that must not call stateOf either.
+    is TriggerNode.Group -> {
+        val traces = mutableListOf<TriggerTrace>()
+        var decided: Boolean? = null
+        for ((i, child) in children.withIndex()) {
+            if (decided != null) {
+                traces += child.notConsulted()
+                continue
+            }
+            val childTrace = child.holdsAt(here + i, firedPath, stateOf)
+            traces += childTrace
+            val childHeld = childTrace.held == true
+            decided = when (op) {
+                // A false child sinks an ALL at once; a true one is not yet
+                // the whole answer, so keep going (null = "still deciding").
+                TriggerNode.Op.ALL -> if (!childHeld) false else null
+                // A true child carries an ANY at once; a false one is not
+                // yet the whole answer either.
+                TriggerNode.Op.ANY -> if (childHeld) true else null
+            }
+        }
+        // The loop ran out without any child deciding it: ALL held all the
+        // way through, or ANY never found one that did.
+        val held = decided ?: (op == TriggerNode.Op.ALL)
+        TriggerTrace.Group(op, traces, held)
     }
+}
+
+/**
+ * The trace for a subtree the evaluation never reached, because a sibling
+ * already decided the group's answer.
+ *
+ * **Calls neither [TriggerNode.holdsAt]'s `stateOf` nor anything else that
+ * reads a component.** That is the whole point: [TriggerNode.canStart]'s
+ * short-circuit promise says a component the evaluation never reached is not
+ * one that failed to answer, and a trace that quietly asked it anyway, only to
+ * throw the answer away, would still have paid the cost the promise exists to
+ * avoid. Every leaf under here reads as [LeafOutcome.NOT_CONSULTED], including
+ * one that happens to be the leaf that fired: if a sibling elsewhere in an
+ * `ALL` group already failed, that this leaf also fired is true but irrelevant,
+ * and the honest report is that this part of the tree was never asked at all.
+ */
+private fun TriggerNode.notConsulted(): TriggerTrace = when (this) {
+    is TriggerNode.One -> TriggerTrace.Leaf(spec, LeafOutcome.NOT_CONSULTED)
+    is TriggerNode.Group -> TriggerTrace.Group(op, children.map { it.notConsulted() }, held = null)
+}
+
+/**
+ * A record of one evaluation of a [TriggerNode], shaped exactly like the tree
+ * it came from: a [Leaf] for every [TriggerNode.One], a [Group] for every
+ * [TriggerNode.Group]. Built by [TriggerNode.traced], which is the same
+ * traversal [TriggerNode.holds] runs — see that function's KDoc for why this
+ * is one implementation and not two.
+ *
+ * This is what lets a person see which leaf of an `ALL` said no, which leaf of
+ * an `ANY` carried it, and which leaves the tree never even asked, rather than
+ * only the tree's single collapsed answer. See `docs/todo.md`'s trace entry
+ * for the gap this closes.
+ */
+sealed interface TriggerTrace {
+    /**
+     * Whether this node's part of the tree was satisfied, or `null` if it was
+     * never consulted at all — see [Group.held] and [LeafOutcome.NOT_CONSULTED].
+     */
+    val held: Boolean?
+
+    /** One component, and how it answered. */
+    data class Leaf(val spec: ComponentSpec, val outcome: LeafOutcome) : TriggerTrace {
+        override val held: Boolean? = when (outcome) {
+            LeafOutcome.FIRED, LeafOutcome.YES -> true
+            LeafOutcome.NO, LeafOutcome.UNREADABLE -> false
+            LeafOutcome.NOT_CONSULTED -> null
+        }
+    }
+
+    /**
+     * A group of children, combined with [op].
+     *
+     * [held] is `null` exactly when this whole subgroup was skipped by a
+     * sibling's short-circuit — see [notConsulted] — and a `Boolean` in every
+     * other case, [TriggerNode.holds]'s empty-group rule included: `ALL` of
+     * nothing is `true`, `ANY` of nothing is `false`.
+     */
+    data class Group(
+        val op: TriggerNode.Op,
+        val children: List<TriggerTrace>,
+        override val held: Boolean?,
+    ) : TriggerTrace
+}
+
+/**
+ * How one leaf answered in a [TriggerTrace], as five distinct facts rather than
+ * a `Boolean?` plus a separate flag.
+ *
+ * The distinction [NOT_CONSULTED] draws is the one this whole type exists for:
+ * without it, a leaf the tree never asked and a leaf that answered no read as
+ * the same "no" on screen, which is exactly the honesty gap a trace is meant
+ * to close. [FIRED] is a third state for the same reason — the leaf that
+ * started this evaluation is true by construction and was never asked either,
+ * which is a different fact from "asked, and said yes".
+ */
+enum class LeafOutcome {
+    /** The leaf whose event started this evaluation. True by construction, never read. */
+    FIRED,
+
+    /** Asked, and said yes. */
+    YES,
+
+    /** Asked, and said no. */
+    NO,
+
+    /** Asked, and could not answer — a `null` from the component's own read. */
+    UNREADABLE,
+
+    /**
+     * Never asked, because a sibling already decided the group's answer
+     * before the traversal reached this leaf. Not the same claim as
+     * [NO]: nothing here says this leaf would have failed, only that its
+     * answer was never needed.
+     */
+    NOT_CONSULTED,
 }
 
 /**

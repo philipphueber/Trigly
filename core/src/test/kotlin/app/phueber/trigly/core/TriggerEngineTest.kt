@@ -14,6 +14,7 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -315,6 +316,212 @@ class TriggerEngineTest {
             )
 
             assertEquals(emptyList<List<String>>(), suppressed)
+
+            engine.stop()
+        }
+
+    // --- onEvaluated: the trace of the last evaluation, whichever way it went ---
+
+    /**
+     * The case above produced no fault, on purpose — but it still produced a
+     * trace. Nothing before this hook existed could say *which* leaf held the
+     * rule back, only that the rule did nothing.
+     */
+    @Test
+    fun `onEvaluated reports which leaf of an ALL held the rule back, with no fault reported`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val traces = mutableListOf<TriggerTrace>()
+            val engine = TriggerEngine(
+                registry = Registry(
+                    triggerFactories = listOf(
+                        FakeTriggerFactory(TRIGGER_TYPE, listOf(event(1L))),
+                        UnreadableTriggerFactory(answer = false),
+                    ),
+                    actionFactories = listOf(SingleActionFactory(ACTION_TYPE, RecordingAction())),
+                ),
+                store = InMemoryVariableStore(),
+                ruleStore = InMemoryRuleVariableStore(),
+                scope = this,
+                onEvaluated = { _, _, trace -> traces += trace },
+            )
+
+            engine.startRule(
+                Rule(
+                    id = "rule-1",
+                    name = "notification and area",
+                    trigger = TriggerNode.Group(
+                        TriggerNode.Op.ALL,
+                        listOf(
+                            TriggerNode.One(ComponentSpec(TRIGGER_TYPE)),
+                            TriggerNode.One(ComponentSpec(UNREADABLE_TYPE)),
+                        ),
+                    ),
+                    actions = listOf(ComponentSpec(ACTION_TYPE)),
+                )
+            )
+
+            assertEquals(1, traces.size)
+            val group = traces.single() as TriggerTrace.Group
+            assertFalse(group.held!!)
+            val (fired, area) = group.children.map { it as TriggerTrace.Leaf }
+            assertEquals(LeafOutcome.FIRED, fired.outcome)
+            assertEquals(LeafOutcome.NO, area.outcome)
+
+            engine.stop()
+        }
+
+    /**
+     * The other half of "record the successful case too": a rule that fires
+     * and holds is worth a trace as well, not only one that does not. Someone
+     * debugging why an `ANY` fires *this* often wants to see which leaf is
+     * doing the work, not only be told when it fails to.
+     */
+    @Test
+    fun `onEvaluated reports a trace for a rule that fires and holds`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val traces = mutableListOf<TriggerTrace>()
+            val engine = TriggerEngine(
+                registry = Registry(
+                    triggerFactories = listOf(
+                        FakeTriggerFactory(TRIGGER_TYPE, listOf(event(1L))),
+                        UnreadableTriggerFactory(answer = true),
+                    ),
+                    actionFactories = listOf(SingleActionFactory(ACTION_TYPE, RecordingAction())),
+                ),
+                store = InMemoryVariableStore(),
+                ruleStore = InMemoryRuleVariableStore(),
+                scope = this,
+                onEvaluated = { _, _, trace -> traces += trace },
+            )
+
+            engine.startRule(
+                Rule(
+                    id = "rule-1",
+                    name = "notification and area",
+                    trigger = TriggerNode.Group(
+                        TriggerNode.Op.ALL,
+                        listOf(
+                            TriggerNode.One(ComponentSpec(TRIGGER_TYPE)),
+                            TriggerNode.One(ComponentSpec(UNREADABLE_TYPE)),
+                        ),
+                    ),
+                    actions = listOf(ComponentSpec(ACTION_TYPE)),
+                )
+            )
+
+            assertEquals(1, traces.size)
+            val group = traces.single() as TriggerTrace.Group
+            assertTrue(group.held!!)
+            val (fired, area) = group.children.map { it as TriggerTrace.Leaf }
+            assertEquals(LeafOutcome.FIRED, fired.outcome)
+            assertEquals(LeafOutcome.YES, area.outcome)
+
+            engine.stop()
+        }
+
+    /**
+     * The subtlest honesty property in the whole feature. The leaf that fired
+     * is not necessarily visited at all: traversal order follows the tree, not
+     * which leaf produced the event, so an earlier sibling that already
+     * decides an `ANY` skips every leaf behind it — the one that fired
+     * included. The trace must say "not consulted", never "fired" for a leaf
+     * the evaluation never reached, and never "no" either.
+     */
+    @Test
+    fun `onEvaluated marks the fired leaf as not consulted when an earlier sibling already decided the ANY`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val traces = mutableListOf<TriggerTrace>()
+            val engine = TriggerEngine(
+                registry = Registry(
+                    triggerFactories = listOf(
+                        UnreadableTriggerFactory(answer = true),
+                        FakeTriggerFactory(TRIGGER_TYPE, listOf(event(1L))),
+                    ),
+                    actionFactories = listOf(SingleActionFactory(ACTION_TYPE, RecordingAction())),
+                ),
+                store = InMemoryVariableStore(),
+                ruleStore = InMemoryRuleVariableStore(),
+                scope = this,
+                onEvaluated = { _, _, trace -> traces += trace },
+            )
+
+            engine.startRule(
+                Rule(
+                    id = "rule-1",
+                    name = "area or notification",
+                    trigger = TriggerNode.Group(
+                        TriggerNode.Op.ANY,
+                        listOf(
+                            TriggerNode.One(ComponentSpec(UNREADABLE_TYPE)),
+                            TriggerNode.One(ComponentSpec(TRIGGER_TYPE)),
+                        ),
+                    ),
+                    actions = listOf(ComponentSpec(ACTION_TYPE)),
+                )
+            )
+
+            assertEquals(1, traces.size)
+            val group = traces.single() as TriggerTrace.Group
+            assertTrue(group.held!!)
+            val (area, fired) = group.children.map { it as TriggerTrace.Leaf }
+            assertEquals(LeafOutcome.YES, area.outcome)
+            assertEquals(LeafOutcome.NOT_CONSULTED, fired.outcome)
+
+            engine.stop()
+        }
+
+    /**
+     * [approximateTrace]'s one reason to exist: the budget runs out while the
+     * very first evaluation is still waiting on a read, so no [TriggerNode.traced]
+     * call ever returns and [resolveHolds] has no completed trace to report.
+     * The trace still has to say something, built from the reads
+     * [StateReader] already made before the cancellation cut it off.
+     */
+    @Test
+    fun `onEvaluated still reports a trace when the budget runs out before any attempt finishes`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val traces = mutableListOf<TriggerTrace>()
+            val engine = TriggerEngine(
+                registry = Registry(
+                    triggerFactories = listOf(
+                        FakeTriggerFactory(TRIGGER_TYPE, listOf(event(1L))),
+                        // Far longer than the budget, so the very first read is
+                        // what gets cut off — no retry ever runs.
+                        SlowTriggerFactory(readMillis = UNREADABLE_TOTAL_BUDGET_MILLIS * 10),
+                    ),
+                    actionFactories = listOf(SingleActionFactory(ACTION_TYPE, RecordingAction())),
+                ),
+                store = InMemoryVariableStore(),
+                ruleStore = InMemoryRuleVariableStore(),
+                scope = this,
+                onEvaluated = { _, _, trace -> traces += trace },
+            )
+
+            engine.startRule(
+                Rule(
+                    id = "rule-1",
+                    name = "slow condition",
+                    trigger = TriggerNode.Group(
+                        TriggerNode.Op.ALL,
+                        listOf(
+                            TriggerNode.One(ComponentSpec(TRIGGER_TYPE)),
+                            TriggerNode.One(ComponentSpec(UNREADABLE_TYPE)),
+                        ),
+                    ),
+                    actions = listOf(ComponentSpec(ACTION_TYPE)),
+                ),
+            )
+
+            advanceTimeBy(UNREADABLE_TOTAL_BUDGET_MILLIS + 1)
+
+            assertEquals(1, traces.size)
+            val group = traces.single() as TriggerTrace.Group
+            assertFalse(group.held!!)
+            val (fired, slow) = group.children.map { it as TriggerTrace.Leaf }
+            assertEquals(LeafOutcome.FIRED, fired.outcome)
+            // Marked before the read starts, so a read the budget cancels
+            // still reports as unreadable rather than vanishing from the trace.
+            assertEquals(LeafOutcome.UNREADABLE, slow.outcome)
 
             engine.stop()
         }

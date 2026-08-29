@@ -42,6 +42,17 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   per event, only after the retry budget is spent, never on the first miss:
  *   a component that answers on the second or third try is the rule working
  *   late, not a fault. See [resolveHolds].
+ * @param onEvaluated reports every evaluation of [Rule.trigger], whichever way
+ *   it came out. This is the hole [onSuppressed] never covered: a tree that
+ *   answers "no" because a leaf plainly said no is not a fault, so nothing
+ *   above ever reported it, and a rule doing exactly nothing was
+ *   indistinguishable from one silently broken. [TriggerTrace] carries the
+ *   whole tree the way the rule was built, so a person can see which leaf of
+ *   an `ALL` said no, which leaf of an `ANY` carried it, and which leaves were
+ *   never asked at all. Called once per event, on the collecting coroutine,
+ *   whether the tree held or not: a firing that went fine is worth keeping
+ *   too, since the useful answer to "which leaf of my `ANY` actually fires
+ *   this" is only ever visible on a run that held.
  */
 class TriggerEngine(
     private val registry: Registry,
@@ -66,6 +77,11 @@ class TriggerEngine(
         rule: Rule,
         event: TriggerEvent,
         unreadable: List<ComponentSpec>,
+    ) -> Unit = { _, _, _ -> },
+    private val onEvaluated: (
+        rule: Rule,
+        event: TriggerEvent,
+        trace: TriggerTrace,
     ) -> Unit = { _, _, _ -> },
 ) : RuleRunner {
     /** The rule as it was when started, so [sync] can tell an edit from a redelivery. */
@@ -222,6 +238,10 @@ class TriggerEngine(
                 .merge()
                 .collect { (firedPath, event) ->
                     val resolved = resolveHolds(rule.trigger, firedPath, triggersBySpec)
+                    // Recorded whichever way this came out — see onEvaluated's
+                    // own KDoc for why the held case is worth keeping too, not
+                    // only the ones below that go on to report a fault.
+                    onEvaluated(rule, event, resolved.trace)
                     if (!resolved.held) {
                         // Only when something never answered, even after
                         // retrying. A tree that held back because a condition
@@ -591,24 +611,30 @@ class TriggerEngine(
     }
 
     /**
-     * Whether [trigger] holds, given the leaf at [firedPath] that just started
-     * this evaluation — see [TriggerNode.holds].
+     * Evaluates [trigger] against the leaf at [firedPath] that just started
+     * this evaluation, as a full [TriggerTrace] rather than the plain
+     * `Boolean` [TriggerNode.holds] returns — see [TriggerNode.traced].
      *
      * [reader] both answers the state questions and records which of them could
      * not be answered, so the caller can tell a rule held back by a "no" from
      * one held back by a component that could not look. See [StateReader].
      */
-    private suspend fun triggerHolds(
+    private suspend fun evaluateTrace(
         trigger: TriggerNode,
         firedPath: NodePath,
         reader: StateReader,
-    ): Boolean = trigger.holds(firedPath, reader::read)
+    ): TriggerTrace = trigger.traced(firedPath, reader::read)
 
     /**
-     * What one call to [resolveHolds] found: whether the tree held, and, if it
-     * did not, which leaves still could not answer on the last try.
+     * What one call to [resolveHolds] found: whether the tree held, which
+     * leaves still could not answer on the last try, and the trace of that
+     * last try for [onEvaluated] to report.
      */
-    private class ResolvedHolds(val held: Boolean, val unreadable: List<ComponentSpec>)
+    private class ResolvedHolds(
+        val held: Boolean,
+        val unreadable: List<ComponentSpec>,
+        val trace: TriggerTrace,
+    )
 
     /**
      * Evaluates [trigger] against [firedPath], and asks again if a leaf could
@@ -674,6 +700,16 @@ class TriggerEngine(
      * tries are spent. Naming it as its own outcome, rather than letting it read
      * as the rule quietly doing nothing, is then the caller's job; see
      * [onSuppressed].
+     *
+     * **The trace this returns is the last try that finished, not necessarily
+     * the last try attempted.** Every completed call to [evaluateTrace] updates
+     * `lastTrace` below, so a retry that times out mid-read still leaves the
+     * previous, fully-formed trace in place rather than none at all — the
+     * common case, since it is usually the *waiting* that runs the budget out,
+     * not one single read. The one gap that leaves is the first try itself
+     * hanging past the whole budget, where no try ever finishes at all: see
+     * [approximateTrace] for how that gap is covered, from the same
+     * [StateReader] the retries already share.
      */
     private suspend fun resolveHolds(
         trigger: TriggerNode,
@@ -681,20 +717,80 @@ class TriggerEngine(
         triggersBySpec: Map<ComponentSpec, Trigger>,
     ): ResolvedHolds {
         val reader = StateReader(triggersBySpec)
+        var lastTrace: TriggerTrace? = null
 
         val held = withTimeoutOrNull(UNREADABLE_TOTAL_BUDGET_MILLIS) {
-            var holds = triggerHolds(trigger, firedPath, reader)
+            var trace = evaluateTrace(trigger, firedPath, reader)
+            lastTrace = trace
 
             var retries = 0
-            while (!holds && reader.unreadable.isNotEmpty() && retries < UNREADABLE_RETRIES) {
+            while (trace.held != true && reader.unreadable.isNotEmpty() && retries < UNREADABLE_RETRIES) {
                 delay(UNREADABLE_RETRY_DELAY_MILLIS)
-                holds = triggerHolds(trigger, firedPath, reader)
+                trace = evaluateTrace(trigger, firedPath, reader)
+                lastTrace = trace
                 retries++
             }
-            holds
+            trace.held == true
         } ?: false
 
-        return ResolvedHolds(held, reader.unreadable)
+        // Only reachable when the very first try was itself cancelled
+        // mid-read, before it could produce a trace of its own — see this
+        // method's own KDoc. Built from the same reads the cancelled try
+        // already made, so it is honest about exactly as much as the tree
+        // ever got asked, no more.
+        val trace = lastTrace ?: trigger.approximateTrace(firedPath, reader.snapshot())
+
+        return ResolvedHolds(held, reader.unreadable, trace)
+    }
+
+    /**
+     * Reconstructs a [TriggerTrace] from whatever [answers] a [StateReader]
+     * collected, for the one case [resolveHolds] cannot get a real trace from:
+     * the budget expiring while the very first evaluation is still waiting on a
+     * read, so [TriggerNode.traced] itself never returned.
+     *
+     * **Not a second traversal engine.** This does not re-run the short-circuit
+     * logic [TriggerNode.holds] promises; it only labels each leaf from what
+     * [answers] already recorded, walking the tree once to shape the labels
+     * into it. That is safe here specifically because there is at most one
+     * incomplete attempt behind [answers] in this call path — [resolveHolds]
+     * only reaches for this when zero tries finished, so there is no earlier
+     * round's stale answer for a leaf a later round's short-circuit skipped to
+     * confuse this with. Reusing it for the general case, across several
+     * completed retries, would not have that guarantee and is not what this is
+     * for.
+     */
+    private fun TriggerNode.approximateTrace(
+        firedPath: NodePath,
+        answers: Map<ComponentSpec, Boolean?>,
+    ): TriggerTrace = approximateTraceAt(emptyList(), firedPath, answers)
+
+    private fun TriggerNode.approximateTraceAt(
+        here: NodePath,
+        firedPath: NodePath,
+        answers: Map<ComponentSpec, Boolean?>,
+    ): TriggerTrace = when (this) {
+        is TriggerNode.One -> {
+            val outcome = when {
+                here == firedPath -> LeafOutcome.FIRED
+                !answers.containsKey(spec) -> LeafOutcome.NOT_CONSULTED
+                answers.getValue(spec) == true -> LeafOutcome.YES
+                answers.getValue(spec) == false -> LeafOutcome.NO
+                else -> LeafOutcome.UNREADABLE
+            }
+            TriggerTrace.Leaf(spec, outcome)
+        }
+
+        is TriggerNode.Group -> {
+            val traced = children.mapIndexed { i, child ->
+                child.approximateTraceAt(here + i, firedPath, answers)
+            }
+            val held = when (op) {
+                TriggerNode.Op.ALL -> traced.all { it.held == true }
+                TriggerNode.Op.ANY -> traced.any { it.held == true }
+            }
+            TriggerTrace.Group(op, traced, held)
+        }
     }
 
     /**
@@ -730,6 +826,15 @@ class TriggerEngine(
 
         val unreadable: List<ComponentSpec>
             get() = answers.filterValues { it == null }.keys.toList()
+
+        /**
+         * A copy of every answer this reader has recorded so far, for
+         * [approximateTrace] to build a trace from when no single evaluation
+         * ever finished. A copy rather than the live map, so a caller reading
+         * it after the fact cannot observe a further write this reader makes
+         * afterwards.
+         */
+        fun snapshot(): Map<ComponentSpec, Boolean?> = answers.toMap()
 
         /**
          * A state read that throws is treated as unknown rather than as a
