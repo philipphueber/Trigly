@@ -1,23 +1,30 @@
 package app.phueber.trigly.ui
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.unit.height
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.compose.runtime.CompositionLocalProvider
+import app.phueber.trigly.core.ConditionalHelp
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.FieldCondition
 import app.phueber.trigly.core.ScopedVariable
 import app.phueber.trigly.core.Substitution
 import app.phueber.trigly.core.TextSuggestions
 import app.phueber.trigly.core.VariableScope
 import app.phueber.trigly.core.VariableSpec
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule as JUnitRule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -406,5 +413,203 @@ class SubstitutableTextFieldEditorTest {
         composeRule.onNodeWithText("Insert variable", ignoreCase = true).performClick()
 
         composeRule.onNodeWithText("PRODUCED BY AN EARLIER ACTION IN THIS RULE").assertIsDisplayed()
+    }
+
+    // --- The box that must not clip an expression --------------------------------------
+
+    /** Wraps across several lines at a phone's width, without ever containing a newline. */
+    private val wrappingExpression = "upper({{trigger.name}}) == \"HELLO\" and " +
+        "({{app.count}} + 1) > 10 and contains({{trigger.title}}, \"^Bus \\d+\", \"regex\")"
+
+    /** Far longer than any realistic expression, to exercise the bound rather than the wrap. */
+    private val extremelyLongExpression = (1..40).joinToString(" and ") { "{{app.count}} > $it" }
+
+    @Test
+    fun an_expression_field_starts_taller_than_a_plain_field() {
+        composeRule.setContent {
+            TriglyTheme {
+                Column {
+                    ConfigFieldEditor(
+                        field = expressionField,
+                        value = null,
+                        onValueChange = {},
+                        previewEncoding = Substitution.EXPRESSION,
+                    )
+                    ConfigFieldEditor(field = plainField, value = null, onValueChange = {})
+                }
+            }
+        }
+
+        val expressionHeight = composeRule.onNodeWithText("VALUE", substring = true, ignoreCase = true)
+            .getUnclippedBoundsInRoot().height
+        val plainHeight = composeRule.onNodeWithText("CONTAINS", substring = true, ignoreCase = true)
+            .getUnclippedBoundsInRoot().height
+
+        assertTrue(
+            "an expression box starts as several lines, not the one a plain field gets",
+            expressionHeight > plainHeight,
+        )
+    }
+
+    @Test
+    fun an_expression_field_grows_with_a_long_value_and_a_plain_field_does_not() {
+        composeRule.setContent {
+            TriglyTheme {
+                Column {
+                    ConfigFieldEditor(
+                        field = expressionField,
+                        value = null,
+                        onValueChange = {},
+                        previewEncoding = Substitution.EXPRESSION,
+                    )
+                    ConfigFieldEditor(field = plainField, value = null, onValueChange = {})
+                }
+            }
+        }
+
+        val expressionRest = composeRule.onNodeWithText("VALUE", substring = true, ignoreCase = true)
+            .getUnclippedBoundsInRoot().height
+        val plainRest = composeRule.onNodeWithText("CONTAINS", substring = true, ignoreCase = true)
+            .getUnclippedBoundsInRoot().height
+
+        composeRule.onNodeWithText("VALUE", substring = true, ignoreCase = true)
+            .performTextInput(wrappingExpression)
+        composeRule.onNodeWithText("CONTAINS", substring = true, ignoreCase = true)
+            .performTextInput(wrappingExpression)
+
+        val expressionGrown = composeRule.onNodeWithText("VALUE", substring = true, ignoreCase = true)
+            .getUnclippedBoundsInRoot().height
+        val plainAfter = composeRule.onNodeWithText("CONTAINS", substring = true, ignoreCase = true)
+            .getUnclippedBoundsInRoot().height
+
+        assertTrue("a wrapping value should grow the expression box", expressionGrown > expressionRest)
+        assertEquals(
+            "the same value in a plain field scrolls sideways rather than growing",
+            plainRest,
+            plainAfter,
+        )
+    }
+
+    @Test
+    fun an_expression_field_stops_growing_once_it_reaches_its_bound() {
+        composeRule.setContent {
+            TriglyTheme {
+                ConfigFieldEditor(
+                    field = expressionField,
+                    value = null,
+                    onValueChange = {},
+                    previewEncoding = Substitution.EXPRESSION,
+                )
+            }
+        }
+
+        val field = composeRule.onNodeWithText("VALUE", substring = true, ignoreCase = true)
+        val restHeight = field.getUnclippedBoundsInRoot().height
+
+        field.performTextInput(extremelyLongExpression)
+
+        val grownHeight = composeRule.onNodeWithText("VALUE", substring = true, ignoreCase = true)
+            .getUnclippedBoundsInRoot().height
+
+        assertTrue("a very long expression should still grow the box", grownHeight > restHeight)
+        assertTrue(
+            "growth has to stop at a bound rather than swallow the screen: " +
+                "$restHeight grew to $grownHeight",
+            grownHeight <= restHeight * 3,
+        )
+    }
+
+    // --- Help that follows the mode a sibling field chose ---------------------------------
+
+    private val modeAwareField = ConfigField.Text(
+        key = "value",
+        label = "Value",
+        help = "This can include another variable.",
+        helpWhen = listOf(
+            ConditionalHelp(
+                condition = FieldCondition(key = "mode", value = "add"),
+                help = "Adding needs a plain number.",
+            ),
+            ConditionalHelp(
+                condition = FieldCondition(key = "mode", value = "evaluate"),
+                help = "Evaluating runs this as an expression.",
+            ),
+        ),
+    )
+
+    private fun setModeAwareField(mode: String?) {
+        composeRule.setContent {
+            TriglyTheme {
+                ConfigFieldEditor(
+                    field = modeAwareField,
+                    value = null,
+                    onValueChange = {},
+                    companions = mode?.let { mapOf("mode" to it) } ?: emptyMap(),
+                )
+            }
+        }
+    }
+
+    @Test
+    fun help_names_only_the_add_specific_sentence_in_add_mode() {
+        setModeAwareField("add")
+
+        composeRule.onNodeWithText("Adding needs a plain number.", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("Evaluating runs this", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun help_names_only_the_evaluate_specific_sentence_in_evaluate_mode() {
+        setModeAwareField("evaluate")
+
+        composeRule.onNodeWithText("Evaluating runs this", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("Adding needs a plain number.", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun help_names_neither_mode_specific_sentence_when_no_mode_matches() {
+        setModeAwareField("set")
+
+        composeRule.onNodeWithText("This can include another variable.").assertIsDisplayed()
+        composeRule.onNodeWithText("Adding needs a plain number.", substring = true).assertDoesNotExist()
+        composeRule.onNodeWithText("Evaluating runs this", substring = true).assertDoesNotExist()
+    }
+
+    // --- A long help collapses; a short one does not ---------------------------------------
+
+    private val shortHelp = "Leave blank to match any device."
+
+    private val longHelp = "Some apps draw their own notification buttons. Android then offers " +
+        "no way to press them directly. This setting opens the notification shade instead, and " +
+        "taps the button by name. It needs accessibility access. It briefly shows the shade on " +
+        "screen. Turn it on only when you need it."
+
+    private val longHelpFirstSentence = "Some apps draw their own notification buttons."
+
+    private val shortHelpField = ConfigField.Text(key = "short", label = "Short", help = shortHelp)
+    private val longHelpField = ConfigField.Text(key = "long", label = "Long", help = longHelp)
+
+    @Test
+    fun a_short_help_shows_in_full_with_no_toggle() {
+        composeRule.setContent {
+            TriglyTheme { ConfigFieldEditor(field = shortHelpField, value = null, onValueChange = {}) }
+        }
+
+        composeRule.onNodeWithText(shortHelp).assertIsDisplayed()
+        composeRule.onNodeWithContentDescription(HINT_EXPAND_DESCRIPTION).assertDoesNotExist()
+    }
+
+    @Test
+    fun a_long_help_collapses_to_its_first_sentence_until_expanded() {
+        composeRule.setContent {
+            TriglyTheme { ConfigFieldEditor(field = longHelpField, value = null, onValueChange = {}) }
+        }
+
+        composeRule.onNodeWithText(longHelpFirstSentence).assertIsDisplayed()
+        composeRule.onNodeWithText(longHelp).assertDoesNotExist()
+
+        composeRule.onNodeWithContentDescription(HINT_EXPAND_DESCRIPTION).performClick()
+
+        composeRule.onNodeWithText(longHelp).assertIsDisplayed()
     }
 }
