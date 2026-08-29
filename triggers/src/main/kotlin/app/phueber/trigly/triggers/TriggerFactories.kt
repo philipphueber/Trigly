@@ -61,6 +61,14 @@ fun triggerFactories(
     // the slot decides the question" means.
     TimeWindowCheckFactory(),
 
+    // Condition only, for the same reason as `time_window`: which day, which
+    // month and which date range are all levels, never edges. Each reads the
+    // device's own zone, because none of the three names a place of its own
+    // to be wrong about; see `DayOfWeekCheck`'s KDoc for the full reasoning.
+    DayOfWeekCheckFactory(),
+    MonthCheckFactory(),
+    DateRangeCheckFactory(),
+
     // Condition only, for the same reason as `time_window` above: reading an
     // app-scope variable is a level, never an edge. See `docs/variables.md`,
     // section 10.
