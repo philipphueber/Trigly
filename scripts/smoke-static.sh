@@ -231,11 +231,18 @@ strings "${WORK}"/dex/*.dex > "${WORK}/dexstrings.txt"
 # android:name carries the activities, services and receivers. android:backupAgent
 # is a separate attribute and is missed by any pattern that only reads
 # android:name, which is how TriglyBackupAgent escaped the old list.
-# Track which element each attribute belongs to. android:name means a class only
-# inside a component element: on <action> it is an intent action and on
-# <uses-permission> it is a permission, and both of those are strings that live
-# in the dex for their own reasons. Reading them as classes would report a PASS
-# for something this check never verified, which is worse than checking less.
+# Track which element each attribute belongs to, because android:name means a
+# class only in some of them.
+#
+# On <action> it is an intent action and on <uses-permission> it is a permission.
+# Both of those are strings that are in the dex for their own reasons, so reading
+# them as classes reports a PASS for something this check never verified.
+#
+# On <activity-alias> it is not a class at all. An alias is a component name with
+# no implementation of its own: the class that has to survive R8 is the one its
+# android:targetActivity names. Reading the alias name as a class asks the dex
+# for six classes that never existed and reports a FAIL on a correct build,
+# which is how this check first met the launcher aliases.
 "${BT}/aapt2" dump xmltree --file AndroidManifest.xml "${APK}" 2>/dev/null \
     | awk '
         /^[[:space:]]*E:/ {
@@ -243,8 +250,15 @@ strings "${WORK}"/dex/*.dex > "${WORK}/dexstrings.txt"
             sub(/\(.*/, "", element)
             next
         }
-        /android:(name|backupAgent)\(/ {
-            if (element !~ /^(application|activity|activity-alias|service|receiver|provider)$/) next
+        {
+            if (element == "activity-alias") {
+                # The alias name is not a class. Its target is.
+                if ($0 !~ /android:targetActivity\(/) next
+            } else if (element ~ /^(application|activity|service|receiver|provider)$/) {
+                if ($0 !~ /android:(name|backupAgent)\(/) next
+            } else {
+                next
+            }
             if (match($0, /"[^"]*"/) == 0) next
             value = substr($0, RSTART + 1, RLENGTH - 2)
             if (value ~ /^app\.phueber\.trigly\./) print value
