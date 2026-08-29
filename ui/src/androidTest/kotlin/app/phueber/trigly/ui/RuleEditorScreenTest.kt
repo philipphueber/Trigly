@@ -1393,6 +1393,102 @@ class RuleEditorScreenTest {
     }
 
     /**
+     * The direct counterpart of
+     * [the_caveat_badge_is_tappable_well_outside_its_glyph] for these two
+     * chevrons. A chevron draws its icon at 22dp, but now reserves a full 48dp
+     * of layout space rather than overhanging it. A corner tap checks that the
+     * whole reserved box is the real touch target, not only the glyph centred
+     * inside it. A regression here would mean the reserved space grew but the
+     * `clickable` modifier stayed scoped to the small icon, which a centre tap
+     * would not catch.
+     */
+    @Test
+    fun the_move_chevrons_are_tappable_well_outside_their_glyph() {
+        composeRule.setContent {
+            var actions by remember {
+                mutableStateOf(
+                    listOf(
+                        ComponentDraft("toast", mapOf("text" to "first")),
+                        ComponentDraft("speak", mapOf("text" to "second")),
+                    )
+                )
+            }
+            Editor(
+                state = EditorState(RuleDraft(id = null, name = "Corner", actions = actions)),
+                onMoveAction = { from, to ->
+                    actions = actions.toMutableList().also { it.add(to, it.removeAt(from)) }
+                },
+            )
+        }
+
+        fun topOf(text: String) = composeRule.onNodeWithText(text).getUnclippedBoundsInRoot().top
+
+        val down = composeRule.onNodeWithContentDescription("Move down").performScrollTo()
+        down.assertWidthIsAtLeast(48.dp)
+        down.assertHeightIsAtLeast(48.dp)
+
+        // 3dp in from the target's own corner: well clear of the 22dp glyph
+        // centred inside it, and still comfortably within the 48dp target.
+        down.performTouchInput { click(Offset(3.dp.toPx(), 3.dp.toPx())) }
+
+        assertTrue(
+            "a corner tap on Move down must still move the action down",
+            topOf("SPEAK OUT LOUD") < topOf("SHOW A BRIEF MESSAGE"),
+        )
+    }
+
+    /**
+     * Up and Down sit right next to each other with no gap, which used to be
+     * the exact geometry the overhang bug needed: each control reported only
+     * 22dp while its real 48dp target overhung 13dp on every side, so the two
+     * targets overlapped by roughly 26dp, and a tap anywhere in that band went
+     * to whichever chevron was drawn later. Down is always the second of the
+     * pair, so a tap meant for Up landed on Down instead. This is the direct
+     * counterpart of [tapping_the_caveat_badge_does_not_fold_the_block] for
+     * these two controls: a plain tap on Move up's own centre must move the
+     * action up, not down.
+     *
+     * The middle of three actions is the one case with both chevrons side by
+     * side, so it is the one this needs. A third, distinctly labelled action
+     * also confirms the tap moved only the intended pair and nothing past it.
+     */
+    @Test
+    fun tapping_move_up_does_not_trigger_move_down() {
+        composeRule.setContent {
+            var actions by remember {
+                mutableStateOf(
+                    listOf(
+                        ComponentDraft("toast", mapOf("text" to "first")),
+                        ComponentDraft("speak", mapOf("text" to "second")),
+                        ComponentDraft("dismiss_notification"),
+                    )
+                )
+            }
+            Editor(
+                state = EditorState(RuleDraft(id = null, name = "Overlap", actions = actions)),
+                onMoveAction = { from, to ->
+                    actions = actions.toMutableList().also { it.add(to, it.removeAt(from)) }
+                },
+            )
+        }
+
+        fun topOf(text: String) = composeRule.onNodeWithText(text).getUnclippedBoundsInRoot().top
+
+        // The middle action is composed before the last one, so its Move up
+        // is the first "Move up" node in the tree.
+        composeRule.onAllNodesWithContentDescription("Move up")[0].performScrollTo().performClick()
+
+        assertTrue(
+            "tapping the middle action's Move up must move it up, not down",
+            topOf("SPEAK OUT LOUD") < topOf("SHOW A BRIEF MESSAGE"),
+        )
+        assertTrue(
+            "moving the middle action up must not also reorder the last action",
+            topOf("SHOW A BRIEF MESSAGE") < topOf("DISMISS A NOTIFICATION"),
+        )
+    }
+
+    /**
      * Phase 2's addition to the picker: app scope, offered alongside the trigger
      * tree's own declarations rather than replacing them. `RuleEditorViewModel`
      * is what stitches `VariableStore.scoped()` into `availableVariables`; this

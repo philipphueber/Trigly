@@ -680,6 +680,11 @@ internal const val EXPAND_DESCRIPTION = "Expand"
  * something says to, so the real, bigger, genuinely-clickable box is given its
  * own child layout node here and left to overhang the smaller footprint this
  * reports upward, rather than claim it.
+ *
+ * A second caller since: `ConfigFieldEditor`'s collapsed `Hint` reveal toggle
+ * sits beside a single line of caption text for the same reason the badge
+ * sits inline in a dense row — there is no tall header here either to absorb
+ * a reserved 48dp box for free.
  */
 @Composable
 internal fun OverflowingTouchTarget(

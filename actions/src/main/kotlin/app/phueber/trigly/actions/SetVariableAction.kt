@@ -3,6 +3,7 @@ package app.phueber.trigly.actions
 import app.phueber.trigly.core.Action
 import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.ActionResult
+import app.phueber.trigly.core.ConditionalHelp
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.ExpressionOutcome
 import app.phueber.trigly.core.FieldCondition
@@ -329,12 +330,33 @@ class SetVariableActionFactory(
             label = "Value",
             required = true,
             substitution = Substitution.TEXT,
-            help = "This can include another variable, such as {{trigger.name}}. " +
-                "Adding needs a value that is a plain number. Evaluating runs this " +
-                "as an expression, such as {{app.count}} + 1 or " +
-                "upper({{trigger.name}}). A third argument searches with a " +
-                "regular expression: contains({{trigger.name}}, \"^Bus \\d+\", " +
-                "\"regex\").",
+            // Split by mode rather than one paragraph covering all three: "add"
+            // and "evaluate" used to be explained here regardless of which one
+            // was chosen, which is most of why this field's help ran to four
+            // topics and 300 characters. Each sentence below now names the one
+            // mode it actually applies to, and [ConfigField.Text.helpWhen] shows
+            // it only then, so "set" — the default, and the plain case — sees
+            // just the one sentence that always applies.
+            help = "This can include another variable, such as {{trigger.name}}.",
+            helpWhen = listOf(
+                ConditionalHelp(
+                    condition = FieldCondition(
+                        key = VariableWriteMode.CONFIG_KEY,
+                        value = VariableWriteMode.ADD.configValue,
+                    ),
+                    help = "Adding needs a value that is a plain number.",
+                ),
+                ConditionalHelp(
+                    condition = FieldCondition(
+                        key = VariableWriteMode.CONFIG_KEY,
+                        value = VariableWriteMode.EVALUATE.configValue,
+                    ),
+                    help = "Evaluating runs this as an expression, such as " +
+                        "{{app.count}} + 1 or upper({{trigger.name}}). A third " +
+                        "argument searches with a regular expression: " +
+                        "contains({{trigger.name}}, \"^Bus \\d+\", \"regex\").",
+                ),
+            ),
             // Gone entirely when the mode is clear, rather than shown with a
             // sentence explaining that it does nothing: clearing needs no value.
             shownWhen = FieldCondition(

@@ -546,6 +546,28 @@ Deliberately just equality against a set of strings. An expression language here
 would be a second, worse validator competing with the `create()` that already
 owns cross-field rules.
 
+**The same move, spent on one sentence of `help` instead of a whole field.**
+`ConfigField.Text.helpWhen` names a sibling and the value that makes one extra
+sentence apply, appended after the field's own `help` when it does.
+`set_variable`'s value field is the case it was built for: the same box is
+explained three different ways depending on the sibling `mode` field, and
+printing all three regardless of `mode` is what grew that field's help to four
+topics and 300 characters. `ConfigFieldEditor` reads it through
+`ConfigField.effectiveHelp(companions)` rather than `field.help` directly, and
+`companions` is the same map `NotificationButton` and friends already fill in
+from `companionKeys()` — so a mode-specific sentence reaches the screen through
+a channel the editor cannot tell apart from a two-key field's own companion,
+and the editor itself never learns `mode`, `set_variable`, or any other
+factory's vocabulary. It only ever asks "does this sibling's value match",
+the same question `shownWith` already asks.
+
+It resolves a missing sibling the opposite way `shownWith` does, on purpose.
+`shownWith` falls back to a sibling's own default, because guessing "hidden"
+wrongly is the worse mistake — a field vanishing from a form nobody has
+touched. Guessing wrong here prints an extra sentence nobody asked for on a
+form nobody has touched, which is the smaller mistake, so a sibling with
+nothing stored contributes no extra sentence rather than one for its default.
+
 Field kinds cover every component: `Text`, `TextPattern`, `Choice`, `Number`,
 `Decimal`, `Flag`, `AppPackage`, `SoundUri`, `BluetoothAddress`,
 `NotificationButton`, `RuleRef`, `Slider`, `Duration`, `Timestamp`, `TimeOfDay`,
@@ -1360,6 +1382,20 @@ Three decisions in there worth keeping:
   them and hiding them. Which sections are shut is `rememberSaveable` view state:
   it survives a rotation, and it is deliberately not stored on the rule, because
   it describes this screen right now rather than anything about the automation.
+  That state does not always start empty, though. With more than three rules in
+  the database and at least one of them already filed into a folder, every
+  folder starts closed instead, so opening an established list does not throw
+  every rule at the reader at once. Below that count, or with no folder in use
+  at all, every folder still starts open, exactly as before this default
+  existed. The decision is made once, against the first non-empty list
+  `RulesScreen` sees. (The list arrives from a flow, so the very first
+  composition is always empty, and deciding against that frame would freeze
+  the default on "open" forever.) It is then locked for the life of that
+  screen entry, alongside the collapsed set itself. So a rule added later
+  cannot re-close a folder someone just opened by hand, and a rotation cannot
+  repeat the decision and undo a manual toggle either. Leaving the screen and
+  coming back starts a fresh decision, which is wanted: it is a fact about the
+  database right now, not a promise kept forever.
 
 Filing a rule from the editor offers the folders that already exist, through the
 same pick-or-type dialog the app, sound and Bluetooth fields use. That list is
@@ -2044,6 +2080,21 @@ while filling one in. Nothing shows the sentence on its own (not opening a block
 not choosing the component), which is what keeps a long rule and a 28-item picker
 both readable while still admitting, at a glance, that there is something to know.
 
+A field's own `help` follows the same rule once it runs long, with one
+deliberate difference. Nine of the app's 92 declared help strings cover more
+than one topic and run past 200 characters — `set_variable`'s value field was
+one before `helpWhen` split it up, and `play_alert`'s alarm-versus-music
+explanation is another that genuinely has no sibling to split on. `Hint` shows
+such a field's first sentence and a small chevron that reveals the rest, the
+same default-to-less shape `CaveatBadge` already established, but starting
+from a full first sentence rather than from nothing: a caveat is worth a glyph
+precisely because most components carry none, so zero characters is the honest
+starting point there, while a `Hint` is prose every field under the threshold
+already shows in full, and collapsing it to nothing would read as the field
+having lost its help rather than having more of it. The 200-character cut sits
+in a real gap in the data, between 198 and 279, so it folds exactly those nine
+paragraphs and none of the ordinary one- or two-sentence hints around them.
+
 ### A component block folds
 
 The editor puts everything on one scroll, which is right for building a rule and
@@ -2276,6 +2327,23 @@ That is not a shortcut: the colour arriving the moment the mode changes is the
 clearest available way to tell somebody that the box stopped holding text and
 started holding code, and the same field has to keep drawing as prose in the
 mode where it is prose.
+
+**The box's shape follows the same signal, because a real phone showed that
+colour alone was not enough.** A `set_variable` expression clipped mid-line —
+`{{set_rule_enabled.enabled}} == "c`, the rest scrolled off sideways with no
+scrollbar and no ellipsis to say more was there — and everything below it, the
+sample, "Insert variable", and the help, was pushed under the keyboard. Colour
+says *what* the box holds; it says nothing about *how much room* holding an
+expression needs, and an expression is source someone reads and edits line by
+line where a line of prose is not. So `isExpression` gates `minLines` and
+`maxLines` the same way it gates the highlighter: three lines to start, eight
+before it stops growing and scrolls internally instead — bounded, because
+Compose does not clip or ellipsise a text field's own content, so a field left
+to grow without limit would not reopen the clipping bug, but a long enough
+expression could still push everything under it off screen the same way the
+one-line box used to. Every other field kind, including a `multiline` one,
+is unaffected: the bound applies only to the one field kind that is about to be
+*run*.
 
 Two choices in that highlighter are load-bearing rather than cosmetic. A number
 and a piece of text get **different** colours, because the language has no
