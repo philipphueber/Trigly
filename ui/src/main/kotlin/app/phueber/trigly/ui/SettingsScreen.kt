@@ -3,9 +3,12 @@ package app.phueber.trigly.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
@@ -161,10 +164,33 @@ private fun BackupSettingsCard(
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f).padding(end = 12.dp),
                 )
+                // Reserves its full 48dp here rather than overhanging it, unlike
+                // every other [CaveatBadge] caller. [BlockExpandButton]'s KDoc
+                // in Blocks.kt names the rule this follows: two overhanging
+                // targets a few dp apart claim the same pixels, and whichever
+                // is drawn later wins the tap. Overhanging is still the right
+                // call for the badge's other callers - a 28-item picker row and
+                // a block header - because reserving there would grow every
+                // row that carries a caveat. Neither reason applies here: this
+                // row has exactly one neighbour, [BlockToggle], and the two
+                // together are worse than [BlockExpandButton]'s case, because
+                // the neighbour they used to swallow the tap into flips a real
+                // setting rather than folding a block shut.
+                //
+                // Measured on a device before this fix: the badge's overhanging
+                // 48dp target and the toggle's own 48dp target had centres only
+                // 34.3dp apart, so they overlapped by 13.7dp. Two 48dp targets
+                // need at least 48dp between centres to avoid that. Reserving
+                // the badge's box makes its centre exactly 24dp from its own
+                // trailing edge, and the explicit 8dp gap below adds margin
+                // past that minimum rather than sitting exactly on it, so
+                // per-device pixel rounding cannot reopen the overlap.
                 CaveatBadge(
                     shown = warningShown,
                     onToggle = { warningShown = !warningShown },
+                    modifier = Modifier.size(48.dp),
                 )
+                Spacer(modifier = Modifier.width(8.dp))
                 BlockToggle(
                     checked = cloudBackupEnabled,
                     onCheckedChange = onCloudBackupEnabledChange,

@@ -1,11 +1,17 @@
 package app.phueber.trigly.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertWidthIsAtLeast
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Rule as JUnitRule
@@ -93,6 +99,55 @@ class SettingsScreenTest {
         composeRule.onNodeWithContentDescription(CAVEAT_DESCRIPTION).performClick()
 
         composeRule.onNodeWithText("What backup shares".uppercase()).assertIsDisplayed()
+    }
+
+    /**
+     * The direct counterpart of `the_caveat_badge_is_tappable_well_outside_its_glyph`
+     * in `RuleEditorScreenTest`, for this card's own badge. The badge draws its
+     * "!" at 22dp but its touch target is 48dp, so a tap near the target's own
+     * corner - well outside the glyph - has to still reveal the warning.
+     * `performClick` alone would not catch a target that shrank back to the
+     * glyph's size, because it always hits a node's centre.
+     */
+    @Test
+    fun the_caveat_badge_is_tappable_well_outside_its_glyph() {
+        composeRule.setContent { Screen(cloudBackupEnabled = true) }
+
+        val badge = composeRule.onNodeWithContentDescription(CAVEAT_DESCRIPTION)
+        badge.assertWidthIsAtLeast(48.dp)
+        badge.assertHeightIsAtLeast(48.dp)
+
+        // 3dp in from the target's own corner: well clear of the 22dp glyph
+        // centred inside it, and still comfortably within the 48dp target.
+        badge.performTouchInput { click(Offset(3.dp.toPx(), 3.dp.toPx())) }
+
+        composeRule.onNodeWithText("What backup shares".uppercase()).assertIsDisplayed()
+    }
+
+    /**
+     * The regression test: measured on a device, the badge's touch target
+     * used to overhang far enough to reach into [BlockToggle]'s own target, so
+     * a tap aimed at the badge's trailing edge - the edge nearest the switch -
+     * flipped the backup setting instead of revealing the warning. See the
+     * badge's call site in [SettingsScreen] for the fix and the geometry it
+     * has to satisfy. A tap here must still land on the badge alone.
+     */
+    @Test
+    fun tapping_the_trailing_edge_of_the_caveat_badge_does_not_change_the_switch() {
+        composeRule.setContent { Screen(cloudBackupEnabled = true) }
+
+        val badge = composeRule.onNodeWithContentDescription(CAVEAT_DESCRIPTION)
+
+        // Near the target's trailing edge, vertically centred: the exact spot
+        // that used to fall inside the switch's own overhanging target.
+        badge.performTouchInput { click(Offset(45.dp.toPx(), 24.dp.toPx())) }
+
+        composeRule.onNodeWithText("What backup shares".uppercase()).assertIsDisplayed()
+        assertEquals(
+            "a tap on the badge must not also flip the backup switch",
+            emptyList<Boolean>(),
+            changes,
+        )
     }
 
     /**
