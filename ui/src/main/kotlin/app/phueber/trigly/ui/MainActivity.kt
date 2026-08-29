@@ -148,6 +148,7 @@ class MainActivity : ComponentActivity() {
                 factory = SettingsViewModel.factory(
                     backupSettings = container.backupSettings,
                     colorSchemeSettings = container.colorSchemeSettings,
+                    launcherIconEnabler = container.launcherIconEnabler,
                 ),
             )
             val colorSchemeChoice by settings.colorSchemeChoice.collectAsStateWithLifecycle()
@@ -378,6 +379,7 @@ class MainActivity : ComponentActivity() {
             factory = SettingsViewModel.factory(
                 backupSettings = container.backupSettings,
                 colorSchemeSettings = container.colorSchemeSettings,
+                launcherIconEnabler = container.launcherIconEnabler,
             ),
         )
         val cloudBackupEnabled by settings.cloudBackupEnabled.collectAsStateWithLifecycle()

@@ -148,6 +148,15 @@
     <string name="settings_colorscheme_done">Done</string>
 
     <!--
+      Shown once, inside the picker, before a switch actually runs - see
+      LauncherIconSwitcher.kt. Reuses the amber caution Surface shape
+      settings_backup_warning already uses: this is something to know, not a
+      fault.
+    -->
+    <string name="settings_colorscheme_icon_warning_title">About the app icon</string>
+    <string name="settings_colorscheme_icon_warning_body">Changing the colour scheme also changes the app icon. The icon may briefly leave the home screen. Some launchers need a restart before the new icon shows.</string>
+
+    <!--
       The row on the settings screen that opens AttributionScreen. A separate
       resource from attribution_title even though the text is the same today,
       the same choice rules_settings and settings_title already make for

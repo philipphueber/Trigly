@@ -23,4 +23,19 @@
       the system theme would be a different mark on half the phones.
     -->
     <color name="ic_launcher_background">#EC6206</color>
+
+    <!--
+      One background colour per other preset, each the same value as that
+      preset's own `primary` in PresetSchemes.kt - the icon and the header
+      slab are one colour for every preset, the same way ic_launcher_background
+      already is for Orange. Only these five: Default and "Follow the system"
+      both keep the orange icon (LauncherAliasOrange), so they need no colour
+      of their own here. Also not overridden in values-night, for the same
+      reason ic_launcher_background is not.
+    -->
+    <color name="ic_launcher_background_lime">#90EC06</color>
+    <color name="ic_launcher_background_green">#06EC62</color>
+    <color name="ic_launcher_background_azure">#0690EC</color>
+    <color name="ic_launcher_background_violet">#6206EC</color>
+    <color name="ic_launcher_background_magenta">#F30694</color>
 </resources>

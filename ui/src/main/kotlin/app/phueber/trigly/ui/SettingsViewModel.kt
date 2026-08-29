@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 class SettingsViewModel(
     private val backupSettings: BackupSettings,
     private val colorSchemeSettings: ColorSchemeSettings,
+    private val launcherIconEnabler: ComponentEnabler,
 ) : ViewModel() {
 
     private val _cloudBackupEnabled = MutableStateFlow(backupSettings.cloudBackupEnabled())
@@ -29,14 +30,26 @@ class SettingsViewModel(
         _cloudBackupEnabled.value = enabled
     }
 
+    /**
+     * Persists the choice, then switches the launcher icon to match. The icon
+     * switch runs on every call, not only when the alias actually changes -
+     * [switchLauncherIcon] re-enabling an already-enabled alias is a cheap
+     * no-op on the platform side, and checking first here would just be this
+     * class re-deriving what that function already decides.
+     */
     fun setColorSchemeChoice(choice: ColorSchemeChoice) {
         colorSchemeSettings.setColorSchemeChoice(choice)
         _colorSchemeChoice.value = choice
+        switchLauncherIcon(aliasIdFor(choice), ColorPresets.map { it.id }, launcherIconEnabler)
     }
 
     companion object {
-        fun factory(backupSettings: BackupSettings, colorSchemeSettings: ColorSchemeSettings) = viewModelFactory {
-            initializer { SettingsViewModel(backupSettings, colorSchemeSettings) }
+        fun factory(
+            backupSettings: BackupSettings,
+            colorSchemeSettings: ColorSchemeSettings,
+            launcherIconEnabler: ComponentEnabler,
+        ) = viewModelFactory {
+            initializer { SettingsViewModel(backupSettings, colorSchemeSettings, launcherIconEnabler) }
         }
     }
 }

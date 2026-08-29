@@ -193,4 +193,10 @@ class AppContainer(context: Context) {
      * `TriglyBackupAgent` naming this setting.
      */
     val colorSchemeSettings: ColorSchemeSettings = colorSchemeSettings(context)
+
+    /**
+     * Keeps one launcher-icon `activity-alias` enabled to match
+     * [colorSchemeSettings]'s choice. See `LauncherIconSwitcher.kt`.
+     */
+    val launcherIconEnabler: ComponentEnabler = PackageManagerComponentEnabler(context)
 }
