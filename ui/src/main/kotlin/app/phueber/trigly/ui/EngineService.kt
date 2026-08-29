@@ -9,9 +9,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.content.res.Configuration
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import androidx.compose.ui.graphics.toArgb
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import app.phueber.trigly.core.ActionResult
@@ -378,7 +380,26 @@ class EngineService : Service() {
             // relative time next to it only invites the question "since when?".
             .setShowWhen(false)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setColor(notificationColor())
             .build()
+
+    /**
+     * The colour scheme's `primary`, so the app's own choice tints this
+     * notification instead of whatever an OEM shade applies to an
+     * uncoloured one. Reads [ColorSchemeSettings] and calls [resolvedColors]
+     * directly - both plain functions - rather than through any Compose
+     * state, because a `Service` has no composition to read one from.
+     *
+     * Light or dark comes from `resources.configuration`, the only answer
+     * available here: `isSystemInDarkTheme()` needs a composition, and this
+     * runs long before or entirely without one.
+     */
+    private fun notificationColor(): Int {
+        val darkTheme = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+        val choice = (application as TriglyApp).container.colorSchemeSettings.colorSchemeChoice()
+        return resolvedColors(this, choice, darkTheme).colorScheme.primary.toArgb()
+    }
 
     private fun openApp(): PendingIntent = PendingIntent.getActivity(
         this,

@@ -13,6 +13,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -35,15 +39,27 @@ import androidx.compose.ui.unit.dp
  *
  * [onAttribution] opens [AttributionScreen], the app's second row and its
  * first that is not a switch — see [SettingsRow].
+ *
+ * [colorSchemeChoice] and [onColorSchemeChoiceChange] follow the same shape:
+ * the current choice in, what someone picked out. The picker itself is
+ * `ColorSchemePickerDialog`; whether its dialog is open is the one piece of
+ * state this screen keeps for itself, because nothing outside it needs to know.
  */
 @Composable
 fun SettingsScreen(
     cloudBackupEnabled: Boolean,
     onCloudBackupEnabledChange: (Boolean) -> Unit,
+    colorSchemeChoice: ColorSchemeChoice,
+    onColorSchemeChoiceChange: (ColorSchemeChoice) -> Unit,
     onAttribution: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Dialog visibility only - the choice itself always lives one level up,
+    // the same split ComponentPickerDialog and every other picker in this
+    // app makes between "what is picked" and "is the picker open".
+    var showColorSchemePicker by remember { mutableStateOf(false) }
+
     Column(modifier = modifier.fillMaxSize()) {
         BlockHeader(
             title = stringResource(R.string.settings_title),
@@ -66,6 +82,12 @@ fun SettingsScreen(
                         onCheckedChange = onCloudBackupEnabledChange,
                     )
                 },
+            )
+
+            SettingsRow(
+                title = stringResource(R.string.settings_colorscheme_title),
+                onClick = { showColorSchemePicker = true },
+                trailing = { ColorSchemeValueBadge(colorSchemeChoice) },
             )
 
             // Amber, the same convention `BatteryOptimizationNotice` and
@@ -96,5 +118,13 @@ fun SettingsScreen(
                 onClick = onAttribution,
             )
         }
+    }
+
+    if (showColorSchemePicker) {
+        ColorSchemePickerDialog(
+            current = colorSchemeChoice,
+            onPick = onColorSchemeChoiceChange,
+            onDismiss = { showColorSchemePicker = false },
+        )
     }
 }

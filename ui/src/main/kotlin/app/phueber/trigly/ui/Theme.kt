@@ -2,6 +2,7 @@ package app.phueber.trigly.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
@@ -104,28 +105,39 @@ private val BlockTypography = Typography().run {
 }
 
 /**
- * The app's theme. Colours live in `Palette.kt` and nowhere else.
+ * The app's theme. Colours live in `Palette.kt` and `PresetSchemes.kt`, and
+ * nowhere else.
  *
- * **No dynamic colour.** Material You would replace the orange with tones pulled
- * from the user's wallpaper, which is a good default for an app with no colour
- * of its own and the wrong one here — the orange *is* the identity, and an app
- * that renders differently on every phone makes its own screenshots and
- * documentation lie.
+ * **Takes the resolved scheme; does not pick one.** This used to reach for
+ * `LightScheme`/`DarkScheme` itself from a plain `darkTheme: Boolean`. Now
+ * that a person can choose Default, a preset, or the system wallpaper
+ * palette, "which scheme" is a bigger decision than this file should own -
+ * `PresetSchemes.kt`'s `resolvedColors` makes it, `MainActivity` calls that
+ * once per recomposition and hands the answer down, and this file goes back
+ * to being only about applying one.
  *
- * Dark mode follows the system rather than offering a setting: there is nothing
- * to configure yet, and one more preference to persist is not worth it until
- * there is a settings screen to hold it.
+ * **No dynamic colour by default.** Material You would replace the orange
+ * with tones pulled from the user's wallpaper, which is a good default for
+ * an app with no colour of its own and the wrong one as *the* default here -
+ * the orange is the identity, and an app that renders differently on every
+ * phone out of the box makes its own screenshots and documentation lie. It
+ * is offered as an explicit opt-in instead, in Settings, so nobody gets it
+ * without asking for it.
+ *
+ * The default parameters keep a bare `TriglyTheme { … }` - every instrumented
+ * test that only needs *a* theme, not this one's settings - behaving exactly
+ * as before: the fixed Default scheme, following the system's light/dark
+ * switch.
  */
 @Composable
 fun TriglyTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    colorScheme: ColorScheme = if (isSystemInDarkTheme()) DarkScheme else LightScheme,
+    extraColors: TriglyExtraColors = if (isSystemInDarkTheme()) DarkExtraColors else LightExtraColors,
     content: @Composable () -> Unit,
 ) {
-    CompositionLocalProvider(
-        LocalExtraColors provides if (darkTheme) DarkExtraColors else LightExtraColors,
-    ) {
+    CompositionLocalProvider(LocalExtraColors provides extraColors) {
         MaterialTheme(
-            colorScheme = if (darkTheme) DarkScheme else LightScheme,
+            colorScheme = colorScheme,
             shapes = BlockShapes,
             typography = BlockTypography,
             content = content,

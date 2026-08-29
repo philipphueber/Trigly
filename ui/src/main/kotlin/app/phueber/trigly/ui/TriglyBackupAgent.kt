@@ -32,6 +32,14 @@ import java.io.File
  * customised anything. So the only decision this class makes is which files
  * reach the *next* backup pass, and [onFullBackup] is the whole class.
  *
+ * `ColorSchemeSettings` needs no line in this class. It lives in its own
+ * `SharedPreferences` file, [COLOR_SCHEME_PREFS_NAME], so the plain
+ * `super.onFullBackup(data)` path above already carries it along with the
+ * rest of the data directory when backup is on, and the explicit
+ * [fullBackupFile] call below - which names only [BACKUP_PREFS_NAME] - already
+ * leaves it out when backup is off. Nothing here had to change for a second
+ * setting to get the same answer the first one does.
+ *
  * That decision leans on one assumption that is not public API: see
  * `sharedPreferencesFilePath`. If a future platform ever moved that file,
  * `fullBackupFile` would find nothing to read there. Android's own native

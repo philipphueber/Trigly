@@ -17,6 +17,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
@@ -137,7 +138,26 @@ class MainActivity : ComponentActivity() {
             // background, which does follow the theme, so the default is right.
         )
         setContent {
-            TriglyTheme {
+            // Read once here, at the top, rather than inside SettingsHost: the
+            // theme has to know the choice before the first frame, and
+            // SettingsHost only exists while that one screen is open. The same
+            // SettingsViewModel instance answers both call sites - viewModel()
+            // resolves to this activity's one instance of the class either
+            // way - so the two never see a different answer.
+            val settings: SettingsViewModel = viewModel(
+                factory = SettingsViewModel.factory(
+                    backupSettings = container.backupSettings,
+                    colorSchemeSettings = container.colorSchemeSettings,
+                ),
+            )
+            val colorSchemeChoice by settings.colorSchemeChoice.collectAsStateWithLifecycle()
+            val resolved = resolvedColors(
+                context = this,
+                choice = colorSchemeChoice,
+                darkTheme = isSystemInDarkTheme(),
+            )
+
+            TriglyTheme(colorScheme = resolved.colorScheme, extraColors = resolved.extra) {
                 // Saveable, so rotating the phone does not throw the user out of
                 // the editor — and so a rotation is not mistaken for leaving it,
                 // which is what `EditorHost` keys discarding the draft on.
@@ -350,14 +370,24 @@ class MainActivity : ComponentActivity() {
      */
     @androidx.compose.runtime.Composable
     private fun SettingsHost(onAttribution: () -> Unit, onDone: () -> Unit) {
+        // The same instance `setContent` already built for the theme -
+        // viewModel() keys on the class and this activity's ViewModelStore,
+        // not on the call site - so this is a second handle on one object,
+        // not a second one.
         val settings: SettingsViewModel = viewModel(
-            factory = SettingsViewModel.factory(backupSettings = container.backupSettings),
+            factory = SettingsViewModel.factory(
+                backupSettings = container.backupSettings,
+                colorSchemeSettings = container.colorSchemeSettings,
+            ),
         )
         val cloudBackupEnabled by settings.cloudBackupEnabled.collectAsStateWithLifecycle()
+        val colorSchemeChoice by settings.colorSchemeChoice.collectAsStateWithLifecycle()
 
         SettingsScreen(
             cloudBackupEnabled = cloudBackupEnabled,
             onCloudBackupEnabledChange = settings::setCloudBackupEnabled,
+            colorSchemeChoice = colorSchemeChoice,
+            onColorSchemeChoiceChange = settings::setColorSchemeChoice,
             onAttribution = onAttribution,
             onBack = onDone,
         )

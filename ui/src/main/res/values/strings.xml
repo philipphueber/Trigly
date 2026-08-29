@@ -134,6 +134,20 @@
     <string name="settings_backup_warning_body">Backup can copy your rules and your saved values. A webhook URL often carries a token. Backup copies that token too. The copy goes to the account signed in on this phone. A phone with no Google account and no backup service sends nothing. Moving data straight to your next phone still works with this off.</string>
 
     <!--
+      The colour scheme row and its picker. See ColorSchemeSettings and
+      PresetSchemes.kt for what each choice means and how it is resolved.
+      The six preset names (Orange, Lime, Green, Azure, Violet, Magenta) are
+      not string resources: they are plain Kotlin literals on ColorPreset,
+      the same way every other picker in this app names its own catalogue
+      entries in code.
+    -->
+    <string name="settings_colorscheme_title">Colour scheme</string>
+    <string name="settings_colorscheme_dialog_title">Choose a colour scheme</string>
+    <string name="settings_colorscheme_default">Default</string>
+    <string name="settings_colorscheme_system">Follow the system</string>
+    <string name="settings_colorscheme_done">Done</string>
+
+    <!--
       The row on the settings screen that opens AttributionScreen. A separate
       resource from attribution_title even though the text is the same today,
       the same choice rules_settings and settings_title already make for
