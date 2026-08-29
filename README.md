@@ -5,11 +5,13 @@
 Trigly is an open source automation app for Android. It is written in native
 Kotlin, and it uses Jetpack Compose for its UI.
 
-> ### This is alpha software
+> ### This is beta software
 >
-> The version number is `0.0.x`, and that is a statement. The app runs and the
-> rules work, but the surface is not settled: a control can move, a trigger can
-> change its name, and a setting can change its meaning between two releases.
+> The version number is `0.1.0`, and both halves of it are a statement. The
+> leading zero says the surface is still not settled: a control can move, a
+> trigger can change its name, and a setting can change its meaning between two
+> releases. The move up from `0.0.x` says the shape has settled enough to ask
+> people to use the app and to report what breaks.
 >
 > **Your rules survive an update.** That promise is separate from the one above,
 > and it holds at every version. The rule format and the database each carry
