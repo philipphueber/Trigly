@@ -250,6 +250,46 @@ fun BlockCard(
     }
 }
 
+/**
+ * One row on a settings screen: a label, and whatever the row shows or does
+ * on the trailing edge.
+ *
+ * Extracted from [SettingsScreen]'s backup row rather than left inline,
+ * because that screen is about to have three of these and a fourth is
+ * already expected — a colour scheme row, showing the current choice rather
+ * than a switch. One shape covers all three:
+ *
+ *  · **A switch.** [onClick] stays null — the [BlockToggle] itself is what
+ *    someone taps — and [trailing] holds the toggle.
+ *  · **A row that opens another screen**, the shape [AttributionScreen] is
+ *    reached by. [onClick] navigates, and [trailing] is left at its default:
+ *    the whole card is the tap target, the same as a rule's own row in the
+ *    list, so nothing more needs to sit on the right to say so.
+ *  · **A row that shows a current value.** [onClick] opens whatever picks a
+ *    new one, and [trailing] is a `Text` of the value in place today.
+ */
+@Composable
+fun SettingsRow(
+    title: String,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+    trailing: @Composable () -> Unit = {},
+) {
+    BlockCard(onClick = onClick, modifier = modifier) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f).padding(end = 12.dp),
+            )
+            trailing()
+        }
+    }
+}
+
 /** The 2dp line that splits a block into stacked cells. */
 @Composable
 fun BlockDivider(modifier: Modifier = Modifier) {

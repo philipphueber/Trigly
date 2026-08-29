@@ -2,7 +2,6 @@ package app.phueber.trigly.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -14,14 +13,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 
 /**
- * Today, one switch, reached from `RulesScreen`'s overflow beside "Saved
- * values". See [Screen.Settings] for why it lives there.
+ * Reached from `RulesScreen`'s overflow beside "Saved values". See
+ * [Screen.Settings] for why it lives there.
  *
  * Stateless, the same reasoning [RulesScreen] and [SavedValuesScreen] give for
  * themselves: it takes the current setting and reports what someone did, so
@@ -34,11 +32,15 @@ import androidx.compose.ui.unit.dp
  * off should still see why. A warning that only shows for the choice most
  * people will not make is not read by the people who most need the other
  * half of it.
+ *
+ * [onAttribution] opens [AttributionScreen], the app's second row and its
+ * first that is not a switch — see [SettingsRow].
  */
 @Composable
 fun SettingsScreen(
     cloudBackupEnabled: Boolean,
     onCloudBackupEnabledChange: (Boolean) -> Unit,
+    onAttribution: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -56,22 +58,15 @@ fun SettingsScreen(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            BlockCard {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = stringResource(R.string.settings_backup_title),
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.weight(1f).padding(end = 12.dp),
-                    )
+            SettingsRow(
+                title = stringResource(R.string.settings_backup_title),
+                trailing = {
                     BlockToggle(
                         checked = cloudBackupEnabled,
                         onCheckedChange = onCloudBackupEnabledChange,
                     )
-                }
-            }
+                },
+            )
 
             // Amber, the same convention `BatteryOptimizationNotice` and
             // `LastFaultCell`'s amber rows use: "worth knowing", not a fault in
@@ -95,6 +90,11 @@ fun SettingsScreen(
                     )
                 }
             }
+
+            SettingsRow(
+                title = stringResource(R.string.settings_attribution_title),
+                onClick = onAttribution,
+            )
         }
     }
 }

@@ -2319,3 +2319,51 @@ being configured in the build file, and its absence leaves the release build
 unsigned instead of failing. That is what keeps a release-variant build
 runnable by a contributor who has no key. Full procedure, and the reasons
 behind the choices, in `docs/releasing.md`.
+
+## Attribution
+
+`Screen.Attribution` is the app's first two-level destination: it is reached
+from a row on `Screen.Settings`, not from the rule list's overflow the other
+three destinations share, so it is also the first whose own `backTarget` is
+not `RuleList`. `backTarget`'s KDoc states the exception; `ScreenSaver` and
+`MainActivity.Destination` each got a real branch for it rather than falling
+back to a default, the same way every other `Screen` case has to.
+
+`AttributionScreen` is stateless, the same reasoning `SettingsScreen` gives for
+itself: nothing on it changes while it is open. It takes its dependency list
+and its licence text as parameters rather than reading `shippedDependencies`
+and a raw resource itself, so its own instrumented test can run against fake
+values that a real dependency bump cannot break. `AttributionHost`, beside
+`SettingsHost` in `MainActivity.kt`, supplies the real ones: the version from
+`packageManager.getPackageInfo`, since `buildFeatures.buildConfig` is off and
+turning it on for one string is not worth it, and the licence text from
+`res/raw/license_apache_2_0.txt`, read once with `openRawResource`. That file
+is one copy of the Apache 2.0 text for every dependency the screen lists, not
+one copy per library: the shipped set is very probably all one licence, so a
+copy each would be several near-identical blocks with no reader who benefits.
+
+**No network call.** Trigly is meant to run on an offline or de-Googled phone,
+so a page whose content is a link to a licence elsewhere would be useless
+exactly where it matters. The licence text ships in the APK instead.
+
+`shippedDependencies`, in `Attribution.kt`, is a hand-written list today and
+says so in its own KDoc: it cannot see a dependency added or bumped anywhere
+in the project, only what someone remembered to update here. The plan that
+replaces it is `app.cash.licensee`, applied to `:ui` only. Because `:ui`
+depends on every other module as a project dependency, its release runtime
+classpath already holds everything the APK ships, including
+`androidx.compose.material:material-icons-core`, which arrives transitively
+through `material3` and has no entry of its own in
+`gradle/libs.versions.toml`. Licensee checks each artifact's declared licence
+against an allow list and fails the build on anything else, which is the same
+shape as the checks `docs/releasing.md` already keeps for a release. A
+generated task turns its report into the list this screen reads, so a
+dependency that changes licence, or one that is merely added, cannot go
+unnoticed the way a hand-written list can.
+
+`SettingsRow`, in `Blocks.kt`, is the shared shape behind every row on
+`SettingsScreen`: a title, and whatever the row shows or does on its trailing
+edge. The backup switch and the attribution row are both built on it, and its
+signature is deliberately wide enough for a third shape neither of them uses
+yet — a row that shows a current value and opens a picker to change it — so
+that caller does not have to reshape the row again.
