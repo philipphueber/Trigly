@@ -177,18 +177,26 @@ keep rules. The note is in that file too.
 Signed-ness and version are both worth checking, because both fail quietly.
 `apksigner` is a shell wrapper that calls bare `java`, so it needs a JDK on
 `PATH` and not merely a `JAVA_HOME`: otherwise it dies with
-`exec: java: not found`, which looks nothing like a signing problem:
+`exec: java: not found`, which looks nothing like a signing problem. This is
+the same family of trap `scripts/setup-signing.sh` solves for `keytool`, and
+`scripts/smoke-static.sh` (below) searches for a JDK the same way.
 
-    export PATH="<jdk17>/bin:$PATH"
+`apksigner verify --print-certs` must print a certificate: "DOES NOT VERIFY"
+is the unsigned outcome described above. Beyond that, it must be the *right*
+certificate. A certificate is the public half of the signing key, not a
+secret: it ships inside every signed APK for anyone to read, so stating the
+expected value here costs nothing and catches a build signed by the wrong key
+before it goes out. The real Trigly key's fingerprint is:
 
-    $ANDROID_HOME/build-tools/<ver>/apksigner verify --print-certs \
-        dist/trigly-<version>.apk
-    $ANDROID_HOME/build-tools/<ver>/aapt2 dump badging \
-        dist/trigly-<version>.apk | head -1
+    82adfe55e213ca3df6d0eb905042215c24afe9ccb1b5e53a57d1f01603a5cfdb
 
-The first must print a certificate: "DOES NOT VERIFY" is the unsigned outcome
-described above. The second must show the `versionCode` and `versionName` the
-build file declares.
+Anything else, including the throwaway test key this project replaced early on
+(fingerprint starting `60c73cd5...`), means the artifact was not signed by the
+key people's installs already trust.
+
+`aapt2 dump badging` must show the `versionCode` and `versionName` the build
+file declares. `scripts/smoke-static.sh` runs both of these checks, as the
+first thing it does.
 
 ## Smoke testing the release build
 
@@ -202,51 +210,50 @@ Do the static half first. It costs about a minute, and it names a cause instead
 of only observing a crash: a missing class in `classes.dex` and a crash on
 launch are the same fault, but the first one says which class.
 
-    APK=dist/trigly-<version>.apk
+    ./scripts/smoke-static.sh <version>
+
+That one command runs the artifact and signing check above plus the four
+checks below, and prints PASS or FAIL for each. Run it with `--allow-unsigned`
+if there is no signing key on this machine: `dist/` then holds
+`trigly-<version>-unsigned.apk` instead, which is the expected outcome for a
+contributor without a key (see Signing, above), and the flag runs the checks
+against that file anyway, while its output says plainly that signing itself
+was not verified. Without the flag, an unsigned artifact is a hard failure, on
+purpose: a smoke test of the wrong file proves nothing. `--help` prints the
+rest of this usage information from the script itself.
+
+What follows is what the script checks and why, for understanding its output.
+The exact commands live in `scripts/smoke-static.sh`; this section is not the
+place to copy them from by hand any more.
 
 **1. Did R8 keep the components the manifest names?** They are instantiated by
-the platform, by name, so a rename here is fatal and silent until launch.
-
-    unzip -o -q $APK "classes*.dex" -d /tmp/dex
-    strings /tmp/dex/*.dex \
-        | grep -E "EngineService|BootReceiver|TriglyApp|MainActivity"
-
-Every dex file, not `classes.dex` alone. 0.0.11 fits in one, and the day it does
-not, a check that reads only the first file reports a missing class that is in the
-second one.
+the platform, by name, so a rename here is fatal and silent until launch. The
+script reads every dex file, not `classes.dex` alone: 0.0.11 fits in one, and
+the day it does not, a check that reads only the first file would report a
+missing class that is in the second one.
 
 **2. Did the stored `type` strings survive?** This is the check that matters
 most, because a rule names its trigger and its action by string, and R8 cannot
-follow a string. Factory classes get renamed, which is correct and expected. The
-strings must not go. Check the whole set rather than a sample, since it costs the
-same:
+follow a string. Factory classes get renamed, which is correct and expected.
+The strings must not go, and the script checks the whole declared set rather
+than a sample, since it costs the same. 0.0.11 declares 61 of these strings,
+and all 61 are in the APK.
 
-    grep -rhoE 'const val TYPE = "[a-z0-9_]+"' triggers/src/main actions/src/main \
-        | grep -oE '"[a-z0-9_]+"' | tr -d '"' | sort -u > /tmp/types.txt
-    strings /tmp/dex/*.dex | sed -e 's/^[[:blank:]]*//' | sort -u > /tmp/dex.txt
-    comm -23 /tmp/types.txt /tmp/dex.txt
-
-Empty output is the pass. 0.0.11 declares 61 of these strings, and all 61 are in
-the APK.
-
-**Strip the line before you anchor a match to it.** A dex file stores each string
-with a length prefix byte, and `strings` keeps that byte on the line when the
-byte happens to be printable. A type string of exactly nine characters has length
-`0x09`, which is a tab, so `grep -E "^auto_sync$"` finds nothing and reads as "R8
-dropped it". `auto_sync`, `gps_state`, `nfc_state` and `set_alarm` are all nine
-characters long, and all four are present. The `sed` above is what makes the
-comparison honest. The same byte is why check 1 does not anchor either: a class
-name arrives as `%Lapp/phueber/trigly/ui/EngineService;`, prefix included.
+**Strip the line before you anchor a match to it.** A dex file stores each
+string with a length prefix byte, and `strings` keeps that byte on the line
+when the byte happens to be printable. A type string of exactly nine
+characters has length `0x09`, which is a tab, so anchoring `^auto_sync$`
+directly against `strings` output finds nothing and reads as "R8 dropped it".
+`auto_sync`, `gps_state`, `nfc_state` and `set_alarm` are all nine characters
+long, and all four are present. The script strips that byte before comparing,
+which is what makes the comparison honest. The same byte is why check 1 does
+not anchor either: a class name arrives as
+`%Lapp/phueber/trigly/ui/EngineService;`, prefix included.
 
 **3. Did R8 delete an app class outright?** In `usage.txt` a line **with** a
 trailing colon means the class was kept and only some members went. A line
-without one is a full removal.
-
-    grep -E "^app\.phueber\.trigly" ui/build/outputs/mapping/release/usage.txt \
-        | grep -v ":$"
-
-Most of what this prints is correct, and reading it needs the list of shapes that
-hold nothing at runtime:
+without one is a full removal. Most of what this prints is correct, and
+reading it needs the list of shapes that hold nothing at runtime:
 
 - an `object` or a `$Companion` that holds only `const val`s, because the
   compiler puts the value at every use and leaves the holder empty. This is the
@@ -261,20 +268,29 @@ hold nothing at runtime:
 - an in memory implementation of a store or a repository, for the same reason:
   the app builds the Room one, and only a test builds the other.
 
-Anything outside those shapes needs an explanation before the tag.
+Anything outside those shapes needs an explanation before the tag. The script
+filters what it can, prints only what is left, and asks for an eye rather than
+deciding on its own: this is the one check where a pattern that is too broad
+would hide a real removal, so `scripts/smoke-static.sh` errs toward showing a
+line rather than filtering it, and its own comments say which bullet above
+each of its patterns implements.
 
 **4. Did `shrinkResources` keep what only code refers to?** A resource named
-from Kotlin and from no layout is the one it can drop. The engine's notification
-is all of that: its channel strings, its plural, and its icon.
+from Kotlin and from no layout is the one it can drop. The engine's
+notification is all of that: its channel strings, its plural, and its icon.
+The script asserts each of the six resources below is present by name, rather
+than only counting matches, since a stale count could pass while the one
+resource that actually matters is gone:
+`ic_notification`, `engine_watching`, `engine_channel_name`,
+`engine_channel_description`, `engine_starting`, `engine_none_started`. A
+dropped one costs the foreground service its notification, which the platform
+then refuses, which stops every rule.
 
-    $ANDROID_HOME/build-tools/<ver>/aapt2 dump resources $APK \
-        | grep -E "engine_|ic_notification"
+Then the dynamic half, on a device or an emulator image. It is still by hand:
+it needs a device, a reboot and an in place upgrade, none of which a script
+running on the build machine can do for you.
 
-Six lines in 0.0.11: `ic_notification`, `engine_watching`, and the four
-`engine_` strings. A dropped one costs the foreground service its notification,
-which the platform then refuses, which stops every rule.
-
-Then the dynamic half, on a device or an emulator image.
+    APK=dist/trigly-<version>.apk
 
 **5. It starts.**
 

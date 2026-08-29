@@ -550,6 +550,19 @@ of in shell. A JVM test can read `classes.dex` from the release APK and check
 that every registered `type` string is still present, which is check 2 of the
 smoke test and the one failure that would break every saved rule at once.
 
+`scripts/smoke-static.sh` now runs the static half by machine instead of by
+hand: the artifact and signing check, plus checks 1 to 4, with `PASS`/`FAIL`
+per check instead of prose stating a number. That is a step toward this item,
+not the item itself. It is shell, not the JVM test this item asks for, so it
+still runs only when a person chooses to run it, not as part of the pre-merge
+gate; and check 2, its version of "cheaper and worth more than it costs"
+above, only proves that every declared `type` string is *present* in the
+release `classes.dex`. It does not walk every trigger and action *through*
+the release build the way `ConfigSchemaContractTest` already does in debug,
+which is the strong half this item still asks for. What is still missing is
+exactly that: a JVM test, in the suite, exercising every registered factory
+against the release APK.
+
 ---
 
 ### T22 `round`'s second argument is not bounded
