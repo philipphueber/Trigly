@@ -47,6 +47,7 @@ fun triggerFactories(
     // Time
     IntervalTriggerFactory(scheduler),
     SolarTriggerFactory(scheduler),
+    TimeOfDayTriggerFactory(scheduler, AndroidTimeZoneChanges(context)),
 
     // Condition only — no event stream, so it can never start a rule. It lives in
     // this list anyway because a condition *is* a trigger, asked rather than
