@@ -31,8 +31,24 @@ While building or changing something, run only the tests that cover it — the
 relevant test labels, the one relevant unit-test file, the one or two
 instrumented specs.
 
-Run the complete set **only as the gate immediately before merging**. That check
-is not optional; only its frequency is. Report the counts.
+Run the complete set in **two cases only**: cutting a release, or a change that
+touched everything. A change touches everything when it moves something every
+module depends on, such as a `:core` interface every component implements, a
+Gradle or version-catalog change, or a rename that swept the tree.
+
+**Everything else runs a partial sweep**: the tests that cover what changed,
+plus the tests of anything that reads it, on the two API levels. A whole-project
+connected run costs about thirteen minutes and spends nearly all of it on tests
+that could not have been affected by the diff. Time spent there is time not
+spent on the failure that actually bites.
+
+Report the counts either way, and **say which of the two you ran**. A partial
+sweep reported as if it were the full set is worse than either, because the next
+person cannot tell what was covered.
+
+Choosing the sweep is a judgement, so write down what it covered and why in the
+merge. If the honest answer is that you cannot name what the change could break,
+that is the signal to run the full set rather than to guess.
 
     unit (JVM)     ./gradlew test
                    ./gradlew :core:testDebugUnitTest --tests "*TriggerEngine*"
@@ -45,8 +61,9 @@ is not optional; only its frequency is. Report the counts.
 Instrumented tests carry the weight here, not unit tests. The failure mode that
 actually bites is "works on device X, breaks on device Y" — OEMs differ in how
 aggressively they apply battery optimization to background execution, and no
-JVM test can see that. The pre-merge gate means connected tests on at least two
-devices or API levels, not one emulator.
+JVM test can see that. **Two API levels is the part that does not shrink.** A
+partial sweep narrows which tests run, never how many devices they run on: one
+emulator cannot see the failure this whole posture exists for.
 
 **`--no-parallel` is load-bearing for the whole-project connected run.**
 `gradle.properties` sets `org.gradle.parallel=true`, so `:triggers` and `:ui`
