@@ -246,6 +246,9 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
     testImplementation(libs.junit)
+    // Real org.json, because android.jar's is a stub that throws; see
+    // UpdateCheckTest, which parses a real GitHub API response shape.
+    testImplementation(libs.org.json)
 
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.kotlinx.coroutines.test)
@@ -280,9 +283,13 @@ licensee {
  * string: `groupIntoProjects`, also in `Attribution.kt`, folds these into the
  * handful of projects `AttributionScreen` actually shows, and it groups by
  * `groupId` alone. This task stays a plain per-artifact dump on purpose: the
- * grouping decision, and the decision on what to do with a groupId nobody
- * claims, both live in ordinary Kotlin in `Attribution.kt` where a JVM test
- * can reach them, not here where nothing but a full build can.
+ * grouping decision, which URL a project's row opens, and the decision on
+ * what to do with a groupId nobody claims, all live in ordinary Kotlin in
+ * `Attribution.kt` where a JVM test can reach them, not here where nothing
+ * but a full build can. `scm.url`, one per artifact, is carried across raw
+ * for the same reason: `mostCommonUrl` in `Attribution.kt` is what chooses
+ * one URL per project, and it needs every artifact's own URL to choose from,
+ * stale outliers included.
  */
 val generateAttributionList by tasks.registering {
     group = "build"
@@ -309,7 +316,10 @@ val generateAttributionList by tasks.registering {
             @Suppress("UNCHECKED_CAST")
             val spdxLicenses = artifact["spdxLicenses"] as List<Map<String, Any?>>
             val license = spdxLicenses.joinToString(", ") { it["name"] as String }
-            "    Attribution(\"$groupId\", \"$artifactId\", \"$license\")"
+            @Suppress("UNCHECKED_CAST")
+            val scm = artifact["scm"] as Map<String, Any?>?
+            val scmUrlLiteral = (scm?.get("url") as String?)?.let { "\"$it\"" } ?: "null"
+            "    Attribution(\"$groupId\", \"$artifactId\", \"$license\", $scmUrlLiteral)"
         }
 
         val outputFile = outputDir.get().file("GeneratedAttribution.kt").asFile

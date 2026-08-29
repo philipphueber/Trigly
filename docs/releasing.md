@@ -301,14 +301,6 @@ resource that actually matters is gone:
 dropped one costs the foreground service its notification, which the platform
 then refuses, which stops every rule.
 
-`res/raw` is a resource type this app had never shipped before the
-Attribution screen. `isShrinkResources` keeps `license_apache_2_0.txt` only
-because `AttributionScreen` reads it through `R.raw`, and nothing in this
-check asserts that on its own. Confirm once, by hand, that
-`aapt2 dump resources` still lists `raw/license_apache_2_0` in the built
-artifact; `scripts/smoke-static.sh` already prints a note when it finds it,
-but a note is not a failing check.
-
 Then the dynamic half, on a device or an emulator image. It is still by hand:
 it needs a device, a reboot and an in place upgrade, none of which a script
 running on the build machine can do for you.

@@ -403,9 +403,6 @@ else
 fi
 MATCHING="$(grep -cE "engine_|ic_notification" <<< "${RESOURCES}")"
 note "${MATCHING} matching resource(s) total (informational; the count is not the assertion)"
-if grep -q "license_apache" <<< "${RESOURCES}"; then
-    note "license_apache raw resource present (only relevant once Attribution ships)"
-fi
 
 echo
 if [ "${fails}" -eq 0 ]; then

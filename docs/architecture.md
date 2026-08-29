@@ -2401,22 +2401,47 @@ not `RuleList`. `backTarget`'s KDoc states the exception; `ScreenSaver` and
 `MainActivity.Destination` each got a real branch for it rather than falling
 back to a default, the same way every other `Screen` case has to.
 
-`AttributionScreen` is stateless, the same reasoning `SettingsScreen` gives for
-itself: nothing on it changes while it is open. It takes its project list
-and its licence text as parameters rather than reading `shippedDependencies`
-and a raw resource itself, so its own instrumented test can run against fake
-values that a real dependency bump cannot break. `AttributionHost`, beside
-`SettingsHost` in `MainActivity.kt`, supplies the real ones: the version from
-`packageManager.getPackageInfo`, since `buildFeatures.buildConfig` is off and
-turning it on for one string is not worth it, and the licence text from
-`res/raw/license_apache_2_0.txt`, read once with `openRawResource`. That file
-is one copy of the Apache 2.0 text for every project the screen lists, not
-one copy per project: the shipped set is very probably all one licence, so a
-copy each would be several near-identical blocks with no reader who benefits.
+The screen and the settings row that opens it are both called "Used
+components", not "Open source licenses": every row on it is a link to a
+project's own page, not only a licence notice, and the old name described
+only the licence half of what it does.
 
-**No network call.** Trigly is meant to run on an offline or de-Googled phone,
-so a page whose content is a link to a licence elsewhere would be useless
-exactly where it matters. The licence text ships in the APK instead.
+`AttributionScreen` is stateless for its own data, the same reasoning
+`SettingsScreen` gives for itself: nothing about the project list, the
+licence link or the repository link changes while the screen is open. It
+takes its project list and two fixed URLs as parameters rather than reading
+`shippedDependencies` and a hardcoded string itself, so its own instrumented
+test can run against fake values that a real dependency bump cannot break.
+`AttributionHost`, beside `SettingsHost` in `MainActivity.kt`, supplies the
+real ones: the version from `packageManager.getPackageInfo`, since
+`buildFeatures.buildConfig` is off and turning it on for one string is not
+worth it, and two constants, the Apache 2.0 licence's own canonical URL and
+Trigly's own repository URL (see the License section of `README.md`).
+
+**Every link opens through one callback.** A project's row, the licence row
+and the repository row all call the same `onOpenUrl: (String) -> Unit`; the
+screen does not need to tell them apart, only the host does. `MainActivity
+.openUrl` is that host: `startActivity(Intent(Intent.ACTION_VIEW, ...))`,
+wrapped in the same `runCatching`-and-`Toast` shape `shareSingle` already
+uses for its own external launch, since nothing guarantees a browser is
+installed and a link that silently does nothing is the failure this project
+keeps designing against.
+
+**The licence text is a link now, not a bundled file.**
+`res/raw/license_apache_2_0.txt` is gone, and `res/raw` is a resource type
+this app no longer ships at all; the licence row opens
+`https://www.apache.org/licenses/LICENSE-2.0` instead. One row covers every
+project the screen lists, not one per project: the shipped set is all Apache
+2.0, `licensee { allow("Apache-2.0") }` in `ui/build.gradle.kts` enforces
+that, so a copy each would be several identical links. This reverses an
+earlier decision, on purpose: the licence used to ship in the APK because a
+link would be useless on an offline phone, which is still true of an idle
+scroll through the screen. It is not true of a tap: a project's own page and
+Trigly's own repository were always going to be external links the moment
+"link to the project" was the point of this screen, so a licence link costs
+nothing a phone without a browser or without data was not already going to
+find unreachable. `MainActivity.openUrl` reports that honestly rather than
+crashing or staying silent, the same as every other link here.
 
 `shippedDependencies`, generated rather than hand-written by `app.cash.licensee`,
 applied to `:ui` only. Because `:ui` depends on every other module as a project
@@ -2439,11 +2464,11 @@ ui-graphics-android` beside 30 more lines that all mean "Jetpack Compose" tells
 a reader nothing. `groupIntoProjects`, also in `Attribution.kt`, folds the
 per-artifact list down into five: AndroidX, Kotlin, Kotlin Coroutines, Guava,
 and JetBrains Java Annotations, each carrying how many artifacts of it this
-build actually ships, so the screen does not read as though Trigly ships one
-file of AndroidX. `AttributionHost` calls it once, on the real
-`shippedDependencies`; `AttributionScreenTest` still passes `AttributionScreen`
-fake `AttributionProject` values directly, so grouping logic is not part of
-what that test can break or be broken by.
+build actually ships and the URL a tap on its row opens, so the screen does
+not read as though Trigly ships one file of AndroidX. `AttributionHost` calls
+it once, on the real `shippedDependencies`; `AttributionScreenTest` still
+passes `AttributionScreen` fake `AttributionProject` values directly, so
+grouping logic is not part of what that test can break or be broken by.
 
 The fold is keyed on `groupId`, never on `scm.url` even though every artifact
 in licensee's report carries one: four AndroidX artifacts
@@ -2453,15 +2478,32 @@ carry a stale `http://source.android.com` URL left from before they moved out
 of AOSP into Jetpack. Grouping by `scm.url` would split AndroidX in two and
 label part of it as AOSP; `groupId` does not lie for these four.
 
+**Which URL a project's row opens is chosen, not taken from whichever
+artifact `groupBy` happens to list first.** `mostCommonUrl`, in
+`Attribution.kt`, picks the most common non-null `scm.url` among a project's
+own artifacts, a tie broken by the URL's own text so the choice never depends
+on map or list iteration order. "First" is exactly the stale-URL trap above:
+84 AndroidX artifacts agree on the real project page and four do not, and
+picking whichever one a fold lists first would sometimes send AndroidX's row
+to `http://source.android.com` instead. `Attribution.scmUrl`, generated
+alongside `groupId`, `artifactId` and `license`, is what `mostCommonUrl` has
+to choose from; the choice itself stays in `Attribution.kt`, not in
+`generateAttributionList`, the same reasoning that already keeps the grouping
+decision out of that Gradle task.
+
 An artifact whose `groupId` matches none of the five shows up under its own
 `groupId` as the project name, in `groupIntoProjects`, rather than vanishing
 from the page or being folded into the wrong project. Deliberately a soft
 degrade rather than a throw: `AttributionHost` calls `groupIntoProjects` to
 render the screen, so a throw there would crash the app the moment somebody
-opened Open source licenses, taking away the one thing that screen exists to
+opened Used components, taking away the one thing that screen exists to
 show them, in exchange for catching a problem that a row reading a raw
 group id already reports honestly. Nothing vanishes and nothing is
 mislabelled either way; the only difference is whether the app still works.
+Such a row can still have a URL, since `mostCommonUrl` runs over whatever
+`scm.url` its own artifacts carry regardless of whether the group is a known
+project; `AttributionScreen` disables the row's click instead of omitting the
+handler only when that URL turns out to be null too.
 
 The strictness that would otherwise be lost lives in the test instead.
 `GeneratedAttributionTest`'s `nothing is unmapped` calls `groupIntoProjects`
@@ -2473,8 +2515,55 @@ before a release, without the production code ever needing to crash to prove
 it.
 
 `SettingsRow`, in `Blocks.kt`, is the shared shape behind every row on
-`SettingsScreen`: a title, and whatever the row shows or does on its trailing
-edge. The backup switch and the attribution row are both built on it, and its
-signature is deliberately wide enough for a third shape neither of them uses
-yet — a row that shows a current value and opens a picker to change it — so
-that caller does not have to reshape the row again.
+`SettingsScreen`, and behind the repository and licence rows on
+`AttributionScreen` too: a title, and whatever the row shows or does on its
+trailing edge. A project's own row is not built on it, since it also needs an
+artifact count and a licence name on the trailing edge that `SettingsRow` has
+no slot for, so it is a plain `Surface` instead, styled to match. The backup
+switch, the attribution row on `SettingsScreen`, and these two rows are all
+built on `SettingsRow`, and its signature is deliberately wide enough for a
+fourth shape none of them use yet — a row that shows a current value and
+opens a picker to change it — so that caller does not have to reshape the row
+again.
+
+## Update check
+
+One button on `AttributionScreen`, below the version: "Check for updates".
+Pressing it is the only thing that ever calls `checkForUpdate`, in
+`UpdateCheck.kt` — there is no scheduler, no `WorkManager` job and nothing
+else in this codebase that calls it. A person presses a control, Trigly looks
+once, and nothing about this app phones home any other way; see that file's
+own KDoc, which says so directly for the next person who goes looking for
+where else it might run.
+
+`android.permission.INTERNET` did not need declaring for this: `:actions`
+already declares it in `actions/src/main/AndroidManifest.xml`, for the HTTP
+action, and the manifest merger folds it into the app manifest already.
+Nothing changed there.
+
+`checkForUpdate` reads GitHub's own "latest release" API
+(`api.github.com/repos/philipphueber/Trigly/releases/latest`), the same
+information anyone visiting the releases page already sees, over
+`HttpURLConnection` — the same client `HttpRequestAction` uses in `:actions`,
+for the same reason: one caller does not justify adding OkHttp.
+`parseLatestReleaseTag` reads the response's `tag_name` field with
+`org.json`, the same library `RuleJson` uses in `:core` for the same reason:
+android.jar's own copy is a stub that throws at runtime, so `ui/build.gradle
+.kts` adds a `testImplementation` of the real one, for `UpdateCheckTest`.
+`isNewerVersion` compares each dot-separated part of a version as a number,
+not as text — `"0.10.0" < "0.9.0"` by plain string comparison, backwards for
+a version number — and treats a missing or non-numeric part as zero rather
+than failing, since a malformed tag must not turn a button press into a
+crash.
+
+A result is one of three, `UpdateCheckResult` in `UpdateCheck.kt`: up to
+date, a newer version is available (carrying its number), or the check
+failed (carrying why). The third exists on purpose: a check that silently
+fails offline and says nothing is worse than no check at all.
+
+The button's own "checking…" flag and its last result live in
+`AttributionScreen`'s local `remember`ed state, the same shape
+`TextPatternField`'s own `testing` flag uses for its "Test" button, not a
+ViewModel: nothing here is data worth surviving a configuration change for,
+and a stale "checking…" after a rotation is one more press away from
+correct.

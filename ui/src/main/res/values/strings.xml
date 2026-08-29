@@ -163,17 +163,35 @@
       "Settings": a row's label and a screen's own header answer different
       questions, and a future wording change to one must not silently change
       the other.
+
+      "Used components", not "Open source licenses": the screen credits the
+      projects Trigly is built from, and a tap opens each one's own page.
+      Naming the licence, which is what the old text did, described only one
+      of the two things the screen now does.
     -->
-    <string name="settings_attribution_title">Open source licenses</string>
+    <string name="settings_attribution_title">Used components</string>
 
     <!--
-      AttributionScreen: the app's own name, version and licence, then every
-      dependency it ships and the licence text they share. See
+      AttributionScreen: the app's own name, version and licence, a link to
+      Trigly's own repository, every project it ships code from with a link
+      to each one's own page, and a link to the licence text they share. See
       AttributionScreen.kt and Attribution.kt.
     -->
-    <string name="attribution_title">Open source licenses</string>
+    <string name="attribution_title">Used components</string>
     <string name="attribution_version">Version %1$s</string>
     <string name="attribution_license">This app uses the Apache License 2.0.</string>
+    <!--
+      One button, pressed by a person, that looks once at GitHub's own
+      release list. See UpdateCheck.kt: nothing calls checkForUpdate but this
+      button, on a schedule or otherwise.
+    -->
+    <string name="attribution_check_for_updates">Check for updates</string>
+    <string name="attribution_update_checking">Checking…</string>
+    <string name="attribution_up_to_date">You have the latest version.</string>
+    <string name="attribution_update_available">Version %1$s is available.</string>
+    <string name="attribution_update_check_failed">Could not check for updates. %1$s</string>
+    <!-- Opens this app's own repository. See MainActivity.AttributionHost. -->
+    <string name="attribution_repository_title">Trigly on GitHub</string>
     <string name="attribution_dependencies_heading">Open source components</string>
     <!-- Under a project's name on AttributionScreen: how many Maven artifacts
          of that project this build actually ships. See groupIntoProjects, in
@@ -182,5 +200,15 @@
         <item quantity="one">%1$d artifact</item>
         <item quantity="other">%1$d artifacts</item>
     </plurals>
-    <string name="attribution_license_heading">Apache License 2.0</string>
+    <!--
+      A row that opens the licence text in a browser, not a heading any more:
+      see AttributionScreen.kt for why the text is no longer bundled.
+
+      "License text", not "Apache License 2.0": attribution_license just above
+      already says the licence by name, and every project row's own trailing
+      text says "Apache License 2.0" too, so reusing that phrase here would
+      give AttributionScreenTest three nodes with the same exact text to tell
+      apart instead of one.
+    -->
+    <string name="attribution_license_link_title">License text</string>
 </resources>
