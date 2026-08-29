@@ -9,10 +9,10 @@ import android.content.pm.PackageManager
  * colour scheme is chosen.
  *
  * **Why an alias per preset costs its own file, but not its own case here.**
- * An `activity-alias` cannot be declared at runtime, so the manifest holds six
- * of them - one `enabled="true"` (Orange, the install default) and five
- * `enabled="false"`. Everything in this file is a pure function of a
- * [ColorPreset.id], so a seventh preset costs one more manifest entry and
+ * An `activity-alias` cannot be declared at runtime, so the manifest holds
+ * nine of them - one `enabled="true"` (Orange, the install default) and
+ * eight `enabled="false"`. Everything in this file is a pure function of a
+ * [ColorPreset.id], so each new preset costs one more manifest entry and
  * nothing here - see `PresetSchemes.kt`'s own note on growing the list.
  *
  * **"Follow the system" and Default both mean the orange icon.** Neither has
@@ -27,8 +27,8 @@ private const val ORANGE_ALIAS_ID = "orange"
 /**
  * The manifest name of the `activity-alias` for a preset id: `.LauncherAliasOrange`,
  * `.LauncherAliasLime`, and so on. A pure function of [id] rather than a
- * lookup table, so the six existing entries never need touching for a
- * seventh - only the manifest, which must name it in exactly this shape.
+ * lookup table, so the existing entries never need touching for one more
+ * preset - only the manifest, which must name it in exactly this shape.
  */
 fun launcherAliasName(id: String): String = ".LauncherAlias" + id.replaceFirstChar { it.uppercaseChar() }
 
