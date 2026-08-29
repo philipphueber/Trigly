@@ -407,31 +407,53 @@ was not expressible, and with no field on the block there was nothing to suggest
 otherwise. Removing an unusable field is only half the job; the other half is
 offering the usable one.
 
-It now selects the way the button action does, through the same
-`chooseNotification` in `:core`: an **app** chosen in the editor means that app's
-newest live notification, and no app chosen means the one the trigger reported.
-The fallback stays the default, because "when my bank notifies me, dismiss it"
-should need no configuration.
+An app-only selector was the first fix, through the same `chooseNotification` the
+button action next door uses. It was not the whole answer: an app names every
+notification a chatty app posts, and the reminder someone actually wants is often
+the one with a particular word in it, not merely the newest from that app. The
+action now takes an **app**, a **text**, both, or neither, matched the same way
+`notification_posted` matches text: against the title and body joined
+(`notificationHaystack` in `:core`), so a search can straddle both and a person
+never has to guess which one the word they remember was in.
 
-Three decisions worth keeping:
+Filling in both fields narrows the choice; it does not widen it. A notification
+has to satisfy the app filter **and** the text filter to be picked, the same
+reading `TextFilter` already gives every other trigger that takes more than one
+condition. Reading it the other way (an app **or** a matching text) would make
+adding a second filter loosen the rule instead of tightening it, which is not
+what anyone filling in a second field means. With neither field set, the fallback
+from before is unchanged: the notification that fired the rule, so "when my bank
+notifies me, dismiss it" still needs no configuration.
 
-- **An app picker, not a capture off a live notification.** The button action has
-  to capture, because buttons only exist while the notification is on screen.
-  Dismissing needs nothing but the app, so requiring the notification to be
-  showing while the rule is written would be a restriction with no reason behind
-  it.
-- **A named app never falls back.** If that app has nothing showing, the action
-  fails and says so. Quietly dismissing the trigger's notification instead would
+Decisions worth keeping:
+
+- **An app and a text field, not a capture off a live notification.** The button
+  action has to capture, because buttons only exist while the notification is on
+  screen. Dismissing needs nothing but the app and the text, so requiring the
+  notification to be showing while the rule is written would be a restriction
+  with no reason behind it.
+- **A named app or text never falls back.** If nothing showing matches what was
+  filled in, the action fails and says so, naming whichever of the app and the
+  text did not match. Quietly dismissing the trigger's notification instead would
   be the wrong notification, reported as success.
-- **With no app, the payload key is used directly: no lookup.** The key already
-  names one exact notification. Routing it through the active list, as the button
-  action must, would add a way to fail that dismissing by key does not have: a
-  notification already gone, or a list that came back empty, would become
-  "nothing to dismiss" instead of a harmless no-op.
+- **With neither field set, the payload key is used directly: no lookup.** The
+  key already names one exact notification. Routing it through the active list,
+  as the button action must, would add a way to fail that dismissing by key does
+  not have: a notification already gone, or a list that came back empty, would
+  become "nothing to dismiss" instead of a harmless no-op.
+- **A refused pattern reads as no match, not as a failure of its own.** A regex
+  that `RegexGuard` abandons or already knows runs away answers "not this one"
+  for that notification, the same as every other `TextFilter` caller. The
+  selection can still end in the ordinary "nothing showing" failure; it never
+  throws and never dismisses the wrong notification because a pattern ran long.
 
 A `key` stored by a rule saved when the text box existed is still read and still
-wins. It will usually be stale (that is why the field went), but honouring it
-keeps such a rule behaving as it did rather than silently retargeting it.
+wins over the app and the text both. It will usually be stale (that is why the
+field went), but honouring it keeps such a rule behaving as it did rather than
+silently retargeting it. A rule saved with only the app field set, before the
+text field existed, keeps working exactly as it did too: an absent text key
+reads as "any text", the same empty-filter meaning every other text field in
+this app already has.
 
 ### Stopping an alert when the notification goes away
 
