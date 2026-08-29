@@ -131,10 +131,10 @@ fun TriggerNode.mapSpecs(transform: (ComponentSpec) -> ComponentSpec): TriggerNo
  * richer type involved. What changed is underneath: this now delegates to
  * [holdsAt], which builds a full [TriggerTrace] and this simply reads
  * [TriggerTrace.held] off the root of it, discarding the rest. That was chosen
- * over a second, hand-written traversal that only computes a `Boolean`,
- * because short-circuiting here is a promise, not an optimisation — see
- * [TriggerNode.Group] — and two independent copies of that promise are two
- * places for it to quietly drift apart. One traversal, built once, is what
+ * over a second, hand-written traversal that only computes a `Boolean`.
+ * Short-circuiting here is a promise, not an optimisation, per [TriggerNode.Group],
+ * and two independent copies of that promise are two places for it to quietly
+ * drift apart. One traversal, built once, is what
  * [GateTest]'s existing short-circuit and empty-case tests now exercise
  * directly, since they call [holds], which calls it.
  */
@@ -178,7 +178,7 @@ private suspend fun TriggerNode.holdsAt(
     // Short-circuits, and that is a promise rather than an optimisation: a
     // location check costs a position read, so a group whose earlier child has
     // already decided the answer must not pay for the rest. A child this loop
-    // never reaches is marked with notConsulted() rather than asked — see its
+    // never reaches is marked with notConsulted() rather than asked. See its
     // own KDoc for why that must not call stateOf either.
     is TriggerNode.Group -> {
         val traces = mutableListOf<TriggerTrace>()
@@ -230,7 +230,7 @@ private fun TriggerNode.notConsulted(): TriggerTrace = when (this) {
  * A record of one evaluation of a [TriggerNode], shaped exactly like the tree
  * it came from: a [Leaf] for every [TriggerNode.One], a [Group] for every
  * [TriggerNode.Group]. Built by [TriggerNode.traced], which is the same
- * traversal [TriggerNode.holds] runs — see that function's KDoc for why this
+ * traversal [TriggerNode.holds] runs. See that function's KDoc for why this
  * is one implementation and not two.
  *
  * This is what lets a person see which leaf of an `ALL` said no, which leaf of
@@ -241,7 +241,7 @@ private fun TriggerNode.notConsulted(): TriggerTrace = when (this) {
 sealed interface TriggerTrace {
     /**
      * Whether this node's part of the tree was satisfied, or `null` if it was
-     * never consulted at all — see [Group.held] and [LeafOutcome.NOT_CONSULTED].
+     * never consulted at all. See [Group.held] and [LeafOutcome.NOT_CONSULTED].
      */
     val held: Boolean?
 
@@ -258,7 +258,7 @@ sealed interface TriggerTrace {
      * A group of children, combined with [op].
      *
      * [held] is `null` exactly when this whole subgroup was skipped by a
-     * sibling's short-circuit — see [notConsulted] — and a `Boolean` in every
+     * sibling's short-circuit, per [notConsulted], and a `Boolean` in every
      * other case, [TriggerNode.holds]'s empty-group rule included: `ALL` of
      * nothing is `true`, `ANY` of nothing is `false`.
      */
@@ -276,7 +276,7 @@ sealed interface TriggerTrace {
  * The distinction [NOT_CONSULTED] draws is the one this whole type exists for:
  * without it, a leaf the tree never asked and a leaf that answered no read as
  * the same "no" on screen, which is exactly the honesty gap a trace is meant
- * to close. [FIRED] is a third state for the same reason — the leaf that
+ * to close. [FIRED] is a third state for the same reason: the leaf that
  * started this evaluation is true by construction and was never asked either,
  * which is a different fact from "asked, and said yes".
  */
@@ -290,7 +290,7 @@ enum class LeafOutcome {
     /** Asked, and said no. */
     NO,
 
-    /** Asked, and could not answer — a `null` from the component's own read. */
+    /** Asked, and could not answer: a `null` from the component's own read. */
     UNREADABLE,
 
     /**

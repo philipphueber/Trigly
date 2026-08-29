@@ -323,7 +323,7 @@ class TriggerEngineTest {
     // --- onEvaluated: the trace of the last evaluation, whichever way it went ---
 
     /**
-     * The case above produced no fault, on purpose — but it still produced a
+     * The case above produced no fault, on purpose, but it still produced a
      * trace. Nothing before this hook existed could say *which* leaf held the
      * rule back, only that the rule did nothing.
      */
@@ -423,7 +423,7 @@ class TriggerEngineTest {
      * The subtlest honesty property in the whole feature. The leaf that fired
      * is not necessarily visited at all: traversal order follows the tree, not
      * which leaf produced the event, so an earlier sibling that already
-     * decides an `ANY` skips every leaf behind it — the one that fired
+     * decides an `ANY` skips every leaf behind it, the one that fired
      * included. The trace must say "not consulted", never "fired" for a leaf
      * the evaluation never reached, and never "no" either.
      */
@@ -486,7 +486,7 @@ class TriggerEngineTest {
                     triggerFactories = listOf(
                         FakeTriggerFactory(TRIGGER_TYPE, listOf(event(1L))),
                         // Far longer than the budget, so the very first read is
-                        // what gets cut off — no retry ever runs.
+                        // what gets cut off. No retry ever runs.
                         SlowTriggerFactory(readMillis = UNREADABLE_TOTAL_BUDGET_MILLIS * 10),
                     ),
                     actionFactories = listOf(SingleActionFactory(ACTION_TYPE, RecordingAction())),

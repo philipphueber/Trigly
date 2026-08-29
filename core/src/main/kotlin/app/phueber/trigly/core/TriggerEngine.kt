@@ -238,7 +238,7 @@ class TriggerEngine(
                 .merge()
                 .collect { (firedPath, event) ->
                     val resolved = resolveHolds(rule.trigger, firedPath, triggersBySpec)
-                    // Recorded whichever way this came out — see onEvaluated's
+                    // Recorded whichever way this came out. See onEvaluated's
                     // own KDoc for why the held case is worth keeping too, not
                     // only the ones below that go on to report a fault.
                     onEvaluated(rule, event, resolved.trace)
@@ -613,7 +613,7 @@ class TriggerEngine(
     /**
      * Evaluates [trigger] against the leaf at [firedPath] that just started
      * this evaluation, as a full [TriggerTrace] rather than the plain
-     * `Boolean` [TriggerNode.holds] returns — see [TriggerNode.traced].
+     * `Boolean` [TriggerNode.holds] returns. See [TriggerNode.traced].
      *
      * [reader] both answers the state questions and records which of them could
      * not be answered, so the caller can tell a rule held back by a "no" from
@@ -704,7 +704,7 @@ class TriggerEngine(
      * **The trace this returns is the last try that finished, not necessarily
      * the last try attempted.** Every completed call to [evaluateTrace] updates
      * `lastTrace` below, so a retry that times out mid-read still leaves the
-     * previous, fully-formed trace in place rather than none at all — the
+     * previous, fully-formed trace in place rather than none at all. That is the
      * common case, since it is usually the *waiting* that runs the budget out,
      * not one single read. The one gap that leaves is the first try itself
      * hanging past the whole budget, where no try ever finishes at all: see
@@ -734,7 +734,7 @@ class TriggerEngine(
         } ?: false
 
         // Only reachable when the very first try was itself cancelled
-        // mid-read, before it could produce a trace of its own — see this
+        // mid-read, before it could produce a trace of its own. See this
         // method's own KDoc. Built from the same reads the cancelled try
         // already made, so it is honest about exactly as much as the tree
         // ever got asked, no more.
@@ -753,7 +753,7 @@ class TriggerEngine(
      * logic [TriggerNode.holds] promises; it only labels each leaf from what
      * [answers] already recorded, walking the tree once to shape the labels
      * into it. That is safe here specifically because there is at most one
-     * incomplete attempt behind [answers] in this call path — [resolveHolds]
+     * incomplete attempt behind [answers] in this call path. [resolveHolds]
      * only reaches for this when zero tries finished, so there is no earlier
      * round's stale answer for a leaf a later round's short-circuit skipped to
      * confuse this with. Reusing it for the general case, across several

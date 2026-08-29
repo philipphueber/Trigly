@@ -333,8 +333,8 @@ class GateTest {
 
     @Test
     fun `traced marks a short-circuited sibling as not consulted, never as no`() = runTest {
-        // ALL(cheap, expensive): cheap fails, so expensive must never be asked
-        // — and the trace must say so, rather than reading as a second "no".
+        // ALL(cheap, expensive): cheap fails, so expensive must never be asked.
+        // The trace must say so, rather than reading as a second "no".
         val tree = all(one("cheap"), one("expensive"))
 
         val trace = tree.traced(notFired, states("cheap" to false, "expensive" to true)) as TriggerTrace.Group
@@ -349,7 +349,7 @@ class GateTest {
     @Test
     fun `traced marks the whole unreached side of an ANY as not consulted`() = runTest {
         // ANY(cheap, expensive): cheap already holds, so the whole expensive
-        // side — a group of its own — is never reached, not just its top leaf.
+        // side (a group of its own) is never reached, not just its top leaf.
         val tree = any(one("cheap"), all(one("expensive"), one("very-expensive")))
 
         val trace = tree.traced(notFired, states("cheap" to true)) as TriggerTrace.Group
