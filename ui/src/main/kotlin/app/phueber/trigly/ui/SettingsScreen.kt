@@ -123,7 +123,14 @@ fun SettingsScreen(
     if (showColorSchemePicker) {
         ColorSchemePickerDialog(
             current = colorSchemeChoice,
-            onPick = onColorSchemeChoiceChange,
+            // Picking a choice closes the dialog as well as reporting it -
+            // this screen owns showColorSchemePicker, so nothing else can
+            // close it, and a single-choice picker that stayed open after
+            // the choice was made would look like the tap had done nothing.
+            onPick = { choice ->
+                onColorSchemeChoiceChange(choice)
+                showColorSchemePicker = false
+            },
             onDismiss = { showColorSchemePicker = false },
         )
     }

@@ -36,6 +36,46 @@ fun launcherAliasName(id: String): String = ".LauncherAlias" + id.replaceFirstCh
 fun aliasIdFor(choice: ColorSchemeChoice): String = (choice as? ColorSchemeChoice.Preset)?.id ?: ORANGE_ALIAS_ID
 
 /**
+ * The namespace a manifest-relative name like `.LauncherAliasOrange` actually
+ * resolves against - **not** [Context.getPackageName].
+ *
+ * `context.packageName` returns the **applicationId** (`app.phueber.trigly`),
+ * set in `ui/build.gradle.kts`'s `defaultConfig`. The very same file sets
+ * `namespace = "app.phueber.trigly.ui"` a few lines above it - a *different*
+ * string, on purpose: the two exist to answer different questions (what the
+ * Play Store lists the app under, versus what package the compiled Kotlin
+ * lives in) and nothing requires them to match, the way a rename of one
+ * without the other or a white-label build would need them not to. A
+ * relative manifest name resolves against the **namespace**, so
+ * the alias actually installed is `app.phueber.trigly.ui.LauncherAliasOrange`,
+ * not `app.phueber.trigly.LauncherAliasOrange`.
+ *
+ * `packageName` is the obvious-looking source for this and is wrong here by
+ * construction. Getting it wrong does not fail to compile, and does not fail
+ * any JVM test: `ComponentName` stores whatever string it is given, so the
+ * mistake only surfaces as `IllegalArgumentException` from
+ * `IPackageManager` at the first real `setComponentEnabledSetting` call,
+ * against a real installed package, on a real device - nothing short of that
+ * can see it, which is why this needs saying here rather than assumed
+ * caught elsewhere.
+ *
+ * [MainActivity] is read instead of writing the namespace as a second
+ * literal: it is unquestionably compiled into the same module and package as
+ * every `LauncherAlias*` alias, so this cannot drift out of step with
+ * `build.gradle.kts` the way a copied string could.
+ */
+private val aliasNamespace: String = MainActivity::class.java.name.substringBeforeLast('.')
+
+/**
+ * The full [ComponentName] of the `activity-alias` declared for [aliasId] -
+ * the applicationId (what `PackageManager` looks the app up by) paired with
+ * the namespace-qualified class name (what the app's own manifest actually
+ * declares). See [aliasNamespace] for why those two are not the same string.
+ */
+fun aliasComponentName(context: Context, aliasId: String): ComponentName =
+    ComponentName(context.packageName, aliasNamespace + launcherAliasName(aliasId))
+
+/**
  * One alias, enabled or disabled. The seam [switchLauncherIcon] is tested
  * through, so the ordering it guarantees is checked with a fake recorder and
  * no device or real `PackageManager`.
@@ -81,7 +121,7 @@ class PackageManagerComponentEnabler(private val context: Context) : ComponentEn
     override fun disable(aliasId: String) = setEnabled(aliasId, enabled = false)
 
     private fun setEnabled(aliasId: String, enabled: Boolean) {
-        val component = ComponentName(context.packageName, context.packageName + launcherAliasName(aliasId))
+        val component = aliasComponentName(context, aliasId)
         context.packageManager.setComponentEnabledSetting(
             component,
             if (enabled) {

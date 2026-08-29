@@ -2,9 +2,11 @@ package app.phueber.trigly.ui
 
 import android.content.Context
 import android.os.Build
-import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -37,21 +39,32 @@ class TriglyThemeColorSchemeTest {
     private var observedPrimary: Color = Color.Unspecified
 
     @Composable
-    private fun Probe(colorScheme: ColorScheme, extraColors: TriglyExtraColors) {
-        TriglyTheme(colorScheme = colorScheme, extraColors = extraColors) {
+    private fun Probe(resolved: ResolvedColors) {
+        TriglyTheme(colorScheme = resolved.colorScheme, extraColors = resolved.extra) {
             observedPrimary = MaterialTheme.colorScheme.primary
         }
     }
 
+    /**
+     * `setContent` may only run once per test - it tears the whole
+     * composition down and rebuilds it, which is a heavier and less honest
+     * simulation of a running app than a state change is. So the choice is
+     * hoisted into a [mutableStateOf] here, outside the composition, and the
+     * "switch" is mutating that state and letting Compose recompose
+     * [Probe] - the same fix the expression-field tests needed for the same
+     * reason: drive the composition, do not rebuild it.
+     */
     @Test
     fun switching_to_a_preset_changes_the_rendered_primary() {
         val default = resolvedColors(context, ColorSchemeChoice.Default, darkTheme = false)
         val preset = resolvedColors(context, ColorSchemeChoice.Preset(ColorPresets[1].id), darkTheme = false)
+        var current by mutableStateOf(default)
 
-        composeRule.setContent { Probe(default.colorScheme, default.extra) }
+        composeRule.setContent { Probe(current) }
         val defaultPrimary = observedPrimary
 
-        composeRule.setContent { Probe(preset.colorScheme, preset.extra) }
+        composeRule.runOnIdle { current = preset }
+        composeRule.waitForIdle()
         val presetPrimary = observedPrimary
 
         assertNotEquals(defaultPrimary, presetPrimary)
@@ -63,7 +76,7 @@ class TriglyThemeColorSchemeTest {
         assumeTrue("dynamic colour needs API 31", Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
 
         val system = resolvedColors(context, ColorSchemeChoice.System, darkTheme = false)
-        composeRule.setContent { Probe(system.colorScheme, system.extra) }
+        composeRule.setContent { Probe(system) }
 
         // Equal to what dynamicLightColorScheme itself produced, not to
         // Default's fixed orange - the two coinciding on this particular

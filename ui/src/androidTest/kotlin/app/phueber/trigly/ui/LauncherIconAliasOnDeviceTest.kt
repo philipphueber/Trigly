@@ -1,6 +1,5 @@
 package app.phueber.trigly.ui
 
-import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -28,8 +27,11 @@ class LauncherIconAliasOnDeviceTest {
     private val allIds = ColorPresets.map { it.id }
     private val enabler = PackageManagerComponentEnabler(context)
 
-    private fun componentFor(id: String) =
-        ComponentName(context.packageName, context.packageName + launcherAliasName(id))
+    // Goes through the same aliasComponentName the shipping code uses, rather
+    // than rebuilding the ComponentName here - this test exists specifically
+    // because that construction is easy to get wrong; duplicating it would
+    // risk the test and the code sharing the same mistake.
+    private fun componentFor(id: String) = aliasComponentName(context, id)
 
     /**
      * Orange's `android:enabled="true"` is the manifest default, so a
