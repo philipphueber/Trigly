@@ -2515,9 +2515,12 @@ than something built here.
 **A pattern can be tested, not just compiled.** `regexErrorOrNull` catches a
 stray bracket and nothing else: a pattern can compile perfectly and match the
 wrong thing, or nothing at all, and until there was a tester the only place that
-surfaced was a rule that silently never fired. The Test button beside the mode
+surfaced was a rule that silently never fired. The Try button beside the mode
 toggle opens a dialog with the pattern and a scratch sample, and reports the
-verdict as you type.
+verdict as you type. It says Try, not Test: an action block's footer already
+has a Test button that runs the whole action for real, and `dismiss_notification`
+carrying both a text pattern field and that footer on one screen is what made
+the two meet and forced the choice, in favour of the narrower control's label.
 
 Two decisions make it trustworthy rather than merely present. **The verdict comes
 from `TextFilter.of(...)`**: the engine's own code path, through `outcome`

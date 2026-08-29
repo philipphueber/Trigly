@@ -107,7 +107,7 @@ class PatternTesterRefusalTest {
                 companions = mapOf(field.modeKey to mode.configValue),
             )
         }
-        composeRule.onNodeWithText("TEST").performClick()
+        composeRule.onNodeWithText("TRY").performClick()
     }
 
     /** See the identical helper in `PatternTesterTest` for why this waits rather than asserts. */
