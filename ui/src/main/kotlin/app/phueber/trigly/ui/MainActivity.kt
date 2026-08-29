@@ -428,7 +428,7 @@ class MainActivity : ComponentActivity() {
 
         AttributionScreen(
             appVersion = appVersion,
-            dependencies = shippedDependencies,
+            projects = shippedDependencies.groupIntoProjects(),
             licenseText = licenseText,
             onBack = onDone,
         )

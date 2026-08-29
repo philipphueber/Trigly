@@ -175,5 +175,12 @@
     <string name="attribution_version">Version %1$s</string>
     <string name="attribution_license">This app uses the Apache License 2.0.</string>
     <string name="attribution_dependencies_heading">Open source components</string>
+    <!-- Under a project's name on AttributionScreen: how many Maven artifacts
+         of that project this build actually ships. See groupIntoProjects, in
+         Attribution.kt. -->
+    <plurals name="attribution_artifact_count">
+        <item quantity="one">%1$d artifact</item>
+        <item quantity="other">%1$d artifacts</item>
+    </plurals>
     <string name="attribution_license_heading">Apache License 2.0</string>
 </resources>

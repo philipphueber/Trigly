@@ -275,12 +275,14 @@ licensee {
  * already bundles Groovy, and this file is a few kilobytes, read once, at
  * execution time.
  *
- * The output is `Attribution.kt`'s `Attribution` data class, one instance per
- * artifact, named by its Maven coordinate rather than by the friendly `name`
- * licensee's report carries — most artifacts in this graph do not declare one
- * in their POM, and a list that is friendly-named where a POM happens to
- * provide one and coordinate-named everywhere else would read as an
- * inconsistency nobody intended.
+ * The output is one `Attribution` per artifact, `Attribution.kt`'s data class,
+ * carrying `groupId` and `artifactId` apart rather than one joined coordinate
+ * string: `groupIntoProjects`, also in `Attribution.kt`, folds these into the
+ * handful of projects `AttributionScreen` actually shows, and it groups by
+ * `groupId` alone. This task stays a plain per-artifact dump on purpose: the
+ * grouping decision, and the decision on what to do with a groupId nobody
+ * claims, both live in ordinary Kotlin in `Attribution.kt` where a JVM test
+ * can reach them, not here where nothing but a full build can.
  */
 val generateAttributionList by tasks.registering {
     group = "build"
@@ -302,11 +304,12 @@ val generateAttributionList by tasks.registering {
         val artifacts = groovy.json.JsonSlurper().parse(reportFile.get().asFile) as List<Map<String, Any?>>
 
         val entries = artifacts.joinToString(",\n") { artifact ->
-            val coordinate = "${artifact["groupId"]}:${artifact["artifactId"]}"
+            val groupId = artifact["groupId"] as String
+            val artifactId = artifact["artifactId"] as String
             @Suppress("UNCHECKED_CAST")
             val spdxLicenses = artifact["spdxLicenses"] as List<Map<String, Any?>>
             val license = spdxLicenses.joinToString(", ") { it["name"] as String }
-            "    Attribution(\"$coordinate\", \"$license\")"
+            "    Attribution(\"$groupId\", \"$artifactId\", \"$license\")"
         }
 
         val outputFile = outputDir.get().file("GeneratedAttribution.kt").asFile
