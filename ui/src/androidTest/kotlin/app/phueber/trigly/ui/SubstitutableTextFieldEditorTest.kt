@@ -12,6 +12,8 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.height
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.compose.runtime.CompositionLocalProvider
@@ -28,6 +30,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule as JUnitRule
 import org.junit.Test
 import org.junit.runner.RunWith
+
+/**
+ * How far [SubstitutableTextFieldEditorTest.growthTriggeringWordCount]
+ * searches before concluding an expression box never grows at all, rather
+ * than that it just needed a few more words.
+ */
+private const val MAX_GROWTH_SEARCH_WORDS = 4_096
+
+/**
+ * Enough words to pass the eight-line bound on any device this runs on.
+ * [SubstitutableTextFieldEditorTest.an_expression_field_stops_growing_once_it_reaches_its_bound]
+ * proves that by doubling it and finding the height unchanged, rather than by
+ * trusting this number alone.
+ */
+private const val BOUND_SEARCH_WORDS = 200
 
 /**
  * The picker and the preview `docs/variables.md` section 12 adds to a
@@ -417,12 +434,28 @@ class SubstitutableTextFieldEditorTest {
 
     // --- The box that must not clip an expression --------------------------------------
 
-    /** Wraps across several lines at a phone's width, without ever containing a newline. */
-    private val wrappingExpression = "upper({{trigger.name}}) == \"HELLO\" and " +
-        "({{app.count}} + 1) > 10 and contains({{trigger.title}}, \"^Bus \\d+\", \"regex\")"
+    /**
+     * [count] short, distinct words. Distinct rather than one word repeated, so
+     * nothing about a single glyph shape or a font's ligature table can make the
+     * growth below an accident of one specific character.
+     */
+    private fun wordsOf(count: Int): String = (1..count).joinToString(" ") { "word$it" }
 
-    /** Far longer than any realistic expression, to exercise the bound rather than the wrap. */
-    private val extremelyLongExpression = (1..40).joinToString(" and ") { "{{app.count}} > $it" }
+    /**
+     * Doubled each step rather than searched linearly, so finding the point past
+     * which the box actually grows costs a handful of measurements regardless of
+     * how wide the device is. [MAX_GROWTH_SEARCH_WORDS] is the point past which a
+     * search that has found nothing means the box does not grow at all, which is
+     * a real failure rather than a search that gave up too soon.
+     */
+    private fun growthTriggeringWordCount(restHeight: Dp, heightFor: (String) -> Dp): Int {
+        var wordCount = 4
+        while (wordCount <= MAX_GROWTH_SEARCH_WORDS) {
+            if (heightFor(wordsOf(wordCount)) > restHeight) return wordCount
+            wordCount *= 2
+        }
+        return wordCount
+    }
 
     @Test
     fun an_expression_field_starts_taller_than_a_plain_field() {
@@ -451,8 +484,17 @@ class SubstitutableTextFieldEditorTest {
         )
     }
 
+    /**
+     * How content past the starting height is found, rather than assumed: a
+     * fixed string that wraps to four lines on one screen can wrap to two on
+     * another, and the connected gate runs this on more than one device. So
+     * this keeps typing more words, a doubling amount at a time, until the box
+     * has actually grown past its own rest height, and only then checks the
+     * claim the wrapping fixed — that a plain field fed the identical value
+     * still does not.
+     */
     @Test
-    fun an_expression_field_grows_with_a_long_value_and_a_plain_field_does_not() {
+    fun an_expression_field_grows_once_its_content_passes_the_starting_height() {
         composeRule.setContent {
             TriglyTheme {
                 Column {
@@ -467,22 +509,29 @@ class SubstitutableTextFieldEditorTest {
             }
         }
 
-        val expressionRest = composeRule.onNodeWithText("VALUE", substring = true, ignoreCase = true)
-            .getUnclippedBoundsInRoot().height
+        fun expressionHeightFor(value: String): Dp {
+            composeRule.onNodeWithText("VALUE", substring = true, ignoreCase = true)
+                .performTextReplacement(value)
+            return composeRule.onNodeWithText("VALUE", substring = true, ignoreCase = true)
+                .getUnclippedBoundsInRoot().height
+        }
+
+        val expressionRest = expressionHeightFor("")
+        val wordCount = growthTriggeringWordCount(expressionRest) { expressionHeightFor(it) }
+        val expressionGrown = expressionHeightFor(wordsOf(wordCount))
+
+        assertTrue(
+            "typing $wordCount words never grew the box past its $expressionRest rest height",
+            expressionGrown > expressionRest,
+        )
+
         val plainRest = composeRule.onNodeWithText("CONTAINS", substring = true, ignoreCase = true)
             .getUnclippedBoundsInRoot().height
-
-        composeRule.onNodeWithText("VALUE", substring = true, ignoreCase = true)
-            .performTextInput(wrappingExpression)
         composeRule.onNodeWithText("CONTAINS", substring = true, ignoreCase = true)
-            .performTextInput(wrappingExpression)
-
-        val expressionGrown = composeRule.onNodeWithText("VALUE", substring = true, ignoreCase = true)
-            .getUnclippedBoundsInRoot().height
+            .performTextReplacement(wordsOf(wordCount))
         val plainAfter = composeRule.onNodeWithText("CONTAINS", substring = true, ignoreCase = true)
             .getUnclippedBoundsInRoot().height
 
-        assertTrue("a wrapping value should grow the expression box", expressionGrown > expressionRest)
         assertEquals(
             "the same value in a plain field scrolls sideways rather than growing",
             plainRest,
@@ -490,6 +539,15 @@ class SubstitutableTextFieldEditorTest {
         )
     }
 
+    /**
+     * [BOUND_SEARCH_WORDS] is chosen to be enough to pass the eight-line bound on
+     * any device this runs on, not a device-specific guess: it is measured
+     * against the box's own height, by asserting growth happened at all, rather
+     * than assumed to wrap to a specific line count. Doubling that same word
+     * count and finding the height unchanged is what proves the bound holds
+     * while the content keeps growing, rather than merely being long enough
+     * that this build happens not to have grown further yet.
+     */
     @Test
     fun an_expression_field_stops_growing_once_it_reaches_its_bound() {
         composeRule.setContent {
@@ -503,19 +561,26 @@ class SubstitutableTextFieldEditorTest {
             }
         }
 
-        val field = composeRule.onNodeWithText("VALUE", substring = true, ignoreCase = true)
-        val restHeight = field.getUnclippedBoundsInRoot().height
+        fun expressionHeightFor(value: String): Dp {
+            composeRule.onNodeWithText("VALUE", substring = true, ignoreCase = true)
+                .performTextReplacement(value)
+            return composeRule.onNodeWithText("VALUE", substring = true, ignoreCase = true)
+                .getUnclippedBoundsInRoot().height
+        }
 
-        field.performTextInput(extremelyLongExpression)
+        val restHeight = expressionHeightFor("")
+        val boundedHeight = expressionHeightFor(wordsOf(BOUND_SEARCH_WORDS))
+        val pastBoundHeight = expressionHeightFor(wordsOf(BOUND_SEARCH_WORDS * 2))
 
-        val grownHeight = composeRule.onNodeWithText("VALUE", substring = true, ignoreCase = true)
-            .getUnclippedBoundsInRoot().height
-
-        assertTrue("a very long expression should still grow the box", grownHeight > restHeight)
         assertTrue(
-            "growth has to stop at a bound rather than swallow the screen: " +
-                "$restHeight grew to $grownHeight",
-            grownHeight <= restHeight * 3,
+            "$BOUND_SEARCH_WORDS words never grew the box past its $restHeight rest height",
+            boundedHeight > restHeight,
+        )
+        assertEquals(
+            "height must stop increasing once the bound is reached, even though the " +
+                "content typed kept growing",
+            boundedHeight,
+            pastBoundHeight,
         )
     }
 
