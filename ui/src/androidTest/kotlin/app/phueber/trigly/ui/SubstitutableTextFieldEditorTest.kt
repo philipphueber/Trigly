@@ -485,6 +485,40 @@ class SubstitutableTextFieldEditorTest {
     }
 
     /**
+     * A guard on the harness itself, not on [SubstitutableTextField].
+     * `ConfigFieldEditor`'s `value` is the field's whole state — typing does
+     * not mutate it directly, it only calls `onValueChange`, and the field's
+     * own local text resynchronises back to `value` on every recomposition
+     * (see the comment beside `fieldValue` in [SubstitutableTextField]). A
+     * test that types into a field without also feeding the result back
+     * through `onValueChange`, the way a real caller always does, has a
+     * `value` that never changes, so every character is wiped back out the
+     * instant it lands and the box never holds anything at all. This test's
+     * `value` is hoisted with `onValueChange` writing back to it, and stands
+     * as the cheapest possible check that the pattern the two tests below
+     * use actually retains what is typed.
+     */
+    @Test
+    fun a_hoisted_field_displays_what_was_typed() {
+        composeRule.setContent {
+            TriglyTheme {
+                var value by remember { mutableStateOf<String?>(null) }
+                ConfigFieldEditor(
+                    field = expressionField,
+                    value = value,
+                    onValueChange = { value = it },
+                    previewEncoding = Substitution.EXPRESSION,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("VALUE", substring = true, ignoreCase = true)
+            .performTextReplacement("hello")
+
+        composeRule.onNodeWithText("hello").assertIsDisplayed()
+    }
+
+    /**
      * How content past the starting height is found, rather than assumed: a
      * fixed string that wraps to four lines on one screen can wrap to two on
      * another, and the connected gate runs this on more than one device. So
@@ -495,16 +529,28 @@ class SubstitutableTextFieldEditorTest {
      */
     @Test
     fun an_expression_field_grows_once_its_content_passes_the_starting_height() {
+        // [SubstitutableTextField] resynchronises its local text back to
+        // `value` on every recomposition (see the comment beside `fieldValue`
+        // there), so a `value` that never changes — the no-op onValueChange
+        // this test had before — wipes every character back out the instant
+        // it lands. Hoisted here the way every real caller hoists it, the same
+        // shape `setField` above already uses, so what is typed is what stays.
         composeRule.setContent {
             TriglyTheme {
                 Column {
+                    var expressionValue by remember { mutableStateOf<String?>(null) }
+                    var plainValue by remember { mutableStateOf<String?>(null) }
                     ConfigFieldEditor(
                         field = expressionField,
-                        value = null,
-                        onValueChange = {},
+                        value = expressionValue,
+                        onValueChange = { expressionValue = it },
                         previewEncoding = Substitution.EXPRESSION,
                     )
-                    ConfigFieldEditor(field = plainField, value = null, onValueChange = {})
+                    ConfigFieldEditor(
+                        field = plainField,
+                        value = plainValue,
+                        onValueChange = { plainValue = it },
+                    )
                 }
             }
         }
@@ -550,12 +596,16 @@ class SubstitutableTextFieldEditorTest {
      */
     @Test
     fun an_expression_field_stops_growing_once_it_reaches_its_bound() {
+        // Hoisted for the same reason as the test above: an unfed `value`
+        // never changes, so [SubstitutableTextField] resets every keystroke
+        // straight back out before it is ever rendered.
         composeRule.setContent {
             TriglyTheme {
+                var expressionValue by remember { mutableStateOf<String?>(null) }
                 ConfigFieldEditor(
                     field = expressionField,
-                    value = null,
-                    onValueChange = {},
+                    value = expressionValue,
+                    onValueChange = { expressionValue = it },
                     previewEncoding = Substitution.EXPRESSION,
                 )
             }
