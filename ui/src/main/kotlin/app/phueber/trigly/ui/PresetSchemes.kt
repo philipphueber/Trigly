@@ -9,17 +9,18 @@ import androidx.compose.ui.graphics.Color
 
 /*
  * ─────────────────────────────────────────────────────────────────────────────
- *  THE COLOUR SCHEME PICKER: SIX PRESETS, PLUS THE SWITCH BETWEEN
+ *  THE COLOUR SCHEME PICKER: NINE PRESETS, PLUS THE SWITCH BETWEEN
  *  DEFAULT / A PRESET / THE SYSTEM WALLPAPER PALETTE.
  * ─────────────────────────────────────────────────────────────────────────────
  *
  *  `Palette.kt` still holds every colour used until someone opens Settings:
  *  the fixed Default scheme, `Tone`, and the roles Material 3 has no slot
- *  for. This file holds the five brand hues a person can switch *to*, and the
- *  logic that turns a stored choice into the colours `TriglyTheme` and
- *  `EngineService`'s notification actually render. "Follow the system" is not
- *  a colour at all here - it is resolved on the device, from the wallpaper,
- *  through `dynamicLightColorScheme`/`dynamicDarkColorScheme`.
+ *  for. This file holds the eight other presets a person can switch *to* -
+ *  six brand hues and two neutral greys - and the logic that turns a stored
+ *  choice into the colours `TriglyTheme` and `EngineService`'s notification
+ *  actually render. "Follow the system" is not a colour at all here - it is
+ *  resolved on the device, from the wallpaper, through
+ *  `dynamicLightColorScheme`/`dynamicDarkColorScheme`.
  *
  *  ── HOW THE FIVE NEW RAMPS WERE MADE ─────────────────────────────────────
  *
@@ -114,13 +115,149 @@ import androidx.compose.ui.graphics.Color
  *  71.6 to 76.0; Magenta 91.0 to 95.4; Violet 141.3 to 145.6; Azure 159.7 to
  *  164.1. None reads as the caution colour.
  *
- *  ── ADDING A SEVENTH PRESET ──────────────────────────────────────────────
+ *  ── ADDING RED: A SIXTH HUE IN THE SHARED-CHROMA FAMILY ──────────────────
+ *
+ *  Red joined the shared-chroma family the same way the first five did: hold
+ *  `L` and the shared per-tone `C` from step 1 and step 4 above, and solve
+ *  for hue 27 degrees instead. That hue was picked the same way the other
+ *  five were, by matching known red swatches through this file's own OKLCH
+ *  math: pure sRGB red `#FF0000` measures hue 29.23, Material Red 500
+ *  measures hue 28.81. 27 sits close to both.
+ *
+ *  Red's own gamut ceiling stays above the shared floor at every one of the
+ *  eight tones, so it needed no exception, the same as Lime, Green, Magenta
+ *  and (mostly) Violet before it. The result:
+ *
+ *  tone 10 `#270E0C`, tone 30 `#5F2A26`, tone 40 `#7F3A34`, tone 50 `#A44D45`,
+ *  tone 60 (primary) `#DF6A60`, tone 70 `#FA897D`, tone 80 `#FCA69B`, tone 90
+ *  `#FED4CE`. Round-tripped at the primary: `L` 0.6622, `C` 0.1482, `H`
+ *  26.80, within the same tolerance the other five hold to. `onPrimary`
+ *  clears AA at 5.71:1, in range with the rest of the family (5.65:1 to
+ *  6.51:1). Distance from the caution amber (hue 76.06/80.44): 49.3 and
+ *  53.6 degrees, further than Orange's own 31.5, so it does not read as the
+ *  caution colour.
+ *
+ *  The cost, disclosed rather than fixed silently. This family's shared
+ *  chroma at tone 60 is 0.1476. Pure red's own ceiling at that lightness is
+ *  0.2248, about one and a half times higher, so the shared floor lets this
+ *  hue use only about two thirds of the saturation it could otherwise
+ *  carry. `#DF6A60` reads as a warm coral or salmon red, not a fire-engine
+ *  red. It keeps the name "Red" anyway, the same way Lime kept its id under
+ *  the label "Olive": raising red's own chroma above the shared floor would
+ *  single it out from the other five and undo the point of a shared
+ *  ceiling.
+ *
+ *  ── THE TWO GREYS: STONE AND SLATE, A DELIBERATE EXCEPTION ───────────────
+ *
+ *  Every preset above holds two things in common: the eight-tone lightness
+ *  ladder, and the shared chroma at each tone. A grey cannot hold the second
+ *  one and still read as grey, so Stone and Slate hold only the ladder. Each
+ *  picks its own small chroma instead, held constant across all eight tones
+ *  the way the shared value is held constant for the other presets, so each
+ *  grey is internally consistent even though it sits outside the family
+ *  rule. This is a deliberate exception, not an oversight: a grey preset is
+ *  not a ninth hue, it is the one preset that is mostly not a hue at all.
+ *
+ *  **Hue.** This app's own neutrals already carry a warm cast: `Tone.Paper`
+ *  (`#FFFBF7`) measures hue 67.75 at chroma 0.0068, `Tone.Ink` (`#17100C`)
+ *  measures hue 51.24 at chroma 0.0143, and the `Warm20`-`Warm80` ramp sits
+ *  between hue 45.4 and 57.3. A perfectly neutral grey (chroma 0) would read
+ *  as faintly cold next to all of that. So Stone, the warm grey, sits at hue
+ *  50 degrees, inside that same existing band, not a hue invented for this
+ *  preset. Slate, the cool grey, sits at hue 230 degrees, the far side of
+ *  the wheel from Stone and close to this app's own cool hues (Azure's 240,
+ *  the `Blue` secondary ramp's 258 to 266), so "cool" also means something
+ *  the app already has a hue for, not an arbitrary opposite.
+ *
+ *  **Chroma.** 0.025, held constant across all eight tones for both greys.
+ *  That is far below the shared family floor at every tone (0.0422 to
+ *  0.1476), and sits close to this app's own existing neutral precedent:
+ *  `Tone.Neutral90` measures chroma 0.0205, `Tone.Warm50` measures 0.0437.
+ *  0.025 sits between those two - enough to carry a visible warm or cool
+ *  cast, not enough to compete with any hued preset's own chroma. Each
+ *  hue's own gamut ceiling stays far above 0.025 at every tone (worst case
+ *  0.0402, at Slate's hue at tone 10), so neither grey ever needs a per-tone
+ *  exception the way Indigo would have. The low chroma itself is the
+ *  exception here, not a gamut limit.
+ *
+ *  **Lightness, the second deliberate exception.** Two greys at the same
+ *  lightness, 180 degrees of hue apart, at chroma 0.025, still read as close
+ *  to the same swatch at picker size - hue alone is a weak signal when
+ *  there is almost no chroma to carry it. So Stone's `primary` and
+ *  `onPrimary` point at tone 70 of its own ramp, one rung lighter than every
+ *  other preset's tone 60, while Slate keeps the normal tone 60. This is
+ *  the one instance in this file where a preset's primary is not tone 60 -
+ *  it reuses a rung the shared ladder already measures, not a lightness
+ *  invented for this preset, so it costs no new number and no second
+ *  ladder. Tone 70 is also where the normal role mapping already puts dark
+ *  mode's `accent`, so for Stone alone `primary` and `accentDark` land on
+ *  the identical hex. That is a coincidence of reusing an already-occupied
+ *  rung, not a special case in the code; Stone's own tone-60 rung is still
+ *  computed below for completeness, it is simply unused by any role.
+ *
+ *  Measured, both ramps (hue held to 50/230, chroma to 0.025, `L` from the
+ *  same eight-tone ladder every preset uses):
+ *
+ *  Stone: tone 10 `#20130C`, tone 30 `#483931`, tone 40 `#5E4E46`, tone 50
+ *  `#78675F`, tone 60 `#A08F85` (unused, see above), tone 70 (primary)
+ *  `#BCAAA0`, tone 80 `#CEBCB2`, tone 90 `#EEDBD1`.
+ *
+ *  Slate: tone 10 `#091920`, tone 30 `#2F3F47`, tone 40 `#44555D`, tone 50
+ *  `#5D6E77`, tone 60 (primary) `#84969F`, tone 70 `#9FB1BB`, tone 80
+ *  `#B0C3CD`, tone 90 `#CFE3ED`.
+ *
+ *  **Separation, checked rather than assumed.** Stone's primary (`L`
+ *  0.7506, `C` 0.0253, `H` 51.06) against Slate's primary (`L` 0.6619, `C`
+ *  0.0246, `H` 229.29): lightness differs by 0.089 (one full ladder rung),
+ *  the hue-driven distance in the `a`/`b` plane is 0.050, and the combined
+ *  OKLab distance is 0.102. Both axes separate the pair, not just one, so
+ *  the two read as a deliberate light warm swatch and a deliberate mid cool
+ *  swatch side by side, not as one grey someone forgot to finish.
+ *
+ *  **Contrast.** `onPrimary`/`primary`: Stone 8.42:1 (up from 6.06:1 before
+ *  the lightness move - ink on a lighter fill only gains contrast), Slate
+ *  6.13:1. Both clear AA with room to spare, and Stone's is the highest in
+ *  this whole file, again the direction a lighter fill moves it.
+ *  `onPrimaryContainer`/`primaryContainer`: Stone 13.53:1 light, 8.23:1
+ *  dark; Slate 13.54:1 light, 8.25:1 dark. `accent` against the page it
+ *  writes on: Stone 5.22:1 light, 8.42:1 dark; Slate 5.15:1 light, 8.50:1
+ *  dark. Every pairing clears the 4.5:1 floor [ColorPresetContrastTest]
+ *  checks.
+ *
+ *  **The launcher icon.** Every preset's launcher icon draws the same fixed
+ *  ink foreground (`#17100C`) over that preset's own primary. Moving
+ *  Stone's primary to a lighter tone only widens that gap - 8.42:1 against
+ *  the icon background, higher than any other preset's - so the mark stays
+ *  legible, more so than before the lightness move.
+ *
+ *  **The caution amber, in a scheme with almost no hue at all.** Amber's own
+ *  chroma (0.108 at `Amber40`, 0.147 at `Amber80`) is four to six times
+ *  Stone's and Slate's 0.025. Stone's hue (measured 51.06 at its primary) is
+ *  the closest of any preset to amber's (76.06/80.44): 25.0 and 29.4
+ *  degrees away, versus Orange's own 31.5. Closer in hue, yes, but at this
+ *  chroma ratio the two do not compete: amber stays the only saturated
+ *  colour anywhere on a Stone or Slate screen, which if anything makes it
+ *  read as the deliberate warning it is meant to be, not a colour that
+ *  happens to match the brand. There is nothing else on screen to mistake
+ *  it for.
+ *
+ *  **Names.** "Stone" and "Slate" are both plain, real English colour
+ *  names, and both still describe what renders after the lightness move: a
+ *  light warm greige reads as stone as well as, if not better than, a
+ *  mid-tone one would, and a mid cool blue-grey is exactly what "slate"
+ *  already names. Neither needed the Lime-to-Olive or Magenta-to-Rose kind
+ *  of correction, so `id` and `displayName` match for both, the same as
+ *  Red.
+ *
+ *  ── ADDING MORE PRESETS ──────────────────────────────────────────────────
  *
  *  One more [ColorPreset] entry in [ColorPresets]. The picker, the switcher
- *  and the contrast test all walk this list, so none of the six existing
- *  entries change. The one file that cannot follow this rule is the
- *  manifest: an `activity-alias` cannot be declared at runtime, so stage 2's
- *  launcher icon still costs one alias and one colour resource per preset.
+ *  and the contrast test all walk this list, so no existing entry changes.
+ *  A hue that can share the family's chroma follows the method above; a
+ *  grey-style exception follows Stone and Slate's method instead. Either
+ *  way, the one file that cannot follow this rule is the manifest: an
+ *  `activity-alias` cannot be declared at runtime, so stage 2's launcher
+ *  icon still costs one alias and one colour resource per preset.
  */
 
 /**
@@ -136,7 +273,9 @@ import androidx.compose.ui.graphics.Color
  *  the colours are once they are held to the shared lightness and chroma. A
  *  real lime is much lighter than a mid tone, and a real magenta is far more
  *  colourful than the shared ceiling allows, so those two names promised
- *  something the swatches do not deliver.
+ *  something the swatches do not deliver. `red`, `stone` and `slate` do not
+ *  diverge - see this file's banner for why each of those three names was
+ *  checked and kept as its own id.
  *
  *  The ids stay as they were on purpose. [id] is written into a person's
  *  stored choice and it is what `launcherAliasName` turns into the manifest's
@@ -162,8 +301,8 @@ data class ColorPreset(
 )
 
 /**
- * The six presets, Orange included - see this file's banner for how the
- * other five were produced. Order is the order the picker's grid renders
+ * The nine presets, Orange included - see this file's banner for how the
+ * other eight were produced. Order is the order the picker's grid renders
  * them in.
  */
 internal val ColorPresets: List<ColorPreset> = listOf(
@@ -276,6 +415,73 @@ internal val ColorPresets: List<ColorPreset> = listOf(
         ),
         accentLight = hex("#994D7B"),
         accentDark = hex("#EC88C2"),
+    ),
+    ColorPreset(
+        id = "red",
+        displayName = "Red",
+        light = LightScheme.copy(
+            primary = hex("#DF6A60"),
+            onPrimary = Tone.Ink,
+            primaryContainer = hex("#FED4CE"),
+            onPrimaryContainer = hex("#270E0C"),
+            inversePrimary = hex("#FCA69B"),
+        ),
+        dark = DarkScheme.copy(
+            primary = hex("#DF6A60"),
+            onPrimary = Tone.Ink,
+            primaryContainer = hex("#5F2A26"),
+            onPrimaryContainer = hex("#FED4CE"),
+            inversePrimary = hex("#7F3A34"),
+        ),
+        accentLight = hex("#A44D45"),
+        accentDark = hex("#FA897D"),
+    ),
+    ColorPreset(
+        id = "stone",
+        displayName = "Stone",
+        // Warm grey: a deliberate exception to the shared-chroma family, not
+        // a seventh hue. Primary points at tone 70 of its own ramp, one
+        // rung lighter than every other preset's tone 60 - see this file's
+        // banner for why.
+        light = LightScheme.copy(
+            primary = hex("#BCAAA0"),
+            onPrimary = Tone.Ink,
+            primaryContainer = hex("#EEDBD1"),
+            onPrimaryContainer = hex("#20130C"),
+            inversePrimary = hex("#CEBCB2"),
+        ),
+        dark = DarkScheme.copy(
+            primary = hex("#BCAAA0"),
+            onPrimary = Tone.Ink,
+            primaryContainer = hex("#483931"),
+            onPrimaryContainer = hex("#EEDBD1"),
+            inversePrimary = hex("#5E4E46"),
+        ),
+        accentLight = hex("#78675F"),
+        accentDark = hex("#BCAAA0"),
+    ),
+    ColorPreset(
+        id = "slate",
+        displayName = "Slate",
+        // Cool grey: the other half of the deliberate exception above.
+        // Keeps the normal tone 60 as primary, on purpose - see this file's
+        // banner for why the two greys differ in lightness as well as hue.
+        light = LightScheme.copy(
+            primary = hex("#84969F"),
+            onPrimary = Tone.Ink,
+            primaryContainer = hex("#CFE3ED"),
+            onPrimaryContainer = hex("#091920"),
+            inversePrimary = hex("#B0C3CD"),
+        ),
+        dark = DarkScheme.copy(
+            primary = hex("#84969F"),
+            onPrimary = Tone.Ink,
+            primaryContainer = hex("#2F3F47"),
+            onPrimaryContainer = hex("#CFE3ED"),
+            inversePrimary = hex("#44555D"),
+        ),
+        accentLight = hex("#5D6E77"),
+        accentDark = hex("#9FB1BB"),
     ),
 )
 

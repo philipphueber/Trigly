@@ -47,6 +47,7 @@ fun triggerFactories(
     // Time
     IntervalTriggerFactory(scheduler),
     SolarTriggerFactory(scheduler),
+    TimeOfDayTriggerFactory(scheduler, AndroidTimeZoneChanges(context)),
 
     // Condition only — no event stream, so it can never start a rule. It lives in
     // this list anyway because a condition *is* a trigger, asked rather than
@@ -60,6 +61,14 @@ fun triggerFactories(
     // `location` rather than standing beside it, which is what "one component,
     // the slot decides the question" means.
     TimeWindowCheckFactory(),
+
+    // Condition only, for the same reason as `time_window`: which day, which
+    // month and which date range are all levels, never edges. Each reads the
+    // device's own zone, because none of the three names a place of its own
+    // to be wrong about; see `DayOfWeekCheck`'s KDoc for the full reasoning.
+    DayOfWeekCheckFactory(),
+    MonthCheckFactory(),
+    DateRangeCheckFactory(),
 
     // Condition only, for the same reason as `time_window` above: reading an
     // app-scope variable is a level, never an edge. See `docs/variables.md`,

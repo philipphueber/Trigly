@@ -26,7 +26,9 @@ import app.phueber.trigly.core.substitute
 import app.phueber.trigly.core.RuleVariableStore
 import app.phueber.trigly.core.RunScope
 import app.phueber.trigly.core.scopedFor
+import app.phueber.trigly.core.unfilled
 import app.phueber.trigly.core.variableProblems
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -243,7 +245,23 @@ class RuleEditorViewModel(
 
     fun setName(name: String) = edit { copy(name = name) }
 
-    fun setEnabled(enabled: Boolean) = edit { copy(enabled = enabled) }
+    /**
+     * Turns the rule's own switch on or off. Turning it off always works.
+     * Turning it on is refused, with a message saying why, when the draft as
+     * it stands right now cannot ever start. See [RuleDraft.enableRefusal].
+     * Checked against the *draft*, not a saved [Rule], because this switch has
+     * to answer before the draft has ever been saved: a new rule with nothing
+     * chosen yet is exactly the case this exists to catch.
+     */
+    fun setEnabled(enabled: Boolean) {
+        if (enabled) {
+            _state.value.draft.enableRefusal(registry)?.let { message ->
+                fail(message)
+                return
+            }
+        }
+        edit { copy(enabled = enabled) }
+    }
 
     /**
      * The rule's own folder name, typed or picked from an existing one — see
@@ -459,61 +477,102 @@ class RuleEditorViewModel(
     }
 
     /**
-     * Validates by construction, then persists.
+     * What [save] decided, before anything is persisted: exactly one of two
+     * shapes, and a `when` over both is what makes it a compile error to add
+     * a third path that sets neither field. [save] itself is the only
+     * caller, kept this way rather than folded into one function so the
+     * decision (pure, and testable by calling it with different drafts) is
+     * separate from the one place that acts on it.
+     */
+    private sealed interface SaveDecision {
+        /** Why the save is refused. Nothing is persisted, and the switch
+         * cannot have moved either, since nothing here touches the draft. */
+        data class Refused(val message: String) : SaveDecision
+
+        /** What to persist, already clamped to disabled if [RuleDraft.enableRefusal]
+         * says this rule cannot start, per [save]'s own kdoc. */
+        data class Ready(val rule: Rule) : SaveDecision
+    }
+
+    /**
+     * **Only two things refuse a save**: a blank name, and a component that is
+     * genuinely broken (one that will not build, or a `{{...}}` reference
+     * naming a variable the rule does not offer). Both are wrong rather than
+     * unfinished, which is why refusing them here, while the person is still
+     * looking at the field responsible, is right. See [validate].
      *
-     * The factories are the authority on whether config is valid — they hold
+     * No trigger, no actions, an empty group anywhere in the tree, or a
+     * trigger that cannot start the rule it is attached to are all different
+     * from that: a rule mid-thought, not a mistake. None of them refuse the
+     * save any more. See [RuleDraft.toRuleOrNull]. This is instead the one
+     * place that keeps such a rule from being switched on by accident:
+     * whatever the draft's own switch currently shows, [RuleDraft.enableRefusal]
+     * is asked again here and the save is forced off if it still says no. That
+     * catches the case [RuleEditorViewModel.setEnabled] cannot: a rule that
+     * was validly enabled, whose trigger or actions were then edited away
+     * while the switch itself was never touched.
+     */
+    private fun decideSave(draft: RuleDraft): SaveDecision {
+        val rule = draft.toRuleOrNull()
+            ?: return SaveDecision.Refused("Give the rule a name.")
+
+        validate(rule)?.let { return SaveDecision.Refused(it) }
+
+        val toSave = if (rule.enableRefusal(registry) != null) rule.copy(enabled = false) else rule
+        return SaveDecision.Ready(toSave)
+    }
+
+    /**
+     * Validates by construction, then persists. [decideSave] is the whole
+     * decision, so this has exactly one branch each way: a refusal reports
+     * why and touches nothing else, or a save both persists and reports
+     * `finished`. A connected-suite failure once left both unset, from a
+     * branch that predated this split and returned early on its own; a stray
+     * early return could do that again in a function with several of them
+     * scattered through it, which is exactly why there is only this one
+     * `when` now, over a sealed result, rather than a chain of
+     * `if (...) { fail(...); return }` for a reader to audit by eye.
+     *
+     * The factories are the authority on whether config is valid. They hold
      * cross-field rules the schema cannot express, such as the watchdog's
-     * "poll must not exceed absence". Their error messages are already written
-     * for people, so they are shown verbatim.
+     * "poll must not exceed absence". Their error messages are already
+     * written for people, so they are shown verbatim, inside [validate].
      */
     fun save() {
-        val draft = _state.value.draft
+        when (val decision = decideSave(_state.value.draft)) {
+            is SaveDecision.Refused -> fail(decision.message)
 
-        val rule = draft.toRuleOrNull() ?: run {
-            fail(
-                when {
-                    draft.name.isBlank() -> "Give the rule a name."
-                    draft.trigger == null -> "Choose a trigger."
-                    // A group with nothing in it. Reachable in one tap — a group
-                    // is picked from the trigger picker and arrives empty — so it
-                    // needs its own sentence rather than being told to choose a
-                    // trigger it can see it already has.
-                    else -> "A group has no triggers in it. Add one, or remove the group."
+            is SaveDecision.Ready -> viewModelScope.launch {
+                try {
+                    repository.upsert(decision.rule)
+                    // The draft's own switch is kept truthful to what was
+                    // actually persisted, not just left showing whatever it
+                    // did before the clamp in [decideSave]. Without this, a
+                    // rule saved with its switch clamped off would still
+                    // show on in this same editor instance until the rule
+                    // was closed and reopened, and a switch that looks on
+                    // with nothing backing it is exactly the inconsistency
+                    // this feature exists to avoid.
+                    _state.update {
+                        it.copy(
+                            draft = it.draft.copy(enabled = decision.rule.enabled),
+                            finished = true,
+                            error = null,
+                        )
+                    }
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (t: Throwable) {
+                    // The one thing this whole function exists to prevent:
+                    // a save that neither reports a reason nor completes.
+                    // Nothing expected should reach here. repository.upsert
+                    // is not supposed to throw, but "not supposed to" is a
+                    // promise a factory or a database can still break, and a
+                    // person pressing Save deserves a reason on screen over
+                    // a silent no-op, whatever broke it.
+                    fail("Could not save: ${t.message ?: t::class.simpleName}")
                 }
-            )
-            return
-        }
-        if (rule.actions.isEmpty()) {
-            fail("Add at least one action, or the rule will do nothing.")
-            return
-        }
-
-        // The picker cannot prevent this one. It filters what a slot offers, so
-        // a tree that cannot start is unbuildable *by adding a trigger*. A
-        // setting changed afterwards is a different route to the same tree: the
-        // location component's "only check, never watch" switch turns off the
-        // events of a leaf that is already there, and a rule whose only trigger
-        // is set to check can never fire. Nothing else would say so. The rule
-        // would sit in the list looking enabled and waiting.
-        //
-        // Refused rather than warned, for the same reason the picker filters
-        // rather than warns: a stored rule that can never run is the failure
-        // this whole model exists to make impossible, and a warning someone can
-        // save past is how it gets stored anyway.
-        if (!rule.trigger.canStart(::hasEvents, ::hasState)) {
-            fail(
-                "This rule can never start. One trigger must start it, and the " +
-                    "others are only checked when it does. A trigger set to only " +
-                    "check never starts a rule."
-            )
-            return
-        }
-
-        validate(rule)?.let { fail(it); return }
-
-        viewModelScope.launch {
-            repository.upsert(rule)
-            _state.update { it.copy(finished = true, error = null) }
+            }
         }
     }
 
@@ -677,14 +736,23 @@ class RuleEditorViewModel(
         // the common one-leaf rule so its message reads exactly as it always
         // has; only a tree with several leaves needs to say which one is at
         // fault.
+        //
+        // A component with a required field nobody has filled in yet is
+        // skipped here rather than built. Calling `create()` on it would
+        // refuse for the same reason [ConfigField.unfilled] exists to name:
+        // "absent" and "wrong" are different problems, and only the second
+        // one is genuinely broken. `enableRefusal` is what still stops such a
+        // rule being switched on, and names the same component.
         val leaves = rule.trigger.leaves()
         leaves.forEachIndexed { index, spec ->
+            if (isUnfinished(Slot.TRIGGER, spec)) return@forEachIndexed
             runCatching { registry.createTrigger(spec) }
                 .exceptionOrNull()
                 ?.let { return describe(it, triggerLabel(spec, index, leaves.size)) }
         }
 
         rule.actions.forEachIndexed { index, spec ->
+            if (isUnfinished(Slot.ACTION, spec)) return@forEachIndexed
             runCatching { registry.createAction(spec) }
                 .exceptionOrNull()
                 ?.let {
@@ -724,6 +792,15 @@ class RuleEditorViewModel(
 
         return null
     }
+
+    /**
+     * Whether [spec] still has a required field with no value, per its own
+     * schema. See [ConfigField.unfilled]: this is the "absent" half of the
+     * absent-versus-wrong line, and it is asked here, of the exact spec about
+     * to be built, rather than guessed from whatever `create()` throws.
+     */
+    private fun isUnfinished(slot: Slot, spec: ComponentSpec): Boolean =
+        descriptorFor(slot, spec.type)?.configFields?.unfilled(spec.config)?.isNotEmpty() == true
 
     /** A trigger leaf's label for a validation message: plain when it is the
      * rule's only trigger, numbered once a tree has more than one. */

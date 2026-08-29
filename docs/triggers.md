@@ -90,6 +90,9 @@ system settings reports nothing back to the app.
 | Device restarted / app updated | `device_restart` | `BOOT_COMPLETED`/`MY_PACKAGE_REPLACED`, via `BootEvents` | `RECEIVE_BOOT_COMPLETED` |
 | Sunrise / sunset | `solar` | calculated (NOAA), typed location | None |
 | Time of day *(condition only)* | `time_window` | the clock | None |
+| Day of the week *(condition only)* | `day_of_week` | the calendar, device zone | None |
+| Month *(condition only)* | `month` | the calendar, device zone | None |
+| Date range *(condition only)* | `date_range` | the calendar, device zone | None |
 | Home-screen shortcut tapped | `shortcut` | tap on a pinned launcher shortcut | None |
 
 ### Conditions: the same triggers, asked instead of watched
@@ -187,16 +190,17 @@ the two rows kept the latitude and silently dropped the longitude. Migration now
 asks `companionKeys()`, which the editor already used for drawing the same
 fields.
 
-### The one condition that is not a trigger at all
+### The first condition that was not a trigger at all
 
 `time_window` has **no event stream**: its `events()` is empty and it can never
 start a rule. It exists because asking is cheap where watching is not, and
 because there is, today, no time *trigger* for it to be a passive form *of*.
 Blocker 2 is resolved and a time-of-day trigger could now be built on
 `AlarmScheduler`, but nobody has built it yet, so the gap this paragraph
-describes stands until that trigger exists. Every other condition in this
-document rides on a component that also fires; `time_window` is the one
-component that is a condition and nothing else.
+describes stands until that trigger exists. `day_of_week`, `month` and
+`date_range`, below, share this same shape for the same reason: a day, a
+month and a date range are levels the calendar answers for free, and none of
+the three has an edge-shaped trigger of its own to be the passive form of.
 
 It is the one that changes what is possible today. A time *trigger* needs
 `AlarmManager`, while a time *condition* needs only the clock, so "when the
@@ -215,6 +219,52 @@ be a standalone component at all. It needed to be that trigger's passive form.
 It has been folded in on that basis. What it costs to ask, rather than watch, is
 recorded once, in `docs/conditions.md`'s "Passive-only checks" section, rather
 than duplicated here next to a component it no longer is.
+
+### Day of the week, month and date range
+
+Three more conditions in `time_window`'s shape: no scheduler, no event stream,
+just the calendar read at the instant the gate asks. `docs/conditions.md`'s
+"Passive-only checks" is the model; what follows is what each had to decide.
+
+**Zone: the device's own, not typed in.** `SolarTrigger` takes a zone
+explicitly, because a sunrise it computes can name a place the phone is not
+currently standing in. None of these three names a place at all — "on
+weekdays", "in December" and "between 1 December and 6 January" are always
+questions about the calendar the phone is currently living in — so each reads
+`ZoneId.systemDefault()`, the same as `time_window`, and takes the zone and
+the clock as constructor parameters so a test can pin both without depending
+on the machine that runs it.
+
+`day_of_week` and `month` are seven and twelve `Flag` fields respectively, one
+per day or month, rather than a `time_window`-style start/end pair: "weekdays",
+"weekends" and any individual day (or a non-contiguous set of months, such as
+quarterly reminders) all need an arbitrary subset, not a contiguous range, and
+`:core`'s `ConfigField` has no multi-select kind to reach for instead. All the
+flags default to checked, so an unconfigured condition holds unconditionally
+until someone narrows it, matching `time_window`'s "no restriction until
+narrowed" reading of a start equal to its end. Unlike that reading, though,
+clearing every flag is read literally as never holding rather than folded back
+into "no restriction": a zero-width clock window is nonsensical taken
+literally, while "no days checked" is a real state a person can reach on
+purpose.
+
+`date_range` keeps `time_window`'s start/end shape, because "between two dates"
+is genuinely a range. It stores a month and a day for each end and **no year**:
+a range with a year would answer a different, one-off question ("between
+2 March 2026 and 9 March 2026") that this component does not, and rather than
+accept a year and silently ignore it, there is simply nowhere to type one, so
+the range means what it looks like — it repeats every year. Both ends are
+**inclusive**, unlike `time_window`'s adjacent-and-abutting windows, because two
+date ranges are not usually defined back to back. Wraparound is supported (1
+December to 6 January is a real range to want) via the same complement
+`timeWindowHolds` uses for midnight. Start equal to end is the one place this
+deliberately parts ways with `time_window`: a zero-width clock window can never
+be meant literally, but "24 December to 24 December" is a real, useful single
+day, so that is what it means here instead of "no restriction". A day is
+validated against its own month, with 29 February accepted as a boundary
+against a fixed reference leap year, so a range that means "ends on the leap
+day" can be written and is simply never reached by a calendar that has no such
+day that year.
 
 ### Bluetooth disconnects can be debounced
 
@@ -460,17 +510,32 @@ not survive Doze. Use the slowest delay that works, and consider
 between deliveries. These should probably be off by default and carry a warning
 in the UI.
 
-### Time of day / day of week
-`AlarmScheduler` (blocker 2, now built) is what this needs, and it is ready to
-use. Reschedule on boot, on time-zone change (`ACTION_TIMEZONE_CHANGED`), and
-after each firing. The recurring-alarm bug to avoid: computing the next
-occurrence from *now* rather than from the scheduled time, which makes the
-rule drift later on every fire. `SolarTrigger` already gets this right and is
-the pattern to copy, including its T17 half: waiting through
-`waitUntilDurable` rather than `waitUntil`, and reading `AlarmWakeEvents` on a
-fresh collection so an occurrence already due is not skipped for the next
-one. A rule for "every weekday at 8am" has exactly the same failure this
-closes for sunrise or sunset, and no reason to skip the fix.
+### ~~Time of day / day of week~~: done, type `time_of_day`
+
+Built as `time_of_day`. It fires once at a chosen hour and minute, on
+whichever days of the week are selected, so "every weekday at 8am" is one
+rule. The day selection lives on the trigger itself, not on the standalone
+day-of-week condition elsewhere in this file: a condition can only be asked
+once something else has already woken the rule, so nothing wakes this one at
+8am on a Tuesday if the day check lives outside it.
+
+It copies `SolarTrigger`'s pattern: `AlarmScheduler.waitUntilDurable` for the
+T17 reason, and `AlarmWakeEvents` read on a fresh collection so an occurrence
+already due is found rather than skipped for next week's. The next
+occurrence is always built from the hour and minute on a calendar date, never
+from "now plus a day", which is what keeps a late firing from drifting later
+on every fire, and what keeps a daylight-saving change correct: the same
+local time resolves to a different UTC offset on either side of the
+transition, instead of shifting by an hour.
+
+Its zone is read fresh on every wait rather than fixed once, unlike
+`SolarTrigger`'s typed place: this trigger has no place of its own, so "8am"
+means "8am wherever this phone currently is". A live
+`ACTION_TIMEZONE_CHANGED` receiver interrupts an in-flight wait, so a zone
+change mid-wait is corrected at once instead of on the next firing. Boot
+needs no extra code: every trigger is rebuilt fresh from its stored config
+each time the engine starts, so the first pass through `events()` already
+computes from a fresh clock.
 
 ### ~~Sunrise / sunset~~: done, scheduler caveat resolved
 

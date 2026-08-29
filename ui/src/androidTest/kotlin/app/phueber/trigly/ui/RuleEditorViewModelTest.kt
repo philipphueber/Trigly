@@ -21,6 +21,7 @@ import app.phueber.trigly.core.TriggerFactory
 import app.phueber.trigly.core.TriggerNode
 import app.phueber.trigly.core.VariableScope
 import app.phueber.trigly.core.VariableStore
+import app.phueber.trigly.core.leaves
 import app.phueber.trigly.triggers.AlarmManagerScheduler
 import app.phueber.trigly.triggers.triggerFactories
 import kotlinx.coroutines.Dispatchers
@@ -357,25 +358,131 @@ class RuleEditorViewModelTest {
         assertEquals("Give the rule a name.", editor.state.value.error)
     }
 
+    /**
+     * A rule mid-thought, not a mistake. See `RuleDraft.toRuleOrNull`. A blank
+     * name is the only thing that still refuses a save, so this one goes
+     * through, but disabled: [Rule.enableRefusal] is what stops an unfinished
+     * rule being switched on, not the save.
+     */
     @Test
-    fun a_rule_with_no_trigger_is_refused() = runTest {
-        val editor = viewModel()
+    fun a_rule_with_no_trigger_saves_unfinished_and_disabled() = runTest {
+        val repository = InMemoryRuleRepository()
+        val editor = viewModel(repository)
         editor.setName("Triggerless")
 
         editor.save()
 
-        assertEquals("Choose a trigger.", editor.state.value.error)
+        assertNull("nothing should refuse the save", editor.state.value.error)
+        assertTrue(editor.state.value.finished)
+        val saved = repository.rules().first().single()
+        assertFalse("an unfinished rule must not save enabled", saved.enabled)
+        assertTrue(saved.trigger.leaves().isEmpty())
     }
 
     @Test
-    fun a_rule_with_no_actions_is_refused() = runTest {
-        val editor = viewModel()
+    fun a_rule_with_no_actions_saves_unfinished_and_disabled() = runTest {
+        val repository = InMemoryRuleRepository()
+        val editor = viewModel(repository)
         editor.setName("Does nothing")
         editor.chooseTrigger("screen_state")
+        editor.setTriggerConfigValue(emptyList(), "state", "on")
 
         editor.save()
 
-        assertTrue(editor.state.value.error!!.contains("at least one action"))
+        assertNull(editor.state.value.error)
+        val saved = repository.rules().first().single()
+        assertFalse(saved.enabled)
+        assertTrue(saved.actions.isEmpty())
+    }
+
+    /**
+     * The editor's own switch, refusing before there is even anything saved
+     * yet: one of the two switches this feature has to cover, and the message
+     * names what is missing rather than only saying something is.
+     */
+    @Test
+    fun the_editors_switch_refuses_to_turn_on_with_no_trigger() = runTest {
+        val editor = viewModel()
+        editor.setName("Triggerless")
+        editor.addAction("toast")
+        // A known starting point: the draft's own switch defaults on, and the
+        // point of this test is a refused *move* from off to on, not the
+        // default's own value.
+        editor.setEnabled(false)
+
+        editor.setEnabled(true)
+
+        assertEquals("Add a trigger before switching this on.", editor.state.value.error)
+        assertFalse("the switch must not have moved", editor.state.value.draft.enabled)
+    }
+
+    @Test
+    fun the_editors_switch_refuses_to_turn_on_with_no_actions() = runTest {
+        val editor = viewModel()
+        editor.setName("Does nothing")
+        editor.chooseTrigger("screen_state")
+        editor.setEnabled(false)
+
+        editor.setEnabled(true)
+
+        assertEquals("Add an action before switching this on.", editor.state.value.error)
+        assertFalse(editor.state.value.draft.enabled)
+    }
+
+    @Test
+    fun the_editors_switch_names_both_when_both_are_missing() = runTest {
+        val editor = viewModel()
+        editor.setName("Nothing yet")
+
+        editor.setEnabled(true)
+
+        assertEquals(
+            "Add a trigger and an action before switching this on.",
+            editor.state.value.error,
+        )
+    }
+
+    @Test
+    fun turning_the_switch_off_is_never_refused() = runTest {
+        val editor = viewModel()
+        editor.setName("Triggerless")
+
+        editor.setEnabled(false)
+
+        assertNull("turning off is always allowed", editor.state.value.error)
+        assertFalse(editor.state.value.draft.enabled)
+    }
+
+    /**
+     * The case that matters most: a rule saved before it is finished, opened
+     * again once it is, and switched on. That is the whole point of letting
+     * it save unfinished in the first place.
+     */
+    @Test
+    fun a_rule_saved_unfinished_then_finished_then_switched_on_works() = runTest {
+        val repository = InMemoryRuleRepository()
+        val editor = viewModel(repository)
+        editor.setName("Half then whole")
+
+        editor.save()
+        val halfBuilt = repository.rules().first().single()
+        assertFalse(halfBuilt.enabled)
+
+        val reopened = viewModel(repository, ruleId = halfBuilt.id)
+        reopened.chooseTrigger("screen_state")
+        reopened.setTriggerConfigValue(emptyList(), "state", "on")
+        reopened.addAction("toast")
+        reopened.setConfigValue(Slot.ACTION, 0, "text", "go")
+
+        reopened.setEnabled(true)
+        assertNull("the switch should now move", reopened.state.value.error)
+
+        reopened.save()
+
+        val finished = repository.rules().first().single()
+        assertTrue(finished.enabled)
+        assertEquals("screen_state", (finished.trigger as TriggerNode.One).spec.type)
+        assertEquals(listOf("toast"), finished.actions.map { it.type })
     }
 
     @Test
@@ -401,11 +508,48 @@ class RuleEditorViewModelTest {
         assertTrue("nothing should be stored", repository.rules().first().isEmpty())
     }
 
+    /**
+     * A required field nobody has filled in yet is absent, not wrong: the
+     * same "not finished" bucket as no trigger or no actions at all, not the
+     * "genuinely broken" one. This replaced a test with almost the same name
+     * that asserted the opposite (that a missing 'threshold' refused the
+     * save). See `enableRefusal`'s own kdoc for the line and why it moved.
+     */
     @Test
-    fun a_missing_required_field_is_reported_against_the_component_that_wants_it() = runTest {
-        val editor = viewModel()
+    fun a_trigger_with_an_unfilled_required_field_saves_unfinished_and_names_it_in_the_refusal() = runTest {
+        val repository = InMemoryRuleRepository()
+        val editor = viewModel(repository)
         editor.setName("No threshold")
         editor.chooseTrigger("battery_level")
+        editor.addAction("toast")
+        editor.setConfigValue(Slot.ACTION, 0, "text", "low")
+
+        editor.save()
+
+        assertNull("an unfilled field is not a save-time error", editor.state.value.error)
+        val saved = repository.rules().first().single()
+        assertFalse(saved.enabled)
+
+        editor.setEnabled(true)
+
+        assertEquals(
+            "Finish setting up Battery level before switching this on.",
+            editor.state.value.error,
+        )
+    }
+
+    /**
+     * The pair to the test above: a *present* but malformed value on the same
+     * field is still genuinely broken, refused at save time exactly as
+     * before, with the factory's own message. Absent and wrong are different
+     * problems, and this is the "wrong" one.
+     */
+    @Test
+    fun a_malformed_value_on_an_otherwise_filled_in_field_still_refuses_the_save() = runTest {
+        val editor = viewModel()
+        editor.setName("Bad threshold")
+        editor.chooseTrigger("battery_level")
+        editor.setTriggerConfigValue(emptyList(), "threshold", "not-a-number")
         editor.addAction("toast")
         editor.setConfigValue(Slot.ACTION, 0, "text", "low")
 
@@ -414,6 +558,31 @@ class RuleEditorViewModelTest {
         val error = editor.state.value.error
         assertTrue("was: $error", error!!.startsWith("Battery level:"))
         assertTrue("was: $error", error.contains("threshold"))
+        assertFalse(editor.state.value.finished)
+    }
+
+    /** The same absent-versus-wrong line, on an action instead of a trigger. */
+    @Test
+    fun an_action_with_an_unfilled_required_field_saves_unfinished_and_names_it_in_the_refusal() = runTest {
+        val repository = InMemoryRuleRepository()
+        val editor = viewModel(repository)
+        editor.setName("No alarm time")
+        editor.chooseTrigger("screen_state")
+        editor.setTriggerConfigValue(emptyList(), "state", "on")
+        editor.addAction("set_alarm") // "hour" is required and left blank
+
+        editor.save()
+
+        assertNull("an unfilled field is not a save-time error", editor.state.value.error)
+        val saved = repository.rules().first().single()
+        assertFalse(saved.enabled)
+
+        editor.setEnabled(true)
+
+        assertEquals(
+            "Finish setting up Set an alarm (action 1) before switching this on.",
+            editor.state.value.error,
+        )
     }
 
     @Test
@@ -424,7 +593,11 @@ class RuleEditorViewModelTest {
         editor.setTriggerConfigValue(emptyList(), "state", "on")
         editor.addAction("toast")
         editor.setConfigValue(Slot.ACTION, 0, "text", "fine")
-        editor.addAction("set_alarm") // needs an hour
+        editor.addAction("set_alarm")
+        // Present but out of range, not absent: an unfilled 'hour' is now
+        // unfinished rather than broken, so this needs a genuinely wrong
+        // value to still exercise the save-time refusal.
+        editor.setConfigValue(Slot.ACTION, 1, "hour", "25")
 
         editor.save()
 
@@ -922,26 +1095,31 @@ class RuleEditorViewModelTest {
     }
 
     /**
-     * A group with nothing in it used to be pruned out of the tree and the rule
-     * saved without it. The refusal message existed but could only fire when the
-     * root itself was the empty group.
+     * A group with nothing in it used to refuse the save outright, even
+     * though the rule beside it was otherwise complete. It is kept in the
+     * saved tree exactly as it stood, unfinished branch and all. See
+     * `TriggerDraft.toNode`. It is switched off rather than refused, the same
+     * as a rule with no trigger at all.
      */
     @Test
-    fun an_empty_group_nested_in_the_tree_refuses_the_save() = runTest {
-        val editor = viewModel()
+    fun an_empty_group_nested_in_the_tree_saves_unfinished_and_disabled() = runTest {
+        val repository = InMemoryRuleRepository()
+        val editor = viewModel(repository)
         editor.setName("Half built")
         editor.addAction("toast")
         editor.setConfigValue(Slot.ACTION, 0, "text", "go")
         editor.chooseTrigger("screen_state")
+        editor.setTriggerConfigValue(emptyList(), "state", "on")
         editor.addTrigger(emptyList(), GROUP_ANY_TYPE)
 
         editor.save()
 
-        assertEquals(
-            "A group has no triggers in it. Add one, or remove the group.",
-            editor.state.value.error,
-        )
-        assertFalse(editor.state.value.finished)
+        assertNull(editor.state.value.error)
+        assertTrue(editor.state.value.finished)
+        val saved = repository.rules().first().single()
+        assertFalse(saved.enabled)
+        val root = saved.trigger as TriggerNode.Group
+        assertEquals(TriggerNode.Group(TriggerNode.Op.ANY, emptyList()), root.children[1])
     }
 
     /**
@@ -1015,13 +1193,17 @@ class RuleEditorViewModelTest {
     }
 
     /**
-     * A rule whose only trigger only answers a question is refused, with the
-     * reason. Unreachable through the picker now, and reachable through an
-     * imported file, which is why the guard stays.
+     * A rule whose only trigger only answers a question is not "unfinished":
+     * there is a trigger, and it is not incomplete, only unable to ever start
+     * the rule it is attached to. That is a different problem from no trigger
+     * at all, and it moved from a save-time refusal to an enable-time one. The
+     * save now goes through, disabled; the switch is where the reason is
+     * given, both here in the editor and from the rules list.
      */
     @Test
-    fun a_rule_whose_only_trigger_only_checks_is_refused() = runTest {
-        val editor = viewModel()
+    fun a_rule_whose_only_trigger_only_checks_saves_unfinished_and_refuses_to_enable() = runTest {
+        val repository = InMemoryRuleRepository()
+        val editor = viewModel(repository)
         editor.setName("Home only")
         editor.addAction("toast")
         editor.setConfigValue(Slot.ACTION, 0, "text", "here")
@@ -1033,9 +1215,15 @@ class RuleEditorViewModelTest {
 
         editor.save()
 
+        assertNull("nothing should refuse the save", editor.state.value.error)
+        val saved = repository.rules().first().single()
+        assertFalse("cannot ever start, so it must not save enabled", saved.enabled)
+
+        editor.setEnabled(true)
+
         val error = editor.state.value.error
         assertTrue("was: $error", error!!.startsWith("This rule can never start."))
-        assertFalse(editor.state.value.finished)
+        assertFalse("the switch must not have moved", editor.state.value.draft.enabled)
     }
 
     /** The shape it exists for: something else starts the rule, the area answers. */

@@ -351,12 +351,18 @@ class TriggerNodeJsonTest {
     }
 
     @Test
-    fun `a v3 group with an empty children list is refused`() {
-        // Distinct from the missing-children case above, and the reason it is
-        // tested separately: an empty array is well-formed JSON and decodes to a
-        // group of nothing, which the model permits on purpose. What must not
-        // happen is that arriving from a file, because "any of nothing" is a rule
-        // that can never start — the failure this design exists to prevent.
+    fun `a v3 group with an empty children list is accepted, not refused`() {
+        // This used to be refused: an empty array is well-formed JSON and
+        // decodes to a group of nothing, which the model has always permitted
+        // ("any of nothing" not holding is what the words mean), but an
+        // editor that could only ever build a group with something in it made
+        // an empty one look like proof of a hand-edited or downgraded file.
+        // That stopped being true once a rule could be saved before its
+        // trigger was finished: an empty group is exactly how that state is
+        // spelled, see `NO_TRIGGER`, and this same shape is what the
+        // database column holds for such a rule, decoded through this same
+        // reader. Refusing it here would stop a deliberately unfinished rule
+        // from surviving the read it is written to survive.
         val emptyGroup = """
             {"version":3,"rules":[{
               "name":"Empty group",
@@ -365,17 +371,39 @@ class TriggerNodeJsonTest {
             }]}
         """.trimIndent()
 
-        val error = assertThrows(IllegalArgumentException::class.java) {
-            RuleJson.decode(emptyGroup)
-        }
-        assertTrue(
-            "should say the group is empty, was: ${error.message}",
-            error.message.orEmpty().contains("no triggers in it"),
+        val decoded = RuleJson.decode(emptyGroup).single()
+
+        assertEquals(TriggerNode.Group(TriggerNode.Op.ANY, emptyList()), decoded.trigger)
+        // Still unable to start a rule, exactly as before: nothing about
+        // what "empty" means for canStart has changed, only whether reading
+        // one back is refused.
+        assertFalse(decoded.trigger.canStart({ true }, { true }))
+    }
+
+    @Test
+    fun `a rule with no trigger chosen survives a JSON round trip`() {
+        // `NO_TRIGGER` is how `RuleDraft.toRuleOrNull` (in `:ui`) spells "no
+        // trigger yet" for a rule saved before it is finished. This is the
+        // export path a share or a backup would use; `decodeNode` below is
+        // the database column's own path, which is a different function.
+        val unfinished = Rule(
+            id = "rule-1",
+            name = "Half built",
+            trigger = NO_TRIGGER,
+            actions = emptyList(),
+            enabled = false,
         )
-        assertTrue(
-            "should name the rule, was: ${error.message}",
-            error.message.orEmpty().contains("Empty group"),
-        )
+
+        val decoded = RuleJson.decode(RuleJson.encode(unfinished)).single()
+
+        assertEquals(unfinished, decoded)
+    }
+
+    @Test
+    fun `NO_TRIGGER round trips through encodeNode and decodeNode`() {
+        val json = RuleJson.encodeNode(NO_TRIGGER)
+
+        assertEquals(NO_TRIGGER, RuleJson.decodeNode(json))
     }
 
     @Test

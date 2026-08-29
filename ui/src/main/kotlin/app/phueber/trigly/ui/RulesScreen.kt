@@ -553,6 +553,7 @@ private fun RuleBlock(
 
             RequirementCell(status = status, onResolve = onResolve)
             LastFaultCell(status = status, describeComponent = describeComponent)
+            UnfinishedRuleCell(status = status)
         }
     }
 
@@ -670,6 +671,50 @@ private fun LastFaultCell(
                 modifier = Modifier.padding(top = 2.dp),
             )
         }
+    }
+}
+
+/**
+ * Why a disabled rule cannot be switched on yet, shown without anyone having
+ * to tap the switch to find out.
+ *
+ * A rule saved before it is finished (no trigger, no actions, or both)
+ * defaults to off exactly so it does not become a [RuleFault.Kind.COULD_NOT_START]
+ * the moment it is saved. That makes it quiet by design, and quiet is the
+ * problem this cell exists to fix: [LastFaultCell] never runs for a disabled
+ * rule, so without this, the only way to learn a rule is unfinished would be
+ * to open it or tap the switch and read the toast. This is exactly the kind
+ * of thing a person would want to see at a glance instead, the same reasoning
+ * [LastFaultCell] itself exists for.
+ *
+ * [RulesViewModel] only fills [RuleStatus.enableRefusal] for a disabled rule,
+ * and this checks the rule's own flag again for the same reason
+ * [LastFaultCell]'s kdoc gives for its own two guards: the cost of getting it
+ * wrong is accusing a rule nobody has tried to run yet.
+ *
+ * The caution colour, not the error one. [RequirementCell] and the
+ * [RuleFault.Kind.COULD_NOT_START] row above both take the error colour
+ * because they describe a rule that is switched on and failing right now.
+ * Nothing here is switched on: this is the ordinary, expected shape of a rule
+ * a person has not finished, which is "worth knowing, not a fault in front of
+ * you", [LastFaultCell]'s own words for its amber rows.
+ */
+@Composable
+private fun UnfinishedRuleCell(status: RuleStatus) {
+    val message = status.enableRefusal ?: return
+    if (status.rule.enabled) return
+
+    BlockDivider()
+    Surface(
+        color = MaterialTheme.extra.cautionContainer,
+        contentColor = MaterialTheme.extra.onCautionContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        )
     }
 }
 

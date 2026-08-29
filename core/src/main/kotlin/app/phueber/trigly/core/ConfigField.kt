@@ -528,6 +528,41 @@ fun List<ConfigField>.shownWith(config: Map<String, String>): List<ConfigField> 
     }
 
 /**
+ * The required fields, among the ones currently shown, that still have no
+ * value.
+ *
+ * This is the line between two different problems a component can have.
+ * *Absent* is this: a required field nobody has typed anything into yet, on
+ * a trigger or action a person picked and has not finished configuring. It
+ * is not wrong, only not done. *Wrong* is everything else `create()` can
+ * still refuse: a value that is present but malformed, or a combination of
+ * present values that breaks a cross-field rule such as
+ * `notification_watchdog`'s "poll must not exceed absence". Only a field
+ * this function reports is read as "not done"; anything `create()` throws
+ * once every field here is filled in is read as broken, exactly as before.
+ *
+ * [required] alone is not the question, twice over:
+ *
+ * - A field a sibling currently hides is not something a person left blank,
+ *   it is something the form is not asking for right now. [shownWith] is
+ *   what already answers that, consulted here rather than duplicated.
+ * - A field with a declared default is not blank either, the same reasoning
+ *   [shownWith] uses for a gating key nobody has touched: absent means the
+ *   form is already showing a real value, not that a person left it empty.
+ *   `defaultConfigFor` fills such a default into a component's config the
+ *   moment it is added in the editor, so this mostly guards a different
+ *   entry point: a rule from an older export, or one written by hand, whose
+ *   `play_alert` never wrote down "Tone" at all. Reading only the stored
+ *   config would call that one unfinished over a field it has always
+ *   effectively answered, the alarm tone, and refuse to enable a rule
+ *   nothing is actually wrong with.
+ */
+fun List<ConfigField>.unfilled(config: Map<String, String>): List<ConfigField> =
+    shownWith(config).filter { field ->
+        field.required && (config[field.key] ?: field.defaultValue()).isNullOrBlank()
+    }
+
+/**
  * The extra config keys a field kind owns beyond [ConfigField.key], plus —
  * for a [ConfigField.Text] with [ConfigField.Text.helpWhen] — the sibling keys
  * it only *reads*.

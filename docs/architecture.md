@@ -100,23 +100,30 @@ a two-part shape used to guarantee by construction.
 
 ### What a save may not quietly change
 
-The editor works on a `RuleDraft`, and `toNodeOrNull` is the boundary where a
-draft becomes a rule. Two things it used to do there both lost a group without
-saying so, and both are now refusals rather than repairs.
+The editor works on a `RuleDraft`, and `toNode` is the boundary where a draft
+becomes a `TriggerNode`. It is total: nothing about the *shape* of a trigger
+tree can make it refuse, which is new. It replaced `toNodeOrNull`, which
+refused two shapes outright, and both refusals are gone for the reason the next
+section gives: a rule that is not finished yet saves anyway, disabled, rather
+than not saving at all.
 
-A group holding one child is kept. It used to be unwrapped, on the reasoning
-that the editor never builds a singleton group. It does, on the way to every
-group a person makes: a group is picked from the trigger picker and arrives
-empty, so it holds one child for as long as it takes to add the second. Saving
-in that state replaced the group with its child, so someone who built
-`ALL(screen on, ANY(...))`, added the first branch of the OR and saved, reopened
-the rule to find the OR gone. An `ANY` of one evaluates exactly like the child,
-so keeping it costs nothing and keeps what the person built.
+A group holding one child is still kept, unconditionally, the same as before
+this change. It used to be unwrapped, on the reasoning that the editor never
+builds a singleton group. It does, on the way to every group a person makes: a
+group is picked from the trigger picker and arrives empty, so it holds one
+child for as long as it takes to add the second. Unwrapping it mid-build turned
+`ALL(screen on, ANY(...))` into `ALL(screen on, ...)` the moment the first OR
+branch was added, silently, while the person was still filling in the second.
+An `ANY` of one evaluates exactly like the child, so keeping it costs nothing
+and keeps what the person built.
 
-A group holding nothing refuses the save. It used to be pruned out of the tree
-and the rule saved without it. The refusal message existed already but could
-only fire when the root itself was the empty group, which was the one case where
-pruning happened to produce a null tree.
+A group holding nothing is also kept, as exactly that: an empty `TriggerNode.Group`,
+not pruned and not refused. It used to refuse the save outright. The refusal
+message could only fire when the root itself was the empty group, which was
+the one case where the old pruning happened to produce a null tree. But an
+empty group is now exactly how a rule saved before its trigger is finished
+spells "nothing here yet", the same as an entirely absent trigger; see
+"A rule can save before it is finished" below.
 
 A group that loses children to *removal* still collapses, and that is a
 different question. Removing one of two OR branches leaves the other, and an OR
@@ -124,25 +131,163 @@ of one thing is that thing. The difference is intent: one child because a second
 was removed is a finished edit, one child because a second is not added yet is a
 rule in progress.
 
-`transformTrigger` is the other half of that rule, and it was the other half of
-the same bug. It walks to a node and replaces it, and it used to apply the
-un-promotion to the result of *every* edit rather than only to a removal. So a
-group holding one child lost the group the moment anything inside it was
-touched: typing a value into the one trigger in a new OR group deleted the OR
-group while the person was still filling it in. Fixing the save path alone was
-not enough, because the draft had already lost the group before a save was
-reached. Now a removal can collapse a group and no other edit changes the shape
-at all. A group left with no children still disappears, because the last removal
-from a group is the removal of the group, while an *empty* group someone made on
-purpose is kept and refused at save.
+`transformTrigger` is the other half of that rule, unchanged by this: it walks
+to a node and replaces it, and it used to apply the un-promotion to the result
+of *every* edit rather than only to a removal. So a group holding one child
+lost the group the moment anything inside it was touched: typing a value into
+the one trigger in a new OR group deleted the OR group while the person was
+still filling it in. Now a removal can collapse a group and no other edit
+changes the shape at all. A group left with no children still disappears,
+because the last removal from a group is the removal of the group, while an
+*empty* group someone made on purpose is kept, saves, and is refused only at
+the *enable* gate, not the save.
 
 The trigger picker asks a third question and needs a third answer.
 `triggerOptionsFor` converts a candidate tree to test whether it could start, so
 strictness there would empty the picker: with `ALL(screen on, ANY())` on screen,
-every candidate for the root would convert to null and be filtered out,
-including the components that would fill the empty group. It uses
-`toNodeIgnoringEmptyGroups`, which prunes exactly the way `toNodeOrNull` used
-to, and is named so the difference is visible at the call site.
+every candidate for the root would convert to a tree still holding an empty
+group and be filtered out, including the components that would fill it. It
+uses `toNodeIgnoringEmptyGroups`, which prunes, unlike `toNode`, which
+deliberately does not, and is named so the difference is visible at the call
+site.
+
+### A rule can save before it is finished
+
+`RuleEditorViewModel.save` used to conflate two different reasons a rule might
+not be ready: a component that will not build or a `{{...}}` reference to a
+variable the rule does not offer (wrong, and still refused at save time, by
+`validate`), against no trigger, no actions, or an empty group somewhere in the
+tree (not wrong, only unfinished). Only a blank name refuses a save now. Every
+other kind of incompleteness saves, because refusing it is how people lose
+work, and this app has no draft anywhere else.
+
+`Rule.trigger` is a `TriggerNode`, not nullable, so a rule saved with no
+trigger chosen still needs one to hold. `NO_TRIGGER` (`core/Gate.kt`) is that
+value: an `ALL` group with nothing in it, which `TriggerNode.canStart` already
+reads as unable to start a rule, the same as any other unstartable tree, so
+nothing downstream needed a new state to recognise it. `RuleJson.decodeNode`'s
+v3 reader used to refuse an empty `children` array, on the reasoning that the
+editor could never build one on purpose; that guard is gone, because the
+database column and an exported file both now have to carry this value for a
+rule saved unfinished.
+
+`enableRefusal` (`ui/RuleDraft.kt`) is the other half: why a rule *cannot be
+switched on*, checked wherever a rule can be switched on. The toggle on the
+rules list (`RulesViewModel.setEnabled`) and the editor's own switch
+(`RuleEditorViewModel.setEnabled`) both refuse through it and post the same
+kind of message either way, a toast on the list and the editor's own inline
+error surface. No trigger and no actions get a message naming what to add. A
+trigger that is present but cannot start (two edge-only components sharing
+one `ALL`, or a leaf whose "only check" setting was flipped on after it was
+already the rule's one trigger) keeps the older, more specific message that
+`save` used to give, since a person can only fix that by changing what is
+already there, not by adding something. `RuleEditorViewModel.save` asks the
+same question again right before it persists, and forces `enabled` off if the
+answer is still no, whatever the draft's own switch happened to show. That is
+the safety net for a rule that was validly enabled and then had its trigger or
+actions edited away without anyone touching the switch. Without it, a freshly
+opened editor's switch defaulting on would turn every half-written rule into a
+`RuleFault.Kind.COULD_NOT_START` the moment it saved, which is the opposite of
+the point of letting it save at all.
+
+`RulesScreen`'s `UnfinishedRuleCell` shows the same `enableRefusal` message on
+the rules list itself, for a disabled rule, without anyone tapping its switch.
+`LastFaultCell` never runs for a disabled rule, so without this the only way to
+learn a rule is unfinished was to open it or read the toast. Caution-coloured,
+not error-coloured: nothing here is switched on and failing right now, which is
+what the error colour means elsewhere on this screen; this is the ordinary,
+expected shape of a rule nobody has finished yet.
+
+### Absent versus wrong
+
+The first pass at the line above missed one case: an action or trigger a
+person picked and left partly filled in, a required field with nothing typed
+into it yet. `validate` used to call that broken, the same as an unknown
+component or a malformed value, because it decided by calling `create()` and
+reading whatever came back. That conflated two different problems again, one
+level down from the first split. Caught in the connected suite, on two
+devices, by a test that had simply forgotten to configure a trigger.
+
+**Absent** is a required field with no value at all: not filled in yet,
+which is unfinished, not wrong. **Wrong** is everything else `create()` can
+still refuse: a value that is present but malformed, or a combination of
+present values that breaks a cross-field rule such as
+`notification_watchdog`'s "poll must not exceed absence". The two are told
+apart by the schema, not by the factory: `ConfigField.unfilled`
+(`core/ConfigField.kt`) reports the required fields, among the ones a
+sibling's own value currently shows, that still have no value and no
+declared default. `validate` skips a component `unfilled` names entirely
+rather than calling `create()` on it, since building it would only refuse
+for the exact reason already known. `enableRefusal` names the same
+component in its own message, "Finish setting up X", rather than folding it
+into "add a trigger" or "add an action": a person who already added an
+action and is then told to add one would reasonably think the app is
+broken.
+
+A field's declared default matters here for the same reason it matters to
+`shownWith`: a required field the editor is already showing a real value
+for, such as `play_alert`'s "Tone", is not something a person left blank,
+even when nothing has been typed. Only the stored value being absent *and*
+no default existing counts as unfilled. Getting this wrong the other way,
+by reading `required` alone, would have called a fresh, fully-answered
+`play_alert` unfinished over a field nobody had touched.
+
+### An empty group is not a harmless level
+
+The connected suite found a third hole, in `canStart` itself rather than in
+`save`: an `ALL` group holding one real, working trigger beside an empty
+`ANY` group, exactly what the picker builds when someone picks "Any of
+these" next to an existing trigger and never fills it in. `canStart` said
+this tree could start. It cannot, ever: `holds` already defines an empty
+`ANY` as always false, so `ALL(real trigger, empty ANY)` is `ALL` of a real
+answer and a hard-coded "no", which can never both be true. That is the
+same dead rule two bare edges under one `ALL` already cannot reach, just
+arrived at through a group with nothing in it instead of a second edge.
+
+`canHold` alone cannot catch it, and should not be made to: it answers
+whether a child can be *asked* without coming back unreadable, and an empty
+group answers every single time, just always with the same constant "no".
+That is a different question from whether the answer could ever be *true*,
+which is what `canStart`'s `ALL` branch actually needs from a sibling it is
+not the one starting the rule. `TriggerNode.canEverHold` (`core/Gate.kt`) is
+that second question, judged from the tree's shape alone: true for every
+leaf and every group except an empty `ANY`, which the recursion carries up
+through any `ALL` it sits inside (an `ALL` beside a hard "no" is itself a
+hard "no") without being fooled by an `ANY` that has some *other*, real way
+of being true. `canStart`'s `ALL` branch now requires a sibling to satisfy
+both `canHold` and `canEverHold`, closing the gap without touching
+`canHold`'s own meaning, which stays exactly what its existing callers and
+tests already rely on.
+
+### One `when`, not a chain of early returns
+
+The same connected run turned up a save that returned having set neither
+`error` nor `finished`: a silent no-op, a person pressing Save and seeing
+nothing happen, with nothing on screen to say why. The immediate cause was
+the `canStart` gap above: a rule that `enableRefusal` wrongly waved through
+still had to reach the persist step correctly, and auditing
+`RuleEditorViewModel.save` by eye to be sure every branch set one of the two
+fields was exactly the kind of check the bug had already slipped past once.
+
+`save` no longer holds that logic itself. `decideSave` is a pure function
+from a `RuleDraft` to a sealed `SaveDecision`, `Refused(message)` or
+`Ready(rule)`, and `save` is one `when` over both, each arm leading directly
+to `fail` or to the persist-and-finish path. There is no longer a chain of
+`if (...) { fail(...); return }` for a reader to check one at a time, and a
+third `SaveDecision` case would fail to compile until `save`'s `when` also
+handled it. The persist step is wrapped in its own `try`/`catch` too, on the
+same reasoning: `repository.upsert` is not supposed to throw, but "not
+supposed to" is a promise a factory or a database can still break, and a
+person who pressed Save deserves a reason on screen over silence, whatever
+broke it.
+
+Whether an enable refusal should also surface the moment a rule saves,
+rather than only when the switch is touched, was worth asking rather than
+assuming. It already does: `RulesScreen`'s `UnfinishedRuleCell`, from the
+first split above, reads a fresh, still-unbuilt rule the instant it lands
+in the list, with no dependency on anyone having tapped anything. A second
+notice at the moment of saving would say the same thing a beat earlier, to
+a person who is about to leave the screen anyway.
 
 ### Getting a rule out of the app: share and export
 
@@ -2370,9 +2515,12 @@ than something built here.
 **A pattern can be tested, not just compiled.** `regexErrorOrNull` catches a
 stray bracket and nothing else: a pattern can compile perfectly and match the
 wrong thing, or nothing at all, and until there was a tester the only place that
-surfaced was a rule that silently never fired. The Test button beside the mode
+surfaced was a rule that silently never fired. The Try button beside the mode
 toggle opens a dialog with the pattern and a scratch sample, and reports the
-verdict as you type.
+verdict as you type. It says Try, not Test: an action block's footer already
+has a Test button that runs the whole action for real, and `dismiss_notification`
+carrying both a text pattern field and that footer on one screen is what made
+the two meet and forced the choice, in favour of the narrower control's label.
 
 Two decisions make it trustworthy rather than merely present. **The verdict comes
 from `TextFilter.of(...)`**: the engine's own code path, through `outcome`

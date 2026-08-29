@@ -99,7 +99,7 @@
         android:theme="@style/Theme.Trigly">
 
         <!--
-          No MAIN/LAUNCHER filter here any more: the six activity-aliases below
+          No MAIN/LAUNCHER filter here any more: the nine activity-aliases below
           are what the launcher sees, one per colour scheme preset, and exactly
           one of them is enabled at a time - see LauncherIconSwitcher.kt. This
           activity stays exported, because an alias resolves to it and an alias
@@ -116,12 +116,12 @@
           One alias per colour scheme preset - see PresetSchemes.kt for the
           list they mirror and LauncherIconSwitcher.kt for how exactly one of
           them stays enabled. An activity-alias cannot be declared at runtime,
-          which is why this list, alone among that file's, is not walked: a
-          seventh preset needs one more of these by hand.
+          which is why this list, alone among that file's, is not walked: each
+          new preset needs one more of these by hand.
 
           Orange is enabled="true" because it is the install default - the
           same colour scheme a fresh install already renders before anyone
-          opens Settings. The other five start disabled, so a fresh install
+          opens Settings. The other eight start disabled, so a fresh install
           shows exactly one launcher icon and needs no runtime call to be
           correct.
 
@@ -195,6 +195,42 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_magenta"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherAliasRed"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_red"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherAliasStone"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_stone"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherAliasSlate"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_slate"
             android:label="@string/app_name">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

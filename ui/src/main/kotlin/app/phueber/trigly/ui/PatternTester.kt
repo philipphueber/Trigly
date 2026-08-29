@@ -154,7 +154,9 @@ fun PatternTesterDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "TEST ${label.uppercase()}",
+                // "Try", to match the button that opens this dialog: see
+                // ConfigFieldEditor.kt's TextPatternField for why it is not "Test".
+                text = "TRY ${label.uppercase()}",
                 style = MaterialTheme.typography.titleMedium,
             )
         },

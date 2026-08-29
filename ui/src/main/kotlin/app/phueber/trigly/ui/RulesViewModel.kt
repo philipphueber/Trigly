@@ -55,6 +55,23 @@ data class RuleStatus(
      * a run they have since stopped asking for.
      */
     val lastTrace: TriggerTrace? = null,
+    /**
+     * Why this rule cannot be switched on right now, or null if it can. See
+     * [enableRefusal].
+     *
+     * Only filled in for a disabled rule, the same guard [lastFault] and
+     * [lastTrace] carry, and for the same reason `LastFaultCell`'s own kdoc
+     * gives for checking a rule's own flag a second time: the cost of getting
+     * this wrong is accusing a rule nobody has tried to run.
+     *
+     * Not the same fact as [lastFault]. That is a report from a run the engine
+     * already attempted, keyed by rule id in a log that starts empty every
+     * time the app does. This is computed fresh from the rule itself, every
+     * time, which is what lets it say something true about a rule the engine
+     * has never even tried to start: the ordinary state of a rule saved
+     * unfinished a minute ago.
+     */
+    val enableRefusal: String? = null,
 ) {
     val canFire: Boolean get() = unmet.isEmpty() && notLive.isEmpty()
 }
@@ -115,6 +132,9 @@ class RulesViewModel(
                     lastFault = if (rule.enabled) failures[rule.id] else null,
                     // Same guard, same reason: see RuleStatus.lastTrace's own KDoc.
                     lastTrace = if (rule.enabled) traces[rule.id] else null,
+                    // The reverse guard: this is worth saying only while the
+                    // rule is off. See RuleStatus.enableRefusal's own KDoc.
+                    enableRefusal = if (!rule.enabled) rule.enableRefusal(registry) else null,
                 )
             }
         }.stateIn(
@@ -212,7 +232,24 @@ class RulesViewModel(
         viewModelScope.launch { repository.upsert(rule.duplicated(registry)) }
     }
 
+    /**
+     * Turns the switch on the rules list on or off. Turning it off always
+     * works. Turning it on is refused, with the reason posted through
+     * [message] the same way an import failure is, when [Rule.enableRefusal]
+     * says this rule cannot ever start. See that function.
+     *
+     * This is the *other* place a rule can be switched on, beside the
+     * editor's own switch, and both have to refuse for the same reason: a
+     * switch that silently will not move is the exact failure this app is
+     * designed against.
+     */
     fun setEnabled(rule: Rule, enabled: Boolean) {
+        if (enabled) {
+            rule.enableRefusal(registry)?.let { message ->
+                _message.value = message
+                return
+            }
+        }
         viewModelScope.launch {
             repository.upsert(rule.copy(enabled = enabled))
         }
