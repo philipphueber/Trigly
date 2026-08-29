@@ -180,6 +180,32 @@ class RuleDraftTest {
         )
     }
 
+    /**
+     * The shape the connected suite actually caught: a real edge trigger with
+     * an empty "Any of these" group added beside it, which is the picker's
+     * one-tap route to a group. `canStart` used to say this tree could start
+     * before `TriggerNode.canEverHold` closed that gap: an empty `ANY` group
+     * is always askable, so the old `ALL` branch treated it as a fine
+     * partner, missing that its answer is a hard-coded "no" forever. See
+     * `GateTest`'s own coverage of `canEverHold` for the general case; this
+     * pins the exact rule shape that reached `enableRefusal`.
+     */
+    @Test
+    fun `a real trigger beside an empty ANY group cannot be switched on`() {
+        val trigger = addTriggerChild(
+            root = TriggerDraft.One(ComponentDraft("edge")),
+            path = emptyList(),
+            addition = TriggerDraft.Group(TriggerNode.Op.ANY, emptyList()),
+            op = TriggerNode.Op.ALL,
+        )
+        val draft = draftOf(trigger = trigger, actions = listOf(ComponentDraft("toast")))
+        val registry = registryOf("edge")
+
+        val message = draft.enableRefusal(registry)
+
+        assertTrue("was: $message", message!!.startsWith("This rule can never start."))
+    }
+
     // --- absent versus wrong: a picked component nobody has finished --------
 
     @Test

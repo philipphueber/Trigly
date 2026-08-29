@@ -28,6 +28,7 @@ import app.phueber.trigly.core.RunScope
 import app.phueber.trigly.core.scopedFor
 import app.phueber.trigly.core.unfilled
 import app.phueber.trigly.core.variableProblems
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -476,8 +477,24 @@ class RuleEditorViewModel(
     }
 
     /**
-     * Validates by construction, then persists.
-     *
+     * What [save] decided, before anything is persisted: exactly one of two
+     * shapes, and a `when` over both is what makes it a compile error to add
+     * a third path that sets neither field. [save] itself is the only
+     * caller, kept this way rather than folded into one function so the
+     * decision (pure, and testable by calling it with different drafts) is
+     * separate from the one place that acts on it.
+     */
+    private sealed interface SaveDecision {
+        /** Why the save is refused. Nothing is persisted, and the switch
+         * cannot have moved either, since nothing here touches the draft. */
+        data class Refused(val message: String) : SaveDecision
+
+        /** What to persist, already clamped to disabled if [RuleDraft.enableRefusal]
+         * says this rule cannot start, per [save]'s own kdoc. */
+        data class Ready(val rule: Rule) : SaveDecision
+    }
+
+    /**
      * **Only two things refuse a save**: a blank name, and a component that is
      * genuinely broken (one that will not build, or a `{{...}}` reference
      * naming a variable the rule does not offer). Both are wrong rather than
@@ -487,46 +504,74 @@ class RuleEditorViewModel(
      * No trigger, no actions, an empty group anywhere in the tree, or a
      * trigger that cannot start the rule it is attached to are all different
      * from that: a rule mid-thought, not a mistake. None of them refuse the
-     * save any more. See [RuleDraft.toRuleOrNull]. This is instead the
-     * one place that keeps such a rule from being switched on by accident:
+     * save any more. See [RuleDraft.toRuleOrNull]. This is instead the one
+     * place that keeps such a rule from being switched on by accident:
      * whatever the draft's own switch currently shows, [RuleDraft.enableRefusal]
      * is asked again here and the save is forced off if it still says no. That
      * catches the case [RuleEditorViewModel.setEnabled] cannot: a rule that
      * was validly enabled, whose trigger or actions were then edited away
      * while the switch itself was never touched.
-     *
-     * The factories are the authority on whether config is valid — they hold
-     * cross-field rules the schema cannot express, such as the watchdog's
-     * "poll must not exceed absence". Their error messages are already written
-     * for people, so they are shown verbatim.
      */
-    fun save() {
-        val draft = _state.value.draft
+    private fun decideSave(draft: RuleDraft): SaveDecision {
+        val rule = draft.toRuleOrNull()
+            ?: return SaveDecision.Refused("Give the rule a name.")
 
-        val rule = draft.toRuleOrNull() ?: run {
-            fail("Give the rule a name.")
-            return
-        }
-
-        validate(rule)?.let { fail(it); return }
+        validate(rule)?.let { return SaveDecision.Refused(it) }
 
         val toSave = if (rule.enableRefusal(registry) != null) rule.copy(enabled = false) else rule
+        return SaveDecision.Ready(toSave)
+    }
 
-        viewModelScope.launch {
-            repository.upsert(toSave)
-            // The draft's own switch is kept truthful to what was actually
-            // persisted, not just left showing whatever it did before the
-            // clamp above. Without this, a rule saved with its switch
-            // clamped off would still show on in this same editor instance
-            // until the rule was closed and reopened, and a switch that
-            // looks on with nothing backing it is exactly the inconsistency
-            // this feature exists to avoid.
-            _state.update {
-                it.copy(
-                    draft = it.draft.copy(enabled = toSave.enabled),
-                    finished = true,
-                    error = null,
-                )
+    /**
+     * Validates by construction, then persists. [decideSave] is the whole
+     * decision, so this has exactly one branch each way: a refusal reports
+     * why and touches nothing else, or a save both persists and reports
+     * `finished`. A connected-suite failure once left both unset, from a
+     * branch that predated this split and returned early on its own; a stray
+     * early return could do that again in a function with several of them
+     * scattered through it, which is exactly why there is only this one
+     * `when` now, over a sealed result, rather than a chain of
+     * `if (...) { fail(...); return }` for a reader to audit by eye.
+     *
+     * The factories are the authority on whether config is valid. They hold
+     * cross-field rules the schema cannot express, such as the watchdog's
+     * "poll must not exceed absence". Their error messages are already
+     * written for people, so they are shown verbatim, inside [validate].
+     */
+    fun save() {
+        when (val decision = decideSave(_state.value.draft)) {
+            is SaveDecision.Refused -> fail(decision.message)
+
+            is SaveDecision.Ready -> viewModelScope.launch {
+                try {
+                    repository.upsert(decision.rule)
+                    // The draft's own switch is kept truthful to what was
+                    // actually persisted, not just left showing whatever it
+                    // did before the clamp in [decideSave]. Without this, a
+                    // rule saved with its switch clamped off would still
+                    // show on in this same editor instance until the rule
+                    // was closed and reopened, and a switch that looks on
+                    // with nothing backing it is exactly the inconsistency
+                    // this feature exists to avoid.
+                    _state.update {
+                        it.copy(
+                            draft = it.draft.copy(enabled = decision.rule.enabled),
+                            finished = true,
+                            error = null,
+                        )
+                    }
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (t: Throwable) {
+                    // The one thing this whole function exists to prevent:
+                    // a save that neither reports a reason nor completes.
+                    // Nothing expected should reach here. repository.upsert
+                    // is not supposed to throw, but "not supposed to" is a
+                    // promise a factory or a database can still break, and a
+                    // person pressing Save deserves a reason on screen over
+                    // a silent no-op, whatever broke it.
+                    fail("Could not save: ${t.message ?: t::class.simpleName}")
+                }
             }
         }
     }

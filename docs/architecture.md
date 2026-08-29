@@ -232,6 +232,63 @@ no default existing counts as unfilled. Getting this wrong the other way,
 by reading `required` alone, would have called a fresh, fully-answered
 `play_alert` unfinished over a field nobody had touched.
 
+### An empty group is not a harmless level
+
+The connected suite found a third hole, in `canStart` itself rather than in
+`save`: an `ALL` group holding one real, working trigger beside an empty
+`ANY` group, exactly what the picker builds when someone picks "Any of
+these" next to an existing trigger and never fills it in. `canStart` said
+this tree could start. It cannot, ever: `holds` already defines an empty
+`ANY` as always false, so `ALL(real trigger, empty ANY)` is `ALL` of a real
+answer and a hard-coded "no", which can never both be true. That is the
+same dead rule two bare edges under one `ALL` already cannot reach, just
+arrived at through a group with nothing in it instead of a second edge.
+
+`canHold` alone cannot catch it, and should not be made to: it answers
+whether a child can be *asked* without coming back unreadable, and an empty
+group answers every single time, just always with the same constant "no".
+That is a different question from whether the answer could ever be *true*,
+which is what `canStart`'s `ALL` branch actually needs from a sibling it is
+not the one starting the rule. `TriggerNode.canEverHold` (`core/Gate.kt`) is
+that second question, judged from the tree's shape alone: true for every
+leaf and every group except an empty `ANY`, which the recursion carries up
+through any `ALL` it sits inside (an `ALL` beside a hard "no" is itself a
+hard "no") without being fooled by an `ANY` that has some *other*, real way
+of being true. `canStart`'s `ALL` branch now requires a sibling to satisfy
+both `canHold` and `canEverHold`, closing the gap without touching
+`canHold`'s own meaning, which stays exactly what its existing callers and
+tests already rely on.
+
+### One `when`, not a chain of early returns
+
+The same connected run turned up a save that returned having set neither
+`error` nor `finished`: a silent no-op, a person pressing Save and seeing
+nothing happen, with nothing on screen to say why. The immediate cause was
+the `canStart` gap above: a rule that `enableRefusal` wrongly waved through
+still had to reach the persist step correctly, and auditing
+`RuleEditorViewModel.save` by eye to be sure every branch set one of the two
+fields was exactly the kind of check the bug had already slipped past once.
+
+`save` no longer holds that logic itself. `decideSave` is a pure function
+from a `RuleDraft` to a sealed `SaveDecision`, `Refused(message)` or
+`Ready(rule)`, and `save` is one `when` over both, each arm leading directly
+to `fail` or to the persist-and-finish path. There is no longer a chain of
+`if (...) { fail(...); return }` for a reader to check one at a time, and a
+third `SaveDecision` case would fail to compile until `save`'s `when` also
+handled it. The persist step is wrapped in its own `try`/`catch` too, on the
+same reasoning: `repository.upsert` is not supposed to throw, but "not
+supposed to" is a promise a factory or a database can still break, and a
+person who pressed Save deserves a reason on screen over silence, whatever
+broke it.
+
+Whether an enable refusal should also surface the moment a rule saves,
+rather than only when the switch is touched, was worth asking rather than
+assuming. It already does: `RulesScreen`'s `UnfinishedRuleCell`, from the
+first split above, reads a fresh, still-unbuilt rule the instant it lands
+in the list, with no dependency on anyone having tapped anything. A second
+notice at the moment of saving would say the same thing a beat earlier, to
+a person who is about to leave the screen anyway.
+
 ### Getting a rule out of the app: share and export
 
 Two controls, two jobs, and they used to be one job under two names. "Share" on
