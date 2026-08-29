@@ -831,6 +831,11 @@ private object Evaluator {
      * the file KDoc's "Safety is exactly three numbers" for why that failure
      * is also what keeps one evaluation from paying the timeout more than
      * once.
+     *
+     * The four [RegexRefusal] cases are four different true statements, and
+     * [refusalMessage] is what keeps this function from saying "took too
+     * long" about a search that did not: see that function for the wording
+     * of each one.
      */
     private fun regexFinds(pattern: String, candidate: String, position: Int): Boolean {
         val compiled = try {
@@ -847,15 +852,50 @@ private object Evaluator {
         // RegexGuard and RegexRun are RegexBudget.kt's, shared with
         // TextFilter's regex mode. See that file for the number and the
         // mechanism.
-        return when (val run = RegexGuard.runBounded { compiled.containsMatchIn(candidate) }) {
+        return when (
+            val run = RegexGuard.runBounded(compiled.asRegexIdentity()) {
+                compiled.containsMatchIn(candidate)
+            }
+        ) {
             is RegexRun.Completed -> run.value
-            RegexRun.Refused -> throw ExpressionError(
-                "The regular expression at position $position took too long against " +
-                    "${candidate.length} characters of text. A pattern with two of '.*' " +
-                    "in it, such as '.*a.*b', can cost that much: 'contains' already " +
-                    "searches the whole text, so a leading '.*' is never needed, and " +
-                    "'^' anchors the search when you do want the start."
+            is RegexRun.Refused -> throw ExpressionError(
+                refusalMessage(run.reason, position, candidate.length)
             )
         }
     }
+
+    /**
+     * The message for each [RegexRefusal], addressed to the person who wrote
+     * [position]'s pattern. Only [RegexRefusal.TIMED_OUT] and
+     * [RegexRefusal.KNOWN_BAD] are about *this* pattern; [RegexRefusal.BUSY]
+     * and [RegexRefusal.EXHAUSTED] are about what else the app is doing right
+     * now; and the wording says which one this is rather than reusing "took
+     * too long" for all four, which was true of exactly one of them.
+     */
+    private fun refusalMessage(reason: RegexRefusal, position: Int, textLength: Int): String =
+        when (reason) {
+            RegexRefusal.TIMED_OUT ->
+                "The regular expression at position $position took too long against " +
+                    "$textLength characters of text. A pattern with two of '.*' " +
+                    "in it, such as '.*a.*b', can cost that much: 'contains' already " +
+                    "searches the whole text, so a leading '.*' is never needed, and " +
+                    "'^' anchors the search when you do want the start."
+
+            RegexRefusal.KNOWN_BAD ->
+                "The regular expression at position $position already took too long " +
+                    "once earlier and is refused without being tried again, so it cannot " +
+                    "cost a second long wait. The same fix applies: a leading '.*' is " +
+                    "rarely needed, and '^' anchors the search when you want the start."
+
+            RegexRefusal.BUSY ->
+                "The regular expression at position $position was not tried, because " +
+                    "another regular expression search is already running right now. " +
+                    "This is not a problem with this pattern; the expression can simply " +
+                    "be tried again."
+
+            RegexRefusal.EXHAUSTED ->
+                "The regular expression at position $position was not tried, because too " +
+                    "many other patterns are already stuck running. This is not a problem " +
+                    "with this pattern by itself."
+        }
 }

@@ -51,7 +51,9 @@ enum class TextMatchMode(val configValue: String) {
  * thread forever. [Outcome.REFUSED] and [RegexGuard] in `RegexBudget.kt` are
  * the same bound `Expression.kt`'s `contains(a, b, "regex")` uses, and for
  * the same reason: read that file's "Safety is exactly three numbers" for
- * where the number came from, and `RegexBudget.kt` for the mechanism.
+ * where the number came from, and `RegexBudget.kt` for the mechanism,
+ * including what happens to a pattern that does not finish in time and why
+ * that no longer costs any *other* pattern anything.
  *
  * This bound holds on the JVM and on Android alike: it is a wall clock on one
  * shared thread, not a count of characters read, so nothing about how the
@@ -68,9 +70,17 @@ class TextFilter private constructor(
     /**
      * The three things one match can be. [REFUSED] only happens in
      * [TextMatchMode.REGEX]: a substring search is linear and never asks
-     * [RegexGuard] for anything.
+     * [RegexGuard] for anything. Its [RegexRefusal] names which of
+     * [RegexGuard]'s four reasons this was, for a caller that can use it,
+     * such as the pattern tester.
      */
-    enum class Outcome { MATCHED, NOT_MATCHED, REFUSED }
+    sealed interface Outcome {
+        data object MATCHED : Outcome
+        data object NOT_MATCHED : Outcome
+
+        /** [reason] is [RegexGuard]'s own reason for refusing this search. */
+        data class REFUSED(val reason: RegexRefusal) : Outcome
+    }
 
     /**
      * Whether this filter matches, for the five triggers that call it per event
@@ -177,9 +187,13 @@ class TextFilter private constructor(
          * mode does; see RegexBudget.kt for why and for the number.
          */
         private fun regexOutcome(compiled: Regex, candidate: String): Outcome =
-            when (val run = RegexGuard.runBounded { compiled.containsMatchIn(candidate) }) {
+            when (
+                val run = RegexGuard.runBounded(compiled.asRegexIdentity()) {
+                    compiled.containsMatchIn(candidate)
+                }
+            ) {
                 is RegexRun.Completed -> if (run.value) Outcome.MATCHED else Outcome.NOT_MATCHED
-                RegexRun.Refused -> Outcome.REFUSED
+                is RegexRun.Refused -> Outcome.REFUSED(run.reason)
             }
     }
 }
@@ -228,14 +242,20 @@ fun matchRangesIn(pattern: String?, mode: TextMatchMode, candidate: String): Lis
 
         TextMatchMode.REGEX -> try {
             val compiled = Regex(pattern, RegexOption.IGNORE_CASE)
-            when (val run = RegexGuard.runBounded { compiled.findAll(candidate).map { it.range }.toList() }) {
+            when (
+                val run = RegexGuard.runBounded(compiled.asRegexIdentity()) {
+                    compiled.findAll(candidate).map { it.range }.toList()
+                }
+            ) {
                 is RegexRun.Completed -> run.value.filterNot { it.isEmpty() }
-                RegexRun.Refused -> {
-                    // Refused, the same as TextFilter.matches. There is
-                    // nothing to highlight either way, and matches() already
-                    // reads this as "no match", so an empty list here keeps
-                    // this function agreeing with the verdict rather than
-                    // contradicting it.
+                is RegexRun.Refused -> {
+                    // Refused, whichever of RegexRefusal's four reasons this
+                    // was. There is nothing to highlight either way, and
+                    // matches() already reads any of them as "no match", so
+                    // an empty list here keeps this function agreeing with
+                    // the verdict rather than contradicting it. A caller that
+                    // wants to tell the reasons apart reads TextFilter.outcome
+                    // instead, same as for "refused" versus "does not match".
                     emptyList()
                 }
             }

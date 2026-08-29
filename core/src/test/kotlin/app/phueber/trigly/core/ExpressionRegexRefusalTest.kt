@@ -9,6 +9,13 @@ import org.junit.Test
  * for the full reasoning; it applies here unchanged, because `contains(a, b,
  * "regex")` shares the identical `RegexGuard` with `TextFilter`'s regex mode.
  *
+ * `contains` compiles case-sensitively, unlike `TextFilter`'s `regex` mode
+ * and `matchRangesIn`, which both use `RegexOption.IGNORE_CASE`. That
+ * difference is part of a search's `RegexIdentity`, so this file's `.*.*.*b`
+ * and `.*.*.*.*b` are each a different identity from the same two patterns
+ * in `TextFilterRegexRefusalTest` and `MatchRangesRegexRefusalTest`, and
+ * neither refuses the other on sight even if they somehow shared a JVM.
+ *
  * Do not add another test to this file for the same reason that file gives.
  */
 class ExpressionRegexRefusalTest {

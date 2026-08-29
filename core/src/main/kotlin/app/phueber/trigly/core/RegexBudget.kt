@@ -2,6 +2,7 @@ package app.phueber.trigly.core
 
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
@@ -31,12 +32,26 @@ import java.util.concurrent.atomic.AtomicBoolean
  * **This file used to count characters read, and that mechanism did nothing on
  * Android.** `java.util.regex.Matcher` converts its input to a `String` when
  * it is handed anything else, so a counting `CharSequence` was never read
- * there. Every JVM test of the counting passed, because they run on the JVM.
- * `docs/todo.md` T24 has the full story, including the correctness bug the
- * same conversion caused, and the two rejected alternatives. What is here now
- * is the third option: bound the wall clock instead of the work, on one
- * shared thread, because that is the one thing that is true on both
- * platforms.
+ * there. `docs/todo.md` T24 has the full story. What is here now is a
+ * wall-clock bound instead of a count of work, on one shared thread, because
+ * that is the one thing that is true on both platforms.
+ *
+ * **The first version of that wall-clock bound had a second bug, worse than
+ * the one it fixed.** It kept the same worker thread for the life of the
+ * process and cleared its one "busy" flag only when the search running on it
+ * truly finished. A pattern that never finishes therefore never clears that
+ * flag, so every later search of any kind, on any pattern, saw the thread as
+ * occupied and was refused, forever, until the process died. One bad pattern
+ * in one rule silently turned off regular expressions for every other rule on
+ * the device. This was found the same way T24 itself was found: an
+ * instrumented test failed and named the cause exactly. `RegexOnDeviceTest`'s
+ * `contains("abc123", "\d+", "regex")`, a search over six characters that has
+ * never once been slow, failed with "took too long against 6 characters of
+ * text", because a different test earlier in the same run had already run a
+ * pattern that never finishes and poisoned the one shared thread for good.
+ * The KDoc this replaced argued "a pattern that is stuck is stuck for good"
+ * as the cost of this design. That sentence is true of the stuck pattern and
+ * silent about everyone else: every *other* pattern was stuck too.
  *
  * ### Why one thread, and why it refuses rather than waits
  *
@@ -51,30 +66,58 @@ import java.util.concurrent.atomic.AtomicBoolean
  * So a timeout can bound how long the *caller* waits, but not how long the
  * search itself runs. [RegexGuard] answers that by giving every bounded
  * search the same single background thread, and never more than one at a
- * time. A pattern that runs away occupies that one thread for as long as it
- * takes to finish on its own; every other search, however many arrive, is
- * refused immediately rather than queued behind it. **At most one runaway
- * thread can ever exist, however many events arrive.** A queue in front of a
- * stuck search would grow without end, since `screen_content` can hand this a
- * new pattern to run every hundred milliseconds, so refusing at once is not
- * a shortcut: it is the only design that does not run out of memory under a
- * pattern that never finishes.
+ * time: a second search asked for while the first is still within its own
+ * bound is refused at once rather than queued behind it, because a queue in
+ * front of a stuck search would grow without end, since `screen_content` can
+ * hand this a new pattern to run every hundred milliseconds.
  *
- * A pattern that is stuck is stuck for good. Refusing the next attempt
- * without even trying it means a bad pattern costs this app one long wait,
- * once, and nothing more: every later event sees an occupied thread and gets
- * an immediate answer, not a second multi-second wait.
+ * ### What happens when a search does not finish in time
  *
- * **Reentrancy hazard.** Nothing that runs inside a [RegexGuard.runBounded]
- * block may call [RegexGuard.runBounded] again. The occupancy flag is set
- * before the search is submitted and cleared only when that exact search
- * finishes, so a nested call while the flag is still set is simply refused,
- * which is silent and easy to miss in review. Worse, if this mechanism is
- * ever rewritten to wait for the thread instead of checking a flag and
- * returning, a nested call would deadlock: the one thread would be waiting
- * for itself to finish. Nothing in `:core` does this today. `contains`'s
- * regex mode and `TextFilter`'s regex mode are both leaves; neither calls the
- * other, and neither calls itself.
+ * The thread that ran it is not this guard's thread any more. [runBounded]
+ * abandons it: the thread keeps burning CPU for as long as the pattern's own
+ * backtracking takes, since it cannot be stopped, but nothing here waits for
+ * it, tracks it as busy, or ever asks it for anything again. A fresh thread
+ * is created for the next search, which runs normally. **At most one
+ * abandoned thread is created per distinct pattern that turns out to be too
+ * slow**, not one per event: see the next section for why a second event with
+ * the same pattern does not create a second one, and [MAX_ABANDONED_THREADS]
+ * for the backstop that bounds how many distinct bad patterns can be doing
+ * this at once.
+ *
+ * ### Remembering a pattern that ran away
+ *
+ * Abandoning the thread is not enough by itself. `screen_content` can hand
+ * this the same bad pattern again a hundred milliseconds later, and without
+ * memory that would abandon a second thread, then a third, one per event,
+ * for as long as the rule stays on screen. [RegexGuard] keeps [RegexIdentity]
+ * for every pattern that has already timed out once, in [knownBad], and
+ * refuses a search on sight, before ever touching a thread, when its identity
+ * is in that set. A pattern that is stuck is stuck for good, and now that is
+ * true only of that one pattern: it costs this app one long wait, once, and
+ * nothing else pays for it, in either direction, forever after. See
+ * [MAX_KNOWN_BAD_PATTERNS] for the bound on how many distinct patterns this
+ * remembers.
+ *
+ * ### The backstop
+ *
+ * Memory only helps once a pattern has already been seen and paid for once.
+ * Several *distinct* bad patterns, arriving close together, before any of
+ * them has had the chance to become known, would each abandon their own
+ * thread, and nothing about remembering one bad pattern stops a different one
+ * from doing the same. [MAX_ABANDONED_THREADS] caps how many abandoned
+ * threads may exist at once; past that, [runBounded] refuses every search,
+ * including an honest one, rather than create thread number `N + 1`. See that
+ * constant's own KDoc for the number and why a refusal there is the right
+ * trade rather than an unbounded pile of threads each pinning a core.
+ *
+ * ### Reentrancy hazard
+ *
+ * Nothing that runs inside a [RegexGuard.runBounded] block may call
+ * [RegexGuard.runBounded] again. A nested call while the outer one is still
+ * within its own bound sees the guard as busy and is simply refused, which is
+ * silent and easy to miss in review. Nothing in `:core` does this today:
+ * `contains`'s regex mode and `TextFilter`'s regex mode are both leaves,
+ * neither calls the other, and neither calls itself.
  *
  * ### The number
  *
@@ -124,103 +167,234 @@ import java.util.concurrent.atomic.AtomicBoolean
  * T24 for the alternative that has no such limit and costs a different thing
  * instead. This file's KDoc says which one the project chose and why.
  *
- * A pattern refused because the thread was already occupied answers in
- * effectively zero time, whatever [REGEX_GUARD_TIMEOUT_MILLIS] is: the
- * five-second number only ever governs the *first* time a given pattern
- * turns out to be too slow, not every occurrence of it. That is what keeps
- * five seconds from reading as "screen_content can go five seconds between
- * answers": it cannot, because a stuck pattern occupies the thread and every
- * later event is refused at once rather than waiting its own five seconds.
+ * A pattern refused because it is already [knownBad], or because the guard is
+ * [busy] with another search, answers in effectively zero time, whatever
+ * [REGEX_GUARD_TIMEOUT_MILLIS] is. The five-second number only ever governs
+ * the *first* time a given pattern turns out to be too slow, never again
+ * after that: see "Remembering a pattern that ran away" above.
  */
 internal const val REGEX_GUARD_TIMEOUT_MILLIS: Long = 5_000L
+
+/**
+ * How many distinct patterns [RegexGuard] may abandon a thread for before it
+ * starts refusing everything, including an honest search, rather than create
+ * one more.
+ *
+ * Each abandoned thread pins one CPU core for as long as its pattern's own
+ * backtracking takes, which is unmeasured and may be forever. A phone has few
+ * cores to begin with, and this app is not the only thing asking for them.
+ * Four is small enough that even a device with as few as four cores keeps at
+ * least one free for everything else, including the engine's own collector
+ * thread, however many distinct bad patterns a badly built or imported rule
+ * set throws at it, and it is not one: [MAX_KNOWN_BAD_PATTERNS] means the
+ * overwhelming majority of repeats of the *same* bad pattern never reach this
+ * cap at all, so four is a backstop against several different bad patterns
+ * arriving close together, not the steady-state cost of one.
+ */
+internal const val MAX_ABANDONED_THREADS: Int = 4
+
+/**
+ * How many distinct [RegexIdentity] values [RegexGuard] remembers as
+ * [RegexGuard.knownBad] before it starts forgetting the oldest one to make
+ * room for a new one.
+ *
+ * Forgetting is not silently safe: a forgotten identity is tried again on its
+ * next event, which abandons another thread and spends another five-second
+ * wait to relearn what this already knew. Sixty-four is chosen to make that
+ * cost theoretical rather than expected. A rule set with sixty-four distinct
+ * catastrophically backtracking patterns, all of them exercised in the same
+ * process lifetime, is far past anything this app's own test patterns or a
+ * plausible rule set describe; the true daily cost is at most a small handful
+ * of entries, one per pattern someone genuinely wrote badly. Eviction is
+ * oldest-first, not least-recently-refused: a pattern refused a hundred times
+ * a second, the case this cache exists for, stays at the front of the queue
+ * regardless, since it keeps getting refused rather than reinserted, and a
+ * true least-recently-used policy would cost more to maintain than the
+ * difference is worth at this size.
+ */
+internal const val MAX_KNOWN_BAD_PATTERNS: Int = 64
+
+/**
+ * What one regular expression search is, for [RegexGuard.runBounded] to tell
+ * two searches apart or recognise them as the same one.
+ *
+ * [pattern] and [ignoreCase] are the two things that decide whether a search
+ * is "the same search" for this purpose: same text, same casing, same cost.
+ * Nothing else varies between the three call sites this app has. See
+ * [asRegexIdentity] for how one is built from an already-compiled [Regex],
+ * which is how every real caller gets one.
+ */
+internal data class RegexIdentity(val pattern: String, val ignoreCase: Boolean)
+
+/**
+ * [RegexIdentity] for a [Regex] compiled at one of this app's regex call
+ * sites. Reading [Regex.pattern] and [Regex.options] back off the compiled
+ * object itself, rather than asking each call site to restate them, is what
+ * keeps a call site from ever describing its own search two different ways:
+ * `Expression.kt`'s `contains(a, b, "regex")` compiles case-sensitively;
+ * `TextFilter`'s `regex` mode and [matchRangesIn] both compile with
+ * [RegexOption.IGNORE_CASE].
+ */
+internal fun Regex.asRegexIdentity(): RegexIdentity =
+    RegexIdentity(pattern = pattern, ignoreCase = RegexOption.IGNORE_CASE in options)
+
+/**
+ * Why [RegexGuard.runBounded] refused a search, since the four causes are
+ * four different true statements and a caller that shows or reports the
+ * refusal to a person must not say the wrong one of them.
+ *
+ * Public, unlike the rest of this file: [TextFilter.Outcome.REFUSED] carries
+ * one of these across the `:core`/`:ui` boundary so the pattern tester can
+ * tell a person which of the four happened, rather than saying "took too
+ * long" for a search that never even ran.
+ */
+enum class RegexRefusal {
+    /** This exact call did not finish inside its own bound, just now. */
+    TIMED_OUT,
+
+    /** This exact pattern already timed out once before and is refused without being tried again. */
+    KNOWN_BAD,
+
+    /** A different search is already running on the guard's one thread right now. */
+    BUSY,
+
+    /** Too many distinct patterns are already abandoned; see [MAX_ABANDONED_THREADS]. */
+    EXHAUSTED,
+}
 
 /**
  * What one call to [RegexGuard.runBounded] came back with.
  *
  * A sealed type rather than a nullable [T], so a caller cannot mistake
  * "refused" for "ran and produced nothing": [Refused] carries no value at
- * all, and the two cases have to be handled separately by the compiler
- * rather than by a convention a future edit could quietly break.
+ * all, only [RegexRefusal.reason] naming which of the four things happened.
  */
 internal sealed interface RegexRun<out T> {
 
-    /** The search finished inside [REGEX_GUARD_TIMEOUT_MILLIS]. [value] is what it produced. */
+    /** The search finished inside its bound. [value] is what it produced. */
     data class Completed<T>(val value: T) : RegexRun<T>
 
-    /**
-     * No answer. Either the shared thread was already running another
-     * search and this one was refused before it started, or it was
-     * submitted and did not finish inside [REGEX_GUARD_TIMEOUT_MILLIS].
-     * [RegexGuard] does not tell the two apart, because every caller here
-     * treats them the same way: there is no verdict, so there is nothing a
-     * caller could do differently for one case that it would not also do for
-     * the other.
-     */
-    data object Refused : RegexRun<Nothing>
+    /** No answer. [reason] says which of [RegexRefusal]'s cases this was. */
+    data class Refused(val reason: RegexRefusal) : RegexRun<Nothing>
 }
 
 /**
- * The one shared thread every bounded regex search in this app runs on. See
- * this file's own KDoc for why one thread, why it refuses rather than
- * queues, and where the number comes from.
+ * The shared mechanism every bounded regex search in this app runs through.
+ * See this file's own KDoc for why one thread, why it refuses rather than
+ * queues, what happens when a search does not finish in time, and where the
+ * number comes from.
  */
 internal object RegexGuard {
 
-    /**
-     * Set before a search is submitted, cleared only when that exact search
-     * finishes. A plain `Boolean` behind a lock would work the same way;
-     * this is an [AtomicBoolean] so the check-and-set in [runBounded] is one
-     * operation rather than two, with no window where two callers could both
-     * see the thread as free.
-     */
-    private val busy = AtomicBoolean(false)
+    /** Guards every field below. Cheap and rarely contended: see this file's KDoc for why a search is refused rather than queued in the first place. */
+    private val lock = Any()
 
     /**
-     * Created on first use, not at class load, so a device that never
-     * builds a regex rule never starts this thread. A single daemon thread:
-     * daemon because a search that ran away must never hold up a JVM test
-     * run or an app process trying to exit, and single because that is what
-     * bounds the number of runaway threads to one however many searches are
-     * asked for.
+     * The thread a search would run on next, or null when there is none yet,
+     * either because nothing has asked for one, or because the last search
+     * on it ran away and it was abandoned. Only ever read or replaced under
+     * [lock].
      */
-    private val executor by lazy {
+    private var executor: ExecutorService? = null
+
+    /** Whether [executor]'s one thread currently has a search running on it that has not yet timed out. */
+    private var busy = false
+
+    /** How many threads are currently abandoned, running a search nothing here is waiting for any more. */
+    private var abandonedThreads = 0
+
+    /**
+     * Every [RegexIdentity] that has already timed out once. Checked before
+     * a search ever touches a thread. Insertion-ordered so the oldest entry
+     * can be dropped first when [MAX_KNOWN_BAD_PATTERNS] is reached: see that
+     * constant's KDoc for why oldest-first is the right eviction policy here.
+     */
+    private val knownBad = LinkedHashSet<RegexIdentity>()
+
+    /**
+     * A single daemon thread, created fresh each time: daemon because a
+     * search that runs away must never hold up a JVM test run or an app
+     * process trying to exit, and single because that is what bounds the
+     * number of *new* threads any one call to [runBounded] can create to
+     * exactly one.
+     */
+    private fun newExecutor(): ExecutorService =
         Executors.newSingleThreadExecutor { runnable ->
             Thread(runnable, "regex-guard").apply { isDaemon = true }
         }
-    }
 
     /**
-     * Runs [search] on the shared thread and waits up to [timeoutMillis] for
-     * it to finish. Every real caller in this app takes the default, which is
+     * Runs [search] and waits up to [timeoutMillis] for it to finish. Every
+     * real caller in this app takes the default, which is
      * [REGEX_GUARD_TIMEOUT_MILLIS]; [RegexGuardTest] is the only caller that
      * passes anything else, so its tests of the mechanism run in well under a
      * second instead of needing several times the real bound each.
      *
-     * Refuses immediately, without touching the executor at all, when a
-     * search is already running: see this file's KDoc for why a queue is not
-     * the safer alternative here. A caller that gets [RegexRun.Refused] back
-     * has no way to tell whether that was the fast path or the slow one, on
-     * purpose: both mean the same thing to every caller in this file.
+     * Refuses immediately, without touching a thread at all, when [identity]
+     * is already [knownBad], when the guard is already [busy] with another
+     * search, or when [abandonedThreads] is already at
+     * [MAX_ABANDONED_THREADS]. See [RegexRefusal] for what each case means
+     * and this file's KDoc for the reasoning behind each one.
+     *
+     * A search that does not finish in time is abandoned, not waited for
+     * further: the thread it was running on stops being this guard's thread,
+     * [identity] is recorded in [knownBad] so it is refused on sight next
+     * time, and a fresh thread is ready for the next call. See this file's
+     * KDoc, "What happens when a search does not finish in time".
      *
      * Any exception [search] throws, other than the timeout this function
      * handles itself, comes back out of this function unchanged: a bounded
      * search that throws for a reason of its own is a bug to see, not a
      * budget to spend.
      */
-    fun <T> runBounded(timeoutMillis: Long = REGEX_GUARD_TIMEOUT_MILLIS, search: () -> T): RegexRun<T> {
-        if (!busy.compareAndSet(false, true)) return RegexRun.Refused
+    fun <T> runBounded(
+        identity: RegexIdentity,
+        timeoutMillis: Long = REGEX_GUARD_TIMEOUT_MILLIS,
+        search: () -> T,
+    ): RegexRun<T> {
+        val exec: ExecutorService
+        synchronized(lock) {
+            if (identity in knownBad) return RegexRun.Refused(RegexRefusal.KNOWN_BAD)
+            if (busy) return RegexRun.Refused(RegexRefusal.BUSY)
+            val current = executor
+            if (current != null) {
+                exec = current
+            } else {
+                if (abandonedThreads >= MAX_ABANDONED_THREADS) {
+                    return RegexRun.Refused(RegexRefusal.EXHAUSTED)
+                }
+                exec = newExecutor()
+                executor = exec
+            }
+            busy = true
+        }
 
-        val future = executor.submit(
+        // Whichever side of the race between "the search finished" and "the
+        // caller's wait timed out" gets here first decides what happened.
+        // The loser must do nothing to the shared state, since the winner
+        // already has: without this, a search that finishes in the same
+        // instant its timeout fires could be both freed normally by its own
+        // finally block and abandoned by the timeout handler, double-counting
+        // one outcome as two.
+        val settled = AtomicBoolean(false)
+        val future = exec.submit(
             Callable {
                 try {
                     search()
                 } finally {
-                    // Cleared by the thread that ran the search, once it is
-                    // truly done, not by whoever gave up waiting for it. A
-                    // stuck search must keep the thread marked busy for its
-                    // whole real duration, or a second stuck search could be
-                    // submitted behind it and queue after all.
-                    busy.set(false)
+                    if (settled.compareAndSet(false, true)) {
+                        // Finished before anyone declared it abandoned: an
+                        // ordinary result, on the thread the next call should
+                        // reuse.
+                        synchronized(lock) { busy = false }
+                    } else {
+                        // Finished after being abandoned. Nobody is waiting
+                        // for this any more, and the thread that ran it is
+                        // not executor's thread any more either; the one
+                        // thing left to update is the count that bounds how
+                        // many of these can exist at once.
+                        synchronized(lock) { abandonedThreads-- }
+                    }
                 }
             },
         )
@@ -228,37 +402,63 @@ internal object RegexGuard {
         return try {
             RegexRun.Completed(future.get(timeoutMillis, TimeUnit.MILLISECONDS))
         } catch (timedOut: TimeoutException) {
-            RegexRun.Refused
+            if (settled.compareAndSet(false, true)) {
+                synchronized(lock) {
+                    if (knownBad.size >= MAX_KNOWN_BAD_PATTERNS) {
+                        val oldest = knownBad.iterator()
+                        oldest.next()
+                        oldest.remove()
+                    }
+                    knownBad.add(identity)
+                    executor = null
+                    busy = false
+                    abandonedThreads++
+                }
+                // Marks the executor as taking no further submissions. Does
+                // not stop, and is not expected to stop, the one search
+                // already running on its thread: see this file's KDoc.
+                exec.shutdown()
+            }
+            // If the other side of the race won instead, the search actually
+            // finished at essentially this exact instant and was freed
+            // normally; this call still reports the boundary as a refusal
+            // rather than retrieving that value, which is an acceptable
+            // approximation at a boundary this narrow and not a case worth
+            // the extra code to resolve more precisely.
+            RegexRun.Refused(RegexRefusal.TIMED_OUT)
         } catch (wrapped: ExecutionException) {
             throw wrapped.cause ?: wrapped
         }
     }
 
     /**
-     * Test-only. Blocks until the shared thread has nothing left to finish,
-     * up to [timeoutMillis].
+     * Test-only. Clears every field back to its startup state: no thread, not
+     * busy, no abandoned count, nothing remembered as bad.
      *
-     * Safe only for a search whose real duration a test controls, such as
-     * [RegexGuardTest]'s synthetic `Thread.sleep` calls: there, [timeoutMillis]
-     * only has to clear a known, short sleep, so waiting for it back is cheap
-     * and bounded. **Not safe for a genuinely pathological regex pattern.**
-     * Its real completion time is not measured and is not assumed to be
-     * short: `TextFilterRegexRefusalTest`'s own pattern was still running
-     * after ten seconds in the measurement that sized this file's bound, with
-     * no known ceiling above that. A test that asked this to wait for one of
-     * those to finish could itself hang for as long as the pattern does,
-     * which is exactly the failure mode a bound is supposed to remove, not
-     * reintroduce into the test suite. Those tests get a class of their own
-     * instead, with nothing else in it to protect, and this module's
-     * `forkEvery = 1` is what cleans up after them: see
-     * `TextFilterRegexRefusalTest`'s KDoc.
-     *
-     * Submitting a no-op to this same single-thread executor and waiting for
-     * it is exactly "wait for the queue to empty": the executor runs
-     * submissions in order, so whatever is already running finishes first,
-     * then the no-op runs, then this call returns.
+     * This replaces the old `awaitIdleForTests`, which no longer means
+     * anything once a stuck search stops being waited for at all. That
+     * function existed because a timed-out search used to keep the one
+     * thread this object had forever, so a test had to wait for that
+     * specific search to finish before the guard was usable again, and
+     * `TextFilterRegexRefusalTest`'s own pattern was still running after ten
+     * seconds with no known ceiling above that, which is exactly the kind of
+     * wait a test must never depend on. Now a timed-out search is abandoned
+     * at once and the guard is immediately usable again on a fresh thread; the
+     * only state left over between tests in the same class is the bookkeeping
+     * this resets, not a wait. A test that deliberately abandons a thread,
+     * such as one proving [MAX_ABANDONED_THREADS], still leaves that thread
+     * physically running in the background afterward, same as before; this
+     * function does not and cannot wait for it, it only forgets about it, so
+     * that the *next* test does not inherit its share of the cap or its
+     * pattern's place in [knownBad].
      */
-    internal fun awaitIdleForTests(timeoutMillis: Long = 120_000) {
-        executor.submit {}.get(timeoutMillis, TimeUnit.MILLISECONDS)
+    internal fun resetForTests() {
+        synchronized(lock) {
+            executor?.shutdown()
+            executor = null
+            busy = false
+            abandonedThreads = 0
+            knownBad.clear()
+        }
     }
 }

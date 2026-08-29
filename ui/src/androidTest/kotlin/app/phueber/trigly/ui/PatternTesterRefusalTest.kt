@@ -28,32 +28,40 @@ import org.junit.runner.RunWith
  * afterward, hence the longer one passed here instead of the default.
  *
  * A separate class from `PatternTesterTest`, with nothing else in it, because
- * `RegexGuard` is one thread shared by the whole process: the search this
- * test provokes keeps running in the background for an unmeasured time after
- * the dialog has already reported the refusal, in the same instrumentation
- * process `PatternTesterTest`'s own tests run in, and those tests must not be
- * the ones that pay for it. Do not add another test to this file for the same
- * reason.
+ * a search this test provokes keeps running on its own abandoned thread, in
+ * the background, for an unmeasured time after the dialog has already
+ * reported the refusal, in the same instrumentation process
+ * `PatternTesterTest`'s own tests run in.
  *
- * **A gap this file cannot close by itself.** The JVM suite gets a fresh
- * process per test class from `core/build.gradle.kts`'s `forkEvery = 1` for
- * this exact hazard. `connectedDebugAndroidTest` has nothing equivalent: one
- * instrumentation run is one device process for every class in this module,
- * and `RegexGuard` is a singleton for as long as that process lives. If
- * `AndroidJUnitRunner` runs this module's classes in the alphabetical order
- * their names suggest, `PatternTesterRefusalTest` sorts before
- * `PatternTesterTest` and would run first, leaving its still-running search
- * occupying `RegexGuard` right when `PatternTesterTest` asks it to run an
- * ordinary pattern. **What that failure looks like:** one of
- * `PatternTesterTest`'s dialogs would show "NO MATCH" or never leave
- * "CHECKING" for a pattern that has never once failed on its own, in the same
- * run, right after this class's test. That is not flakiness; it is this same
- * ordering hazard on a platform with no `forkEvery` to answer it with. This
- * was measured, not guessed: removing `forkEvery = 1` reproduced exactly this
- * shape of failure on the JVM, in `:core`'s `ExpressionTest` and
- * `MatchRangesTest`, once the equivalent ordering put a refusal class first.
- * A real fix would have to live in `RegexGuard` itself; it is left as an open
- * question rather than something this test file should paper over.
+ * **What used to be here.** This file first shipped with a comment warning
+ * that `AndroidJUnitRunner` might run this class before `PatternTesterTest`,
+ * alphabetically, and leave its search "occupying" `RegexGuard` for
+ * `PatternTesterTest`'s own patterns. That framed *ordering* as the hazard.
+ * It was not: the real fault, which the connected gate caught in `:core`'s
+ * `RegexOnDeviceTest` rather than here, was that `RegexGuard` used to clear
+ * its one busy flag only when an abandoned search finished on its own, which
+ * a search that never finishes never does, so once poisoned it refused every
+ * pattern, forever, regardless of order. `RegexBudget.kt` documents the fix:
+ * a search that times out is abandoned and replaced, and only its own
+ * identity is refused from then on, not every identity.
+ *
+ * **What is left.** `RegexGuard` still remembers every pattern that has ever
+ * timed out, and still caps how many abandoned threads may exist at once, for
+ * the life of the process, not per test class: see `MAX_ABANDONED_THREADS`
+ * and `MAX_KNOWN_BAD_PATTERNS` in `core/RegexBudget.kt`. If some other class
+ * in this same instrumentation process searched this exact pattern with the
+ * same case sensitivity, it would inherit `RegexRefusal.KNOWN_BAD` instead of
+ * timing out itself; if several classes each abandoned a distinct bad
+ * pattern, a later one could see `RegexRefusal.EXHAUSTED` even for an honest
+ * search. **What either failure would look like:** one of `PatternTesterTest`'s
+ * dialogs showing "NO MATCH", or a different `REFUSED` label than the pattern
+ * it is testing should ever produce on its own, rather than the sustained
+ * hang the old bug caused. `PatternTesterTest`'s own patterns (`hello`,
+ * `wor`, `[0-9]+`, `[a-z]+`, `abc`) do not collide with this file's
+ * `.*.*.*b`, so neither risk is live between these two classes today; keeping
+ * it that way is a convention, not something `connectedDebugAndroidTest` can
+ * enforce the way `core/build.gradle.kts`'s `forkEvery = 1` enforces it for
+ * the JVM suite's own refusal classes.
  */
 @RunWith(AndroidJUnit4::class)
 class PatternTesterRefusalTest {

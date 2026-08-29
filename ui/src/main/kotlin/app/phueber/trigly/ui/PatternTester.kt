@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import app.phueber.trigly.core.RegexRefusal
 import app.phueber.trigly.core.TextFilter
 import app.phueber.trigly.core.TextMatchMode
 import app.phueber.trigly.core.matchRangesIn
@@ -141,7 +142,7 @@ fun PatternTesterDialog(
         it.forCurrent == current && it.forMode == mode && it.forSample == sample
     }
     val outcome = fresh?.outcome
-    val refused = outcome == TextFilter.Outcome.REFUSED
+    val refusal = (outcome as? TextFilter.Outcome.REFUSED)?.reason
     val matches = when {
         filter == null -> null // does not compile; known without running anything
         outcome == null -> null // no fresh answer yet for this exact input
@@ -207,7 +208,7 @@ fun PatternTesterDialog(
                     matches = matches,
                     hasPattern = current.isNotEmpty(),
                     compileError = compileError != null,
-                    refused = refused,
+                    refusal = refusal,
                     hasSample = sample.isNotEmpty(),
                     hits = ranges.size,
                 )
@@ -251,13 +252,14 @@ fun PatternTesterDialog(
  *
  * A blank pattern is not a failed match — it is a filter with no opinion, which
  * lets everything through. Saying "no match" there would be a lie about what the
- * rule does. [refused] is the fourth such state: the pattern compiled, but
- * running it against [hasSample]'s text either did not finish within
- * `REGEX_GUARD_TIMEOUT_MILLIS` or found the shared thread already busy, so
- * `TextFilter` refused to run it rather than occupy that thread indefinitely.
- * A rule built on that pattern would just never fire, silently; this is the
- * one place that says why. See `RegexBudget.kt` in `:core` for the bound
- * itself.
+ * rule does. [refusal] is the fourth such state: the pattern compiled, but
+ * `TextFilter` would not run it against [hasSample]'s text. It carries which of
+ * [RegexRefusal]'s four reasons that was, since they are four different true
+ * statements and only one of them, [RegexRefusal.TIMED_OUT], is actually about
+ * this sample taking too long: see [refusalText] for the wording of each one.
+ * A rule built on a pattern that is ever refused would just never fire,
+ * silently; this dialog is the one place that says why. See `RegexBudget.kt`
+ * in `:core` for the bound itself.
  *
  * [matches] being null and neither [compileError] nor a missing sample being
  * the reason means the answer for this exact pattern and sample has not come
@@ -271,7 +273,7 @@ private fun Verdict(
     matches: Boolean?,
     hasPattern: Boolean,
     compileError: Boolean,
-    refused: Boolean,
+    refusal: RegexRefusal?,
     hasSample: Boolean,
     hits: Int,
 ) {
@@ -280,7 +282,7 @@ private fun Verdict(
             MaterialTheme.colorScheme.onSurfaceVariant
         compileError -> "PATTERN DOES NOT COMPILE" to MaterialTheme.colorScheme.error
         !hasSample -> "TYPE SOME SAMPLE TEXT" to MaterialTheme.colorScheme.onSurfaceVariant
-        refused -> "REFUSED · TOOK TOO LONG ON THIS SAMPLE" to MaterialTheme.colorScheme.error
+        refusal != null -> refusalText(refusal) to MaterialTheme.colorScheme.error
         matches == null -> "CHECKING" to MaterialTheme.colorScheme.onSurfaceVariant
         // `extra.accent` rather than `colorScheme.primary` throughout: primary
         // is a fill colour and fails AA contrast as label text. See Palette.kt.
@@ -298,6 +300,18 @@ private fun Verdict(
     ) {
         Text(text = text, style = MaterialTheme.typography.labelMedium, color = colour)
     }
+}
+
+/**
+ * [Verdict]'s label for each [RegexRefusal]. Only [RegexRefusal.TIMED_OUT] is
+ * about this sample specifically; the other three say so, rather than reusing
+ * "took too long" for a search that was never even tried against this text.
+ */
+private fun refusalText(reason: RegexRefusal): String = when (reason) {
+    RegexRefusal.TIMED_OUT -> "REFUSED · TOOK TOO LONG ON THIS SAMPLE"
+    RegexRefusal.KNOWN_BAD -> "REFUSED · ALREADY TOOK TOO LONG ONCE THIS SESSION"
+    RegexRefusal.BUSY -> "REFUSED · ANOTHER SEARCH IS RUNNING RIGHT NOW"
+    RegexRefusal.EXHAUSTED -> "REFUSED · TOO MANY SEARCHES ARE ALREADY STUCK"
 }
 
 /**

@@ -45,28 +45,30 @@ ksp {
 
 tasks.withType<Test>().configureEach {
     // RegexGuard (RegexBudget.kt) is one thread shared by the whole process,
-    // by design, and a test that deliberately gives it a runaway pattern
-    // leaves that search running in the background for an unmeasured time
-    // after the test itself has finished. TextFilterRegexRefusalTest,
-    // ExpressionRegexRefusalTest and MatchRangesRegexRefusalTest are each a
-    // class with nothing else in it for exactly that reason, so the only
-    // thing left to protect is one class's tests from another's leftover
-    // search in the same JVM. A fresh JVM per test class is what does that:
-    // Gradle tears the old one down, lingering thread and all, before the
-    // next class's tests start.
+    // by design. Two kinds of test in this module deliberately push it past
+    // its normal operation, and both leave state behind that is not scoped
+    // to one test class: TextFilterRegexRefusalTest, ExpressionRegexRefusalTest
+    // and MatchRangesRegexRefusalTest each abandon a thread on a pattern that
+    // never finishes, and RegexGuardTest's own test of MAX_ABANDONED_THREADS
+    // deliberately abandons that many more on purpose. RegexGuard remembers
+    // every pattern that has ever timed out, and caps how many abandoned
+    // threads may exist, for the life of the process, not per test class:
+    // that is the fix for the fault the connected gate found, not a leftover
+    // bug, and it is deliberately the same lifetime a real device process
+    // would give it. A fresh JVM per test class is what keeps one class's
+    // deliberate abandonment from being inherited by the next one's ordinary
+    // searches.
     //
-    // This is not a caution taken on paper. It was measured by removing this
-    // line: without it, the whole module's tests share one JVM, Gradle's
-    // default class order puts each refusal class before the ordinary test
-    // of the same name it shares a prefix with (ExpressionRegexRefusalTest
-    // before ExpressionTest, and so on, plainly by alphabetical sort), and
-    // ExpressionTest and MatchRangesTest then failed outright with a
-    // ClassCastException or an AssertionError, not a timeout, not a flaky
-    // slowdown, because RegexGuard was still occupied by the previous
-    // class's abandoned search when their own ordinary patterns asked to
-    // run. That is a wrong answer reaching a real assertion, in a test that
-    // has nothing pathological in it, which is worse than the alternative
-    // this line costs.
+    // This is not a caution taken on paper. It was measured twice: once
+    // before RegexGuard stopped poisoning itself for every pattern after a
+    // single timeout, when removing this line made ExpressionTest and
+    // MatchRangesTest fail outright with a ClassCastException or an
+    // AssertionError; and again after that fix, when removing this line
+    // still made MatchRangesTest's five regex tests fail, this time with an
+    // empty highlight where a real one was expected, because
+    // RegexGuardTest's own MAX_ABANDONED_THREADS test had already spent
+    // every abandoned-thread slot by the time MatchRangesTest's turn came.
+    // The mechanism changed; the need for isolation between classes did not.
     //
     // A narrower fix was considered and rejected: only a handful of this
     // module's 34 JVM test classes ever touch RegexGuard, so a second Gradle
@@ -74,14 +76,15 @@ tasks.withType<Test>().configureEach {
     // hazard for less total JVM-startup cost. That was not built, because it
     // would split what "run the unit tests" means into two tasks that both
     // have to be wired into `check` and kept in sync by hand, for a module
-    // whose whole run, forked per class, was measured at 53 seconds against
-    // 121 seconds and rising (the run had not finished, and was already
-    // producing wrong answers) with no forking at all. Fifty-three seconds is
-    // not free, but it is cheap enough that the one thing this module's test
-    // task means everywhere it is invoked is worth more than the seconds
-    // saved by only forking the classes known to need it today.
+    // whose whole run, forked per class, was measured at 48 seconds against
+    // 36 seconds and five wrong answers with no forking at all. Forty-eight
+    // seconds is not free, but it is cheap enough that the one thing this
+    // module's test task means everywhere it is invoked is worth more than
+    // the twelve seconds saved by only forking the classes known to need it
+    // today.
     forkEvery = 1
 }
+
 
 // :core is the one module that must stay UI-free. It may not depend on :ui,
 // on Compose, or on any sibling module — see docs/architecture.md.

@@ -964,11 +964,29 @@ copies to a `String` first, always.
 background thread and waits up to five seconds for an answer. A regular
 expression search cannot be interrupted, so the thread that runs a pathological
 pattern keeps burning CPU for as long as that pattern's own backtracking takes,
-whatever the waiting caller decides. One thread, never more, is what keeps that
-to at most one runaway thread however many searches are asked for: a second
-search asked for while the first is still running is refused at once, not
-queued behind it, because `screen_content` can ask for a new one every hundred
-milliseconds and a queue in front of a stuck search would grow without end.
+whatever the waiting caller decides. A second search asked for while the first
+has not yet timed out is refused at once, not queued behind it, because
+`screen_content` can ask for a new one every hundred milliseconds and a queue
+in front of a stuck search would grow without end.
+
+**A search that does not finish in time is abandoned, not left holding the
+guard.** The first version of this design kept the same thread forever and
+cleared its one "busy" flag only when the search running on it truly finished,
+which a runaway pattern never does. Found by the connected gate before this
+ever reached `main`: an ordinary six-character search failed with "took too
+long", because an earlier test's pattern had already poisoned the one shared
+thread for good, and every later search of any pattern was refused from then
+on. One bad pattern in one rule would have permanently turned off regular
+expressions for every rule on the device. `RegexGuard` now abandons the thread
+a search timed out on and starts a fresh one for the next call, and remembers
+the pattern's identity, its text and whether it matched case-insensitively, so
+that specific pattern is refused on sight rather than abandoning a second
+thread for it on its next event. `MAX_ABANDONED_THREADS` caps how many
+distinct bad patterns may be abandoned at once, so several different bad
+patterns arriving close together still cannot pin more than a handful of
+cores. A refusal now says which of four reasons it was, and every caller that
+shows or reports one to a person says the right one rather than "took too
+long" for a search that was never even tried.
 
 Five seconds is measured, not guessed, on an emulator whose CPU is the host
 machine's and is likely faster than a mid-range phone. A notification-sized
@@ -2188,11 +2206,12 @@ holds `RegexGuard`, the single shared background thread every bounded search in
 this app runs on with a five-second wait, and the "A value that computes"
 section above has the measurements behind that number. `TextFilter.of` and
 `matchRangesIn` both run the search through it. `TextFilter.matches` cannot
-throw, so a refused search reads as `Outcome.REFUSED` folded into "no match":
-`TextFilter`'s own KDoc names that decision and its cost, which is that a rule
-built around a runaway pattern then never fires, silently, with no channel back
-to the person who wrote it. `docs/todo.md`'s T23 has that as an open item
-rather than something built here.
+throw, so a refused search, whichever of `RegexGuard`'s four reasons it was,
+reads as `Outcome.REFUSED(reason)` folded into "no match": `TextFilter`'s own
+KDoc names that decision and its cost, which is that a rule built around a
+runaway pattern then never fires, silently, with no channel back to the
+person who wrote it. `docs/todo.md`'s T23 has that as an open item rather
+than something built here.
 
 **A pattern can be tested, not just compiled.** `regexErrorOrNull` catches a
 stray bracket and nothing else: a pattern can compile perfectly and match the
@@ -2218,9 +2237,15 @@ separately.
 mismatch would misdescribe the rule. A pattern that will not compile says so
 rather than reporting a failed match. A zero-width match (`a*` against "bbb")
 says it matched *and* that there is nothing to highlight, because both halves are
-true and either alone misleads. A pattern refused for taking too long says
-that too, rather than reporting a match that never ran: that is the fourth
-state, and the reason the verdict runs off the main thread now, on
+true and either alone misleads. A refused search says so too, rather than
+reporting a match that never ran: that is the fourth state, and it is not one
+label but four, since `RegexGuard.runBounded`'s `RegexRefusal` names which of
+its reasons this was and only one of them, a search timing out on this exact
+sample, is actually about this sample taking too long. The other three, a
+pattern already known to run away, another search busy right now, or too many
+patterns already stuck, are refused without this sample costing anything, and
+the dialog's label says which one happened rather than "took too long" for a
+search that was never even tried. The verdict runs off the main thread, on
 `Dispatchers.Default`, behind a `LaunchedEffect` keyed on the pattern, the mode
 and the sample. `RegexGuard` bounds how long the dialog waits for an answer,
 not how long the search itself runs, so a bounded search is still not owed to

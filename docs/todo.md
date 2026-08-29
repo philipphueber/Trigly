@@ -81,16 +81,15 @@ identifiers stay because T4, T8, T11 and R1 point at them.
   injected port that keeps `:core` away from `:triggers`. The rules list shows
   granted-but-not-bound as its own row, with "Check settings" rather than a
   "Grant" button for a setting that is already on.
-- **T24 Bound the regex engine by wall clock, on one thread, instead of by
-  characters read.** The counting bound in `core/RegexBudget.kt` never worked
-  on Android: `Matcher` converts its input to a `String` before a counting
+- **T24 Bound the regex engine by wall clock, instead of by characters
+  read.** The counting bound in `core/RegexBudget.kt` never worked on
+  Android: `Matcher` converts its input to a `String` before a counting
   `CharSequence` is ever read, so nothing was ever refused on a device, though
   1852 green JVM tests said it was. Chosen instead, of the three options this
   file listed: one shared daemon thread that every bounded search runs on, a
   caller that waits five seconds and gets refused if that runs out, and a
   second search refused at once rather than queued while the first is still
-  running, so at most one runaway thread can ever exist however many events
-  arrive. Five seconds is measured at over a hundred times the worst honest
+  running. Five seconds is measured at over a hundred times the worst honest
   pattern known at 1800 characters (46 ms), but only about twice the same
   pattern at 20000 uncapped characters (2.8 seconds), which is what
   `screen_content`'s haystack can actually reach. That is the cost this option
@@ -99,6 +98,22 @@ identifiers stay because T4, T8, T11 and R1 point at them.
   can still see an honest pattern refused. Counting characters read is gone
   from the codebase entirely, not kept as a JVM-only mechanism nothing on a
   device ever exercises.
+  **The first version of this landed with a second bug, caught by the
+  connected gate before it ever reached `main`: a timed-out search kept the
+  guard's one thread marked busy forever, since nothing clears "busy" for a
+  search that never finishes, so one bad pattern in one rule permanently
+  refused every regular expression in the app, on every rule, until the
+  process died.** `core/RegexBudget.kt` now abandons that thread instead of
+  waiting on it: the search keeps running, unwatched, and a fresh thread
+  answers the next call. The abandoned pattern's identity, its text plus
+  whether it matched case-insensitively, is remembered so it is refused on
+  sight rather than abandoning a second thread for it; `MAX_ABANDONED_THREADS`
+  caps how many distinct bad patterns may be abandoned at once, so several
+  different bad patterns arriving together still cannot pin every core. A
+  refusal now names which of four reasons it was — timed out just now,
+  already known bad, another search is busy, or the cap is reached — and
+  every caller that shows or reports a refusal to a person says the right one
+  instead of "took too long" for a search that was never even tried.
 
 ---
 
