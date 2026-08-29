@@ -427,6 +427,7 @@ class MainActivity : ComponentActivity() {
             licenseUrl = APACHE_LICENSE_URL,
             repositoryUrl = TRIGLY_REPOSITORY_URL,
             onOpenUrl = ::openUrl,
+            onCheckForUpdates = { checkForUpdate(appVersion) },
             onBack = onDone,
         )
     }

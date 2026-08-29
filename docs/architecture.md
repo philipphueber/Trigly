@@ -2526,3 +2526,44 @@ fourth shape none of them use yet — a row that shows a current value and
 opens a picker to change it — so that caller does not have to reshape the row
 again.
 
+## Update check
+
+One button on `AttributionScreen`, below the version: "Check for updates".
+Pressing it is the only thing that ever calls `checkForUpdate`, in
+`UpdateCheck.kt` — there is no scheduler, no `WorkManager` job and nothing
+else in this codebase that calls it. A person presses a control, Trigly looks
+once, and nothing about this app phones home any other way; see that file's
+own KDoc, which says so directly for the next person who goes looking for
+where else it might run.
+
+`android.permission.INTERNET` did not need declaring for this: `:actions`
+already declares it in `actions/src/main/AndroidManifest.xml`, for the HTTP
+action, and the manifest merger folds it into the app manifest already.
+Nothing changed there.
+
+`checkForUpdate` reads GitHub's own "latest release" API
+(`api.github.com/repos/philipphueber/Trigly/releases/latest`), the same
+information anyone visiting the releases page already sees, over
+`HttpURLConnection` — the same client `HttpRequestAction` uses in `:actions`,
+for the same reason: one caller does not justify adding OkHttp.
+`parseLatestReleaseTag` reads the response's `tag_name` field with
+`org.json`, the same library `RuleJson` uses in `:core` for the same reason:
+android.jar's own copy is a stub that throws at runtime, so `ui/build.gradle
+.kts` adds a `testImplementation` of the real one, for `UpdateCheckTest`.
+`isNewerVersion` compares each dot-separated part of a version as a number,
+not as text — `"0.10.0" < "0.9.0"` by plain string comparison, backwards for
+a version number — and treats a missing or non-numeric part as zero rather
+than failing, since a malformed tag must not turn a button press into a
+crash.
+
+A result is one of three, `UpdateCheckResult` in `UpdateCheck.kt`: up to
+date, a newer version is available (carrying its number), or the check
+failed (carrying why). The third exists on purpose: a check that silently
+fails offline and says nothing is worse than no check at all.
+
+The button's own "checking…" flag and its last result live in
+`AttributionScreen`'s local `remember`ed state, the same shape
+`TextPatternField`'s own `testing` flag uses for its "Test" button, not a
+ViewModel: nothing here is data worth surviving a configuration change for,
+and a stale "checking…" after a rotation is one more press away from
+correct.

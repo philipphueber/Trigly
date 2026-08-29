@@ -246,6 +246,9 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
     testImplementation(libs.junit)
+    // Real org.json, because android.jar's is a stub that throws; see
+    // UpdateCheckTest, which parses a real GitHub API response shape.
+    testImplementation(libs.org.json)
 
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.kotlinx.coroutines.test)

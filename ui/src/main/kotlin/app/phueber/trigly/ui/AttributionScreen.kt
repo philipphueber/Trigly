@@ -16,11 +16,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 
 /**
  * The used-components notices: the app's own name, version and licence, a
@@ -46,6 +52,16 @@ import androidx.compose.ui.unit.dp
  * (see `MainActivity.openUrl`). Nothing on this screen needs to tell those
  * three apart.
  *
+ * [onCheckForUpdates] is the one exception to "stateless": pressing the
+ * button below the version holds a `checking`/result pair in local
+ * `remember`ed state, the same shape `TextPatternField`'s own `testing` flag
+ * uses for its "Test" button. That is not a ViewModel, because there is
+ * nothing here to survive a configuration change for: a stale "checking…" on
+ * rotation is a re-press away from correct, and the result is not data this
+ * app keeps. See `UpdateCheck.kt` for why a button press is the only thing
+ * that ever calls this, and `AttributionHost`, in `MainActivity.kt`, for
+ * where the real [onCheckForUpdates] comes from: `checkForUpdate`.
+ *
  * A `Column` with `verticalScroll`, the same shape `PatternTester` uses for
  * its own scrollable prose, and not a `LazyColumn`: a dozen static rows do
  * not need lazy layout.
@@ -57,9 +73,13 @@ fun AttributionScreen(
     licenseUrl: String,
     repositoryUrl: String,
     onOpenUrl: (String) -> Unit,
+    onCheckForUpdates: suspend () -> UpdateCheckResult,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var checking by remember { mutableStateOf(false) }
+    var updateCheckResult by remember { mutableStateOf<UpdateCheckResult?>(null) }
+    val scope = rememberCoroutineScope()
     Column(modifier = modifier.fillMaxSize()) {
         BlockHeader(
             title = stringResource(R.string.attribution_title),
@@ -93,6 +113,36 @@ fun AttributionScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(top = 4.dp),
                     )
+                    BlockTextButton(
+                        text = stringResource(R.string.attribution_check_for_updates),
+                        modifier = Modifier.padding(top = 8.dp),
+                    ) {
+                        checking = true
+                        scope.launch {
+                            updateCheckResult = onCheckForUpdates()
+                            checking = false
+                        }
+                    }
+                    val resultText = if (checking) {
+                        stringResource(R.string.attribution_update_checking)
+                    } else {
+                        when (val result = updateCheckResult) {
+                            null -> null
+                            is UpdateCheckResult.UpToDate -> stringResource(R.string.attribution_up_to_date)
+                            is UpdateCheckResult.UpdateAvailable ->
+                                stringResource(R.string.attribution_update_available, result.latestVersion)
+                            is UpdateCheckResult.CheckFailed ->
+                                stringResource(R.string.attribution_update_check_failed, result.reason)
+                        }
+                    }
+                    resultText?.let {
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
                 }
             }
 
