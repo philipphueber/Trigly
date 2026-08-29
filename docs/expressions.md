@@ -373,43 +373,41 @@ question: is it in there.
 ### The work a pattern may do
 
 A regular expression is the one thing in this language that can do a great deal
-of work on a small piece of text. So there is a bound, and the bound is a rate:
-**a pattern may read 10000 characters for every character of the text it
-searches**, and never more than 20 million characters in total. Over that, the
-action fails with a message that names the position of the pattern.
+of work on a small piece of text. So there is a bound: **a search gets five
+seconds on one background thread.** Past that, the action fails with a message
+that names the position of the pattern.
 
-It is a rate because the honest cost of a search is not flat. `contains`
-searches from every position in the text, so an ordinary pattern such as `.*b`
-costs about the square of the length: over 1800 characters that is 4.9 million
-character reads, and there is nothing wrong with that pattern. A rate allows
-work that grows with the square of the text, and refuses work that grows faster.
-`.*.*b` over the same 1800 characters reads more than 400 million.
+Five seconds is generous. A typical pattern against a typical piece of text
+answers in under a tenth of a second. Even a demanding but honest pattern, such
+as an unanchored search over 1800 characters of text that does not match, still
+answers in under fifty milliseconds. Five seconds is more than a hundred times
+that.
 
 Two things to know if you meet the message:
 
 - **A leading `.*` is never needed.** `contains` already searches the whole
   text. `.*Alice.*` and `Alice` find the same notifications, and the first one
-  costs far more.
-- **An anchor makes a search cheap.** `^a+b` over 1800 characters reads 3599
-  characters, because it can only start in one place.
+  costs more.
+- **An anchor makes a search cheap.** `^a+b` only ever starts in one place, so
+  it answers almost at once, whatever the text is like.
 
-The bound counts characters read, not time. A bound in milliseconds would let a
-rule work on a fast phone and fail on a slow one, which is the failure this
-project works hardest to avoid.
+Only one search runs at a time, across the whole app. A second one, asked for
+while the first is still working, is refused at once rather than made to wait.
+So one pattern that runs long cannot pile up a queue behind it; it can only
+cost this one wait, once.
 
-**This bound does not work on Android yet.** Android's regex engine copies the
-text before it searches, which stops Trigly from counting what the search
-reads. So the limit above is real on the machine the tests run on, and it is
-not real on your phone. A pattern with two of `.*` in it can still make one
-rule busy for a long time. `docs/todo.md` T24 records this and the ways to
-close it. Until then, treat the advice about a leading `.*` as advice you have
-to follow, not as a limit the app applies for you.
+This bound holds the same way on a phone as it does on the machine that tests
+this app, because it counts seconds, not steps of work. `docs/todo.md` T24 has
+the reasoning behind that choice, including the one thing it does not fully
+solve: a search over an unusually large piece of text can still, rarely, be
+refused on a slow enough device even though the pattern itself is fine. That is
+the trade this project made, and it is written down there.
 
 This is also the bound a trigger's text filter uses for its own `regex` mode.
-`TextFilter` in `:core` runs the identical rate, over the identical counting
-`CharSequence`, so a pattern that is fine here is fine there and a pattern
-refused here is refused there. One rate, in one place, kept in
-`core/RegexBudget.kt` rather than copied.
+`TextFilter` in `:core` shares the same background thread and the same five
+seconds, so a pattern that is fine here is fine there and a pattern refused
+here is refused there. One bound, in one place, kept in `core/RegexBudget.kt`
+rather than copied.
 
 ### Numbers behave like a calculator, not like a float
 

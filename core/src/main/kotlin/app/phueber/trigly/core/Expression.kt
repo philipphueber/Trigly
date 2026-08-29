@@ -98,64 +98,79 @@ import java.math.RoundingMode
  *
  * ### Safety is exactly three numbers
  *
- * There is no timeout and no thread. This language cannot run away on its own:
- * no loops, no recursion a person can write, and no call that reaches outside
- * the string it was given. Two of the three numbers are there because a small
- * piece of text can still hurt the process that *reads* it through its own
- * call stack. The third is there because one function is not this language's
- * own work.
+ * This language cannot run away on its own: no loops, no recursion a person
+ * can write, and no call that reaches outside the string it was given. Two of
+ * the three numbers are there because a small piece of text can still hurt
+ * the process that *reads* it through its own call stack, and neither of
+ * those two needs a timeout or a thread to enforce. The third is there
+ * because one function is not this language's own work, and it is a timeout
+ * on a thread, which the other two are not.
  *
  * - [MAX_EXPRESSION_LENGTH] characters of input.
  * - [MAX_EXPRESSION_DEPTH] levels of nesting: a parenthesis, a function call,
  *   a ternary branch, or a chain of unary `-`, `+` or `not`.
- * - What one regular expression may read: `MAX_REGEX_READS_PER_CHARACTER` for
- *   every character of the text it searches, and never more than
- *   `MAX_REGEX_READS` in total. A backtracking engine is the one thing here
- *   that can do an unbounded amount of work on a bounded input, so it is the
- *   one thing here that needed a bound of its own. The paragraph below used to
- *   say that whoever added a feature like that had to design the replacement
- *   bound before shipping it. This is that bound.
+ * - How long one regular expression search may run:
+ *   `REGEX_GUARD_TIMEOUT_MILLIS`, on the one shared thread `RegexBudget.kt`'s
+ *   [RegexGuard] gives every bounded search in this app. A backtracking engine
+ *   is the one thing here that can do an unbounded amount of work on a bounded
+ *   input, so it is the one thing here that needed a bound of its own. The
+ *   paragraph below used to say that whoever added a feature like that had to
+ *   design the replacement bound before shipping it. This is that bound.
  *
  *   The bound itself lives in `RegexBudget.kt`, not in this file: [TextFilter]'s
  *   `regex` mode needed the identical bound for the identical reason, so the
- *   two constants, the counting [CharSequence] and the exception that signals
- *   "budget spent" are shared rather than kept as two copies that could drift
- *   apart. What follows is why the numbers are what they are; where they live
- *   does not change that.
+ *   number, the shared thread and the type that reports a refusal are shared
+ *   rather than kept as two copies that could drift apart. What follows is why
+ *   the bound is shaped the way it is; where it lives does not change that.
  *
- * **The third bound is a rate because the cost of an honest pattern is not
- * flat.** `contains` searches anywhere in the text, so the engine starts over
- * at every position, which makes an ordinary unanchored pattern cost about the
- * square of the length: `.*b` over 1800 characters holding no `b` reads 4.9
- * million characters, and there is nothing wrong with that pattern. A rate
- * allows work that grows with the square of the text and refuses work that
- * grows faster. `.*.*b` over those same 1800 characters reads more than 400
- * million, and `.*.*.*b` over *sixty* characters reads 1.9 million, which is
- * why no flat number can tell the two apart: the honest pattern over long text
- * costs more than the bad pattern over short text.
+ * **This bound used to be a rate, counted in characters read, and it was
+ * wrong to become anything else.** That argument still holds and is worth
+ * restating rather than quietly dropping: a bound in milliseconds lets a rule
+ * work on a fast phone and fail on a slow one, which is the one failure this
+ * project spends the most effort avoiding everywhere else it appears. A rate
+ * does not have that problem, because it charges the same for the same work
+ * on every device.
+ *
+ * **The mechanism a rate needs does not exist on Android, and there is no
+ * third option that both counts work and runs on a phone.** The rate this
+ * language used counted characters read through a wrapped `CharSequence`.
+ * `java.util.regex.Matcher` converts its input to a `String` before it reads
+ * a single character of it, whenever it is handed anything else, so the count
+ * never moved and nothing was ever refused on a device. `docs/todo.md` T24 has
+ * the full account, including the correctness bug the same conversion caused
+ * before it was found. The project's choice, once that was known, was to
+ * bound the wall clock instead: not because milliseconds became the right
+ * unit, but because it is the only bound left that is real on the platform
+ * this app ships to. A bound that is not real anywhere real rules run is
+ * worth less than a bound that is real everywhere but imperfect on one axis.
+ *
+ * **The imperfection is real and is stated once, in `RegexBudget.kt`, rather
+ * than here.** A wall-clock bound has exactly the failure mode the paragraph
+ * above warns against: an honest pattern over an unusually large piece of
+ * text can cost more, in milliseconds, on a slower device, and the measured
+ * headroom is generous but not infinite. `RegexBudget.kt`'s KDoc has the
+ * measurements and the exact size of that headroom; this file does not repeat
+ * them, so that the numbers live in one place and cannot drift out of step
+ * with the constant they justify.
+ *
+ * **One search being refused is not one evaluation being refused; it is the
+ * whole evaluation failing, which is a stronger property than the old bound
+ * had.** `regexFinds` turns a refusal into an [ExpressionError], which
+ * [evaluateExpression] turns into [ExpressionOutcome.Failed] and nothing runs
+ * after it. So a single expression can be charged for at most one refusal's
+ * wait, never several: the old rate bound kept a whole evaluation's total read
+ * count down by capping the one haystack every search in it could share: see
+ * [MAX_EXPRESSION_LENGTH]. This bound keeps a whole evaluation's total wait
+ * down by a different route, aborting on the first search that does not
+ * answer in time rather than letting a second one start.
  *
  * **The textbook example is not the threat, and must not be read as
- * reassurance.** `(a+)+b` over thirty `a`s reads 1741 characters on the JDK
- * these numbers were measured on, because that engine optimizes that exact
- * shape away. That is one engine's optimization of one shape; the pattern
- * arrives in a rule somebody else wrote, and ART is not that engine. What makes
- * the claim is the bound, not the engine's good behaviour on the famous case.
- *
- * **One search being bounded is not one evaluation being bounded**, and the
- * text is what connects the two. Every haystack is a literal by the time this
- * runs, so all the text all the searches in one expression can look at comes
- * out of the same [MAX_EXPRESSION_LENGTH] characters, which caps a whole
- * evaluation at about twenty million reads. The hole in that argument is a
- * function that returns more text than it was given, which [FUNCTION_ROUND] can
- * (`docs/todo.md` T22). [MAX_REGEX_READS] is the ceiling that keeps one search
- * bounded whatever fed it.
- *
- * **The third number does not hold on Android today. See `docs/todo.md` T24.**
- * The platform's `Matcher` stringifies its input, so the read counting never
- * runs on a phone. Two of the three bounds are real everywhere. The one that
- * bounds a regular expression is real only where these tests run, which is the
- * opposite of where it matters. Nothing here is safe to describe as bounded
- * until T24 is closed.
+ * reassurance.** `(a+)+b` over thirty `a`s finishes in well under a
+ * millisecond on the JDK these numbers were first measured on, because that
+ * engine optimizes that exact shape away. That is one engine's optimization of
+ * one shape; the pattern arrives in a rule somebody else wrote, and ART is not
+ * that engine. What makes the claim is the bound, not any engine's good
+ * behaviour on the famous example.
  *
  * **This claim is only true while the grammar stays this small.** The day
  * this language gains a loop, a user-defined function, or anything that reads
@@ -181,9 +196,9 @@ const val MAX_EXPRESSION_LENGTH: Int = 2_000
 /** The nesting depth this language accepts. See the "Safety" section above. */
 const val MAX_EXPRESSION_DEPTH: Int = 64
 
-// MAX_REGEX_READS_PER_CHARACTER, MAX_REGEX_READS, BudgetedText and
-// RegexBudgetSpent live in RegexBudget.kt. See the "Safety" section above for
-// why this file's own bound and TextFilter's are the same bound.
+// REGEX_GUARD_TIMEOUT_MILLIS, RegexGuard and RegexRun live in RegexBudget.kt.
+// See the "Safety" section above for why this file's own bound and
+// TextFilter's are the same bound.
 
 const val FUNCTION_UPPER = "upper"
 const val FUNCTION_LOWER = "lower"
@@ -805,6 +820,22 @@ private object Evaluator {
      * text filter is matched against every event a hot trigger sees, and an
      * expression is lexed and parsed from scratch each time it runs anyway, so
      * caching the compile would save a small part of a cost already paid.
+     *
+     * A refusal becomes an [ExpressionError], never `false`. `contains`
+     * answering `false` for an honest miss and `false` for "this pattern ran
+     * out of time" would be the same silent-failure shape `TextFilter.matches`
+     * accepts for its own reason, stated in that file's KDoc. This function has
+     * a channel that reason does not: throwing here **fails the expression**,
+     * so `set_variable`'s evaluate mode and `run_rule`'s "only if" both report
+     * the rule did not run rather than quietly producing a wrong answer. See
+     * the file KDoc's "Safety is exactly three numbers" for why that failure
+     * is also what keeps one evaluation from paying the timeout more than
+     * once.
+     *
+     * The four [RegexRefusal] cases are four different true statements, and
+     * [refusalMessage] is what keeps this function from saying "took too
+     * long" about a search that did not: see that function for the wording
+     * of each one.
      */
     private fun regexFinds(pattern: String, candidate: String, position: Int): Boolean {
         val compiled = try {
@@ -818,18 +849,53 @@ private object Evaluator {
                     "expression: ${invalid.message}"
             )
         }
-        return try {
-            // regexReadAllowance and BudgetedText are RegexBudget.kt's, shared
-            // with TextFilter's regex mode. See that file for the numbers.
-            compiled.containsMatchIn(BudgetedText(candidate, regexReadAllowance(candidate.length)))
-        } catch (spent: RegexBudgetSpent) {
-            throw ExpressionError(
-                "The regular expression at position $position does too much work on " +
-                    "${candidate.length} characters of text. A pattern with two of '.*' " +
-                    "in it, such as '.*a.*b', costs that much: 'contains' already " +
-                    "searches the whole text, so a leading '.*' is never needed, and " +
-                    "'^' anchors the search when you do want the start."
+        // RegexGuard and RegexRun are RegexBudget.kt's, shared with
+        // TextFilter's regex mode. See that file for the number and the
+        // mechanism.
+        return when (
+            val run = RegexGuard.runBounded(compiled.asRegexIdentity()) {
+                compiled.containsMatchIn(candidate)
+            }
+        ) {
+            is RegexRun.Completed -> run.value
+            is RegexRun.Refused -> throw ExpressionError(
+                refusalMessage(run.reason, position, candidate.length)
             )
         }
     }
+
+    /**
+     * The message for each [RegexRefusal], addressed to the person who wrote
+     * [position]'s pattern. Only [RegexRefusal.TIMED_OUT] and
+     * [RegexRefusal.KNOWN_BAD] are about *this* pattern; [RegexRefusal.BUSY]
+     * and [RegexRefusal.EXHAUSTED] are about what else the app is doing right
+     * now; and the wording says which one this is rather than reusing "took
+     * too long" for all four, which was true of exactly one of them.
+     */
+    private fun refusalMessage(reason: RegexRefusal, position: Int, textLength: Int): String =
+        when (reason) {
+            RegexRefusal.TIMED_OUT ->
+                "The regular expression at position $position took too long against " +
+                    "$textLength characters of text. A pattern with two of '.*' " +
+                    "in it, such as '.*a.*b', can cost that much: 'contains' already " +
+                    "searches the whole text, so a leading '.*' is never needed, and " +
+                    "'^' anchors the search when you do want the start."
+
+            RegexRefusal.KNOWN_BAD ->
+                "The regular expression at position $position already took too long " +
+                    "once earlier and is refused without being tried again, so it cannot " +
+                    "cost a second long wait. The same fix applies: a leading '.*' is " +
+                    "rarely needed, and '^' anchors the search when you want the start."
+
+            RegexRefusal.BUSY ->
+                "The regular expression at position $position was not tried, because " +
+                    "another regular expression search is already running right now. " +
+                    "This is not a problem with this pattern; the expression can simply " +
+                    "be tried again."
+
+            RegexRefusal.EXHAUSTED ->
+                "The regular expression at position $position was not tried, because too " +
+                    "many other patterns are already stuck running. This is not a problem " +
+                    "with this pattern by itself."
+        }
 }

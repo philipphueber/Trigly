@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import app.phueber.trigly.core.RegexRefusal
 import app.phueber.trigly.core.TextFilter
 import app.phueber.trigly.core.TextMatchMode
 import app.phueber.trigly.core.matchRangesIn
@@ -107,7 +108,7 @@ fun PatternTesterDialog(
     }
 
     // Running the pattern against the sample is the unbounded half: it is what
-    // BudgetedText bounds, not what makes it free. Off the main thread and
+    // RegexGuard bounds, not what makes it free. Off the main thread and
     // behind a frame, because this reruns on every keystroke in either field.
     // TextFilter.outcome is TextFilter.matches' own code, just with the third
     // answer TextFilter.matches folds into "no": see TextFilter's KDoc for why
@@ -115,9 +116,11 @@ fun PatternTesterDialog(
     //
     // LaunchedEffect is keyed on the values that decide the answer, so Compose
     // cancels a stale computation before it can overwrite `result` with a
-    // stale one, and a cancelled search still finishes in bounded time because
-    // BudgetedText bounds it regardless of cancellation, the same reason a
-    // timeout could not. That only protects the write, though: it says
+    // stale one. Cancelling this coroutine does not stop a stuck search,
+    // though: RegexGuard runs it on its own thread, which a coroutine
+    // cancellation cannot reach, the same reason a timeout on this coroutine
+    // could not either. RegexGuard is what bounds how long this dialog waits
+    // for an answer regardless. That only protects the write, though: it says
     // nothing about the value already on screen while a newer one is still
     // being computed, which is why `fresh` below re-checks `result` against
     // this exact recomposition's inputs rather than trusting the write to
@@ -139,7 +142,7 @@ fun PatternTesterDialog(
         it.forCurrent == current && it.forMode == mode && it.forSample == sample
     }
     val outcome = fresh?.outcome
-    val budgetSpent = outcome == TextFilter.Outcome.BUDGET_SPENT
+    val refusal = (outcome as? TextFilter.Outcome.REFUSED)?.reason
     val matches = when {
         filter == null -> null // does not compile; known without running anything
         outcome == null -> null // no fresh answer yet for this exact input
@@ -205,7 +208,7 @@ fun PatternTesterDialog(
                     matches = matches,
                     hasPattern = current.isNotEmpty(),
                     compileError = compileError != null,
-                    budgetSpent = budgetSpent,
+                    refusal = refusal,
                     hasSample = sample.isNotEmpty(),
                     hits = ranges.size,
                 )
@@ -249,11 +252,13 @@ fun PatternTesterDialog(
  *
  * A blank pattern is not a failed match — it is a filter with no opinion, which
  * lets everything through. Saying "no match" there would be a lie about what the
- * rule does. [budgetSpent] is the fourth such state: the pattern compiled, but
- * running it against [hasSample]'s text would do more work than
- * `MAX_REGEX_READS_PER_CHARACTER` allows, so `TextFilter` refused to run it
- * rather than occupy a core. A rule built on that pattern would just never
- * fire, silently; this is the one place that says why. See `RegexBudget.kt`
+ * rule does. [refusal] is the fourth such state: the pattern compiled, but
+ * `TextFilter` would not run it against [hasSample]'s text. It carries which of
+ * [RegexRefusal]'s four reasons that was, since they are four different true
+ * statements and only one of them, [RegexRefusal.TIMED_OUT], is actually about
+ * this sample taking too long: see [refusalText] for the wording of each one.
+ * A rule built on a pattern that is ever refused would just never fire,
+ * silently; this dialog is the one place that says why. See `RegexBudget.kt`
  * in `:core` for the bound itself.
  *
  * [matches] being null and neither [compileError] nor a missing sample being
@@ -268,7 +273,7 @@ private fun Verdict(
     matches: Boolean?,
     hasPattern: Boolean,
     compileError: Boolean,
-    budgetSpent: Boolean,
+    refusal: RegexRefusal?,
     hasSample: Boolean,
     hits: Int,
 ) {
@@ -277,7 +282,7 @@ private fun Verdict(
             MaterialTheme.colorScheme.onSurfaceVariant
         compileError -> "PATTERN DOES NOT COMPILE" to MaterialTheme.colorScheme.error
         !hasSample -> "TYPE SOME SAMPLE TEXT" to MaterialTheme.colorScheme.onSurfaceVariant
-        budgetSpent -> "REFUSED · TOO MUCH WORK ON THIS SAMPLE" to MaterialTheme.colorScheme.error
+        refusal != null -> refusalText(refusal) to MaterialTheme.colorScheme.error
         matches == null -> "CHECKING" to MaterialTheme.colorScheme.onSurfaceVariant
         // `extra.accent` rather than `colorScheme.primary` throughout: primary
         // is a fill colour and fails AA contrast as label text. See Palette.kt.
@@ -295,6 +300,18 @@ private fun Verdict(
     ) {
         Text(text = text, style = MaterialTheme.typography.labelMedium, color = colour)
     }
+}
+
+/**
+ * [Verdict]'s label for each [RegexRefusal]. Only [RegexRefusal.TIMED_OUT] is
+ * about this sample specifically; the other three say so, rather than reusing
+ * "took too long" for a search that was never even tried against this text.
+ */
+private fun refusalText(reason: RegexRefusal): String = when (reason) {
+    RegexRefusal.TIMED_OUT -> "REFUSED · TOOK TOO LONG ON THIS SAMPLE"
+    RegexRefusal.KNOWN_BAD -> "REFUSED · ALREADY TOOK TOO LONG ONCE THIS SESSION"
+    RegexRefusal.BUSY -> "REFUSED · ANOTHER SEARCH IS RUNNING RIGHT NOW"
+    RegexRefusal.EXHAUSTED -> "REFUSED · TOO MANY SEARCHES ARE ALREADY STUCK"
 }
 
 /**

@@ -160,17 +160,28 @@ class TextFilterTest {
 
     // --- the work a regex mode filter may do ------------------------------------
     //
-    // Every test here has a timeout, because a bound that stops working does not
-    // give a wrong answer: it hangs. A timeout turns that into a failure. The
-    // patterns and lengths are measured, the same way Expression.kt's are: see
-    // that file's ExpressionTest for the sibling of these three tests, and
-    // RegexBudget.kt for where the two bounds live now that both share them.
+    // Every test here has a timeout well above RegexGuard's own five seconds,
+    // because a bound that stops working does not give a wrong answer: it
+    // hangs, and JUnit's timeout is what turns that into a failure rather than
+    // a suite that never finishes. The patterns and lengths are measured the
+    // same way Expression.kt's are: see that file's ExpressionTest for the
+    // sibling of these tests, and RegexBudget.kt for where the bound and the
+    // measurements behind it live now that both files share them.
+    //
+    // The tests of an actually-refused pattern live in TextFilterRegexRefusalTest,
+    // not here. RegexGuard is one thread shared by the whole process, and a
+    // pattern deliberately built to run away keeps running on it, in the
+    // background, for an unknown time after its own test's assertion is made:
+    // there is no bound on how long that takes to finish naturally, only on how
+    // long a caller waits for an answer. A test class of its own, with nothing
+    // else in it, means that lingering search cannot reach any other test: see
+    // that file's KDoc and the `forkEvery` this module's build sets because of it.
 
     /**
      * An ordinary unanchored pattern over a screen-content-sized piece of text.
-     * Measured at 4.86 million reads with [RegexOption.IGNORE_CASE], against an
-     * allowance of 18 million for 1800 characters, and it has to be let through:
-     * there is nothing wrong with this pattern.
+     * Measured at 18 to 46 ms on the emulator these numbers were taken on,
+     * against a five-second bound, and it has to be let through: there is
+     * nothing wrong with this pattern.
      */
     @Test(timeout = 60_000)
     fun `an ordinary pattern over long text is allowed`() {
@@ -181,44 +192,13 @@ class TextFilterTest {
         assertFalse(filter.matches(text))
     }
 
-    /**
-     * Two of `.*` over the same 1800 characters. `matchRangesIn`'s test file has
-     * the exact count; here it is only the outcome that matters, and it must be
-     * [TextFilter.Outcome.BUDGET_SPENT], not a thrown exception and not a false
-     * "no match" that looks the same as an honest miss from the outside.
-     */
     @Test(timeout = 60_000)
-    fun `a pattern that does too much work is refused rather than matched`() {
-        val filter = TextFilter.of(".*.*b", TextMatchMode.REGEX)
-        val text = "a".repeat(1800)
-
-        assertEquals(TextFilter.Outcome.BUDGET_SPENT, filter.outcome(text))
-        // matches() never throws and never claims a match it could not verify.
-        assertFalse(filter.matches(text))
-    }
-
-    /**
-     * Why the bound is a rate and not a flat number, restated for this filter:
-     * `.*.*.*b` over sixty characters measures 1.87 million reads, which is
-     * *less* than the ordinary pattern above reads at 4.86 million over 1800
-     * characters. A flat number sized to allow the first would allow this one.
-     */
-    @Test(timeout = 60_000)
-    fun `short text does not buy a worse pattern`() {
-        val filter = TextFilter.of(".*.*.*b", TextMatchMode.REGEX)
-        val text = "a".repeat(60)
-
-        assertEquals(TextFilter.Outcome.BUDGET_SPENT, filter.outcome(text))
-        assertFalse(filter.matches(text))
-    }
-
-    @Test(timeout = 60_000)
-    fun `contains never spends a budget it does not need`() {
+    fun `contains never gets refused`() {
         // CONTAINS is a linear substring search: there is no backtracking
-        // engine underneath it, so there is nothing for a pattern to spend an
-        // unbounded amount of work on, and BUDGET_SPENT can never come out of
-        // this mode. The literal metacharacters make sure this is really
-        // running as a substring, not silently falling through to a regex.
+        // engine underneath it, so there is nothing for a pattern to run away
+        // on, and REFUSED can never come out of this mode. The literal
+        // metacharacters make sure this is really running as a substring, not
+        // silently falling through to a regex.
         val filter = TextFilter.of(".*.*.*b", TextMatchMode.CONTAINS)
         val text = "a".repeat(1800)
 

@@ -81,6 +81,39 @@ identifiers stay because T4, T8, T11 and R1 point at them.
   injected port that keeps `:core` away from `:triggers`. The rules list shows
   granted-but-not-bound as its own row, with "Check settings" rather than a
   "Grant" button for a setting that is already on.
+- **T24 Bound the regex engine by wall clock, instead of by characters
+  read.** The counting bound in `core/RegexBudget.kt` never worked on
+  Android: `Matcher` converts its input to a `String` before a counting
+  `CharSequence` is ever read, so nothing was ever refused on a device, though
+  1852 green JVM tests said it was. Chosen instead, of the three options this
+  file listed: one shared daemon thread that every bounded search runs on, a
+  caller that waits five seconds and gets refused if that runs out, and a
+  second search refused at once rather than queued while the first is still
+  running. Five seconds is measured at over a hundred times the worst honest
+  pattern known at 1800 characters (46 ms), but only about twice the same
+  pattern at 20000 uncapped characters (2.8 seconds), which is what
+  `screen_content`'s haystack can actually reach. That is the cost this option
+  has and the rejected static-check option did not: an unusually large
+  accessibility tree, on a device slower than the one this was measured on,
+  can still see an honest pattern refused. Counting characters read is gone
+  from the codebase entirely, not kept as a JVM-only mechanism nothing on a
+  device ever exercises.
+  **The first version of this landed with a second bug, caught by the
+  connected gate before it ever reached `main`: a timed-out search kept the
+  guard's one thread marked busy forever, since nothing clears "busy" for a
+  search that never finishes, so one bad pattern in one rule permanently
+  refused every regular expression in the app, on every rule, until the
+  process died.** `core/RegexBudget.kt` now abandons that thread instead of
+  waiting on it: the search keeps running, unwatched, and a fresh thread
+  answers the next call. The abandoned pattern's identity, its text plus
+  whether it matched case-insensitively, is remembered so it is refused on
+  sight rather than abandoning a second thread for it; `MAX_ABANDONED_THREADS`
+  caps how many distinct bad patterns may be abandoned at once, so several
+  different bad patterns arriving together still cannot pin every core. A
+  refusal now names which of four reasons it was — timed out just now,
+  already known bad, another search is busy, or the cap is reached — and
+  every caller that shows or reports a refusal to a person says the right one
+  instead of "took too long" for a search that was never even tried.
 
 ---
 
@@ -418,30 +451,30 @@ reason.
 ### T23 A refused regex leaves no trace once it is not a save-time error
 
 **Evidence.** `TextFilter`'s `regex` mode now runs every search through
-`BudgetedText` (`core/RegexBudget.kt`), the same bound `Expression.kt`'s
+`RegexGuard` (`core/RegexBudget.kt`), the same bound `Expression.kt`'s
 `contains(a, b, "regex")` uses, so a pattern that backtracks without end cannot
 occupy `screen_content`'s collector thread forever. `TextFilter.matches`
 cannot throw, though: it is called from five triggers' event flows and none of
 them has anywhere to send an exception. So a refused search,
-`TextFilter.Outcome.BUDGET_SPENT`, is folded into `false` and the rule behaves
+`TextFilter.Outcome.REFUSED`, is folded into `false` and the rule behaves
 exactly like a pattern that compiled fine and simply never matches anything.
 `TextFilter`'s own KDoc names this decision at the point it is made.
 
 The pattern tester catches this at edit time, if the person testing happens to
-try a sample long or adversarial enough to spend the budget. It does nothing
-for a pattern that is fine against every sample tried in the tester and only
-turns pathological against real on-screen text later, or for a rule imported
-from someone else's phone and never opened in the tester at all. There, the
-only symptom is a rule that looks correctly configured and does not fire,
-which is indistinguishable from a dozen other reasons a rule goes quiet.
+try a sample slow enough to be refused. It does nothing for a pattern that is
+fine against every sample tried in the tester and only turns pathological
+against real on-screen text later, or for a rule imported from someone else's
+phone and never opened in the tester at all. There, the only symptom is a rule
+that looks correctly configured and does not fire, which is indistinguishable
+from a dozen other reasons a rule goes quiet.
 
 **Decide first.** Whether this is worth a channel at all: it needs an
 adversarial or accidentally expensive pattern to reach, not ordinary use, and
 the fix for the pattern is always the same one the tester already teaches
 (drop a leading `.*`, add an anchor). If it is worth one, `RuleFaultLog` and
 T8's `RuleFault.Kind` are the existing place a rule already explains a run
-that did not go as configured, and `BUDGET_SPENT` firing would be a fourth
-kind alongside `ACTION_FAILED`, `UNDECIDED` and `COULD_NOT_START`.
+that did not go as configured, and `REFUSED` firing would be a fourth kind
+alongside `ACTION_FAILED`, `UNDECIDED` and `COULD_NOT_START`.
 That means threading a result out of a trigger's `events()` flow instead of a
 plain boolean, which today's `matchesUiEvent` and its four siblings do not do
 for any other reason a filter says no, so this is not a small addition to that
@@ -517,72 +550,6 @@ of in shell. A JVM test can read `classes.dex` from the release APK and check
 that every registered `type` string is still present, which is check 2 of the
 smoke test and the one failure that would break every saved rule at once.
 
-
-### T24 The regex read bound does not work on Android
-
-**Evidence.** `BudgetedText` in `core/RegexBudget.kt` bounds a search by counting
-the characters the regex engine reads through `CharSequence.get`. On the JVM that
-works, and `TextFilterTest`, `MatchRangesTest` and `ExpressionTest` all prove it
-works. On Android it does nothing at all.
-
-Android's `java.util.regex.Matcher` converts its input to a `String` when it is
-handed anything that is not already one. So `get` is never called, no read is
-ever counted, and no search is ever refused.
-
-Found by running the pattern tester's own device tests, which failed in a way
-that named the cause exactly: a `[0-9]+` search over the six-character sample
-`12 and 34` reported a match at index 37. The text being searched was
-`Object.toString()`, `app.phueber.trigly.core.BudgetedText@1a2b3c4d`, and the
-match was on the hex digits of a hash code. That second half was a live
-correctness bug in both regex paths, and it is fixed: `BudgetedText` now
-overrides `toString`. The bound itself is still missing.
-
-**What this costs today.** Two claims in this repository are true on the JVM and
-false on a phone:
-
-- `Expression.kt`'s "Safety is exactly three numbers". The third number does not
-  hold on a device, so `contains(a, b, "regex")` can be given a pattern that
-  occupies a core with no end.
-- `TextFilter`'s "Matching is also bounded". `screen_content` can run a pattern
-  against on-screen text as often as every hundred milliseconds, and nothing
-  stops a backtracking pattern there.
-
-The `.*.*.*b` refusal test in `PatternTesterTest` is `@Ignore`d for this reason
-and names this item. `TextFilter.Outcome.BUDGET_SPENT` and the tester's fourth
-verdict state are both reachable only on the JVM today. They stay, because they
-are the shape a working bound needs, and because deleting them would lose the
-tests that prove the counting itself is right.
-
-**This is the trap this project's testing posture exists for.** The suite runs
-1852 JVM tests, every one of them green, on a mechanism that does nothing on the
-device the app ships to. "Works on the JVM, fails on the phone" is exactly the
-failure `CLAUDE.md` says instrumented tests carry the weight for, and the
-instrumented tests are what caught it.
-
-**Three ways forward, none of them free.**
-
-1. **Refuse the pattern when it is saved, not when it runs.** A static check for
-   the shapes that cost unbounded work: two adjacent unbounded quantifiers
-   (`.*.*`), or an unbounded quantifier inside a quantified group (`(a+)+`).
-   `TextFilter.of` already throws on a pattern that does not compile, and the
-   editor already shows that failure at the moment of typing, so this needs no
-   new plumbing and gives a person something to act on. It is incomplete in
-   theory: a crafted pattern outside those shapes can still backtrack. It covers
-   every case measured here.
-2. **Match on one shared thread with a real timeout.** Bounds the wall clock
-   rather than the work, and a blocking regex cannot be interrupted, so the
-   thread keeps burning until the pattern finishes. One shared single-thread
-   executor keeps that to one runaway thread, and a search that arrives while it
-   is busy answers "no match" at once. Real work: `TextFilter.matches` is
-   synchronous and called from inside five triggers' flows.
-3. **Say the bound is not there.** Retract both claims, keep the counting for the
-   JVM, and document that a regular expression on a device is unbounded. Honest,
-   free, and leaves the review finding open.
-
-Option 1 is the recommendation. It is the only one that tells the person who
-wrote the pattern, at the moment they wrote it, and a bound that reports itself
-beats a bound that silently answers "no match".
-
 ---
 
 ### T22 `round`'s second argument is not bounded
@@ -610,15 +577,17 @@ every use a person reading a value has. It is deliberately not urgent: the
 damage is a slow action and an ugly message, not a wrong value or a crash, and
 only a hand-written expression can reach it.
 
-One more reason to fix it, added when `contains` gained a regex mode. That
-mode's bound is a rate on the length of the text searched, and the argument for
-why a whole *evaluation* stays bounded is that all the text every search can
-look at comes out of the same 2000 characters of source. `round` with a huge
-`places` is the one thing that breaks that argument, because it returns more
-text than it was given. The regex bound has an absolute ceiling as well as a
-rate, so a single search is bounded whatever feeds it, and nothing here is
-exploitable today. It is the composition argument that is untidy while this
-stands.
+This used to be one more reason to fix it, back when `contains`'s regex mode
+was bounded by a rate on the length of the text searched: the argument for why
+a whole *evaluation* stayed bounded was that all the text every search could
+look at came out of the same 2000 characters of source, and `round` with a huge
+`places` broke that argument by returning more text than it was given. T24
+replaced that rate with a wall-clock bound on one shared thread (see
+`core/RegexBudget.kt`), which does not care how much text a search was handed,
+so a huge `round` output no longer threatens the regex bound's own argument
+the way it used to. `round` is still worth fixing on its own terms: the
+`ArithmeticException` and the multi-second `BigDecimal` are real, just no
+longer tangled up with the regex bound's reasoning.
 
 ---
 

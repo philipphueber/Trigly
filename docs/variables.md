@@ -432,8 +432,8 @@ Arithmetic, comparison, string functions, date formats.
   functions a person can define, and no call that reads or writes anything
   outside the string it is given. Six functions, each one fixed and reviewed.
   One of them, `contains`, takes a match mode and can search with a regular
-  expression. See `docs/expressions.md` for the mode and for the rate that
-  bounds it.
+  expression. See `docs/expressions.md` for the mode and for the bound that
+  covers it.
 - **The safety argument is exactly three numbers.** A rule is a file somebody
   else can import onto their own phone, so an embedded interpreter would be a
   way to carry arbitrary code onto a stranger's device. With no loops, and no
@@ -442,9 +442,11 @@ Arithmetic, comparison, string functions, date formats.
   parser's own call stack, so the parser bounds the input length and the nesting
   depth. The third number arrived with `contains`'s regex mode, which is the one
   operation here that is not the language's own work: a backtracking engine can
-  do an unbounded amount of work on a bounded input, so a pattern may read only
-  10000 characters per character of text, up to a ceiling. **That third number
-  does not hold on Android today: see `docs/todo.md` T24.** That claim is true
+  do an unbounded amount of work on a bounded input, so a search gets five
+  seconds on one shared background thread, and a refusal fails the whole
+  expression rather than reading as a false answer. **That number is a wall
+  clock, not a count of steps, because Android's regex engine leaves no other
+  way to measure the work: see `docs/todo.md` T24.** That claim is true
   only while the grammar stays this small, and `Expression.kt` says so at the
   point where somebody would add the feature that ends it.
 - **Date formats are still not here.** The evaluate mode does arithmetic,

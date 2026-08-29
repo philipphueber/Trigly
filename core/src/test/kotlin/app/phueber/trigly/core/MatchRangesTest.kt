@@ -84,12 +84,19 @@ class MatchRangesTest {
 
     // --- the work a highlight may do --------------------------------------------
     //
-    // matchRangesIn runs the same bounded search TextFilter.matches does, over
-    // the same BudgetedText, so a pattern the filter refuses cannot still be
-    // searched here just because this call only draws a highlight. Every test
-    // below has a timeout: a bound that stops working hangs, it does not answer
-    // wrongly. See TextFilterTest for the sibling tests and where the numbers
-    // were measured.
+    // matchRangesIn runs the same bounded search TextFilter.matches does,
+    // through the same RegexGuard, so a pattern the filter refuses cannot
+    // still be searched here just because this call only draws a highlight.
+    // Every test below has a timeout well above RegexGuard's own five
+    // seconds: a bound that stops working hangs, it does not answer wrongly.
+    // See TextFilterTest for the sibling tests and where the numbers were
+    // measured.
+    //
+    // A pattern that is actually refused is tested in MatchRangesRegexRefusalTest,
+    // not here, for the reason TextFilterRegexRefusalTest's KDoc gives: the
+    // search keeps running on RegexGuard's one shared thread for an unmeasured
+    // time afterward, and a class with nothing else in it is what keeps that
+    // from reaching any other test.
 
     /**
      * An ordinary pattern over 1800 characters, the size `screen_content` can
@@ -102,35 +109,6 @@ class MatchRangesTest {
         val text = "a".repeat(1800)
 
         assertEquals(listOf(0..1799), matchRangesIn("a+", TextMatchMode.REGEX, text))
-    }
-
-    /**
-     * Two of `.*` over the same 1800 characters costs far more than the budget
-     * allows (measured in TextFilterTest). The highlight comes back empty, the
-     * same answer a pattern that simply does not match would give, and the
-     * filter's own [TextFilter.Outcome] is what tells the two apart.
-     */
-    @Test(timeout = 60_000)
-    fun `a pattern that does too much work highlights nothing, rather than hanging`() {
-        val text = "a".repeat(1800)
-
-        assertTrue(matchRangesIn(".*.*b", TextMatchMode.REGEX, text).isEmpty())
-        assertEquals(
-            TextFilter.Outcome.BUDGET_SPENT,
-            TextFilter.of(".*.*b", TextMatchMode.REGEX).outcome(text),
-        )
-    }
-
-    /** Same rate, same reason as TextFilterTest's test of the same name. */
-    @Test(timeout = 60_000)
-    fun `short text does not buy a worse pattern`() {
-        val text = "a".repeat(60)
-
-        assertTrue(matchRangesIn(".*.*.*b", TextMatchMode.REGEX, text).isEmpty())
-        assertEquals(
-            TextFilter.Outcome.BUDGET_SPENT,
-            TextFilter.of(".*.*.*b", TextMatchMode.REGEX).outcome(text),
-        )
     }
 
     /**
