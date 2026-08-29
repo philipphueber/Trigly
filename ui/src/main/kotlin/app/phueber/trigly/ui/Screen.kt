@@ -69,6 +69,24 @@ fun backTarget(screen: Screen): Screen? = when (screen) {
     Screen.Attribution -> Screen.Settings
 }
 
+/**
+ * Whether the app's one `BackHandler` should intercept a back press from
+ * [screen].
+ *
+ * A thin read of [backTarget], not a second decision: the rule list is the
+ * only screen with nowhere to go, so it is the only one this returns `false`
+ * for. Kept as its own named function, not inlined at the call site, so the
+ * "is the handler enabled" question is checked by a JVM test on its own,
+ * separate from "where does back go".
+ *
+ * A handler that is always enabled has to finish the activity itself when
+ * there is nowhere left to go, which takes the exit out of the system's
+ * hands on the one screen that should just let it happen. Disabling the
+ * handler instead lets the system perform the exit, predictive-back
+ * animation included.
+ */
+fun backHandlerEnabled(screen: Screen): Boolean = backTarget(screen) != null
+
 private const val LIST_TAG = "list"
 private const val EDITOR_TAG = "editor"
 private const val SAVED_VALUES_TAG = "saved_values"
