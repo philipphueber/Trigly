@@ -44,11 +44,14 @@ import androidx.compose.ui.unit.dp
  * the moment it was picked, and a choice that cannot be honoured is not
  * offered at all - see this file's own reasoning in `PresetSchemes.kt`.
  *
- * The amber notice above the grid is stage 2's: picking a preset also
- * switches the launcher icon, through `LauncherIconSwitcher.kt`, and that can
- * briefly leave the home screen or need a launcher restart. Told once, here,
- * before a tap runs it - the same convention `SettingsScreen`'s backup
- * warning uses, reusing its amber caution `Surface` shape.
+ * There is no notice about the launcher icon. Picking a preset does switch the
+ * icon, through `LauncherIconSwitcher.kt`, and that can briefly leave the home
+ * screen or need a launcher restart on some launchers. That was said here in
+ * an amber block and has been removed: it is a one time surprise about a
+ * choice a person made on purpose, and it spent the top of a dialog whose job
+ * is to show colours. The behaviour is unchanged and is documented in
+ * `LauncherIconSwitcher.kt`, where somebody debugging a missing icon will
+ * look.
  */
 @Composable
 fun ColorSchemePickerDialog(
@@ -69,34 +72,8 @@ fun ColorSchemePickerDialog(
         },
         text = {
             Column {
-                // Amber, the same convention SettingsScreen's backup warning
-                // uses: something to know, not a fault. Shown every time this
-                // dialog opens, not only before a tap that would actually
-                // switch the icon, because a chip tap on the choice already in
-                // place still runs `switchLauncherIcon` - see
-                // SettingsViewModel.setColorSchemeChoice.
-                Surface(
-                    color = MaterialTheme.extra.cautionContainer,
-                    contentColor = MaterialTheme.extra.onCautionContainer,
-                    shape = BlockShape,
-                    modifier = Modifier.hardShadow(BlockShape),
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text(
-                            text = stringResource(R.string.settings_colorscheme_icon_warning_title).uppercase(),
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                        Text(
-                            text = stringResource(R.string.settings_colorscheme_icon_warning_body),
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
-                    }
-                }
-
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(top = 12.dp),
                 ) {
                     BlockToggleChip(
                         text = stringResource(R.string.settings_colorscheme_default),

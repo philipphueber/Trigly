@@ -131,6 +131,18 @@ import androidx.compose.ui.graphics.Color
  *   Lower-case, one word, and never renamed once shipped - a rename would
  *   silently orphan anyone's stored choice back to Default.
  * @property displayName What the picker's swatch and the settings row show.
+ *  **This is deliberately allowed to differ from [id].** Two of them do:
+ *  `lime` shows as "Olive" and `magenta` shows as "Rose", because that is what
+ *  the colours are once they are held to the shared lightness and chroma. A
+ *  real lime is much lighter than a mid tone, and a real magenta is far more
+ *  colourful than the shared ceiling allows, so those two names promised
+ *  something the swatches do not deliver.
+ *
+ *  The ids stay as they were on purpose. [id] is written into a person's
+ *  stored choice and it is what `launcherAliasName` turns into the manifest's
+ *  `activity-alias` name, so renaming one would drop a saved preference and
+ *  point the icon switch at a component that does not exist. A label is free
+ *  to change; an identifier is not.
  * @property light,[dark] The two schemes this preset resolves to. Everything
  *   but the primary group and the two accents is inherited from
  *   [LightScheme]/[DarkScheme] unchanged, because a preset is a new brand
@@ -167,7 +179,7 @@ internal val ColorPresets: List<ColorPreset> = listOf(
     ),
     ColorPreset(
         id = "lime",
-        displayName = "Lime",
+        displayName = "Olive",
         light = LightScheme.copy(
             primary = hex("#8B9E18"),
             onPrimary = Tone.Ink,
@@ -247,7 +259,7 @@ internal val ColorPresets: List<ColorPreset> = listOf(
     ),
     ColorPreset(
         id = "magenta",
-        displayName = "Magenta",
+        displayName = "Rose",
         light = LightScheme.copy(
             primary = hex("#D06AA7"),
             onPrimary = Tone.Ink,
