@@ -61,7 +61,7 @@ class PatternTesterTest {
                 companions = mapOf(field.modeKey to mode.configValue),
             )
         }
-        composeRule.onNodeWithText("TEST").performClick()
+        composeRule.onNodeWithText("TRY").performClick()
     }
 
     /**
@@ -86,7 +86,7 @@ class PatternTesterTest {
     fun the_tester_opens_from_the_field() {
         open("[0-9]+")
 
-        composeRule.onNodeWithText("TEST MESSAGE CONTAINS").assertIsDisplayed()
+        composeRule.onNodeWithText("TRY MESSAGE CONTAINS").assertIsDisplayed()
         composeRule.onNodeWithText("PATTERN (REGEX)").assertIsDisplayed()
     }
 

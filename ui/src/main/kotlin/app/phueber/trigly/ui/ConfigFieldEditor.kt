@@ -309,7 +309,14 @@ private fun TextPatternField(
             // Next to the mode toggle, because it answers the question the toggle
             // raises: a valid regex and a *correct* one are different claims, and
             // only one of them the editor could check until now.
-            BlockTextButton("Test") { testing = true }
+            //
+            // "Try", not "Test": an action block's footer already has a button
+            // labelled Test, which runs the whole action for real. A component
+            // with both on one screen, such as dismiss_notification once it
+            // gained this field, would show two controls both saying TEST that
+            // do unrelated things. This one only tries a pattern against a
+            // scratch sample, which "Try" says and "Test" does not.
+            BlockTextButton("Try") { testing = true }
             TextMatchMode.entries.forEach { option ->
                 BlockToggleChip(
                     text = option.configValue,
