@@ -1,6 +1,8 @@
 package app.phueber.trigly.actions
 
 import app.phueber.trigly.core.ActionResult
+import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.effectiveHelp
 import app.phueber.trigly.core.InMemoryRuleVariableStore
 import app.phueber.trigly.core.InMemoryVariableStore
 import app.phueber.trigly.core.RunScope
@@ -305,6 +307,61 @@ class SetVariableActionTest {
         val substitutions = factory.substitutionsFor(emptyMap())
 
         assertEquals(Substitution.TEXT, substitutions[SetVariableAction.CONFIG_VALUE])
+    }
+
+    // --- helpWhen: the value field's help follows the mode ------------------------
+
+    private fun valueField(factory: SetVariableActionFactory): ConfigField.Text =
+        factory.configFields.first { it.key == SetVariableAction.CONFIG_VALUE } as ConfigField.Text
+
+    @Test
+    fun `the value field's help names only what applies before a mode is chosen`() {
+        val factory = SetVariableActionFactory(InMemoryVariableStore())
+
+        val help = valueField(factory).effectiveHelp(emptyMap())
+
+        assertTrue(help.orEmpty().contains("another variable"))
+        assertTrue("must not mention add before a mode is chosen", !help.orEmpty().contains("Adding"))
+        assertTrue(
+            "must not mention evaluate before a mode is chosen",
+            !help.orEmpty().contains("Evaluating"),
+        )
+    }
+
+    @Test
+    fun `add mode's help mentions the plain-number rule and not evaluate`() {
+        val factory = SetVariableActionFactory(InMemoryVariableStore())
+
+        val help = valueField(factory)
+            .effectiveHelp(mapOf(VariableWriteMode.CONFIG_KEY to VariableWriteMode.ADD.configValue))
+            .orEmpty()
+
+        assertTrue(help.contains("plain number"))
+        assertTrue("add's help must not also explain evaluate", !help.contains("Evaluating"))
+    }
+
+    @Test
+    fun `evaluate mode's help mentions the expression rules and not add`() {
+        val factory = SetVariableActionFactory(InMemoryVariableStore())
+
+        val help = valueField(factory)
+            .effectiveHelp(mapOf(VariableWriteMode.CONFIG_KEY to VariableWriteMode.EVALUATE.configValue))
+            .orEmpty()
+
+        assertTrue(help.contains("expression"))
+        assertTrue("evaluate's help must not also explain add", !help.contains("plain number"))
+    }
+
+    @Test
+    fun `set mode's help names only what always applies`() {
+        val factory = SetVariableActionFactory(InMemoryVariableStore())
+
+        val help = valueField(factory)
+            .effectiveHelp(mapOf(VariableWriteMode.CONFIG_KEY to VariableWriteMode.SET.configValue))
+            .orEmpty()
+
+        assertTrue(!help.contains("plain number"))
+        assertTrue(!help.contains("Evaluating"))
     }
 
     // --- create() and the name check --------------------------------------------

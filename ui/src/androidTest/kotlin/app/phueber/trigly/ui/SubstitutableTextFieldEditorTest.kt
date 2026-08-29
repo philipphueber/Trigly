@@ -1,26 +1,50 @@
 package app.phueber.trigly.ui
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.height
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.compose.runtime.CompositionLocalProvider
+import app.phueber.trigly.core.ConditionalHelp
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.FieldCondition
 import app.phueber.trigly.core.ScopedVariable
 import app.phueber.trigly.core.Substitution
 import app.phueber.trigly.core.TextSuggestions
 import app.phueber.trigly.core.VariableScope
 import app.phueber.trigly.core.VariableSpec
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule as JUnitRule
 import org.junit.Test
 import org.junit.runner.RunWith
+
+/**
+ * How far [SubstitutableTextFieldEditorTest.growthTriggeringWordCount]
+ * searches before concluding an expression box never grows at all, rather
+ * than that it just needed a few more words.
+ */
+private const val MAX_GROWTH_SEARCH_WORDS = 4_096
+
+/**
+ * Enough words to pass the eight-line bound on any device this runs on.
+ * [SubstitutableTextFieldEditorTest.an_expression_field_stops_growing_once_it_reaches_its_bound]
+ * proves that by doubling it and finding the height unchanged, rather than by
+ * trusting this number alone.
+ */
+private const val BOUND_SEARCH_WORDS = 200
 
 /**
  * The picker and the preview `docs/variables.md` section 12 adds to a
@@ -406,5 +430,301 @@ class SubstitutableTextFieldEditorTest {
         composeRule.onNodeWithText("Insert variable", ignoreCase = true).performClick()
 
         composeRule.onNodeWithText("PRODUCED BY AN EARLIER ACTION IN THIS RULE").assertIsDisplayed()
+    }
+
+    // --- The box that must not clip an expression --------------------------------------
+
+    /**
+     * [count] short, distinct words. Distinct rather than one word repeated, so
+     * nothing about a single glyph shape or a font's ligature table can make the
+     * growth below an accident of one specific character.
+     */
+    private fun wordsOf(count: Int): String = (1..count).joinToString(" ") { "word$it" }
+
+    /**
+     * Doubled each step rather than searched linearly, so finding the point past
+     * which the box actually grows costs a handful of measurements regardless of
+     * how wide the device is. [MAX_GROWTH_SEARCH_WORDS] is the point past which a
+     * search that has found nothing means the box does not grow at all, which is
+     * a real failure rather than a search that gave up too soon.
+     */
+    private fun growthTriggeringWordCount(restHeight: Dp, heightFor: (String) -> Dp): Int {
+        var wordCount = 4
+        while (wordCount <= MAX_GROWTH_SEARCH_WORDS) {
+            if (heightFor(wordsOf(wordCount)) > restHeight) return wordCount
+            wordCount *= 2
+        }
+        return wordCount
+    }
+
+    @Test
+    fun an_expression_field_starts_taller_than_a_plain_field() {
+        composeRule.setContent {
+            TriglyTheme {
+                Column {
+                    ConfigFieldEditor(
+                        field = expressionField,
+                        value = null,
+                        onValueChange = {},
+                        previewEncoding = Substitution.EXPRESSION,
+                    )
+                    ConfigFieldEditor(field = plainField, value = null, onValueChange = {})
+                }
+            }
+        }
+
+        val expressionHeight = composeRule.onNodeWithText("VALUE", substring = true, ignoreCase = true)
+            .getUnclippedBoundsInRoot().height
+        val plainHeight = composeRule.onNodeWithText("CONTAINS", substring = true, ignoreCase = true)
+            .getUnclippedBoundsInRoot().height
+
+        assertTrue(
+            "an expression box starts as several lines, not the one a plain field gets",
+            expressionHeight > plainHeight,
+        )
+    }
+
+    /**
+     * A guard on the harness itself, not on [SubstitutableTextField].
+     * `ConfigFieldEditor`'s `value` is the field's whole state — typing does
+     * not mutate it directly, it only calls `onValueChange`, and the field's
+     * own local text resynchronises back to `value` on every recomposition
+     * (see the comment beside `fieldValue` in [SubstitutableTextField]). A
+     * test that types into a field without also feeding the result back
+     * through `onValueChange`, the way a real caller always does, has a
+     * `value` that never changes, so every character is wiped back out the
+     * instant it lands and the box never holds anything at all. This test's
+     * `value` is hoisted with `onValueChange` writing back to it, and stands
+     * as the cheapest possible check that the pattern the two tests below
+     * use actually retains what is typed.
+     */
+    @Test
+    fun a_hoisted_field_displays_what_was_typed() {
+        composeRule.setContent {
+            TriglyTheme {
+                var value by remember { mutableStateOf<String?>(null) }
+                ConfigFieldEditor(
+                    field = expressionField,
+                    value = value,
+                    onValueChange = { value = it },
+                    previewEncoding = Substitution.EXPRESSION,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("VALUE", substring = true, ignoreCase = true)
+            .performTextReplacement("hello")
+
+        composeRule.onNodeWithText("hello").assertIsDisplayed()
+    }
+
+    /**
+     * How content past the starting height is found, rather than assumed: a
+     * fixed string that wraps to four lines on one screen can wrap to two on
+     * another, and the connected gate runs this on more than one device. So
+     * this keeps typing more words, a doubling amount at a time, until the box
+     * has actually grown past its own rest height, and only then checks the
+     * claim the wrapping fixed — that a plain field fed the identical value
+     * still does not.
+     */
+    @Test
+    fun an_expression_field_grows_once_its_content_passes_the_starting_height() {
+        // [SubstitutableTextField] resynchronises its local text back to
+        // `value` on every recomposition (see the comment beside `fieldValue`
+        // there), so a `value` that never changes — the no-op onValueChange
+        // this test had before — wipes every character back out the instant
+        // it lands. Hoisted here the way every real caller hoists it, the same
+        // shape `setField` above already uses, so what is typed is what stays.
+        composeRule.setContent {
+            TriglyTheme {
+                Column {
+                    var expressionValue by remember { mutableStateOf<String?>(null) }
+                    var plainValue by remember { mutableStateOf<String?>(null) }
+                    ConfigFieldEditor(
+                        field = expressionField,
+                        value = expressionValue,
+                        onValueChange = { expressionValue = it },
+                        previewEncoding = Substitution.EXPRESSION,
+                    )
+                    ConfigFieldEditor(
+                        field = plainField,
+                        value = plainValue,
+                        onValueChange = { plainValue = it },
+                    )
+                }
+            }
+        }
+
+        fun expressionHeightFor(value: String): Dp {
+            composeRule.onNodeWithText("VALUE", substring = true, ignoreCase = true)
+                .performTextReplacement(value)
+            return composeRule.onNodeWithText("VALUE", substring = true, ignoreCase = true)
+                .getUnclippedBoundsInRoot().height
+        }
+
+        val expressionRest = expressionHeightFor("")
+        val wordCount = growthTriggeringWordCount(expressionRest) { expressionHeightFor(it) }
+        val expressionGrown = expressionHeightFor(wordsOf(wordCount))
+
+        assertTrue(
+            "typing $wordCount words never grew the box past its $expressionRest rest height",
+            expressionGrown > expressionRest,
+        )
+
+        val plainRest = composeRule.onNodeWithText("CONTAINS", substring = true, ignoreCase = true)
+            .getUnclippedBoundsInRoot().height
+        composeRule.onNodeWithText("CONTAINS", substring = true, ignoreCase = true)
+            .performTextReplacement(wordsOf(wordCount))
+        val plainAfter = composeRule.onNodeWithText("CONTAINS", substring = true, ignoreCase = true)
+            .getUnclippedBoundsInRoot().height
+
+        assertEquals(
+            "the same value in a plain field scrolls sideways rather than growing",
+            plainRest,
+            plainAfter,
+        )
+    }
+
+    /**
+     * [BOUND_SEARCH_WORDS] is chosen to be enough to pass the eight-line bound on
+     * any device this runs on, not a device-specific guess: it is measured
+     * against the box's own height, by asserting growth happened at all, rather
+     * than assumed to wrap to a specific line count. Doubling that same word
+     * count and finding the height unchanged is what proves the bound holds
+     * while the content keeps growing, rather than merely being long enough
+     * that this build happens not to have grown further yet.
+     */
+    @Test
+    fun an_expression_field_stops_growing_once_it_reaches_its_bound() {
+        // Hoisted for the same reason as the test above: an unfed `value`
+        // never changes, so [SubstitutableTextField] resets every keystroke
+        // straight back out before it is ever rendered.
+        composeRule.setContent {
+            TriglyTheme {
+                var expressionValue by remember { mutableStateOf<String?>(null) }
+                ConfigFieldEditor(
+                    field = expressionField,
+                    value = expressionValue,
+                    onValueChange = { expressionValue = it },
+                    previewEncoding = Substitution.EXPRESSION,
+                )
+            }
+        }
+
+        fun expressionHeightFor(value: String): Dp {
+            composeRule.onNodeWithText("VALUE", substring = true, ignoreCase = true)
+                .performTextReplacement(value)
+            return composeRule.onNodeWithText("VALUE", substring = true, ignoreCase = true)
+                .getUnclippedBoundsInRoot().height
+        }
+
+        val restHeight = expressionHeightFor("")
+        val boundedHeight = expressionHeightFor(wordsOf(BOUND_SEARCH_WORDS))
+        val pastBoundHeight = expressionHeightFor(wordsOf(BOUND_SEARCH_WORDS * 2))
+
+        assertTrue(
+            "$BOUND_SEARCH_WORDS words never grew the box past its $restHeight rest height",
+            boundedHeight > restHeight,
+        )
+        assertEquals(
+            "height must stop increasing once the bound is reached, even though the " +
+                "content typed kept growing",
+            boundedHeight,
+            pastBoundHeight,
+        )
+    }
+
+    // --- Help that follows the mode a sibling field chose ---------------------------------
+
+    private val modeAwareField = ConfigField.Text(
+        key = "value",
+        label = "Value",
+        help = "This can include another variable.",
+        helpWhen = listOf(
+            ConditionalHelp(
+                condition = FieldCondition(key = "mode", value = "add"),
+                help = "Adding needs a plain number.",
+            ),
+            ConditionalHelp(
+                condition = FieldCondition(key = "mode", value = "evaluate"),
+                help = "Evaluating runs this as an expression.",
+            ),
+        ),
+    )
+
+    private fun setModeAwareField(mode: String?) {
+        composeRule.setContent {
+            TriglyTheme {
+                ConfigFieldEditor(
+                    field = modeAwareField,
+                    value = null,
+                    onValueChange = {},
+                    companions = mode?.let { mapOf("mode" to it) } ?: emptyMap(),
+                )
+            }
+        }
+    }
+
+    @Test
+    fun help_names_only_the_add_specific_sentence_in_add_mode() {
+        setModeAwareField("add")
+
+        composeRule.onNodeWithText("Adding needs a plain number.", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("Evaluating runs this", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun help_names_only_the_evaluate_specific_sentence_in_evaluate_mode() {
+        setModeAwareField("evaluate")
+
+        composeRule.onNodeWithText("Evaluating runs this", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("Adding needs a plain number.", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun help_names_neither_mode_specific_sentence_when_no_mode_matches() {
+        setModeAwareField("set")
+
+        composeRule.onNodeWithText("This can include another variable.").assertIsDisplayed()
+        composeRule.onNodeWithText("Adding needs a plain number.", substring = true).assertDoesNotExist()
+        composeRule.onNodeWithText("Evaluating runs this", substring = true).assertDoesNotExist()
+    }
+
+    // --- A long help collapses; a short one does not ---------------------------------------
+
+    private val shortHelp = "Leave blank to match any device."
+
+    private val longHelp = "Some apps draw their own notification buttons. Android then offers " +
+        "no way to press them directly. This setting opens the notification shade instead, and " +
+        "taps the button by name. It needs accessibility access. It briefly shows the shade on " +
+        "screen. Turn it on only when you need it."
+
+    private val longHelpFirstSentence = "Some apps draw their own notification buttons."
+
+    private val shortHelpField = ConfigField.Text(key = "short", label = "Short", help = shortHelp)
+    private val longHelpField = ConfigField.Text(key = "long", label = "Long", help = longHelp)
+
+    @Test
+    fun a_short_help_shows_in_full_with_no_toggle() {
+        composeRule.setContent {
+            TriglyTheme { ConfigFieldEditor(field = shortHelpField, value = null, onValueChange = {}) }
+        }
+
+        composeRule.onNodeWithText(shortHelp).assertIsDisplayed()
+        composeRule.onNodeWithContentDescription(HINT_EXPAND_DESCRIPTION).assertDoesNotExist()
+    }
+
+    @Test
+    fun a_long_help_collapses_to_its_first_sentence_until_expanded() {
+        composeRule.setContent {
+            TriglyTheme { ConfigFieldEditor(field = longHelpField, value = null, onValueChange = {}) }
+        }
+
+        composeRule.onNodeWithText(longHelpFirstSentence).assertIsDisplayed()
+        composeRule.onNodeWithText(longHelp).assertDoesNotExist()
+
+        composeRule.onNodeWithContentDescription(HINT_EXPAND_DESCRIPTION).performClick()
+
+        composeRule.onNodeWithText(longHelp).assertIsDisplayed()
     }
 }

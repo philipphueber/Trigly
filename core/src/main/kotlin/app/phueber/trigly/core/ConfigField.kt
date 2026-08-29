@@ -99,6 +99,22 @@ sealed interface ConfigField {
          * one, so nothing else changes.
          */
         val suggests: TextSuggestions? = null,
+        /**
+         * Extra [help] sentences, each shown only while a sibling field has one
+         * of the listed values. Appended, in order, after [help] itself.
+         *
+         * `shownWhen` generalised "show this field" into a declared condition
+         * instead of a per-screen special case; this is the same move for one
+         * *sentence* of help rather than the whole field. `set_variable`'s value
+         * field is the case that needed it: the same box means three different
+         * things depending on the sibling `mode` field, and printing all three
+         * explanations regardless of mode is what grew its help to four topics
+         * and 300 characters. Declaring the mode-specific sentences here instead
+         * keeps the editor itself ignorant of `mode`, `set_variable`, or any
+         * other factory's vocabulary — it only ever asks "does this sibling's
+         * value match", the same question [shownWith] already asks.
+         */
+        val helpWhen: List<ConditionalHelp> = emptyList(),
     ) : ConfigField
 
     /** A closed set of values. Covers both two-word toggles and wider enums. */
@@ -484,6 +500,12 @@ data class FieldCondition(val key: String, val isAnyOf: Set<String>) {
 }
 
 /**
+ * One extra sentence of help, shown only while [condition] holds. See
+ * [ConfigField.Text.helpWhen].
+ */
+data class ConditionalHelp(val condition: FieldCondition, val help: String)
+
+/**
  * The fields to draw, given what has been filled in so far.
  *
  * The sibling's *effective* value decides it: what is stored, or failing that
@@ -506,20 +528,54 @@ fun List<ConfigField>.shownWith(config: Map<String, String>): List<ConfigField> 
     }
 
 /**
- * The extra config keys a field kind owns beyond [ConfigField.key].
+ * The extra config keys a field kind owns beyond [ConfigField.key], plus —
+ * for a [ConfigField.Text] with [ConfigField.Text.helpWhen] — the sibling keys
+ * it only *reads*.
  *
  * Declared once, here, because three places need the same answer and had grown
  * their own copies: the editor, to hand a field its companion values; the rule
  * editor screen, to read them out of the stored config; and the schema contract
  * test, to build a sample a factory will accept. A fourth copy is how a two-key
  * field ends up half-populated and its factory blamed for it.
+ *
+ * [ConfigField.Text.helpWhen] stretches this beyond "owns": a `mode` field is
+ * not the value field's own key, only one it needs to *see*. It is still the
+ * right list to add it to, because the one consumer that cares about the
+ * distinction — the schema contract test's synthetic sample — already treats a
+ * key that coincides with another field's own key as that field's problem to
+ * seed, not this one's. See its `sampleConfig`.
  */
 fun ConfigField.companionKeys(): List<String> = when (this) {
     is ConfigField.TextPattern -> listOf(modeKey)
     is ConfigField.TimeOfDay -> listOf(minuteKey)
     is ConfigField.Coordinates -> listOf(longitudeKey)
     is ConfigField.NotificationButton -> listOf(semanticKey, packageKey)
+    is ConfigField.Text -> helpWhen.map { it.condition.key }.distinct()
     else -> emptyList()
+}
+
+/**
+ * [ConfigField.help] plus whichever [ConfigField.Text.helpWhen] sentences
+ * apply, given the sibling values in [companions].
+ *
+ * Every kind but [ConfigField.Text] has no [ConfigField.Text.helpWhen] to
+ * apply, so every kind but that one answers with [ConfigField.help] unchanged
+ * — this only exists at all because the one kind's help can vary.
+ *
+ * Unlike [shownWith], a sibling with nothing stored is read as *not* matching
+ * any condition rather than falling back to that sibling's own default. The
+ * two asymmetric failure modes justify the asymmetric rule: [shownWith]
+ * guessing wrong hides a field that should be on screen, which is the
+ * obviously worse mistake, so it resolves the sibling's default to be safe.
+ * Here, guessing wrong prints a sentence that does not apply yet — a rule
+ * still being built, with its `mode` not yet chosen, has no evaluate-only or
+ * add-only sentence to show, and showing one anyway would describe a mode
+ * nobody picked.
+ */
+fun ConfigField.effectiveHelp(companions: Map<String, String?>): String? {
+    if (this !is ConfigField.Text || helpWhen.isEmpty()) return help
+    val extra = helpWhen.filter { companions[it.condition.key] in it.condition.isAnyOf }
+    return (listOfNotNull(help) + extra.map { it.help }).joinToString(" ").ifEmpty { null }
 }
 
 /**

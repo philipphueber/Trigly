@@ -279,69 +279,82 @@ class ConfigSchemaContractTest {
      * kinds own a **second** config key and a factory that requires both would
      * otherwise be handed half an answer and fail for the wrong reason.
      */
-    private fun sampleConfig(fields: List<ConfigField>): Map<String, String> =
-        fields.flatMap { field -> extraKeysFor(field) + (field.key to when (field) {
-                is ConfigField.Choice ->
-                    field.default ?: field.options.first().value
+    private fun sampleConfig(fields: List<ConfigField>): Map<String, String> {
+        // A field's own key always wins over another field's guess at it.
+        // `ConfigField.Text.helpWhen` put a new kind of entry into
+        // `companionKeys()`: a sibling key this field only *reads*, such as
+        // `set_variable`'s value field reading `mode`, rather than one it owns
+        // the way `TextPattern.modeKey` is owned. That sibling is already in
+        // [fields] with its own real sample a few lines below, so building the
+        // map with the own-key pass last is what keeps `mode` at whatever
+        // `VariableWriteMode.parse` accepts instead of the bare placeholder
+        // [sampleCompanion] would otherwise hand it.
+        val extraValues = fields.flatMap { extraKeysFor(it) }.toMap()
+        val ownValues = fields.associate { it.key to sampleValue(it) }
+        return extraValues + ownValues
+    }
 
-                is ConfigField.Flag -> field.default.toString()
+    private fun sampleValue(field: ConfigField): String = when (field) {
+        is ConfigField.Choice ->
+            field.default ?: field.options.first().value
 
-                is ConfigField.Number ->
-                    (field.default ?: field.min ?: 1L).toString()
+        is ConfigField.Flag -> field.default.toString()
 
-                // A slider always has all three, and its default is by definition
-                // inside the range — the data class checks that at construction.
-                is ConfigField.Slider -> field.default.toString()
+        is ConfigField.Number ->
+            (field.default ?: field.min ?: 1L).toString()
 
-                is ConfigField.Decimal ->
-                    (field.default ?: field.min ?: 1.0).toString()
+        // A slider always has all three, and its default is by definition
+        // inside the range — the data class checks that at construction.
+        is ConfigField.Slider -> field.default.toString()
 
-                // Any opaque value: the editor mints a real one, and a factory
-                // must accept whatever it finds rather than validating a shape
-                // it did not choose.
-                is ConfigField.GeneratedId -> "generated-sample-id"
+        is ConfigField.Decimal ->
+            (field.default ?: field.min ?: 1.0).toString()
 
-                is ConfigField.AppPackage -> context.packageName
+        // Any opaque value: the editor mints a real one, and a factory
+        // must accept whatever it finds rather than validating a shape
+        // it did not choose.
+        is ConfigField.GeneratedId -> "generated-sample-id"
 
-                // Any id: this exercises the accepting path, and the action's
-                // "no such rule" case is a *runtime* outcome, not a config the
-                // factory should refuse. A factory that rejected an id for not
-                // existing yet would make an exported rule unimportable.
-                is ConfigField.RuleRef -> "rule-sample-id"
+        is ConfigField.AppPackage -> context.packageName
 
-                // A real content: URI shape, because `play_alert` refuses a sound
-                // URI that is not local — a bare "sample" would fail its factory
-                // for the right reason and make this test look like a schema bug.
-                is ConfigField.SoundUri -> "content://media/internal/audio/media/1"
+        // Any id: this exercises the accepting path, and the action's
+        // "no such rule" case is a *runtime* outcome, not a config the
+        // factory should refuse. A factory that rejected an id for not
+        // existing yet would make an exported rule unimportable.
+        is ConfigField.RuleRef -> "rule-sample-id"
 
-                // The shape the picker produces and the trigger stores.
-                is ConfigField.BluetoothAddress -> "00:11:22:33:44:55"
+        // A real content: URI shape, because `play_alert` refuses a sound
+        // URI that is not local — a bare "sample" would fail its factory
+        // for the right reason and make this test look like a schema bug.
+        is ConfigField.SoundUri -> "content://media/internal/audio/media/1"
 
-                // One entry off the curated grid, exercising the same accepting
-                // path a picked value would.
-                is ConfigField.Emoji -> "🔔"
+        // The shape the picker produces and the trigger stores.
+        is ConfigField.BluetoothAddress -> "00:11:22:33:44:55"
 
-                // Stored in milliseconds whatever unit the editor showed.
-                is ConfigField.Duration ->
-                    (field.defaultMillis ?: 1_000L).toString()
+        // One entry off the curated grid, exercising the same accepting
+        // path a picked value would.
+        is ConfigField.Emoji -> "🔔"
 
-                // A real instant, and a real hour: the calendar and alarm
-                // factories parse these, so a token value would fail for the
-                // right reason and read as a schema bug.
-                is ConfigField.Timestamp -> "1787900400000"
-                is ConfigField.TimeOfDay -> "8"
-                is ConfigField.Coordinates -> "52.520008"
+        // Stored in milliseconds whatever unit the editor showed.
+        is ConfigField.Duration ->
+            (field.defaultMillis ?: 1_000L).toString()
 
-                // A captured button records what it said.
-                is ConfigField.NotificationButton -> "Snooze"
+        // A real instant, and a real hour: the calendar and alarm
+        // factories parse these, so a token value would fail for the
+        // right reason and read as a schema bug.
+        is ConfigField.Timestamp -> "1787900400000"
+        is ConfigField.TimeOfDay -> "8"
+        is ConfigField.Coordinates -> "52.520008"
 
-                is ConfigField.Text -> "sample"
+        // A captured button records what it said.
+        is ConfigField.NotificationButton -> "Snooze"
 
-                // Valid as both a substring and a regex, so the sample exercises
-                // the accepting path whichever mode a factory defaults to.
-                is ConfigField.TextPattern -> "sample"
-            })
-        }.toMap()
+        is ConfigField.Text -> "sample"
+
+        // Valid as both a substring and a regex, so the sample exercises
+        // the accepting path whichever mode a factory defaults to.
+        is ConfigField.TextPattern -> "sample"
+    }
 
     /**
      * The companion keys a kind owns, from the one declaration in `:core` rather

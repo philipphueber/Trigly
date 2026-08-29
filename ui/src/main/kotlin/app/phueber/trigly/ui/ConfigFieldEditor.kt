@@ -1,12 +1,19 @@
 package app.phueber.trigly.ui
 
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -17,12 +24,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.effectiveHelp
 import app.phueber.trigly.core.ScopedVariable
 import app.phueber.trigly.core.SampleLookup
 import app.phueber.trigly.core.Substituted
@@ -249,8 +260,11 @@ fun ConfigFieldEditor(
             Hint(blankHint)
         }
 
-        // Where the caveats that used to live in KDoc reach the user.
-        field.help?.let { Hint(it) }
+        // Where the caveats that used to live in KDoc reach the user. Reads
+        // [companions] rather than [field.help] directly, so a field whose help
+        // varies by a sibling's value (see [ConfigField.Text.helpWhen]) shows
+        // only the sentences that apply right now.
+        field.effectiveHelp(companions)?.let { Hint(it) }
     }
 }
 
@@ -376,14 +390,30 @@ private fun TextField(
  * exactly what it always has.
  *
  * The box itself keeps the same shape [TextField] draws, label floated inside
- * it and all: that is what a component's existing screen tests already find
- * by that label text and type into. "Insert variable" and the preview sit
- * underneath, alongside where the blank-meaning hint already lands, rather
- * than disturbing the box a field's tests already know.
+ * it and all — except in expression mode, which grows it into a bounded
+ * multi-line box; see the comment on `minLines`/`maxLines` below. That is what
+ * a component's existing screen tests already find by that label text and type
+ * into. "Insert variable" and the preview sit underneath, alongside where the
+ * blank-meaning hint already lands, rather than disturbing the box a field's
+ * tests already know.
  *
  * One field is drawn as code rather than as text: the one whose value is about
  * to be *run*. See [rememberExpressionHighlight] and `docs/expressions.md`.
  */
+/**
+ * How tall an expression box starts, and how far it is let grow before it
+ * scrolls internally instead. `docs/expressions.md`'s own examples — a
+ * comparison, a ternary, a `contains(...)` call with its match mode — mostly
+ * run two or three lines once wrapped at a phone's width, so
+ * [EXPRESSION_MIN_LINES] shows one of those without looking oversized for a
+ * short one. [EXPRESSION_MAX_LINES] is generous enough for a longer expression
+ * built from several calls, while still leaving the sample line, "Insert
+ * variable" and the help visible underneath on a typical phone with the
+ * keyboard up — which a field free to grow without bound would not.
+ */
+private const val EXPRESSION_MIN_LINES = 3
+private const val EXPRESSION_MAX_LINES = 8
+
 @Composable
 private fun SubstitutableTextField(
     field: ConfigField.Text,
@@ -447,8 +477,35 @@ private fun SubstitutableTextField(
                 )
             },
             placeholder = field.placeholder?.let { { Text(it) } },
-            singleLine = !field.multiline,
-            minLines = if (field.multiline) 2 else 1,
+            // Expression mode changes what this box means, not just how it is
+            // coloured: an expression is source someone reads and edits line by
+            // line, where a one-line field only ever scrolls sideways with
+            // nothing to show that there is more off the edge — measured on a
+            // real `set_variable` rule, where the field clipped mid-expression
+            // and everything below it (the sample, "Insert variable", the help)
+            // was pushed under the keyboard. So the box's shape follows
+            // [isExpression] the same way its colour does, on the same signal,
+            // for the same reason: it stopped being a line of text and became a
+            // small piece of code, and code wants to wrap and be read, not
+            // scroll. [field.multiline] still governs every other field kind
+            // exactly as before.
+            //
+            // Bounded rather than left to grow without limit: Compose does not
+            // clip or ellipsise a `TextField`'s own content, so an unbounded
+            // field would not clip again, but a single pathological expression
+            // could still push the sample, "Insert variable" and the help text
+            // off screen the way the one-line box used to. [EXPRESSION_MAX_LINES]
+            // stops that — once an expression grows past it, the box itself
+            // stays put and scrolls internally, the way any bounded
+            // `BasicTextField` does, rather than reopening the original bug at a
+            // larger size.
+            singleLine = !field.multiline && !isExpression,
+            minLines = when {
+                isExpression -> EXPRESSION_MIN_LINES
+                field.multiline -> 2
+                else -> 1
+            },
+            maxLines = if (isExpression) EXPRESSION_MAX_LINES else Int.MAX_VALUE,
             visualTransformation = highlight,
             keyboardOptions = if (isExpression) {
                 KeyboardOptions(
@@ -625,14 +682,114 @@ private fun FlagField(
     }
 }
 
+/**
+ * How long [ConfigField.help] can run before [Hint] collapses it to its first
+ * sentence.
+ *
+ * Picked from the real distribution across the app's 92 declared help
+ * strings: a median of about 87 characters, and a gap in the data between 198
+ * and 279 that no field's help falls into. 200 sits in that gap, so it folds
+ * exactly the nine outlier paragraphs that cover more than one topic — the
+ * kind [ConfigField.Text.helpWhen] exists to split up in the first place —
+ * without touching any of the ordinary one- or two-sentence hints that make up
+ * the rest of the app.
+ */
+private const val HINT_COLLAPSE_THRESHOLD = 200
+
+/** Read by the accessibility layer and by the instrumented test. */
+internal const val HINT_EXPAND_DESCRIPTION = "Show the rest of this"
+
+/**
+ * The first sentence of [this], including its own punctuation — or the whole
+ * string, if it does not look like more than one sentence.
+ *
+ * A hand-rolled scan of `.`/`!`/`?` followed by whitespace or the end of the
+ * string, not a natural-language sentence splitter: help text is written
+ * prose, not user input, so it does not have to survive abbreviations or
+ * decimal numbers it was never written with. Every caller of [Hint] can check
+ * what its own first sentence reads as, which a shared implementation cannot
+ * fake past.
+ */
+private fun String.firstSentence(): String {
+    val end = HintFirstSentenceEnd.find(this) ?: return this
+    return substring(0, end.range.first + 1)
+}
+
+private val HintFirstSentenceEnd = Regex("""[.!?](\s|$)""")
+
+/**
+ * A caveat too long to sit on screen unconditionally — one of the nine over
+ * [HINT_COLLAPSE_THRESHOLD] characters, out of 92 declared help strings — shows
+ * its first sentence and a control to reveal the rest. Anything at or under
+ * the threshold is unchanged: this is not a fold for every hint, only the ones
+ * long enough to need one.
+ *
+ * Follows [CaveatBadge]'s rule rather than inventing a third way to hide
+ * prose: default to less, and give the reader one visible way to ask for more.
+ * The shape still differs from [CaveatBadge] itself, because the two start
+ * from different amounts of nothing — a caveat is worth a glyph precisely
+ * because most components have none, so showing zero characters until asked is
+ * the honest starting point. A [Hint] is help text every field already shows in
+ * full below the threshold, so collapsing it to *nothing* would make a long
+ * field look like it lost its help rather than like it has more of it.
+ */
 @Composable
 internal fun Hint(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 2.dp),
-    )
+    if (text.length <= HINT_COLLAPSE_THRESHOLD) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 2.dp),
+        )
+        return
+    }
+
+    var expanded by remember(text) { mutableStateOf(false) }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text(
+            text = if (expanded) text else text.firstSentence(),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        // Its own touch target and its own description rather than reusing
+        // [BlockExpandButton]: that control's [EXPAND_DESCRIPTION] is looked up
+        // as the one fold toggle on a block header, and a screen that also
+        // carries one of these would turn that lookup ambiguous. Overhung the
+        // way [CaveatBadge] is, for the same reason — this sits beside a single
+        // line of caption text, not a block header tall enough to absorb a
+        // reserved 48dp box for free.
+        OverflowingTouchTarget(visualSize = 18.dp, touchSize = 48.dp) {
+            Box(
+                modifier = Modifier
+                    .toggleable(
+                        value = expanded,
+                        role = Role.Button,
+                        onValueChange = { expanded = it },
+                    )
+                    .semantics { contentDescription = HINT_EXPAND_DESCRIPTION },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = if (expanded) {
+                        Icons.Filled.KeyboardArrowUp
+                    } else {
+                        Icons.Filled.KeyboardArrowDown
+                    },
+                    // The Box above already carries the description as a merged
+                    // toggle; a second one here would have the accessibility
+                    // tree announce it twice.
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+    }
 }
 
 /**

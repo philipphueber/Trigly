@@ -36,6 +36,17 @@ sealed interface Screen {
      * for a second setting later without a second menu having to exist first.
      */
     data object Settings : Screen
+
+    /**
+     * The open source notices: the app's own name, version and licence, then
+     * every dependency it ships and the licence text they share.
+     *
+     * Reached from a row on [Settings], not from the rule list's overflow the
+     * way the other three destinations are. That makes it the app's first
+     * two-level destination, and the one whose own back target is [Settings]
+     * rather than [RuleList] — see `backTarget`.
+     */
+    data object Attribution : Screen
 }
 
 /**
@@ -46,19 +57,23 @@ sealed interface Screen {
  * decision is the one thing here a JVM test can check. The rule it encodes:
  * **the rule list is the bottom of the stack.** Back from the list leaves the
  * app; the editor, the saved-values screen and the settings screen all go
- * back to it.
+ * back to it. [Screen.Attribution] is the one exception: it is reached from
+ * [Screen.Settings] rather than from the list, so its own back target is
+ * [Screen.Settings].
  */
 fun backTarget(screen: Screen): Screen? = when (screen) {
     Screen.RuleList -> null
     is Screen.RuleEditor -> Screen.RuleList
     Screen.SavedValues -> Screen.RuleList
     Screen.Settings -> Screen.RuleList
+    Screen.Attribution -> Screen.Settings
 }
 
 private const val LIST_TAG = "list"
 private const val EDITOR_TAG = "editor"
 private const val SAVED_VALUES_TAG = "saved_values"
 private const val SETTINGS_TAG = "settings"
+private const val ATTRIBUTION_TAG = "attribution"
 
 /**
  * Saves the destination across a configuration change.
@@ -80,6 +95,7 @@ val ScreenSaver: Saver<Screen, Any> = listSaver(
             is Screen.RuleEditor -> listOf(EDITOR_TAG, screen.ruleId.orEmpty())
             Screen.SavedValues -> listOf(SAVED_VALUES_TAG)
             Screen.Settings -> listOf(SETTINGS_TAG)
+            Screen.Attribution -> listOf(ATTRIBUTION_TAG)
         }
     },
     restore = { saved ->
@@ -87,6 +103,7 @@ val ScreenSaver: Saver<Screen, Any> = listSaver(
             EDITOR_TAG -> Screen.RuleEditor(saved.getOrNull(1)?.takeIf { it.isNotEmpty() })
             SAVED_VALUES_TAG -> Screen.SavedValues
             SETTINGS_TAG -> Screen.Settings
+            ATTRIBUTION_TAG -> Screen.Attribution
             else -> Screen.RuleList
         }
     },

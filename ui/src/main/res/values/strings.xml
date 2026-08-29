@@ -132,4 +132,25 @@
     <string name="settings_backup_title">Back up to your account</string>
     <string name="settings_backup_warning_title">What backup shares</string>
     <string name="settings_backup_warning_body">Backup can copy your rules and your saved values. A webhook URL often carries a token. Backup copies that token too. The copy goes to the account signed in on this phone. A phone with no Google account and no backup service sends nothing. Moving data straight to your next phone still works with this off.</string>
+
+    <!--
+      The row on the settings screen that opens AttributionScreen. A separate
+      resource from attribution_title even though the text is the same today,
+      the same choice rules_settings and settings_title already make for
+      "Settings": a row's label and a screen's own header answer different
+      questions, and a future wording change to one must not silently change
+      the other.
+    -->
+    <string name="settings_attribution_title">Open source licenses</string>
+
+    <!--
+      AttributionScreen: the app's own name, version and licence, then every
+      dependency it ships and the licence text they share. See
+      AttributionScreen.kt and Attribution.kt.
+    -->
+    <string name="attribution_title">Open source licenses</string>
+    <string name="attribution_version">Version %1$s</string>
+    <string name="attribution_license">This app uses the Apache License 2.0.</string>
+    <string name="attribution_dependencies_heading">Open source components</string>
+    <string name="attribution_license_heading">Apache License 2.0</string>
 </resources>
