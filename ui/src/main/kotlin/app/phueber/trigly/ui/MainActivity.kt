@@ -180,9 +180,18 @@ class MainActivity : ComponentActivity() {
                 //
                 // Now it states it. [backTarget] holds the decision; null means
                 // the list is the bottom of the stack and back leaves.
-                BackHandler {
+                //
+                // `enabled` is what makes that true rather than merely intended.
+                // This used to be an always-enabled handler that called finish()
+                // itself when [backTarget] returned null, which intercepted every
+                // back press, including on the rule list, and left the system
+                // out of its own exit. `enabled = backHandlerEnabled(screen)`
+                // disables the handler on that one screen instead, so the system
+                // performs the exit itself, predictive-back animation included,
+                // the same as an activity with no back handling at all.
+                BackHandler(enabled = backHandlerEnabled(screen)) {
                     val target = backTarget(screen)
-                    if (target == null) finish() else screen = target
+                    if (target != null) screen = target
                 }
 
                 // Same rule as the editor's exit below: showing a toast and

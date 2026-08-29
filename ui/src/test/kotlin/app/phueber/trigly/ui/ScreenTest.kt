@@ -2,7 +2,9 @@ package app.phueber.trigly.ui
 
 import androidx.compose.runtime.saveable.SaverScope
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -75,5 +77,21 @@ class ScreenTest {
         val saved = with(ScreenSaver) { scope.save(Screen.RuleEditor(null)) }
         val restored = ScreenSaver.restore(requireNotNull(saved)) as Screen.RuleEditor
         assertNull(restored.ruleId)
+    }
+
+    /**
+     * The rule list is the one screen the app's `BackHandler` must not
+     * intercept, so the system performs the exit itself instead of the
+     * handler calling `finish()`. Every other screen has somewhere to go
+     * back to, so the handler stays enabled there.
+     */
+    @Test
+    fun `the back handler is disabled only on the rule list`() {
+        assertFalse(backHandlerEnabled(Screen.RuleList))
+        assertTrue(backHandlerEnabled(Screen.RuleEditor("rule-1")))
+        assertTrue(backHandlerEnabled(Screen.RuleEditor(null)))
+        assertTrue(backHandlerEnabled(Screen.SavedValues))
+        assertTrue(backHandlerEnabled(Screen.Settings))
+        assertTrue(backHandlerEnabled(Screen.Attribution))
     }
 }

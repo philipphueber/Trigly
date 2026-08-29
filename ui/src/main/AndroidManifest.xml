@@ -77,10 +77,21 @@
       resource: the agent's runtime check replaces what those static files
       would otherwise have to say.
     -->
+    <!--
+      Declared explicitly rather than left to the platform default, even
+      though "true" is already what this app gets without it: a targetSdk of
+      35 is well past the API 34 line where predictive back is on unless an
+      app opts out, so the value below states the existing behaviour instead
+      of changing it. (An app targeting API 33 gets the opposite default and
+      has to opt in.) `androidx.activity.compose.BackHandler` calls its
+      callback either way - the flag governs the system's predictive-back
+      gesture animation, not whether the callback runs.
+    -->
     <application
         android:name=".TriglyApp"
         android:allowBackup="true"
         android:backupAgent=".TriglyBackupAgent"
+        android:enableOnBackInvokedCallback="true"
         android:fullBackupOnly="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
