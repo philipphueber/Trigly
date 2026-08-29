@@ -358,6 +358,38 @@ fun TriggerNode.canHold(hasState: (String) -> Boolean): Boolean = when (this) {
 }
 
 /**
+ * The trigger a rule holds before it has one, or after every real component in
+ * it has been removed.
+ *
+ * [Rule.trigger] is not nullable, so a rule that is saved before it is
+ * finished still needs a value to hold. See [Rule]'s own kdoc for why an
+ * empty group was picked over making the field nullable. An `ALL` group with
+ * nothing in it is already a value this model permits without a special case:
+ * [canStart] reads it as unable to start a rule, the same as it reads a real
+ * `ALL` group whose only child fails, and [holds] already defines what an
+ * empty `ALL` means at runtime. See that function's own kdoc. Nothing
+ * downstream has to learn a new state to recognise "no trigger yet". It
+ * already knows this one.
+ *
+ * `ALL` rather than `ANY` is an arbitrary pick between two options that behave
+ * identically here: [canStart] is `false` for an empty group of either
+ * operator. It was made once so a stored file has one spelling of the fact
+ * rather than two.
+ */
+val NO_TRIGGER: TriggerNode = TriggerNode.Group(TriggerNode.Op.ALL, emptyList())
+
+/**
+ * Whether this tree names no real component anywhere in it: the general form
+ * of "is this [NO_TRIGGER]".
+ *
+ * True for [NO_TRIGGER] itself, and also for a tree built only of nested empty
+ * groups, which the editor can reach by picking "Any of these" and never
+ * filling it in. Both read the same to a person looking at the rule: nothing
+ * has been chosen yet.
+ */
+fun TriggerNode.isUnset(): Boolean = leaves().isEmpty()
+
+/**
  * The components in this tree that no installed factory knows.
  *
  * Reachable only through an imported file or a downgrade, and worth naming rather
