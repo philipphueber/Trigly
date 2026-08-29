@@ -26,8 +26,9 @@
       them.
     -->
     <string name="rules_saved_values">Saved values</string>
-    <!-- The overflow beside "New rule". Three dots, not a word, because the
-         menu holds one entry today and a label would claim more than it has. -->
+    <!-- The overflow beside "New rule". Three dots, not a word, because a
+         label would claim to describe one particular entry, and this menu
+         is a few different ones. -->
     <string name="rules_more">\u2026</string>
     <string name="saved_values_menu_empty">Nothing saved yet</string>
     <string name="rules_settings">Settings</string>
