@@ -2,7 +2,9 @@ package app.phueber.trigly.ui
 
 /**
  * One Maven artifact this app's release build ships: its coordinate, split
- * into `groupId` and `artifactId`, and the licence it ships under.
+ * into `groupId` and `artifactId`, the licence it ships under, and the URL
+ * its `pom.xml` names as its source repository (`scm.url` in licensee's
+ * report), or null if it names none.
  *
  * `shippedDependencies`, the list [groupIntoProjects] folds into what
  * `AttributionScreen` shows, is generated rather than declared in this file:
@@ -13,7 +15,7 @@ package app.phueber.trigly.ui
  * exactly the staleness this design exists to prevent. See
  * docs/architecture.md, "Attribution".
  */
-data class Attribution(val groupId: String, val artifactId: String, val license: String) {
+data class Attribution(val groupId: String, val artifactId: String, val license: String, val scmUrl: String?) {
 
     /** `groupId:artifactId`, for messages; nothing renders this directly. */
     val coordinate: String get() = "$groupId:$artifactId"
@@ -21,8 +23,9 @@ data class Attribution(val groupId: String, val artifactId: String, val license:
 
 /**
  * One project the Attribution screen credits: a project name, the licence it
- * ships under, and how many of the artifacts on the real release classpath
- * came from it.
+ * ships under, how many of the artifacts on the real release classpath came
+ * from it, and the URL a tap on its row opens, or null if none of its
+ * artifacts named one.
  *
  * An artifact is a build output, not something a reader recognises.
  * `androidx.compose.ui:ui-graphics-android` means nothing to somebody who has
@@ -33,6 +36,7 @@ data class AttributionProject(
     val name: String,
     val license: String,
     val artifactCount: Int,
+    val url: String?,
 )
 
 /**
@@ -61,17 +65,38 @@ private fun projectNameForGroup(groupId: String): String? = when {
 }
 
 /**
+ * The URL a tap on a project's row opens: the most common non-null `scmUrl`
+ * among its artifacts, not the first one.
+ *
+ * "First" is the trap [projectNameForGroup] already warns about: four
+ * AndroidX artifacts carry a stale `http://source.android.com` URL, so
+ * picking whichever artifact `groupBy` happens to list first would sometimes
+ * send AndroidX's row to a page that has not described the project in years.
+ * Picking the most common URL instead means one stale outlier cannot win
+ * against the 84 AndroidX artifacts that agree on the real one. A tie is
+ * broken by the URL's own text, smallest first, so the choice never depends
+ * on map or list iteration order.
+ */
+private fun mostCommonUrl(artifacts: List<Attribution>): String? =
+    artifacts.mapNotNull { it.scmUrl }
+        .groupingBy { it }
+        .eachCount()
+        .entries
+        .maxWithOrNull(compareBy<Map.Entry<String, Int>> { it.value }.thenByDescending { it.key })
+        ?.key
+
+/**
  * Folds the generated per-artifact list into the projects `AttributionScreen`
  * actually shows: one entry per project, carrying how many artifacts of it
- * this build ships, so a reader is not left thinking Trigly ships one file of
- * AndroidX.
+ * this build ships and the URL a tap on its row opens, so a reader is not
+ * left thinking Trigly ships one file of AndroidX.
  *
  * An artifact whose `groupId` matches no project is shown under its own
  * `groupId` as the project name, rather than being dropped from the page or
  * folded into whichever project happens to be alphabetically first. This is
  * deliberately a soft degrade and not a throw: `AttributionHost` calls this
  * to render the screen, so throwing here would crash the app the moment
- * somebody opened Open source licenses, the one screen whose whole job is to
+ * somebody opened Used Components, the one screen whose whole job is to
  * show them the licence they came for. A row reading a raw group id is
  * ugly but harmless, the licence on it is still correct, and nothing has
  * vanished or been mislabelled as belonging to a project it does not.
@@ -92,5 +117,6 @@ fun List<Attribution>.groupIntoProjects(): List<AttributionProject> =
                 name = name,
                 license = artifacts.map { it.license }.distinct().joinToString(", "),
                 artifactCount = artifacts.size,
+                url = mostCommonUrl(artifacts),
             )
         }.sortedWith(compareByDescending<AttributionProject> { it.artifactCount }.thenBy { it.name })

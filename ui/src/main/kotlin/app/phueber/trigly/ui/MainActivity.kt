@@ -417,11 +417,11 @@ class MainActivity : ComponentActivity() {
      * device actually runs; the suppression below is deliberate, not an
      * oversight.
      *
-     * `remember` rather than a `val` on the activity: both reads are cheap
-     * enough that there is no reason to pay for them before this screen is
+     * `remember` rather than a `val` on the activity: the read is cheap
+     * enough that there is no reason to pay for it before this screen is
      * ever opened, and a fresh read each time it opens costs nothing a
-     * `Composable` needs to guard against, since neither the version nor the
-     * bundled licence text changes while the app is running.
+     * `Composable` needs to guard against, since the version does not change
+     * while the app is running.
      */
     @androidx.compose.runtime.Composable
     private fun AttributionHost(onDone: () -> Unit) {
@@ -429,18 +429,33 @@ class MainActivity : ComponentActivity() {
             @Suppress("DEPRECATION")
             packageManager.getPackageInfo(packageName, 0).versionName.orEmpty()
         }
-        val licenseText = remember {
-            resources.openRawResource(R.raw.license_apache_2_0)
-                .bufferedReader()
-                .use { it.readText() }
-        }
 
         AttributionScreen(
             appVersion = appVersion,
             projects = shippedDependencies.groupIntoProjects(),
-            licenseText = licenseText,
+            licenseUrl = APACHE_LICENSE_URL,
+            repositoryUrl = TRIGLY_REPOSITORY_URL,
+            onOpenUrl = ::openUrl,
+            onCheckForUpdates = { checkForUpdate(appVersion) },
             onBack = onDone,
         )
+    }
+
+    /**
+     * Opens a project's own page, the licence text, or Trigly's own
+     * repository, in the user's browser.
+     *
+     * A failure is reported rather than swallowed, the same reasoning
+     * [shareSingle] gives for itself: nothing guarantees a browser is
+     * installed, and a link that silently does nothing is the failure this
+     * project keeps designing against.
+     */
+    private fun openUrl(url: String) {
+        runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+        }.exceptionOrNull()?.let { cause ->
+            Toast.makeText(this, "Could not open that link: ${cause.message}", Toast.LENGTH_LONG).show()
+        }
     }
 
     /**
@@ -852,5 +867,18 @@ class MainActivity : ComponentActivity() {
             else -> Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         startActivity(intent)
+    }
+
+    private companion object {
+        /**
+         * The one licence every artifact `shippedDependencies` lists ships
+         * under, `licensee { allow("Apache-2.0") }` in `ui/build.gradle.kts`
+         * enforces that, so one fixed URL covers every project on
+         * `AttributionScreen`, not one read out of the generated data.
+         */
+        private const val APACHE_LICENSE_URL = "https://www.apache.org/licenses/LICENSE-2.0"
+
+        /** Trigly is Apache 2.0 itself; see the License section in README.md. */
+        private const val TRIGLY_REPOSITORY_URL = "https://github.com/philipphueber/Trigly"
     }
 }

@@ -145,7 +145,7 @@ class SettingsScreenTest {
     fun the_attribution_row_fires_its_callback() {
         composeRule.setContent { Screen(cloudBackupEnabled = true) }
 
-        composeRule.onNodeWithText("Open source licenses").performClick()
+        composeRule.onNodeWithText("Used components").performClick()
 
         assertEquals(1, attributionTaps)
     }

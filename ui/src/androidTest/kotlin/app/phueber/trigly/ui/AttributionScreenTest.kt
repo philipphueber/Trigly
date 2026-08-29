@@ -14,7 +14,7 @@ import org.junit.runner.RunWith
 
 /**
  * Drives [AttributionScreen] the way [SettingsScreenTest] drives
- * [SettingsScreen]: plain values and a stub callback, no ViewModel and no
+ * [SettingsScreen]: plain values and stub callbacks, no ViewModel and no
  * `Context` behind it.
  *
  * Fed fake entries and a fake version, not [shippedDependencies] grouped by
@@ -28,20 +28,28 @@ class AttributionScreenTest {
     val composeRule = createComposeRule()
 
     private var backTaps = 0
+    private var openedUrl: String? = null
+
+    /** What the fake [Screen]'s "Check for updates" button reports on a tap. */
+    private var fakeUpdateCheckResult: UpdateCheckResult = UpdateCheckResult.UpToDate
 
     private val fakeProjects = listOf(
-        AttributionProject("Some Project", "Apache License 2.0", artifactCount = 3),
-        AttributionProject("Another Project", "Apache License 2.0", artifactCount = 1),
+        AttributionProject("Some Project", "Apache License 2.0", artifactCount = 3, url = "https://example.com/some-project"),
+        AttributionProject("Another Project", "Apache License 2.0", artifactCount = 1, url = "https://example.com/another-project"),
     )
 
-    private val fakeLicenseText = "TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION"
+    private val fakeLicenseUrl = "https://example.com/license"
+    private val fakeRepositoryUrl = "https://example.com/repository"
 
     @Composable
     private fun Screen() {
         AttributionScreen(
             appVersion = "9.9.9-test",
             projects = fakeProjects,
-            licenseText = fakeLicenseText,
+            licenseUrl = fakeLicenseUrl,
+            repositoryUrl = fakeRepositoryUrl,
+            onOpenUrl = { openedUrl = it },
+            onCheckForUpdates = { fakeUpdateCheckResult },
             onBack = { backTaps++ },
         )
     }
@@ -71,14 +79,87 @@ class AttributionScreenTest {
     }
 
     /**
-     * A short stable substring, not the whole text: the real licence file is
-     * long, and this only has to prove the right resource reached the screen.
+     * Tapping a project's row is what opens that project's own page, not
+     * something else on the row: this is the whole reason `AttributionProject`
+     * carries a `url` at all, see `Attribution.kt`.
      */
     @Test
-    fun the_license_text_renders() {
+    fun a_row_reports_the_url_it_would_open() {
         composeRule.setContent { Screen() }
 
-        composeRule.onNodeWithText(fakeLicenseText, substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText(fakeProjects[0].name).performClick()
+
+        assertEquals(fakeProjects[0].url, openedUrl)
+    }
+
+    @Test
+    fun a_different_row_reports_its_own_url() {
+        composeRule.setContent { Screen() }
+
+        composeRule.onNodeWithText(fakeProjects[1].name).performClick()
+
+        assertEquals(fakeProjects[1].url, openedUrl)
+    }
+
+    /**
+     * The licence is linked to, not bundled as text any more: see
+     * `AttributionScreen`'s own KDoc for why, and `Attribution.kt` for
+     * `Attribution.scmUrl` and `AttributionProject.url`, the fields this
+     * design change added.
+     */
+    @Test
+    fun the_license_link_is_present_and_opens_the_license_url() {
+        composeRule.setContent { Screen() }
+
+        composeRule.onNodeWithText("License text").performClick()
+
+        assertEquals(fakeLicenseUrl, openedUrl)
+    }
+
+    /** Trigly is Apache 2.0 itself; this is its own row, see README.md. */
+    @Test
+    fun the_repository_link_is_present_and_opens_the_repository_url() {
+        composeRule.setContent { Screen() }
+
+        composeRule.onNodeWithText("Trigly on GitHub").performClick()
+
+        assertEquals(fakeRepositoryUrl, openedUrl)
+    }
+
+    /**
+     * "Check for updates" is one button, pressed by a person: see
+     * `UpdateCheck.kt`. This confirms a press shows the up to date result;
+     * the two tests below confirm the other two outcomes render their own
+     * text, using the same fake so a real network call never runs in a test.
+     */
+    @Test
+    fun checking_for_updates_reports_up_to_date() {
+        fakeUpdateCheckResult = UpdateCheckResult.UpToDate
+        composeRule.setContent { Screen() }
+
+        composeRule.onNodeWithText("CHECK FOR UPDATES").performClick()
+
+        composeRule.onNodeWithText("You have the latest version.").assertIsDisplayed()
+    }
+
+    @Test
+    fun checking_for_updates_reports_an_available_version() {
+        fakeUpdateCheckResult = UpdateCheckResult.UpdateAvailable("9.9.10-test")
+        composeRule.setContent { Screen() }
+
+        composeRule.onNodeWithText("CHECK FOR UPDATES").performClick()
+
+        composeRule.onNodeWithText("9.9.10-test", substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun checking_for_updates_reports_a_failure_reason() {
+        fakeUpdateCheckResult = UpdateCheckResult.CheckFailed("No network.")
+        composeRule.setContent { Screen() }
+
+        composeRule.onNodeWithText("CHECK FOR UPDATES").performClick()
+
+        composeRule.onNodeWithText("No network.", substring = true).assertIsDisplayed()
     }
 
     @Test
