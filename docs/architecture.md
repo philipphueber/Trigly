@@ -2453,14 +2453,24 @@ carry a stale `http://source.android.com` URL left from before they moved out
 of AOSP into Jetpack. Grouping by `scm.url` would split AndroidX in two and
 label part of it as AOSP; `groupId` does not lie for these four.
 
-An artifact whose `groupId` matches none of the five throws, in
-`groupIntoProjects`, rather than vanishing from the page or being folded into
-the wrong project. That throw is a build-time failure in practice: it fires
-inside `GeneratedAttributionTest`, over the real generated
-`shippedDependencies`, and that test is part of the merge gate, the same
-drift-guard shape `ConfigSchemaContractTest` already uses for the config
-schema above. A `groupId` the table does not know is caught there, before a
-release reaches a device that would otherwise crash opening this screen.
+An artifact whose `groupId` matches none of the five shows up under its own
+`groupId` as the project name, in `groupIntoProjects`, rather than vanishing
+from the page or being folded into the wrong project. Deliberately a soft
+degrade rather than a throw: `AttributionHost` calls `groupIntoProjects` to
+render the screen, so a throw there would crash the app the moment somebody
+opened Open source licenses, taking away the one thing that screen exists to
+show them, in exchange for catching a problem that a row reading a raw
+group id already reports honestly. Nothing vanishes and nothing is
+mislabelled either way; the only difference is whether the app still works.
+
+The strictness that would otherwise be lost lives in the test instead.
+`GeneratedAttributionTest`'s `nothing is unmapped` calls `groupIntoProjects`
+over the real generated `shippedDependencies` and asserts every resulting name
+is one of the five known projects, and that test is part of the merge gate,
+the same drift-guard shape `ConfigSchemaContractTest` already uses for the
+config schema above. A `groupId` the table does not know is caught there,
+before a release, without the production code ever needing to crash to prove
+it.
 
 `SettingsRow`, in `Blocks.kt`, is the shared shape behind every row on
 `SettingsScreen`: a title, and whatever the row shows or does on its trailing

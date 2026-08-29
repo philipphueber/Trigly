@@ -37,7 +37,9 @@ data class AttributionProject(
 
 /**
  * Maps an artifact's `groupId` to the project name [groupIntoProjects] credits
- * it under. Null means no project claims that groupId.
+ * it under. Null means no project claims that groupId, which
+ * [groupIntoProjects] turns into a fallback rather than a failure; see there
+ * for why.
  *
  * Keyed on `groupId` alone, never on `scm.url`, even though every artifact in
  * licensee's report carries one and it looks like the natural key: four
@@ -64,30 +66,31 @@ private fun projectNameForGroup(groupId: String): String? = when {
  * this build ships, so a reader is not left thinking Trigly ships one file of
  * AndroidX.
  *
- * An artifact whose `groupId` matches no project throws, rather than either
- * of the two ways this could otherwise fail quietly: vanishing from the page,
- * which is the exact staleness the generated list exists to prevent, or being
- * folded into whichever project happens to be alphabetically first, which
- * would misstate what that project ships. This is a build-time failure in
- * practice rather than a shipped one: `GeneratedAttributionTest` calls this
- * over the real generated `shippedDependencies`, and that test is part of the
- * merge gate, the same drift-guard shape `ConfigSchemaContractTest` already
- * uses elsewhere in this codebase (see docs/architecture.md, "Config
- * schema"). A `groupId` this table does not know is caught there, before a
- * release, not after. Fixing it means adding a line to
- * [projectNameForGroup], not editing an existing one.
+ * An artifact whose `groupId` matches no project is shown under its own
+ * `groupId` as the project name, rather than being dropped from the page or
+ * folded into whichever project happens to be alphabetically first. This is
+ * deliberately a soft degrade and not a throw: `AttributionHost` calls this
+ * to render the screen, so throwing here would crash the app the moment
+ * somebody opened Open source licenses, the one screen whose whole job is to
+ * show them the licence they came for. A row reading a raw group id is
+ * ugly but harmless, the licence on it is still correct, and nothing has
+ * vanished or been mislabelled as belonging to a project it does not.
+ *
+ * The strictness lives in the test instead. `GeneratedAttributionTest`'s
+ * `nothing is unmapped` calls this over the real generated
+ * `shippedDependencies` and asserts every resulting name is one of the five
+ * known projects, so a `groupId` this table does not know fails the merge
+ * gate, before a release, the same drift-guard shape `ConfigSchemaContractTest`
+ * already uses elsewhere in this codebase (see docs/architecture.md, "Config
+ * schema"). Fixing it means adding a line to [projectNameForGroup], not
+ * editing an existing one.
  */
 fun List<Attribution>.groupIntoProjects(): List<AttributionProject> =
-    groupBy { artifact ->
-        projectNameForGroup(artifact.groupId)
-            ?: error(
-                "Attribution: no project claims groupId \"${artifact.groupId}\" " +
-                    "(${artifact.coordinate}). Add it to projectNameForGroup in Attribution.kt.",
+    groupBy { artifact -> projectNameForGroup(artifact.groupId) ?: artifact.groupId }
+        .map { (name, artifacts) ->
+            AttributionProject(
+                name = name,
+                license = artifacts.map { it.license }.distinct().joinToString(", "),
+                artifactCount = artifacts.size,
             )
-    }.map { (name, artifacts) ->
-        AttributionProject(
-            name = name,
-            license = artifacts.map { it.license }.distinct().joinToString(", "),
-            artifactCount = artifacts.size,
-        )
-    }.sortedWith(compareByDescending<AttributionProject> { it.artifactCount }.thenBy { it.name })
+        }.sortedWith(compareByDescending<AttributionProject> { it.artifactCount }.thenBy { it.name })

@@ -2,7 +2,6 @@ package app.phueber.trigly.ui
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -90,23 +89,40 @@ class GeneratedAttributionTest {
     }
 
     /**
-     * Every artifact on the real classpath must map to a project.
-     * `groupIntoProjects` throws on a `groupId` nobody claims rather than
-     * dropping the artifact or mislabelling it, and this is what turns that
-     * throw into a merge-gate failure instead of a runtime one: see
-     * `groupIntoProjects`'s KDoc in Attribution.kt.
+     * Every artifact on the real classpath must map to one of the five known
+     * projects. `groupIntoProjects` itself does not enforce this: an
+     * unmapped `groupId` there falls back to showing under its own `groupId`
+     * rather than crashing `AttributionHost`, see its KDoc in Attribution.kt.
+     * This test is where the strictness lives instead, so a dependency
+     * landing under a `groupId` nobody has mapped yet still fails the merge
+     * gate rather than shipping a row nobody meant to add.
      */
     @Test
     fun `nothing is unmapped`() {
-        shippedDependencies.groupIntoProjects()
+        val knownProjects = setOf("AndroidX", "Kotlin", "Kotlin Coroutines", "Guava", "JetBrains Java Annotations")
+        val names = shippedDependencies.groupIntoProjects().map { it.name }
+
+        names.forEach { name ->
+            assertTrue(
+                "\"$name\" is not a known project; add its groupId to projectNameForGroup in Attribution.kt",
+                name in knownProjects,
+            )
+        }
     }
 
+    /**
+     * The soft-degrade behaviour `nothing is unmapped` relies on staying
+     * soft: an unmapped `groupId` must still show up, under its own
+     * `groupId`, with its artifact counted and its licence intact, rather
+     * than vanishing from the page or crashing the screen that renders it.
+     */
     @Test
-    fun `an unmapped groupId throws rather than vanishing or being mislabelled`() {
+    fun `an unmapped groupId is shown under its group id rather than vanishing`() {
         val withUnknownGroup = shippedDependencies + Attribution("com.example.unmapped", "some-artifact", "Apache-2.0")
 
-        assertThrows(IllegalStateException::class.java) {
-            withUnknownGroup.groupIntoProjects()
-        }
+        val fallbackProject = withUnknownGroup.groupIntoProjects().single { it.name == "com.example.unmapped" }
+
+        assertEquals(1, fallbackProject.artifactCount)
+        assertEquals("Apache-2.0", fallbackProject.license)
     }
 }
