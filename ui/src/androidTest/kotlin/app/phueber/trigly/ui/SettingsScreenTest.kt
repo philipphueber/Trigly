@@ -26,12 +26,14 @@ class SettingsScreenTest {
 
     private val changes = mutableListOf<Boolean>()
     private var backTaps = 0
+    private var attributionTaps = 0
 
     @Composable
     private fun Screen(cloudBackupEnabled: Boolean) {
         SettingsScreen(
             cloudBackupEnabled = cloudBackupEnabled,
             onCloudBackupEnabledChange = { changes += it },
+            onAttribution = { attributionTaps++ },
             onBack = { backTaps++ },
         )
     }
@@ -97,5 +99,15 @@ class SettingsScreenTest {
 
         assertEquals(1, backTaps)
         assertEquals(emptyList<Boolean>(), changes)
+    }
+
+    /** The new row: see [SettingsRow] and [AttributionScreen]. */
+    @Test
+    fun the_attribution_row_fires_its_callback() {
+        composeRule.setContent { Screen(cloudBackupEnabled = true) }
+
+        composeRule.onNodeWithText("Open source licenses").performClick()
+
+        assertEquals(1, attributionTaps)
     }
 }

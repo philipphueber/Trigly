@@ -296,7 +296,14 @@ class MainActivity : ComponentActivity() {
             }
 
             Screen.Settings -> {
-                SettingsHost(onDone = { onNavigate(Screen.RuleList) })
+                SettingsHost(
+                    onAttribution = { onNavigate(Screen.Attribution) },
+                    onDone = { onNavigate(Screen.RuleList) },
+                )
+            }
+
+            Screen.Attribution -> {
+                AttributionHost(onDone = { onNavigate(Screen.Settings) })
             }
         }
     }
@@ -342,7 +349,7 @@ class MainActivity : ComponentActivity() {
      * on.
      */
     @androidx.compose.runtime.Composable
-    private fun SettingsHost(onDone: () -> Unit) {
+    private fun SettingsHost(onAttribution: () -> Unit, onDone: () -> Unit) {
         val settings: SettingsViewModel = viewModel(
             factory = SettingsViewModel.factory(backupSettings = container.backupSettings),
         )
@@ -351,6 +358,46 @@ class MainActivity : ComponentActivity() {
         SettingsScreen(
             cloudBackupEnabled = cloudBackupEnabled,
             onCloudBackupEnabledChange = settings::setCloudBackupEnabled,
+            onAttribution = onAttribution,
+            onBack = onDone,
+        )
+    }
+
+    /**
+     * A single instance for the life of the activity, the same reasoning
+     * [SettingsHost] gives for itself: nothing here changes while the screen
+     * is open, so there is no ViewModel.
+     *
+     * The version comes from `packageManager` rather than from `BuildConfig`:
+     * this module has `buildFeatures.buildConfig` off, and turning it on for
+     * one string is not worth it. `getPackageInfo(String, Int)` is deprecated
+     * from API 33 in favour of the `PackageInfoFlags` overload, but this app's
+     * `minSdk` is 26, so the deprecated overload is what every supported
+     * device actually runs; the suppression below is deliberate, not an
+     * oversight.
+     *
+     * `remember` rather than a `val` on the activity: both reads are cheap
+     * enough that there is no reason to pay for them before this screen is
+     * ever opened, and a fresh read each time it opens costs nothing a
+     * `Composable` needs to guard against, since neither the version nor the
+     * bundled licence text changes while the app is running.
+     */
+    @androidx.compose.runtime.Composable
+    private fun AttributionHost(onDone: () -> Unit) {
+        val appVersion = remember {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(packageName, 0).versionName.orEmpty()
+        }
+        val licenseText = remember {
+            resources.openRawResource(R.raw.license_apache_2_0)
+                .bufferedReader()
+                .use { it.readText() }
+        }
+
+        AttributionScreen(
+            appVersion = appVersion,
+            dependencies = shippedDependencies,
+            licenseText = licenseText,
             onBack = onDone,
         )
     }

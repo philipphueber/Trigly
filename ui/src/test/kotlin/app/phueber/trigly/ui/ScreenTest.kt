@@ -39,6 +39,17 @@ class ScreenTest {
         assertEquals(Screen.RuleList, backTarget(Screen.Settings))
     }
 
+    /**
+     * Kept separate from the test above rather than folded into it: Attribution
+     * is the one destination that is not flat, and a reader should see that at
+     * a glance instead of finding it as a third line in a test named for "the
+     * list".
+     */
+    @Test
+    fun `back from attribution returns to settings, not the list`() {
+        assertEquals(Screen.Settings, backTarget(Screen.Attribution))
+    }
+
     @Test
     fun `the destination survives a configuration change`() {
         listOf(
@@ -47,6 +58,7 @@ class ScreenTest {
             Screen.RuleEditor(null),
             Screen.SavedValues,
             Screen.Settings,
+            Screen.Attribution,
         ).forEach { screen ->
             val saved = with(ScreenSaver) { scope.save(screen) }
             assertEquals(screen, ScreenSaver.restore(requireNotNull(saved)))

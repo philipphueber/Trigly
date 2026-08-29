@@ -115,6 +115,12 @@ password one time. It stores the password in the system keyring, not in a
 file. It leaves nothing else to do. `docs/releasing.md` describes the key,
 the version numbers, and how to check the built file.
 
+## License
+
+Trigly is available under the Apache License 2.0. See `LICENSE` for the full
+text. The app's own Attribution screen lists every open source project it
+ships, with a copy of that same license.
+
 ## Adding a trigger
 
 1. Implement `Trigger` and its `TriggerFactory` in a new file, under
