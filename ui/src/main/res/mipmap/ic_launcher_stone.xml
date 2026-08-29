@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Stone preset's launcher icon. Same shape as ic_launcher.xml - only the
+  background differs - so see that file for why an adaptive icon needs no
+  density ladder and no mipmap-anydpi-v26 qualifier here.
+
+  The background is Stone's tone 70, not tone 60: this is the one preset
+  whose primary points at a lighter rung of the shared ladder - see
+  PresetSchemes.kt's banner for why. The fixed ink foreground still clears
+  contrast against it with room to spare.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background_stone" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>

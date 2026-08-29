@@ -139,10 +139,10 @@
     <!--
       The colour scheme row and its picker. See ColorSchemeSettings and
       PresetSchemes.kt for what each choice means and how it is resolved.
-      The six preset names (Orange, Lime, Green, Azure, Violet, Magenta) are
-      not string resources: they are plain Kotlin literals on ColorPreset,
-      the same way every other picker in this app names its own catalogue
-      entries in code.
+      The nine preset names (Orange, Lime, Green, Azure, Violet, Magenta,
+      Red, Stone, Slate) are not string resources: they are plain Kotlin
+      literals on ColorPreset, the same way every other picker in this app
+      names its own catalogue entries in code.
     -->
     <string name="settings_colorscheme_title">Colour scheme</string>
     <string name="settings_colorscheme_dialog_title">Choose a colour scheme</string>
