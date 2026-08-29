@@ -114,6 +114,34 @@ identifiers stay because T4, T8, T11 and R1 point at them.
   already known bad, another search is busy, or the cap is reached — and
   every caller that shows or reports a refusal to a person says the right one
   instead of "took too long" for a search that was never even tried.
+- **T25 A trace of the last trigger evaluation, per rule.** `onSuppressed`
+  only ever covered a leaf that could not be *read*, so a rule whose `ALL` or
+  `ANY` answered "no" because a leaf plainly said no produced no fault, no
+  log line and nothing on screen. `StateReader` already computed every
+  consulted leaf's answer and threw it away once `resolveHolds` returned a
+  plain `Boolean`; `TriggerTrace` in `core/Gate.kt` exposes it instead of
+  computing anything new. Every leaf is marked FIRED, YES, NO, UNREADABLE or
+  NOT_CONSULTED, so a person can see which leaf of an `ALL` held a rule back,
+  which leaf of an `ANY` carried it, and which leaves the tree never even
+  asked, rather than a rule that looks identical whether it is working as
+  written or silently broken.
+  `TriggerNode.holds`'s own signature is unchanged: it still returns a plain
+  `Boolean` to the same `stateOf` parameter, and every existing caller,
+  `GateTest` included, calls it exactly as before. Underneath, `holds` and
+  the new `traced()` share one traversal rather than two, so `GateTest`'s
+  existing short-circuit and empty-case coverage now exercises the same code
+  the trace is built from, instead of trusting a second, hand-written copy
+  of the same short-circuit promise not to drift from the first.
+  `TriggerEngine` gained `onEvaluated`, called once per event whichever way
+  the tree came out: a firing that held is worth a trace too, since seeing
+  which leaf of an `ANY` actually carries a rule needs a run that succeeded,
+  not only one that failed. `RuleTraceLog` in `:ui` holds it the same way
+  `RuleFaultLog` holds a fault, one slot per rule id, overwritten, and not
+  persisted, for the reason `RuleFaultLog`'s own KDoc gives: a trace from a
+  dead process describes a run whose conditions are gone. `RulesScreen` opens
+  it as a full-bleed dialog from a "Last check" button on the rule block, the
+  same shape the notification inspector uses, because a tree is not the one
+  sentence `LastFaultCell` already renders.
 
 ---
 
@@ -678,3 +706,32 @@ cancellation now reaches both. The wait is shared between them as
 to a suspension is identical; only the timeout's own reasoning differs, since
 `PlayAlertAction`'s default tone is a local resource and its custom sound is
 the part actually at risk.
+
+### R6 A per-action "is active" expression
+
+Considered alongside T25's trace: instead of, or in addition to, showing why a
+rule's trigger did not hold, let each action carry its own expression that
+decides whether that one action runs.
+
+Rejected. `docs/variables.md` section 11's list of what stays refused already
+states "No branching inside a rule": a ternary in an expression chooses a
+*value*, not which actions run, and `run_rule`'s "only if" condition is named
+there as the one deliberately narrow exception, not a pattern to repeat per
+action. A per-action condition is exactly the branch that bullet refuses,
+with the field moved from one rule to every action in it.
+
+`docs/actions.md` settled the same question from the other side. Its "Not an
+action: variables, conditions, loops" section chose, for the whole project,
+that a condition reuses the trigger catalogue rather than adding a second,
+action-level layer of conditions beside it. A per-action "is active" field
+would be exactly that second layer, for one action instead of the whole rule.
+
+There is also no engine-owned seam to hang it on. Every per-action extension
+point in this codebase, `ComponentSpec.config`'s keys included, is declared by
+that action's own factory, not by the engine. A field that applies across
+every action type regardless of which factory built it needs the engine
+itself to know about it, which means a schema change reaching every stored
+rule: a Room migration from the current version, 6. The cheap version, an
+untyped `"active"` key every factory happens to check for, is the coupling
+`CLAUDE.md` already forbids: adding a per-action field would mean editing
+every existing action's factory to read it.

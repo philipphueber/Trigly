@@ -11,6 +11,7 @@ import app.phueber.trigly.core.RequirementChecker
 import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.RuleJson
 import app.phueber.trigly.core.RuleRepository
+import app.phueber.trigly.core.TriggerTrace
 import app.phueber.trigly.core.imported
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -42,6 +43,18 @@ data class RuleStatus(
      * it ever tries. This is a report from a run that happened.
      */
     val lastFault: RuleFault? = null,
+    /**
+     * How this rule's trigger last decided, whichever way it went. See
+     * [RuleTraceLog] for why this is worth keeping even when [lastFault] is
+     * null: a rule that fires and holds still has a trace, and someone
+     * debugging why an `ANY` fires *this* often wants to see which leaf is
+     * doing the work.
+     *
+     * Only for an enabled rule, the same guard [lastFault] carries and for the
+     * same reason: a trace from before someone switched the rule off describes
+     * a run they have since stopped asking for.
+     */
+    val lastTrace: TriggerTrace? = null,
 ) {
     val canFire: Boolean get() = unmet.isEmpty() && notLive.isEmpty()
 }
@@ -55,6 +68,12 @@ class RulesViewModel(
      * to say nothing. The engine writes it; see [RuleFaultLog].
      */
     private val ruleFaults: RuleFaultLog = RuleFaultLog(),
+    /**
+     * Read only, and defaulted for the same reason [ruleFaults] is: the engine
+     * writes it, and a test that does not care about traces needs to say
+     * nothing. See [RuleTraceLog].
+     */
+    private val ruleTraces: RuleTraceLog = RuleTraceLog(),
     /**
      * How to ask whether the notification listener and the accessibility
      * service are actually bound right now, for [RuleStatus.notLive].
@@ -83,7 +102,8 @@ class RulesViewModel(
             repository.rules(),
             refreshTick,
             ruleFaults.faults,
-        ) { rules, _, failures ->
+            ruleTraces.traces,
+        ) { rules, _, failures, traces ->
             rules.map { rule ->
                 RuleStatus(
                     rule = rule,
@@ -93,6 +113,8 @@ class RulesViewModel(
                     // switched a rule off describes a run they have since stopped
                     // asking for, and reporting it would read as a live fault.
                     lastFault = if (rule.enabled) failures[rule.id] else null,
+                    // Same guard, same reason: see RuleStatus.lastTrace's own KDoc.
+                    lastTrace = if (rule.enabled) traces[rule.id] else null,
                 )
             }
         }.stateIn(
@@ -169,9 +191,10 @@ class RulesViewModel(
     }
 
     fun delete(ruleId: String) {
-        // Forgotten as well as deleted: the log is keyed by rule id, and an id is
-        // free to be reused by an import.
+        // Forgotten as well as deleted: both logs are keyed by rule id, and an
+        // id is free to be reused by an import.
         ruleFaults.forget(ruleId)
+        ruleTraces.forget(ruleId)
         viewModelScope.launch { repository.delete(ruleId) }
     }
 
@@ -201,10 +224,11 @@ class RulesViewModel(
             registry: Registry,
             checker: RequirementChecker,
             ruleFaults: RuleFaultLog = RuleFaultLog(),
+            ruleTraces: RuleTraceLog = RuleTraceLog(),
             livenessProbe: LivenessProbe = LivenessProbe.Unknown,
         ) = viewModelFactory {
             initializer {
-                RulesViewModel(repository, registry, checker, ruleFaults, livenessProbe)
+                RulesViewModel(repository, registry, checker, ruleFaults, ruleTraces, livenessProbe)
             }
         }
     }

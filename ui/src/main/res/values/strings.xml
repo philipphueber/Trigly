@@ -39,6 +39,8 @@
     </plurals>
     <string name="rules_share">Share</string>
     <string name="rules_duplicate">Duplicate</string>
+    <!-- Opens a tree of the rule's last trigger evaluation. See TriggerTraceScreen. -->
+    <string name="rules_last_check">Last check</string>
     <!--
       Names the action, because a rule with three actions otherwise leaves the
       reader to guess which one this is about. The reason follows on its own

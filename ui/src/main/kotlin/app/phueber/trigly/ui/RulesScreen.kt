@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -31,9 +32,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.TriggerNode
@@ -432,6 +436,12 @@ private fun RuleBlock(
     onResolve: (ComponentRequirement) -> Unit,
     describeComponent: (String) -> String,
 ) {
+    // View state, not rule data: whether the trace dialog is open right now.
+    // Local to this block rather than lifted, for the same reason `query` and
+    // `collapsedFolders` above are not: it describes how this one rule is
+    // being looked at, not anything RulesViewModel needs to know.
+    var showingTrace by remember { mutableStateOf(false) }
+
     BlockCard(onClick = { onEditRule(status.rule.id) }) {
         Column {
             Row(
@@ -474,10 +484,50 @@ private fun RuleBlock(
                 ) {
                     onDuplicateRule(status.rule)
                 }
+                // Only once a trace exists, guarded the same way LastFaultCell
+                // is: RulesViewModel already nulls this out for a disabled
+                // rule, but the rule's own flag is checked again here too, for
+                // the same reason LastFaultCell's own KDoc gives for its two
+                // guards.
+                val trace = status.lastTrace
+                if (trace != null && status.rule.enabled) {
+                    BlockTextButton(
+                        text = stringResource(R.string.rules_last_check),
+                        contentColor = MaterialTheme.extra.accent,
+                    ) {
+                        showingTrace = true
+                    }
+                }
             }
 
             RequirementCell(status = status, onResolve = onResolve)
             LastFaultCell(status = status, describeComponent = describeComponent)
+        }
+    }
+
+    val trace = status.lastTrace
+    if (showingTrace && trace != null) {
+        // Full-bleed, the same shape `RuleEditorScreen`'s notification
+        // inspector uses and for the same reason: a tree several levels deep
+        // needs the width, and `heightIn(max = screenHeight)` is what keeps
+        // the bottom bar on screen rather than pushed past the edge by an
+        // unbounded dialog window. See that screen's own comment for the
+        // full reasoning; it applies here unchanged.
+        Dialog(
+            onDismissRequest = { showingTrace = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+            Surface(
+                modifier = Modifier.fillMaxWidth().heightIn(max = screenHeight),
+                color = MaterialTheme.colorScheme.background,
+            ) {
+                TriggerTraceScreen(
+                    trace = trace,
+                    onBack = { showingTrace = false },
+                    describeComponent = describeComponent,
+                )
+            }
         }
     }
 }
