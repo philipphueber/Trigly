@@ -220,6 +220,39 @@ class RulesScreenTest {
     }
 
     /**
+     * A rule saved before it is finished shows why it cannot be switched on,
+     * without anyone tapping its switch. This is a different report from
+     * `RuleFault.Kind.COULD_NOT_START` above: nothing has run and nothing has
+     * failed, the rule is simply not built yet.
+     */
+    @Test
+    fun an_unfinished_rule_says_why_it_cannot_be_switched_on() {
+        val unfinished = RuleStatus(
+            rule = sampleRule.copy(enabled = false),
+            unmet = emptyList(),
+            enableRefusal = "Add a trigger and an action before switching this on.",
+        )
+
+        composeRule.setContent { Screen(listOf(unfinished)) }
+
+        composeRule.onNodeWithText(
+            "Add a trigger and an action before switching this on.",
+        ).performScrollTo().assertExists()
+    }
+
+    /** Once a rule can start, the reason disappears, the same as any other cell here. */
+    @Test
+    fun a_rule_that_can_start_shows_no_unfinished_message() {
+        val ready = RuleStatus(rule = sampleRule.copy(enabled = false), unmet = emptyList())
+
+        composeRule.setContent { Screen(listOf(ready)) }
+
+        composeRule.onAllNodesWithText(
+            "Add a trigger and an action before switching this on.",
+        ).assertCountEquals(0)
+    }
+
+    /**
      * A rule fired and dropped keeps the run heading, which is the case this
      * pins against the one above: three kinds, three sentences, and no sharing.
      */
