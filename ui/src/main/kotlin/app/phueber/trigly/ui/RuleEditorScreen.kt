@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.FlowRowScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -86,6 +87,7 @@ internal typealias SubstitutionLookup = (String, Map<String, String>) -> Map<Str
  * Stateless, like [RulesScreen] — it takes the draft and emits intents, which is
  * what lets the instrumented tests drive it without a ViewModel or a database.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RuleEditorScreen(
     state: EditorState,
@@ -444,6 +446,11 @@ fun RuleEditorScreen(
                             // open the inspector — declare that alongside it. The
                             // running/Stop state stays the screen's business,
                             // because only the screen knows which action is running.
+                            //
+                            // `Modifier.align(Alignment.CenterVertically)` on every
+                            // control here, this one included, is what puts the
+                            // chevrons and the text buttons on one centre line.
+                            // See [Footer]'s KDoc for why the row needs that at all.
                             ComponentTools(
                                 tools = toolsFor(action.type, action.config),
                                 config = action.config,
@@ -451,17 +458,24 @@ fun RuleEditorScreen(
                                 onInspect = { inspecting = true },
                                 testLabel = if (state.testing == index) "Stop" else "Test",
                                 onTest = { onTestAction(index) },
+                                modifier = Modifier.align(Alignment.CenterVertically),
                             )
                             // Order matters — actions run in sequence, so the
                             // mapping from icon to effect is fixed: Up is always
                             // `index - 1`, never the reverse, because an icon that
                             // is ambiguous about direction is worse than the text
                             // it replaces.
+                            //
+                            // Omitted rather than disabled at either end of the
+                            // list, on purpose. See [ActionOrderButton]'s KDoc for
+                            // why that stays true now that each chevron reserves
+                            // real space instead of overhanging.
                             if (index > 0) {
                                 ActionOrderButton(
                                     icon = Icons.Filled.KeyboardArrowUp,
                                     label = "Move up",
                                     onClick = { onMoveAction(index, index - 1) },
+                                    modifier = Modifier.align(Alignment.CenterVertically),
                                 )
                             }
                             if (index < draft.actions.lastIndex) {
@@ -469,9 +483,13 @@ fun RuleEditorScreen(
                                     icon = Icons.Filled.KeyboardArrowDown,
                                     label = "Move down",
                                     onClick = { onMoveAction(index, index + 1) },
+                                    modifier = Modifier.align(Alignment.CenterVertically),
                                 )
                             }
-                            BlockTextButton("Remove") { onRemoveAction(index) }
+                            BlockTextButton(
+                                "Remove",
+                                modifier = Modifier.align(Alignment.CenterVertically),
+                            ) { onRemoveAction(index) }
                         },
                         expanded = actionKey(index) !in collapsed,
                         onToggleExpanded = { toggle(actionKey(index)) },
@@ -616,6 +634,12 @@ private fun ComponentTools(
     config: Map<String, String>,
     onPinShortcut: (Map<String, String>) -> Unit,
     onInspect: () -> Unit,
+    // Left at its default everywhere this sits beside only other
+    // `BlockTextButton`s of its own height (the trigger footer). The action
+    // footer passes `Modifier.align(Alignment.CenterVertically)` here because
+    // it also carries the chevrons, whose reserved 48dp is taller than a text
+    // button's own footprint. See [Footer]'s KDoc.
+    modifier: Modifier = Modifier,
     testLabel: String = "Test",
     onTest: (() -> Unit)? = null,
 ) {
@@ -625,32 +649,62 @@ private fun ComponentTools(
             // the spoken text reads — and the alternative is saving, waiting for
             // the real trigger, and guessing.
             ComponentTool.Test ->
-                if (onTest != null) BlockTextButton(testLabel, onClick = onTest)
+                if (onTest != null) BlockTextButton(testLabel, modifier = modifier, onClick = onTest)
 
             // Offered by everything that reads or writes notifications, because
             // every one of them is configured against fields nobody can see from
             // outside: the package, what the platform calls the title versus the
             // text, what a button is named under its icon.
             ComponentTool.InspectNotifications ->
-                BlockTextButton("Inspect", onClick = onInspect)
+                BlockTextButton("Inspect", modifier = modifier, onClick = onInspect)
 
             // A shortcut trigger cannot fire until a launcher button exists, so
             // without this the rule saves, looks healthy, and never fires.
             ComponentTool.PinShortcut ->
-                BlockTextButton("Add to home screen") { onPinShortcut(config) }
+                BlockTextButton("Add to home screen", modifier = modifier) { onPinShortcut(config) }
         }
     }
 }
 
 /**
- * One end of the action footer's reordering pair — a directional arrow in place
- * of the "Up" / "Down" text button it replaces.
+ * One end of the action footer's reordering pair. It is a directional arrow.
+ * It replaces the old "Up" / "Down" text button.
  *
- * [icon] carries the direction this performs, [label] what it says to a screen
- * reader; the two call sites in [RuleEditorScreen] fix `KeyboardArrowUp` to
- * `index - 1` and `KeyboardArrowDown` to `index + 1` and must never be allowed
- * to drift apart — actions run in sequence, so a reordering control that is
- * ambiguous about which way is "earlier" is worse than the text it replaces.
+ * [icon] carries the direction this performs. [label] is what it says to a
+ * screen reader. The two call sites in [RuleEditorScreen] fix `KeyboardArrowUp`
+ * to `index - 1` and `KeyboardArrowDown` to `index + 1`. Those two must never
+ * drift apart. Actions run in sequence, so a reordering control with an
+ * ambiguous direction is worse than the text it replaces.
+ *
+ * **Reserves its 48dp instead of overhanging.** This is the same fix
+ * [BlockExpandButton] documents, not the `OverflowingTouchTarget` split this
+ * used to share with [CaveatBadge]. Up and Down sit right next to each other
+ * with no gap between them. Two overhanging targets here claimed the same
+ * pixels, the way the caveat badge and the fold chevron once did: each
+ * footprint reported only 22dp, but its real, centred touch target overhung
+ * 13dp on every side. So the two 48dp targets overlapped by roughly 26dp, and
+ * a tap anywhere in that band went to whichever chevron was drawn later. That
+ * is always Down, since it is always the second of the pair, regardless of
+ * which one was meant. The instrumented test
+ * `tapping_move_up_does_not_trigger_move_down` covers exactly that tap.
+ *
+ * Reserving space here is affordable for the reason it was rejected for the
+ * caveat badge's 28-item picker row. This footer is a wrapping `FlowRow` (see
+ * [Footer]), not a fixed-width row that would clip. A wider footer here just
+ * wraps a control onto a second line instead of crowding the ones that fit.
+ * The extra width this now claims costs a wrap sooner, never a clip.
+ *
+ * One consequence of reserving instead of overhanging: an action at either
+ * end of the list still omits its own chevron rather than disabling it (see
+ * the two call sites). Its footer is 48dp narrower per omitted control than
+ * a middle action's footer, so Remove shifts sideways between them.
+ * Disabling instead of omitting would keep every footer the same width, at
+ * the cost of a chevron that visibly does nothing. [ComponentBlock]'s own
+ * KDoc already rejects that shape for its fold control: "a button that
+ * visibly does nothing is worse than no button." The shift is the smaller
+ * cost. It moves one button a fixed 48dp, once, between adjacent blocks. A
+ * dead chevron would instead sit on every action, forever, needing an
+ * explanation.
  */
 @Composable
 private fun ActionOrderButton(
@@ -659,21 +713,18 @@ private fun ActionOrderButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Same split `CaveatBadge` and `BlockExpandButton` use in Blocks.kt, and for
-    // the same reason: reserving a real 48dp `IconButton` per arrow would grow
-    // this footer row the way that function's KDoc documents being rejected
-    // twice already — once for a 28-item picker row, once for a block's own fold
-    // control. So the glyph stays small and reports that small size upward; the
-    // real, tappable 48dp box overhangs it instead of claiming the space.
-    //
-    // `IconButton` is skipped for a second reason, the one `BlockExpandButton`
-    // gives: its ripple is clipped to a circle, which is exactly the Material
-    // affordance "Blocks, not cards" (see the architecture doc) rejects
-    // elsewhere. A bare `Box` with `clickable` keeps the default ripple bounded
-    // to the box's own hard edges instead of drawing one of its own.
-    OverflowingTouchTarget(visualSize = 22.dp, touchSize = 48.dp, modifier = modifier) {
+    // `IconButton` is skipped for the reason `BlockExpandButton` gives. Its
+    // ripple is clipped to a circle. That is exactly the Material affordance
+    // "Blocks, not cards" (see the architecture doc) rejects elsewhere. A bare
+    // `Box` with `clickable` keeps the default ripple bounded to the box's own
+    // hard edges instead of drawing one of its own.
+    Box(
+        modifier = modifier.size(48.dp),
+        contentAlignment = Alignment.Center,
+    ) {
         Box(
             modifier = Modifier
+                .size(48.dp)
                 .clickable(onClick = onClick, role = Role.Button)
                 .semantics { contentDescription = label },
             contentAlignment = Alignment.Center,
@@ -812,6 +863,7 @@ internal fun SectionLabel(text: String) {
  * nested several gates deep — a trigger is a trigger, and the two must never
  * drift into looking like different kinds of thing.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ComponentBlock(
     chosenType: String?,
@@ -827,7 +879,7 @@ internal fun ComponentBlock(
     onToggleCaveat: () -> Unit,
     isRequirementSatisfied: (ComponentRequirement) -> Boolean,
     modifier: Modifier = Modifier,
-    footer: (@Composable () -> Unit)? = null,
+    footer: (@Composable FlowRowScope.() -> Unit)? = null,
     /** See [RuleEditorScreen]'s parameter of the same name. */
     availableVariables: List<ScopedVariable> = emptyList(),
     /** See [RuleEditorScreen]'s parameter of the same name. */
@@ -1000,10 +1052,19 @@ internal fun ComponentBlock(
  * route to something. "Add to home screen" is the one way a shortcut trigger
  * ever fires, so a footer that quietly dropped its fourth control would save a
  * rule that can never run.
+ *
+ * [verticalArrangement] here only spaces wrapped lines apart. It does not
+ * align items within one line. Left alone, `FlowRow` top-aligns every item on
+ * a line, so a 22dp glyph sits high against a taller `BlockTextButton` beside
+ * it. That is why [footer] takes a `FlowRowScope` receiver rather than a plain
+ * lambda: it lets each control ask for
+ * `Modifier.align(Alignment.CenterVertically)`, which puts every control on
+ * one shared centre line no matter how tall each one's own box is. See
+ * [ActionOrderButton] and [ComponentTools] for where that modifier is used.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Footer(footer: (@Composable () -> Unit)?) {
+private fun Footer(footer: (@Composable FlowRowScope.() -> Unit)?) {
     if (footer == null) return
     BlockDivider()
     FlowRow(
