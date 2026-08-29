@@ -1382,6 +1382,20 @@ Three decisions in there worth keeping:
   them and hiding them. Which sections are shut is `rememberSaveable` view state:
   it survives a rotation, and it is deliberately not stored on the rule, because
   it describes this screen right now rather than anything about the automation.
+  That state does not always start empty, though. With more than three rules in
+  the database and at least one of them already filed into a folder, every
+  folder starts closed instead, so opening an established list does not throw
+  every rule at the reader at once. Below that count, or with no folder in use
+  at all, every folder still starts open, exactly as before this default
+  existed. The decision is made once, against the first non-empty list
+  `RulesScreen` sees. (The list arrives from a flow, so the very first
+  composition is always empty, and deciding against that frame would freeze
+  the default on "open" forever.) It is then locked for the life of that
+  screen entry, alongside the collapsed set itself. So a rule added later
+  cannot re-close a folder someone just opened by hand, and a rotation cannot
+  repeat the decision and undo a manual toggle either. Leaving the screen and
+  coming back starts a fresh decision, which is wanted: it is a fact about the
+  database right now, not a promise kept forever.
 
 Filing a rule from the editor offers the folders that already exist, through the
 same pick-or-type dialog the app, sound and Bluetooth fields use. That list is

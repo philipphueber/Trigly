@@ -3,6 +3,9 @@ package app.phueber.trigly.ui
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
@@ -619,6 +622,94 @@ class RulesScreenTest {
     }
 
     /**
+     * The new default this change adds: more than three rules in the
+     * database, with at least one of them filed into a folder, and every
+     * folder starts closed. The headings still show, so someone can see the
+     * folders exist and open the one they want; nothing under them is drawn
+     * until they do.
+     */
+    @Test
+    fun more_than_three_rules_across_folders_start_closed() {
+        composeRule.setContent {
+            Screen(statusesOf(drivingModeRule, nightRule, looseRule, extraLooseRule))
+        }
+
+        composeRule.onNodeWithText("CAR (1)").assertExists()
+        composeRule.onNodeWithText("NIGHT (1)").assertExists()
+        composeRule.onNodeWithText("OTHER (2)").assertExists()
+
+        composeRule.onNodeWithText("DRIVING MODE").assertDoesNotExist()
+        composeRule.onNodeWithText("NIGHT OWL").assertDoesNotExist()
+        composeRule.onNodeWithText("LOOSE RULE").assertDoesNotExist()
+        composeRule.onNodeWithText("EXTRA LOOSE RULE").assertDoesNotExist()
+    }
+
+    /**
+     * The other side of the same default: three rules is not *more than*
+     * three, so nothing closes on its own, exactly as
+     * [folders_group_rules_and_put_other_last] already shows for the
+     * headings themselves.
+     */
+    @Test
+    fun three_rules_across_folders_start_open() {
+        composeRule.setContent { Screen(statusesOf(drivingModeRule, nightRule, looseRule)) }
+
+        composeRule.onNodeWithText("DRIVING MODE").assertExists()
+        composeRule.onNodeWithText("NIGHT OWL").assertExists()
+        composeRule.onNodeWithText("LOOSE RULE").assertExists()
+    }
+
+    /**
+     * More than three rules, but no folder anywhere: the closed default
+     * never applies, because there is no folder to close. The list renders
+     * exactly as [no_folders_in_use_renders_the_plain_list] already shows
+     * for the plain-list branch, just with a rule count past the threshold.
+     */
+    @Test
+    fun four_unfoldered_rules_still_render_the_plain_list() {
+        composeRule.setContent {
+            Screen(
+                listOf(
+                    RuleStatus(sampleRule, unmet = emptyList()),
+                    RuleStatus(sampleRule.copy(id = "second", name = "Second rule"), unmet = emptyList()),
+                    RuleStatus(sampleRule.copy(id = "third", name = "Third rule"), unmet = emptyList()),
+                    RuleStatus(sampleRule.copy(id = "fourth", name = "Fourth rule"), unmet = emptyList()),
+                )
+            )
+        }
+
+        composeRule.onNodeWithText("PING EVERY MINUTE").assertIsDisplayed()
+        composeRule.onNodeWithText("SECOND RULE").assertIsDisplayed()
+        composeRule.onNodeWithText("THIRD RULE").assertIsDisplayed()
+        composeRule.onNodeWithText("FOURTH RULE").assertIsDisplayed()
+        composeRule.onNodeWithText("OTHER", substring = true).assertDoesNotExist()
+    }
+
+    /**
+     * The trap the closed-by-default rule creates: once the starting value
+     * is decided, it must stay out of the way of a person's own choice. A
+     * folder opened by hand must not be re-closed just because a new rule
+     * pushed the count up again.
+     */
+    @Test
+    fun a_folder_opened_by_hand_stays_open_when_the_rule_count_changes() {
+        var current by mutableStateOf(statusesOf(drivingModeRule, nightRule, looseRule, extraLooseRule))
+        composeRule.setContent { Screen(current) }
+
+        // Four rules across folders start closed.
+        composeRule.onNodeWithText("DRIVING MODE").assertDoesNotExist()
+
+        // Open "Car" by hand.
+        composeRule.onNodeWithText("CAR (1)").performScrollTo().performClick()
+        composeRule.onNodeWithText("DRIVING MODE").assertExists()
+
+        // A fifth rule arrives. The starting decision was already made and
+        // locked, so it does not run again and does not re-close "Car".
+        current = statusesOf(drivingModeRule, nightRule, looseRule, extraLooseRule, anotherLooseRule)
+        composeRule.onNodeWithText("DRIVING MODE").assertExists()
+    }
+
+    /**
      * A rule's name is the obvious match. This is the baseline the next test
      * — matching by a component nobody named the rule after — is contrasted
      * against.
@@ -727,11 +818,33 @@ private val nightRule = Rule(
     enabled = true,
 ).copy(folder = "Night")
 
-/** No folder at all — collects under "Other". */
+/** No folder at all. Collects under "Other". */
 private val looseRule = Rule(
     id = "loose-rule",
     name = "Loose rule",
     trigger = ComponentSpec("screen_on"),
+    actions = listOf(ComponentSpec("post_notification")),
+    enabled = true,
+)
+
+/**
+ * A second unfoldered rule, alongside [looseRule]: the fixture the
+ * more-than-three-rules tests need to cross the threshold without adding a
+ * fourth folder.
+ */
+private val extraLooseRule = Rule(
+    id = "extra-loose-rule",
+    name = "Extra loose rule",
+    trigger = ComponentSpec("wifi_connected"),
+    actions = listOf(ComponentSpec("post_notification")),
+    enabled = true,
+)
+
+/** A fifth rule, used only to push a list past the threshold a second time. */
+private val anotherLooseRule = Rule(
+    id = "another-loose-rule",
+    name = "Another loose rule",
+    trigger = ComponentSpec("airplane_mode"),
     actions = listOf(ComponentSpec("post_notification")),
     enabled = true,
 )

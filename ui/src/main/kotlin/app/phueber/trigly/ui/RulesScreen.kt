@@ -100,6 +100,38 @@ fun RulesScreen(
         mutableStateOf(emptySet<String>())
     }
 
+    // The starting value of `collapsedFolders` depends on `statuses`, which
+    // arrives from a flow: the very first composition of this screen always
+    // sees an empty list, before the flow has emitted the real one. Deciding
+    // "start open" against that empty frame and never revisiting it would
+    // quietly defeat the whole feature, since an empty list never has more
+    // than three rules. So the decision waits for the first non-empty list,
+    // then is locked for good by `decidedStartingFolders`. That flag is kept
+    // in `rememberSaveable` for the same reason `OnFreshEntry` keeps its own
+    // flag there: a rotation restores it as `true`, so the decision is not
+    // repeated, and neither a fourth rule added later nor a rotation can
+    // re-close a folder someone just opened by hand, or reopen one they just
+    // closed. Leaving this screen and coming back is a fresh composition
+    // with a fresh saved slot, so the decision runs again there. That is
+    // wanted: it is a decision about what is in the database right now, not
+    // a promise kept forever.
+    //
+    // This runs during composition, not from a `LaunchedEffect`, so the
+    // first frame that has real data already reflects the decision instead
+    // of drawing one open frame that then folds shut a moment later.
+    var decidedStartingFolders by rememberSaveable { mutableStateOf(false) }
+    if (!decidedStartingFolders && statuses.isNotEmpty()) {
+        // More than three rules already in the database, and at least one
+        // of them already filed into a folder: start every folder closed,
+        // so opening an established list does not throw every rule at the
+        // reader at once. Otherwise, start open. That is the same behaviour
+        // this screen always had.
+        if (statuses.size > FOLDER_COLLAPSE_THRESHOLD && statuses.any { it.rule.folder != null }) {
+            collapsedFolders = folderKeysOf(statuses)
+        }
+        decidedStartingFolders = true
+    }
+
     Column(modifier = modifier.fillMaxSize()) {
         BlockHeader(
             title = stringResource(R.string.rules_title),
@@ -306,6 +338,24 @@ private fun groupByFolder(statuses: List<RuleStatus>, otherLabel: String): List<
         ?.let { listOf(FolderSection(key = OTHER_KEY, displayName = otherLabel, statuses = it)) }
         .orEmpty()
     return named + other
+}
+
+/**
+ * More rules than this, plus at least one folder in use, is what starts every
+ * folder closed. See the `decidedStartingFolders` block above for the reason
+ * this cannot simply be decided once at first composition.
+ */
+private const val FOLDER_COLLAPSE_THRESHOLD = 3
+
+/**
+ * The same section keys [groupByFolder] would produce, without needing the
+ * "Other" display name: the initial-collapse decision only ever needs to know
+ * *which* sections will exist, never their labels.
+ */
+private fun folderKeysOf(statuses: List<RuleStatus>): Set<String> {
+    val named = statuses.mapNotNull { it.rule.folder }.toSet()
+    val hasOther = statuses.any { it.rule.folder == null }
+    return if (hasOther) named + OTHER_KEY else named
 }
 
 /**
