@@ -1,5 +1,6 @@
 package app.phueber.trigly.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -35,6 +37,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -139,15 +144,11 @@ fun RulesScreen(
     Column(modifier = modifier.fillMaxSize()) {
         BlockHeader(
             title = stringResource(R.string.rules_title),
+            // Import only. Export all moved to [MoreMenu]; see that KDoc for
+            // why Import is the one action that stays here instead of moving
+            // with it.
             actions = {
                 BlockTextButton(stringResource(R.string.rules_import), onClick = onImport)
-                // Export is pointless with nothing to export.
-                if (statuses.isNotEmpty()) {
-                    BlockTextButton(
-                        text = stringResource(R.string.rules_export_all),
-                        onClick = onExportAll,
-                    )
-                }
             },
         )
 
@@ -265,6 +266,8 @@ fun RulesScreen(
                 modifier = Modifier.weight(1f),
             )
             MoreMenu(
+                showExportAll = statuses.isNotEmpty(),
+                onExportAll = onExportAll,
                 savedValueCount = savedValueCount,
                 onSavedValues = onSavedValues,
                 onSettings = onSettings,
@@ -423,6 +426,59 @@ private fun FolderHeader(
 }
 
 /**
+ * The per-rule "send this rule elsewhere" control: the platform's own share
+ * glyph rather than the word "Share", so a row of several rule actions reads
+ * as share at a glance instead of as one more word to parse.
+ *
+ * Built the same way [ActionOrderButton] (`RuleEditorScreen.kt`) is, for the
+ * same two reasons.
+ *
+ * `IconButton` is skipped, the reason [BlockExpandButton]'s KDoc gives: its
+ * ripple is clipped to a circle, which is the Material affordance "Blocks,
+ * not cards" (see the architecture doc) rejects everywhere else in this
+ * chrome. A bare [Box] with `clickable` keeps the ripple bounded to this
+ * control's own hard edges instead.
+ *
+ * The 48dp is **reserved**, not overhung the way [CaveatBadge] deliberately
+ * overhangs its own. This control sits in a row beside "Duplicate", which is
+ * itself a real button rather than a few dp of glyph. That matters because
+ * the touch-target bug [BlockExpandButton]'s KDoc records was two overhanging
+ * targets stealing each other's taps, which only happens when a control
+ * reports a footprint smaller than where it actually catches touches.
+ * Reserving the full 48dp here means this control's layout size and its
+ * touch size are the same number, so it cannot steal a tap aimed at its
+ * neighbour, or lose one to it.
+ *
+ * The content description reuses [R.string.rules_share] rather than adding a
+ * second string: that resource said "Share" when it was the button's label,
+ * and it says the same thing now that the label is a glyph instead. Several
+ * instrumented tests already select this control by it.
+ */
+@Composable
+private fun RuleShareButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val description = stringResource(R.string.rules_share)
+    Box(
+        modifier = modifier.size(48.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clickable(onClick = onClick, role = Role.Button)
+                .semantics { contentDescription = description },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Share,
+                contentDescription = null,
+                tint = MaterialTheme.extra.accent,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+    }
+}
+
+/**
  * One rule as a block, split into cells by hard lines: what it does on top, the
  * per-rule actions below, and anything stopping it from firing under that.
  */
@@ -472,12 +528,7 @@ private fun RuleBlock(
 
             BlockDivider()
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
-                BlockTextButton(
-                    text = stringResource(R.string.rules_share),
-                    contentColor = MaterialTheme.extra.accent,
-                ) {
-                    onExportRule(status.rule)
-                }
+                RuleShareButton(onClick = { onExportRule(status.rule) })
                 BlockTextButton(
                     text = stringResource(R.string.rules_duplicate),
                     contentColor = MaterialTheme.extra.accent,
@@ -698,8 +749,8 @@ private fun BatteryOptimizationNotice(
 }
 
 /**
- * Everything the rules screen offers that is not "make a rule". Two entries
- * today: "Saved values" and "Settings".
+ * Everything the rules screen offers that is not "make a rule". Three entries
+ * today: "Export all", "Saved values" and "Settings".
  *
  * **The three homes "Saved values" has had, because each move was caused by
  * the last.** It began as a third action in `BlockHeader`, which broke the
@@ -727,9 +778,33 @@ private fun BatteryOptimizationNotice(
  * that already holds one such entry costs nothing to hold a second, and the
  * settings screen behind it has room for a third setting later without this
  * menu needing to grow past two rows first.
+ *
+ * **"Export all" joined later, and "Import" did not follow it.** The header
+ * used to hold both, as a matched pair. But they were never a matched pair in
+ * how often either is needed: Import is guarded by nothing, because it is how
+ * a phone with zero rules gets its first one, while Export all is guarded by
+ * `statuses.isNotEmpty()` above, because it is pointless until a rule exists
+ * to export. That is the same asymmetry that already let "Saved values" stay
+ * out of the header while it lived in a full-width row: a control that is
+ * only ever useful once the screen has content earns no header space at all,
+ * let alone a permanent one. Export all belongs beside Saved values, both
+ * reached the same way and both idle until there is something for them to
+ * act on; Import belongs beside "New rule" in the bottom bar's weight, both
+ * of them a rule's way into an empty list. Moving Import into this menu
+ * would have hidden the one thing a fresh install needs behind a tap it has
+ * no reason yet to make. So the header keeps exactly the one action that
+ * earns a permanent seat, and this menu gains the one that does not: shown
+ * first, above Saved values, because it was the header's second action and
+ * this keeps the same reading order the header used.
  */
 @Composable
-private fun MoreMenu(savedValueCount: Int, onSavedValues: () -> Unit, onSettings: () -> Unit) {
+private fun MoreMenu(
+    showExportAll: Boolean,
+    onExportAll: () -> Unit,
+    savedValueCount: Int,
+    onSavedValues: () -> Unit,
+    onSettings: () -> Unit,
+) {
     var expanded by remember { mutableStateOf(false) }
 
     Box {
@@ -738,6 +813,21 @@ private fun MoreMenu(savedValueCount: Int, onSavedValues: () -> Unit, onSettings
             onClick = { expanded = true },
         )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            // Same guard the header used: pointless with nothing to export.
+            if (showExportAll) {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = stringResource(R.string.rules_export_all),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    },
+                    onClick = {
+                        expanded = false
+                        onExportAll()
+                    },
+                )
+            }
             DropdownMenuItem(
                 text = {
                     Column {
