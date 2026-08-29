@@ -5,6 +5,7 @@ import app.phueber.trigly.core.ActiveNotification
 import app.phueber.trigly.core.NotificationButton
 import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.SharedPayloadKeys
+import app.phueber.trigly.core.TextFilter
 import app.phueber.trigly.core.TriggerEvent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -115,6 +116,130 @@ class NotificationControlActionsTest {
             )
             assertTrue("must not dismiss anything", controller.calls.isEmpty())
         }
+
+    /** Text only: any app, the newest notification whose text matches. */
+    @Test
+    fun `a chosen text dismisses the matching notification from any app`() = runTest {
+        val controller = FakeNotificationController(
+            active = listOf(
+                notification("0|com.shopping|1|null|10", "com.shopping", postedAt = 1_000, text = "Milk"),
+                notification("0|com.other|2|null|10", "com.other", postedAt = 2_000, text = "Bread"),
+            )
+        )
+
+        val result = DismissNotificationAction(
+            controller = controller,
+            targetPackage = null,
+            text = TextFilter.of("milk"),
+        ).execute(fromOtherRule)
+
+        assertEquals(ActionResult.Success(), result)
+        assertEquals(listOf("dismiss:0|com.shopping|1|null|10"), controller.calls)
+    }
+
+    @Test
+    fun `a chosen text takes the newest notification that matches, not the newest overall`() =
+        runTest {
+            val controller = FakeNotificationController(
+                active = listOf(
+                    notification("0|com.a|1|null|10", "com.a", postedAt = 1_000, text = "Milk"),
+                    notification("0|com.b|2|null|10", "com.b", postedAt = 9_000, text = "Bread"),
+                    notification("0|com.c|3|null|10", "com.c", postedAt = 5_000, text = "Milk and eggs"),
+                )
+            )
+
+            DismissNotificationAction(
+                controller = controller,
+                targetPackage = null,
+                text = TextFilter.of("milk"),
+            ).execute(fromOtherRule)
+
+            assertEquals(listOf("dismiss:0|com.c|3|null|10"), controller.calls)
+        }
+
+    @Test
+    fun `a chosen text with nothing matching fails, naming the text`() = runTest {
+        val controller = FakeNotificationController(
+            active = listOf(notification("0|com.a|1|null|10", "com.a", postedAt = 1_000, text = "Bread"))
+        )
+
+        val result = DismissNotificationAction(
+            controller = controller,
+            targetPackage = null,
+            text = TextFilter.of("milk"),
+        ).execute(fromOtherRule)
+
+        assertTrue(result is ActionResult.Failure)
+        val reason = (result as ActionResult.Failure).reason
+        assertTrue("should name the text: $reason", reason.contains("milk"))
+        assertTrue("must not name an app: $reason", !reason.contains("from '"))
+        assertTrue("must not dismiss anything", controller.calls.isEmpty())
+    }
+
+    /**
+     * The case the field help promises and a reader would assume the other way:
+     * an app and a text filled in together must narrow the choice, not widen it.
+     * Each of the three notifications below matches exactly one of the two
+     * conditions, and none of them is the target — only the fourth, which
+     * matches both, is.
+     */
+    @Test
+    fun `an app and a text together narrow the choice rather than widening it`() = runTest {
+        val controller = FakeNotificationController(
+            active = listOf(
+                // Matches the app only, and is the newest of the app-only match
+                // and the both-match below — if app alone decided, this would win.
+                notification(
+                    "0|com.shopping|1|null|10", "com.shopping", postedAt = 9_000, text = "Eggs",
+                ),
+                // Matches the text only, and is newer than the both-match below —
+                // if text alone decided, this would win.
+                notification(
+                    "0|com.other|2|null|10", "com.other", postedAt = 8_000, text = "Milk",
+                ),
+                // Matches neither.
+                notification(
+                    "0|com.other|3|null|10", "com.other", postedAt = 7_000, text = "Eggs",
+                ),
+                // Matches both, and is the oldest of the four — it must still win,
+                // because it is the only one that satisfies both filters at once.
+                notification(
+                    "0|com.shopping|4|null|10", "com.shopping", postedAt = 1_000, text = "Milk",
+                ),
+            )
+        )
+
+        val result = DismissNotificationAction(
+            controller = controller,
+            targetPackage = "com.shopping",
+            text = TextFilter.of("milk"),
+        ).execute(fromOtherRule)
+
+        assertEquals(ActionResult.Success(), result)
+        assertEquals(listOf("dismiss:0|com.shopping|4|null|10"), controller.calls)
+    }
+
+    @Test
+    fun `an app and a text together fail when no notification satisfies both`() = runTest {
+        val controller = FakeNotificationController(
+            active = listOf(
+                notification("0|com.shopping|1|null|10", "com.shopping", postedAt = 1_000, text = "Eggs"),
+                notification("0|com.other|2|null|10", "com.other", postedAt = 2_000, text = "Milk"),
+            )
+        )
+
+        val result = DismissNotificationAction(
+            controller = controller,
+            targetPackage = "com.shopping",
+            text = TextFilter.of("milk"),
+        ).execute(fromOtherRule)
+
+        assertTrue(result is ActionResult.Failure)
+        val reason = (result as ActionResult.Failure).reason
+        assertTrue("should name the app: $reason", reason.contains("com.shopping"))
+        assertTrue("should name the text: $reason", reason.contains("milk"))
+        assertTrue("must not dismiss anything", controller.calls.isEmpty())
+    }
 
     /**
      * The trigger's notification does not need to be in the active list to be
@@ -323,15 +448,20 @@ class NotificationControlActionsTest {
     )
 
     /** A notification with no buttons, for the dismiss selector's "which one" tests. */
-    private fun notification(key: String, packageName: String, postedAt: Long) =
-        ActiveNotification(
-            key = key,
-            packageName = packageName,
-            title = "Reminder",
-            text = "Milk",
-            postedAtMillis = postedAt,
-            buttons = emptyList(),
-        )
+    private fun notification(
+        key: String,
+        packageName: String,
+        postedAt: Long,
+        title: String = "Reminder",
+        text: String = "Milk",
+    ) = ActiveNotification(
+        key = key,
+        packageName = packageName,
+        title = title,
+        text = text,
+        postedAtMillis = postedAt,
+        buttons = emptyList(),
+    )
 }
 
 class DndModeTest {

@@ -12,8 +12,10 @@ import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.SharedPayloadKeys
 import app.phueber.trigly.core.SpecialAccessKind
+import app.phueber.trigly.core.TextFilter
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.UiController
+import app.phueber.trigly.core.notificationHaystack
 
 private val NOTIFICATION_ACCESS = listOf(
     ComponentRequirement.SpecialAccess(SpecialAccessKind.NOTIFICATION_LISTENER),
@@ -30,15 +32,33 @@ private val NOTIFICATION_ACCESS = listOf(
  * reminder" was not expressible at all, and there was no field to suggest
  * otherwise.
  *
- * It now selects the same way [TriggerNotificationButtonAction] does, through
- * [chooseNotification]: an app chosen in the editor means the newest live
- * notification from that app, and no app chosen means the one that fired the
- * rule. That fallback is the common case and stays the default — "when my bank
- * notifies me, dismiss it" needs no configuration.
+ * The target is now chosen by an app, a piece of text, both, or neither:
+ *
+ *  · **App only.** The newest live notification from that app, as before.
+ *  · **Text only.** The newest live notification, from any app, whose
+ *    [notificationHaystack] (its title and body, joined — the same haystack
+ *    `notification_posted` matches against, and what the notification
+ *    inspector shows) matches [text].
+ *  · **Both.** The two narrow the choice together, not apart: a notification
+ *    has to match the app *and* the text to be picked. "An app, or a text, or
+ *    both" describes what a person may fill in, not an `or` between the two
+ *    conditions — filling in a second field only to have it widen the match
+ *    would be the opposite of what anyone filling in a second field wants.
+ *  · **Neither.** Unchanged: the notification that fired the rule. That
+ *    fallback is the common case and stays the default — "when my bank
+ *    notifies me, dismiss it" needs no configuration.
+ *
+ * A pattern [TextFilter] refuses to run to completion (`TextMatchMode.REGEX`,
+ * a search [RegexGuard] abandons or already remembers as one that runs away)
+ * reads as "does not match" for that one notification, the same as every other
+ * [TextFilter] caller in this app. The selection simply has one fewer
+ * candidate, which can end in the ordinary "nothing showing" failure below —
+ * never a crash, and never a silent dismissal of the wrong notification.
  */
 class DismissNotificationAction(
     private val controller: NotificationController,
     private val targetPackage: String?,
+    private val text: TextFilter = TextFilter.Any,
     private val legacyKey: String? = null,
 ) : Action {
 
@@ -50,23 +70,26 @@ class DismissNotificationAction(
         // retargeting it at something else.
         legacyKey?.takeIf { it.isNotBlank() }?.let { return controller.dismiss(it) }
 
-        // No app chosen: the payload already names the exact notification, so
-        // dismiss it without looking anything up. Going through the active list
-        // here — as the button action must, because it needs the buttons — would
-        // add a way to fail that dismissing by key does not have: a notification
-        // that has already gone, or a list read that came back empty, would turn
-        // into "nothing to dismiss" instead of a harmless no-op.
-        if (targetPackage == null) {
+        // Neither an app nor a text was asked for: the payload already names the
+        // exact notification, so dismiss it without looking anything up. Going
+        // through the active list here — as the button action must, because it
+        // needs the buttons — would add a way to fail that dismissing by key does
+        // not have: a notification that has already gone, or a list read that
+        // came back empty, would turn into "nothing to dismiss" instead of a
+        // harmless no-op. This is the "neither" case from the class doc, and it
+        // is exactly what this action did before it could match on text at all.
+        if (targetPackage == null && text.isEmpty) {
             val triggering = event.payload[SharedPayloadKeys.NOTIFICATION_KEY]
                 ?: return ActionResult.Failure(
-                    "There is nothing to dismiss. Choose an app, or use this " +
-                        "action on a rule triggered by a notification."
+                    "There is nothing to dismiss. Choose an app or a text to " +
+                        "match, or use this action on a rule triggered by a " +
+                        "notification."
                 )
             return controller.dismiss(triggering)
         }
 
-        // An app was chosen, so which notification is a question about what is
-        // currently on screen.
+        // An app, a text, or both were asked for, so which notification is a
+        // question about what is currently on screen.
         val active = controller.activeNotifications()
         if (active.isEmpty() && !controller.isConnected) {
             return ActionResult.Failure(
@@ -74,14 +97,17 @@ class DismissNotificationAction(
             )
         }
 
-        val target = chooseNotification(
-            active = active,
-            wantedPackage = targetPackage,
-            // Not a fallback here: an app was named, and quietly dismissing the
-            // trigger's notification instead when that app has nothing showing
-            // would be the wrong notification, reported as success.
-            triggeringKey = null,
-        ) ?: return ActionResult.Failure("No notification from '$targetPackage' is showing.")
+        // Not chooseNotification: that helper also falls back to the triggering
+        // notification, which is wrong here — an app or a text was named, and
+        // quietly dismissing the trigger's notification instead when nothing
+        // matches would be the wrong notification, reported as success. The two
+        // filters are applied together, narrowing the same list, so "both" comes
+        // for free rather than needing its own case.
+        val target = active
+            .filter { targetPackage == null || it.packageName == targetPackage }
+            .filter { text.isEmpty || text.matches(notificationHaystack(it.title, it.text)) }
+            .maxByOrNull { it.postedAtMillis }
+            ?: return ActionResult.Failure(noneShowingReason(targetPackage, text))
 
         return controller.dismiss(target.key)
     }
@@ -89,8 +115,18 @@ class DismissNotificationAction(
     companion object {
         const val TYPE = "dismiss_notification"
 
-        /** Which app's newest notification to dismiss. Blank means the trigger's. */
+        /** Which app's notification to dismiss. Blank means any app. */
         const val CONFIG_PACKAGE = "package"
+
+        /**
+         * Text the notification's title or body must contain, or match, as a
+         * pattern. Blank means any text. See [DismissNotificationAction]'s doc
+         * for what "app and text both set" means and why.
+         */
+        const val CONFIG_TEXT = "textContains"
+
+        /** [TextMatchMode], stored alongside [CONFIG_TEXT]. Absent reads as CONTAINS. */
+        const val CONFIG_TEXT_MODE = "textContainsMode"
 
         /**
          * The old raw-key field. Nothing writes it any more; it is still read so
@@ -98,6 +134,22 @@ class DismissNotificationAction(
          */
         const val CONFIG_KEY = "key"
     }
+}
+
+/**
+ * "No notification is showing" worded for whichever of an app and a text were
+ * asked for, so the failure names exactly what did not match rather than a
+ * generic refusal.
+ *
+ * Only reached when at least one of [targetPackage] and [text] is set — see
+ * [DismissNotificationAction.execute]'s "neither" branch, which returns before
+ * this is ever called and has its own message.
+ */
+private fun noneShowingReason(targetPackage: String?, text: TextFilter): String {
+    val whoseApp = targetPackage?.let { "from '$it'" }
+    val whoseText = text.pattern?.let { "matching '$it'" }
+    val description = listOfNotNull(whoseApp, whoseText).joinToString(" ")
+    return "No notification $description is showing."
 }
 
 class DismissNotificationActionFactory(
@@ -109,30 +161,47 @@ class DismissNotificationActionFactory(
     override val category = ActionCategory.NOTIFICATIONS
 
     /**
-     * One field: whose notification. An app, not a key — a key cannot be known
-     * in advance, which is why the old text box existed only to be left empty.
+     * Two fields, both optional: which app, and what text. Neither is a key —
+     * a key cannot be known in advance, which is why the old text box existed
+     * only to be left empty.
      *
-     * An app picker rather than a capture off a live notification, unlike the
-     * button action next door: that one has to read the *buttons*, which only
-     * exist while the notification is on screen, whereas this needs nothing but
-     * the app. Requiring the notification to be showing while the rule is being
-     * written would be a restriction with no reason behind it.
+     * An app picker and a text field rather than a capture off a live
+     * notification, unlike the button action next door: that one has to read
+     * the *buttons*, which only exist while the notification is on screen,
+     * whereas this needs nothing but the app and the text. Requiring the
+     * notification to be showing while the rule is being written would be a
+     * restriction with no reason behind it.
      */
     override val configFields = listOf(
         ConfigField.AppPackage(
             key = DismissNotificationAction.CONFIG_PACKAGE,
             label = "App",
-            blankMeaning = "The notification that fired the rule",
-            help = "Dismisses that app's newest notification. Leave it unset to " +
-                "dismiss the one the trigger reported.",
+            blankMeaning = "Any app",
+            help = "Dismisses that app's newest notification. Combined with " +
+                "the text below, the two narrow the choice together: a " +
+                "notification set here has to match both, not just one.",
+        ),
+        ConfigField.TextPattern(
+            key = DismissNotificationAction.CONFIG_TEXT,
+            label = "Title or text contains",
+            blankMeaning = "Any text",
+            modeKey = DismissNotificationAction.CONFIG_TEXT_MODE,
+            help = "Matches the notification's title and body together. " +
+                "Combined with the app above, the two narrow the choice " +
+                "together: filling in both does not widen the match, it " +
+                "narrows it. Leave both blank to dismiss the notification " +
+                "that fired the rule.",
         ),
     )
 
     override val warning: String =
-        "If you choose no app, this action needs a notification trigger before " +
-            "it in the rule. Without one, there is nothing to dismiss. If you " +
-            "choose an app, this action dismisses that app's newest " +
-            "notification. It does this no matter what fired the rule."
+        "Leave both fields blank and this action needs a notification trigger " +
+            "before it in the rule: there is then nothing to dismiss but the " +
+            "one that fired it. Fill in an app, a text to match, or both — both " +
+            "together narrow the choice, so only a notification matching " +
+            "everything filled in is dismissed, never one that only matches " +
+            "part of it. Any of these dismisses its target no matter what fired " +
+            "the rule."
 
     override val requirements = NOTIFICATION_ACCESS
 
@@ -148,6 +217,10 @@ class DismissNotificationActionFactory(
         controller = controller,
         targetPackage = config[DismissNotificationAction.CONFIG_PACKAGE]
             ?.takeIf { it.isNotBlank() },
+        text = TextFilter.fromConfig(
+            config[DismissNotificationAction.CONFIG_TEXT],
+            config[DismissNotificationAction.CONFIG_TEXT_MODE],
+        ),
         legacyKey = config[DismissNotificationAction.CONFIG_KEY],
     )
 }
