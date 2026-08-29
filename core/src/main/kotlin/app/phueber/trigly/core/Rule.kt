@@ -18,6 +18,16 @@ data class ComponentSpec(
  * The rule therefore has exactly one trigger however complicated it gets, which
  * is what keeps the editor to one slot and the storage to one column.
  *
+ * [trigger] is never null, even for a rule saved before one was chosen. A
+ * nullable field was the other option and was rejected: it would have meant
+ * every reader of [Rule.trigger] (the engine, the codec, every place that
+ * already calls [TriggerNode.leaves] or [TriggerNode.canStart]) learning a
+ * second, structural way to say "nothing here" on top of the one the model
+ * already has. [NO_TRIGGER] is that one way: an `ALL` group with nothing in
+ * it, which [TriggerNode.canStart] already reads as unable to start a rule.
+ * See its own kdoc for the full reasoning, and `RuleDraft.toRuleOrNull` in
+ * `:ui` for where a draft's empty trigger slot becomes this.
+ *
  * [folder] is a user-typed name the rule list groups by; a rule with no folder
  * collects under "Other" there. Null means "not in a folder" — deliberately
  * distinct from `""`, which nothing in this codebase should ever store: a blank

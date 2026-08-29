@@ -3,13 +3,19 @@ package app.phueber.trigly.ui
 import app.phueber.trigly.core.ComponentDescriptor
 import app.phueber.trigly.core.ComponentSpec
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.NO_TRIGGER
 import app.phueber.trigly.core.NodePath
+import app.phueber.trigly.core.Registry
 import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.RuleJson
 import app.phueber.trigly.core.TriggerNode
+import app.phueber.trigly.core.canStart
 import app.phueber.trigly.core.companionKeys
 import app.phueber.trigly.core.defaultValue
+import app.phueber.trigly.core.isUnset
+import app.phueber.trigly.core.leaves
 import app.phueber.trigly.core.normalizeFolder
+import app.phueber.trigly.core.unfilled
 
 /**
  * Which half of a rule a component belongs to.
@@ -164,18 +170,25 @@ private fun TriggerNode.toDraft(): TriggerDraft = when (this) {
 }
 
 /**
- * Builds a [Rule] from the draft. Structural completeness only — whether the
- * *config* is valid is decided by asking the factories, in
- * [RuleEditorViewModel.save].
+ * Builds a [Rule] from the draft. The only thing this refuses is a blank
+ * name. No trigger, no actions, and an empty group anywhere in the tree are
+ * all structurally fine, see [TriggerDraft.toNode], because a rule saved
+ * before it is finished is a person mid-thought, not a mistake.
+ *
+ * Two different questions used to be answered by the same null: "can this be
+ * built at all" and "is this rule finished". They are not the same question.
+ * Whether the *config* on what is there is valid is a third, decided later
+ * still by asking the factories, in [RuleEditorViewModel.save]. Whether the
+ * result can ever be switched on is a fourth, answered by `enableRefusal`, not
+ * by this function.
  */
 fun RuleDraft.toRuleOrNull(): Rule? {
-    val node = trigger?.toNodeOrNull() ?: return null
     if (name.isBlank()) return null
 
     return Rule(
         id = id ?: RuleJson.newId(),
         name = name.trim(),
-        trigger = node,
+        trigger = trigger.toNode(),
         actions = actions.map { ComponentSpec(it.type, it.config) },
         enabled = enabled,
         folder = normalizeFolder(folder),
@@ -183,32 +196,36 @@ fun RuleDraft.toRuleOrNull(): Rule? {
 }
 
 /**
- * The [TriggerNode] this draft node builds, or null when a group in it has
- * nothing to build from.
+ * The [TriggerNode] this draft describes. Total: unlike the `toNodeOrNull`
+ * this replaced, nothing about the *shape* of a trigger tree can make this
+ * refuse any more; only [RuleDraft.name] can make [toRuleOrNull] refuse a
+ * save now. See [Rule]'s kdoc for [NO_TRIGGER], the value an absent trigger
+ * becomes.
  *
- * This function used to do two things that both lost a group without saying so,
- * and both are fixed here.
+ * Two things this used to lose by collapsing them into one null are now kept
+ * as exactly what they are:
  *
- * **A group of one child is kept, not unwrapped.** The old code unwrapped it,
- * on the stated grounds that the editor never builds a singleton group. It
- * does, on the way to every group a person makes: a group is picked from the
- * trigger picker and arrives empty, so it holds exactly one child for as long
- * as it takes to add the second. Saving in that state replaced the group with
- * its one child, which is the same tree as a predicate and a different rule to
- * look at. Someone who built `ALL(screen on, ANY(...))`, added the first branch
- * of the OR, and saved, reopened the rule to find the OR gone. An `ANY` of one
- * evaluates exactly like the child, so keeping it costs nothing at runtime and
- * keeps what the person built.
+ * **No trigger chosen at all**: a null [TriggerDraft] receiver, the empty
+ * "choose a trigger" slot, becomes [NO_TRIGGER]. A rule that has not had a
+ * trigger picked yet is a person mid-thought, which is exactly what lets it
+ * hold a value in a field that is not nullable.
  *
- * **An empty group refuses the save rather than disappearing from it.** The old
- * code pruned it with `mapNotNull` and carried on, so a group with nothing in it
- * was dropped and the parent saved without it. The refusal message existed
- * already but could only fire when the *root* was the empty group, which is the
- * one case where pruning happened to produce a null tree. Now any empty group
- * anywhere makes the whole conversion null, and
- * [RuleEditorViewModel.save] says which problem it is. A rule that looks saved
- * and quietly lost a piece of itself is the failure this project is built to
- * avoid.
+ * **A group with nothing in it**, at the root or nested anywhere under a
+ * trigger that is otherwise built, is kept as exactly that: an empty
+ * [TriggerNode.Group], not pruned and not refused. Reachable in one tap (a
+ * group is picked from the trigger picker and arrives empty), so it is the
+ * same "not finished yet" as an absent trigger, only spelled one level
+ * deeper. [TriggerNode.canStart] already reads an empty group as unable to
+ * start a rule, wherever it sits in the tree, so nothing here needs a second
+ * opinion about what "empty" means. Whether the result can be *switched on*
+ * is a separate question, answered by `enableRefusal`, not by this
+ * conversion. See `RuleEditorViewModel.save`.
+ *
+ * **A group of one child is still kept, not unwrapped**: unchanged from
+ * before, and for the same reason it always was. A group is picked empty and
+ * holds exactly one child for as long as it takes to add the second, and
+ * unwrapping it mid-build would silently turn `ALL(a, ANY(b))` into
+ * `ALL(a, b)` the moment `b` was added and nothing else had happened yet.
  *
  * A group that loses children to *removal* still collapses, and that is a
  * different question, answered in [transformTrigger]: removing one of two OR
@@ -216,18 +233,105 @@ fun RuleDraft.toRuleOrNull(): Rule? {
  * difference is intent. One child because a second was removed is a finished
  * edit. One child because a second is not added yet is a rule in progress.
  */
-fun TriggerDraft.toNodeOrNull(): TriggerNode? = when (this) {
+fun TriggerDraft?.toNode(): TriggerNode = when (this) {
+    null -> NO_TRIGGER
     is TriggerDraft.One -> TriggerNode.One(ComponentSpec(component.type, component.config))
-    is TriggerDraft.Group -> {
-        // An empty group, or any descendant of one, makes the whole tree null.
-        // `mapNotNull` here is what silently dropped it before.
-        if (children.isEmpty()) {
-            null
-        } else {
-            val kids = children.map { it.toNodeOrNull() }
-            if (kids.any { it == null }) null else TriggerNode.Group(op, kids.filterNotNull())
-        }
+    is TriggerDraft.Group -> TriggerNode.Group(op, children.map { it.toNode() })
+}
+
+/**
+ * Why [this] rule cannot be switched on right now, or null if it can.
+ *
+ * Three different problems share this one gate, told apart because they read
+ * differently to someone looking at the switch, and because a person fixes
+ * each one a different way:
+ *
+ * - **Nothing there yet**: no trigger, no actions, or both. This is exactly
+ *   what [RuleDraft.toRuleOrNull] now lets through at save time: a rule
+ *   mid-thought, savable, just not runnable yet. The message names what is
+ *   missing, because "add a trigger" is something a person can act on and
+ *   "this rule is not valid" is not.
+ * - **Something is there, but not filled in.** A trigger or action a person
+ *   picked, with a required field still empty. Also unfinished, not broken,
+ *   which is why `RuleEditorViewModel.validate` no longer refuses the save
+ *   over it either. Named by component here rather than folded into "add a
+ *   trigger" or "add an action": a person who already added an action and is
+ *   then told to add one would reasonably think the app is broken.
+ * - **A trigger that is there and filled in, but can never fire.**
+ *   [TriggerNode.canStart] catches this: two components that only ever
+ *   produce events sitting together under one `ALL`, or a leaf whose own
+ *   "only check, never watch" setting was turned on after it was already the
+ *   rule's one trigger. This used to be a save-time refusal. It moves here
+ *   because the trigger is not *incomplete* in this case, only unable to
+ *   start the rule it is attached to, and that is an enable question, a
+ *   person can only act on it by changing what is already there, not by
+ *   adding or finishing something. Checked last, because a component that is
+ *   not even filled in yet cannot usefully be judged by this question.
+ *
+ * See the [RuleDraft] overload for the one place that has to ask this before
+ * anything has been saved: the editor's own "enabled" switch.
+ */
+fun Rule.enableRefusal(registry: Registry): String? = enableRefusal(trigger, actions, registry)
+
+/** The same question [Rule.enableRefusal] answers, asked of a draft that may
+ * not have been saved yet: what the editor's own "enabled" switch checks
+ * before it lets itself move. */
+fun RuleDraft.enableRefusal(registry: Registry): String? =
+    enableRefusal(trigger.toNode(), actions.map { ComponentSpec(it.type, it.config) }, registry)
+
+private fun enableRefusal(trigger: TriggerNode, actions: List<ComponentSpec>, registry: Registry): String? {
+    val hasNoTrigger = trigger.isUnset()
+    val hasNoActions = actions.isEmpty()
+
+    if (hasNoTrigger || hasNoActions) {
+        val missing = listOfNotNull(
+            "a trigger".takeIf { hasNoTrigger },
+            "an action".takeIf { hasNoActions },
+        ).joinToString(" and ")
+        return "Add $missing before switching this on."
     }
+
+    val unfinished = listOfNotNull(
+        unfinishedTriggerLabel(trigger, registry),
+        unfinishedActionLabel(actions, registry),
+    )
+    if (unfinished.isNotEmpty()) {
+        return "Finish setting up ${unfinished.joinToString(" and ")} before switching this on."
+    }
+
+    if (!trigger.canStart(registry::producesEvents, registry::supportsCondition)) {
+        return "This rule can never start. One trigger must start it, and the " +
+            "others are only checked when it does. A trigger set to only " +
+            "check never starts a rule."
+    }
+
+    return null
+}
+
+/**
+ * The first trigger leaf with a required field nobody has filled in, named
+ * for the enable refusal, or null if every leaf is filled in. See
+ * [ConfigField.unfilled] for what "filled in" means.
+ */
+private fun unfinishedTriggerLabel(trigger: TriggerNode, registry: Registry): String? {
+    val leaves = trigger.leaves()
+    val index = leaves.indexOfFirst { spec ->
+        registry.triggerDescriptor(spec.type)?.configFields?.unfilled(spec.config)?.isNotEmpty() == true
+    }
+    if (index == -1) return null
+    val name = registry.displayNameOf(leaves[index].type)
+    return if (leaves.size > 1) "$name (trigger ${index + 1})" else name
+}
+
+/** [unfinishedTriggerLabel]'s counterpart for actions, always numbered: an
+ * action's own position is meaningful even when there is only one, the same
+ * convention `RuleEditorViewModel.validate` already uses for its labels. */
+private fun unfinishedActionLabel(actions: List<ComponentSpec>, registry: Registry): String? {
+    val index = actions.indexOfFirst { spec ->
+        registry.actionDescriptor(spec.type)?.configFields?.unfilled(spec.config)?.isNotEmpty() == true
+    }
+    if (index == -1) return null
+    return "${registry.displayNameOf(actions[index].type)} (action ${index + 1})"
 }
 
 /**
@@ -318,8 +422,8 @@ private fun TriggerDraft.at(path: NodePath): TriggerDraft? =
  *
  * A group left with no children at all disappears, because the last removal from
  * a group is the removal of the group. An *empty* group that a person made on
- * purpose is a different thing, is kept, and is what `toNodeOrNull` refuses to
- * save until something is in it.
+ * purpose is a different thing and is kept: it saves exactly as it is, and it
+ * is what `enableRefusal` refuses to switch on until something is in it.
  */
 fun transformTrigger(
     root: TriggerDraft?,
@@ -383,17 +487,19 @@ fun addTriggerChild(
  * The tree this draft describes with any empty group left out of it, or null if
  * nothing is left.
  *
- * Not a second opinion on [toNodeOrNull], a different question. Saving asks
- * "is this rule finished", and an empty group means no, which is why
- * [toNodeOrNull] refuses it. The trigger picker asks "if I put this component
- * here, could the rule start", and a group the person has not filled yet is
- * simply not part of that question. Answering it strictly would empty the
- * picker: with `ALL(screen on, ANY())` on screen, every candidate for the root
- * would convert to null and be filtered out, so the one control that fills the
- * empty group would offer nothing at all.
+ * Not a second opinion on [toNode], a different question. [toNode] is what a
+ * save builds from, and it keeps an empty group exactly as it is, because
+ * saving no longer asks whether the trigger is finished, only whether the
+ * rule has a name. See [RuleDraft.toRuleOrNull]. The trigger picker asks
+ * something else: "if I put this component here, could the rule start", and a
+ * group the person has not filled yet is simply not part of that question.
+ * Answering it strictly would empty the picker: with `ALL(screen on, ANY())`
+ * on screen, every candidate for the root would convert to a tree that still
+ * has an empty group in it and be filtered out, so the one control that fills
+ * the empty group would offer nothing at all.
  *
- * So this prunes, exactly the way [toNodeOrNull] used to for everybody, and it
- * is used only where pruning is the honest reading.
+ * So this prunes, which [toNode] deliberately does not, and it is used only
+ * where pruning is the honest reading.
  */
 fun TriggerDraft.toNodeIgnoringEmptyGroups(): TriggerNode? = when (this) {
     is TriggerDraft.One -> TriggerNode.One(ComponentSpec(component.type, component.config))

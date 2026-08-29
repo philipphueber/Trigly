@@ -341,7 +341,8 @@ fun TriggerNode.canStart(
 
         TriggerNode.Op.ALL -> children.indices.any { i ->
             children[i].canStart(hasEvents, hasState) &&
-                children.filterIndexed { j, _ -> j != i }.all { it.canHold(hasState) }
+                children.filterIndexed { j, _ -> j != i }
+                    .all { it.canHold(hasState) && it.canEverHold() }
         }
     }
 }
@@ -356,6 +357,68 @@ fun TriggerNode.canHold(hasState: (String) -> Boolean): Boolean = when (this) {
     is TriggerNode.One -> hasState(spec.type)
     is TriggerNode.Group -> children.all { it.canHold(hasState) }
 }
+
+/**
+ * Whether this tree could ever hold true, judged from its shape alone,
+ * independent of any runtime state.
+ *
+ * True for everything except one shape whose answer is a hard-coded constant:
+ * an `ANY` group with nothing in it, which [holds] already defines as always
+ * false. Its own kdoc says why: "`ANY` of nothing does not hold, because
+ * nothing satisfied it." [canHold] does not catch this on its own: it asks
+ * whether a tree can be *asked* without answering unreadable, and an empty
+ * `ANY` group answers every time, just always with the same "no". [canStart]
+ * needs the stronger question for its `ALL` branch, because "the other child
+ * can be asked" is not the same promise as "the other child could ever say
+ * yes", and an `ALL` beside a hard-coded "no" can never fire either. That is
+ * the same failure [canStart] already exists to catch for two bare edges,
+ * reached through an empty group instead of a second edge.
+ *
+ * A leaf is always assumed true here: whether `battery_level` is currently
+ * met depends on the battery, not on the shape of the tree, and this function
+ * judges the shape only. An empty `ALL` group is true for the matching
+ * reason: "`ALL` of nothing holds, because nothing failed," so it never
+ * drags an outer `ALL` down the way an empty `ANY` does.
+ */
+fun TriggerNode.canEverHold(): Boolean = when (this) {
+    is TriggerNode.One -> true
+    is TriggerNode.Group -> when (op) {
+        TriggerNode.Op.ALL -> children.all { it.canEverHold() }
+        TriggerNode.Op.ANY -> children.any { it.canEverHold() }
+    }
+}
+
+/**
+ * The trigger a rule holds before it has one, or after every real component in
+ * it has been removed.
+ *
+ * [Rule.trigger] is not nullable, so a rule that is saved before it is
+ * finished still needs a value to hold. See [Rule]'s own kdoc for why an
+ * empty group was picked over making the field nullable. An `ALL` group with
+ * nothing in it is already a value this model permits without a special case:
+ * [canStart] reads it as unable to start a rule, the same as it reads a real
+ * `ALL` group whose only child fails, and [holds] already defines what an
+ * empty `ALL` means at runtime. See that function's own kdoc. Nothing
+ * downstream has to learn a new state to recognise "no trigger yet". It
+ * already knows this one.
+ *
+ * `ALL` rather than `ANY` is an arbitrary pick between two options that behave
+ * identically here: [canStart] is `false` for an empty group of either
+ * operator. It was made once so a stored file has one spelling of the fact
+ * rather than two.
+ */
+val NO_TRIGGER: TriggerNode = TriggerNode.Group(TriggerNode.Op.ALL, emptyList())
+
+/**
+ * Whether this tree names no real component anywhere in it: the general form
+ * of "is this [NO_TRIGGER]".
+ *
+ * True for [NO_TRIGGER] itself, and also for a tree built only of nested empty
+ * groups, which the editor can reach by picking "Any of these" and never
+ * filling it in. Both read the same to a person looking at the rule: nothing
+ * has been chosen yet.
+ */
+fun TriggerNode.isUnset(): Boolean = leaves().isEmpty()
 
 /**
  * The components in this tree that no installed factory knows.

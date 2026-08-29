@@ -297,6 +297,63 @@ class GateTest {
         assertTrue(tree.canStart(::hasEvents, ::hasState))
     }
 
+    /**
+     * An empty `ANY` group beside a real edge, reachable in the editor by
+     * picking "Any of these" next to an existing trigger and never filling it
+     * in. `canHold` alone says this can start: an empty group is always
+     * askable, it just always answers "no". See [TriggerNode.canEverHold]'s
+     * own kdoc. That "no" is a hard-coded constant, not a runtime unknown, so
+     * `ALL(tap, ANY())` can never actually fire, the same as `ALL` of two
+     * bare edges. Found by a connected-suite failure where a rule shaped
+     * exactly like this saved enabled, because this was wrongly `true`.
+     */
+    @Test
+    fun `ALL beside an empty ANY group can never start`() {
+        assertFalse(all(one("tap"), any()).canStart(::hasEvents, ::hasState))
+    }
+
+    /** The mirror image: the empty group is the one that would have to start it. */
+    @Test
+    fun `an empty ANY group offered as the starter cannot start it either`() {
+        assertFalse(all(any(), one("time_window")).canStart(::hasEvents, ::hasState))
+    }
+
+    /**
+     * An empty `ALL` group beside a real edge is not the same trap: "`ALL` of
+     * nothing" holds unconditionally, so it never drags the outer `ALL` down.
+     * The single edge is free to start the rule on its own, exactly as if the
+     * empty group were not there.
+     */
+    @Test
+    fun `ALL beside an empty ALL group can still start`() {
+        assertTrue(all(one("tap"), all()).canStart(::hasEvents, ::hasState))
+    }
+
+    @Test
+    fun `canEverHold is true for a leaf regardless of the tree's shape`() {
+        assertTrue(one("time_window").canEverHold())
+        assertTrue(one("tap").canEverHold())
+    }
+
+    @Test
+    fun `canEverHold is false only for an empty ANY, never an empty ALL`() {
+        assertFalse(any().canEverHold())
+        assertTrue(all().canEverHold())
+    }
+
+    @Test
+    fun `canEverHold propagates an unfillable ANY up through a nested ALL`() {
+        // ALL(empty ANY, a real leaf) can never be true: one of its two
+        // required halves is a hard-coded "no".
+        assertFalse(all(any(), one("time_window")).canEverHold())
+    }
+
+    @Test
+    fun `canEverHold survives an unfillable sibling inside a nested ANY`() {
+        // ANY(empty ANY, a real leaf) can still be true through the leaf.
+        assertTrue(any(any(), one("time_window")).canEverHold())
+    }
+
     @Test
     fun `canHold requires every child answerable, whatever the operator`() {
         assertTrue(any(one("time_window"), one("bluetooth")).canHold(::hasState))

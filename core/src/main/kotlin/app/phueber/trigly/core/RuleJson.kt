@@ -318,6 +318,19 @@ object RuleJson {
      * Reads one v3 trigger node. A group has an `"op"` key; a leaf does not — see
      * the class doc for why a leaf must never grow a discriminator that would
      * make v1 files unreadable as leaves.
+     *
+     * An empty `"children"` array is accepted rather than refused. It used to be
+     * refused here: an editor that could only ever build a group with something
+     * in it made an empty one look like proof of a hand-edited or downgraded
+     * file. That stopped being true once a rule could be saved before its
+     * trigger was finished. See [NO_TRIGGER] and `RuleDraft.toRuleOrNull` in
+     * `:ui`: an empty group is exactly how that state is spelled, and this same
+     * function is what [decodeNode] calls to read it back out of the database
+     * column, not only what [decode] calls to read a file. Refusing it here
+     * would stop a deliberately unfinished rule from surviving the read it is
+     * written to survive. [TriggerNode.canStart] still reads an empty group as
+     * unable to start a rule, exactly as before, so nothing downstream needs a
+     * second opinion about what "empty" means.
      */
     private fun nodeFromJson(json: JSONObject, where: String): TriggerNode {
         if (!json.has(KEY_OP)) {
@@ -338,15 +351,6 @@ object RuleJson {
                 )
             nodeFromJson(obj, "child ${i + 1} of the group in $where")
         }
-        // The guard the old `Gate` had at construction, kept at the boundary that
-        // still needs it. `TriggerNode` deliberately permits an empty group —
-        // "all of nothing" holding and "any of nothing" not holding are what the
-        // words mean, and a total model needs no special case. But an empty group
-        // arriving in a *file* is a rule that can never start, which is the
-        // failure this whole design exists to make impossible. Refusing the
-        // import names it; accepting it hands someone a rule that looks saved and
-        // does nothing.
-        require(children.isNotEmpty()) { "The group in $where has no triggers in it." }
         return TriggerNode.Group(op, children)
     }
 
