@@ -26,8 +26,8 @@ import androidx.compose.ui.unit.dp
  * Two things keep it honest rather than merely convenient:
  *
  *  · **Manual entry survives.** The list is launcher apps only (see
- *    [loadInstalledApps] for why), so a service with no launcher icon — a
- *    plausible target for the notification watchdog — would otherwise become
+ *    [loadInstalledApps] for why), so a service with no launcher icon (a
+ *    plausible target for the notification watchdog) would otherwise become
  *    unreachable. Type a package name and the search field offers it directly.
  *  · **Optional stays optional.** Several components read an absent package as
  *    "match anything", so a field whose blankness means something gets a row that
@@ -57,7 +57,7 @@ fun AppPickerDialog(
                 PickerOption(
                     value = typed,
                     primary = "Use \"$typed\"",
-                    secondary = "not in the list — an app with no launcher icon",
+                    secondary = "Not in the list, because it has no launcher icon",
                 )
             } else {
                 null
@@ -93,7 +93,7 @@ fun AppIcon(packageName: String, size: Int = 32) {
  * The field itself: what the app-package config field renders as.
  *
  * Shows the app's *label* with its package underneath, because the label is what
- * someone recognises and the package is what the rule actually stores — hiding
+ * someone recognises and the package is what the rule actually stores. Hiding
  * the stored value would make a mis-picked app impossible to spot, and an app
  * that is not installed would render as nothing at all.
  */

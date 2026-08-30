@@ -29,8 +29,8 @@ import java.time.ZoneId
  * A zero-width *clock* window is useless taken literally, because no instant
  * is both inside and outside its own boundary, which is what justifies
  * reading it as "no restriction" instead. A zero-width *date* range has no
- * such problem: "24 December to 24 December" is a real, useful rule — "only
- * on Christmas Eve" — and reading it as "no restriction" would silently
+ * such problem: "24 December to 24 December" is a real, useful rule (meaning
+ * "only on Christmas Eve"), and reading it as "no restriction" would silently
  * defeat the one setting that phrase was written to express. So here,
  * `start == end` takes the ordinary `<=` branch and resolves to
  * `current in start..start`, which is exactly that single day.
@@ -50,13 +50,13 @@ fun dateRangeHolds(
  * and an end date, both given as a month and a day.
  *
  * **Zone:** the device's own, [ZoneId.systemDefault], for the same reason as
- * [DayOfWeekCheck] and [MonthCheck] — a date range names no place of its own.
+ * [DayOfWeekCheck] and [MonthCheck]: a date range names no place of its own.
  *
  * **No year field, on purpose.** "Between 1 December and 6 January" is
  * normally meant to repeat every year; a one-off "between 2 March 2026 and
  * 9 March 2026" is a different question this component does not answer.
- * Rather than accept a year and then silently ignore it — a format deciding
- * the meaning instead of a person doing so — there is simply no year field
+ * Rather than accept a year and then silently ignore it (a format deciding
+ * the meaning instead of a person doing so), there is simply no year field
  * to fill in: [configFields][DateRangeCheckFactory.configFields] declares a
  * start month, a start day, an end month and an end day, four keys, and
  * nothing else. The range this component describes recurs every year by

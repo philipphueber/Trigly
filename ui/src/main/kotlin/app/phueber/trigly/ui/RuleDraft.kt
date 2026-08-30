@@ -22,8 +22,8 @@ import app.phueber.trigly.core.unfilled
  *
  * No third value for a passive check: since [TriggerNode.Group] made a group
  * of triggers itself a trigger, a component asked for its state resolves
- * through the exact same registry lookup as one watched for an edge — see
- * `docs/conditions.md`'s "grouped under one component, transparently" — so
+ * through the exact same registry lookup as one watched for an edge (see
+ * `docs/conditions.md`'s "grouped under one component, transparently"), so
  * [RuleEditorViewModel.descriptorFor] and every node in the trigger tree,
  * whatever depth it sits at, simply pass [TRIGGER]. A third value would also
  * make every existing `when (slot)` non-exhaustive.
@@ -40,7 +40,7 @@ enum class Slot { TRIGGER, ACTION }
  * `Bluetooth device`, and `All of these` is one of the options in it.
  *
  * These two type strings therefore have to travel through the same
- * `changeTriggerType` / `addTrigger` calls a real component's type does — the
+ * `changeTriggerType` / `addTrigger` calls a real component's type does. The
  * screen must not know that some picker rows are special. The ViewModel is the
  * one place that reads them, through [groupOpFor], and turns them into a
  * [TriggerDraft.Group] instead of a [TriggerDraft.One].
@@ -63,7 +63,7 @@ fun groupOpFor(type: String): TriggerNode.Op? = when (type) {
  *
  * Descriptors built by hand rather than by a factory, because a group has no
  * factory to build it: its children are structure, and structure does not fit in
- * a `Map<String, String>` of config. `configFields` is empty for the same reason —
+ * a `Map<String, String>` of config. `configFields` is empty for the same reason:
  * a group's only setting is its operator, and that is a control on the block
  * itself, not a field in a form.
  *
@@ -111,7 +111,7 @@ data class ComponentDraft(
 )
 
 /**
- * An editable mirror of [TriggerNode] — see `core/.../Gate.kt` for the model
+ * An editable mirror of [TriggerNode]. See `core/.../Gate.kt` for the model
  * this shadows and the reasoning for it being one tree rather than a trigger
  * list beside a separate condition tree.
  *
@@ -120,12 +120,12 @@ data class ComponentDraft(
  * config under construction is not yet known to be config a factory accepts.
  *
  * Neither case carries a minimum on [Group.children] the way the editor's own
- * operations do — an imported or previously-saved rule can hold a vacuous or
+ * operations do. An imported or previously-saved rule can hold a vacuous or
  * singleton group, and the editor has to be able to load one to look at it or
  * remove it rather than refuse to render it. What the editor itself never
  * *constructs* is a group of fewer than two: adding a sibling to a lone
  * trigger promotes it into a group, and removing a child back down to one
- * un-promotes the group into that child — see [transformTrigger] — which is
+ * un-promotes the group into that child (see [transformTrigger]), which is
  * what keeps a rule with one trigger free of AND/OR chrome.
  */
 sealed interface TriggerDraft {
@@ -138,12 +138,12 @@ data class RuleDraft(
     /** Null for a rule that has not been saved yet. */
     val id: String?,
     val name: String = "",
-    /** Null when nothing has been chosen yet — the empty "choose a trigger" slot. */
+    /** Null when nothing has been chosen yet: the empty "choose a trigger" slot. */
     val trigger: TriggerDraft? = null,
     val actions: List<ComponentDraft> = emptyList(),
     val enabled: Boolean = true,
     /**
-     * "" means "no folder" here, unlike [Rule.folder]'s `null` — a text field has
+     * "" means "no folder" here, unlike [Rule.folder]'s `null`. A text field has
      * no way to hold a value that isn't a string, so the draft stores exactly
      * what it can put in one. [toRuleOrNull] is where that collapses to `null`,
      * through the same [normalizeFolder] every other boundary around [Rule.folder]
@@ -160,7 +160,7 @@ fun Rule.toDraft() = RuleDraft(
     trigger = trigger.toDraft(),
     actions = actions.map { ComponentDraft(it.type, it.config) },
     enabled = enabled,
-    // The domain's null becomes the draft's "" — see [RuleDraft.folder].
+    // The domain's null becomes the draft's "". See [RuleDraft.folder].
     folder = folder ?: "",
 )
 
@@ -337,7 +337,7 @@ private fun unfinishedActionLabel(actions: List<ComponentSpec>, registry: Regist
 /**
  * Seeds a newly chosen component with the defaults its schema declares.
  *
- * Fields whose blankness is meaningful get no value at all — see
+ * Fields whose blankness is meaningful get no value at all. See
  * [ConfigField.Text.blankMeaning]. Supplying "" for those would look identical
  * to a deliberate choice while actually being an accident of the editor.
  */
@@ -345,7 +345,7 @@ fun defaultConfigFor(fields: List<ConfigField>): Map<String, String> =
     fields.mapNotNull { field ->
         when (field) {
             // Minted here, once, because a fresh identifier cannot come from
-            // `defaultValue()` — a pure function asked twice would answer twice
+            // `defaultValue()`: a pure function asked twice would answer twice
             // differently. This is the only value the editor invents rather than
             // reads, and it is invisible: `GeneratedId` draws no control.
             is ConfigField.GeneratedId -> field.key to RuleJson.newId()
@@ -357,7 +357,7 @@ fun defaultConfigFor(fields: List<ConfigField>): Map<String, String> =
  * Carries config across a type change, keeping only keys the new type knows.
  *
  * Switching `wifi_state` to `bluetooth_adapter_state` should keep the
- * `enabled`/`disabled` choice rather than blanking the form — the two share the
+ * `enabled`/`disabled` choice rather than blanking the form. The two share the
  * key and the vocabulary. Switching to something unrelated correctly drops
  * everything.
  */
@@ -365,7 +365,7 @@ fun migrateConfig(
     existing: Map<String, String>,
     newFields: List<ConfigField>,
 ): Map<String, String> {
-    // Companion keys count as the field's own, because they are — with one
+    // Companion keys count as the field's own, because they are, with one
     // exception that does no harm here. A field can own more than one key when
     // the values are one answer: a latitude and its longitude, an hour and its
     // minute, a pattern and its match mode, a button and the notification it
@@ -375,7 +375,7 @@ fun migrateConfig(
     // already given. Found by swapping "Enter or leave an area" for "Is in an
     // area", which share a `Coordinates` field: the latitude survived and the
     // longitude came back null. A `ConfigField.Text.helpWhen` key is the one
-    // case that is not owned this way, only read — but it names a sibling that
+    // case that is not owned this way, only read. But it names a sibling that
     // is already in `newFields` with its own entry, so it is already kept or
     // dropped on its own account and listing it here a second time changes
     // nothing.
@@ -389,7 +389,7 @@ fun migrateConfig(
 
 /**
  * The node at [path] in the tree rooted at [this], or null if [path] leads
- * nowhere. The empty path is the root itself — mirrors [TriggerNode.at].
+ * nowhere. The empty path is the root itself. This mirrors [TriggerNode.at].
  */
 private fun TriggerDraft.at(path: NodePath): TriggerDraft? =
     path.fold(this as TriggerDraft?) { node, index ->
@@ -461,10 +461,10 @@ fun transformTrigger(
  *
  * A [TriggerDraft.Group] there just gains a sibling. A [TriggerDraft.One]
  * there is the promotion case: a lone trigger has no group of its own to add
- * a sibling to, so adding one wraps both under [op] — the only place a group
- * of exactly two children gets built by hand, mirroring [TriggerNode.addAt].
+ * a sibling to, so adding one wraps both under [op]. This is the only place a
+ * group of exactly two children gets built by hand, mirroring [TriggerNode.addAt].
  * `null` only happens at the root before anything has been chosen, and the
- * addition simply becomes the tree — the shape [RuleEditorViewModel.chooseTrigger]
+ * addition simply becomes the tree. That is the shape [RuleEditorViewModel.chooseTrigger]
  * would have produced directly, had the slot been filled that way instead.
  */
 fun addTriggerChild(

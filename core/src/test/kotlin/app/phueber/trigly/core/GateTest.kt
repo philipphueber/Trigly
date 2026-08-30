@@ -17,7 +17,7 @@ import org.junit.Test
  * has not come. Neither shows up as an error anywhere, and neither is observable
  * by watching a phone for an afternoon.
  *
- * The state lookup being a parameter is what makes all of this JVM-testable — no
+ * The state lookup being a parameter is what makes all of this JVM-testable: no
  * device, no Wi-Fi to toggle, and the awkward cases (unknown state, empty
  * branches, the leaf that just fired) reachable at all.
  */
@@ -36,7 +36,7 @@ class GateTest {
     }
 
     /**
-     * No child of an ALL/ANY group ever sits at the empty path — only a lone
+     * No child of an ALL/ANY group ever sits at the empty path. Only a lone
      * `One` used as a whole tree's root does, since it has no group above it.
      * The group tests below use this as "nothing fired". The lone-leaf tests
      * just below need a path that cannot be *that* leaf's own instead, since
@@ -60,8 +60,8 @@ class GateTest {
     @Test
     fun `an unknown state does not hold`() = runTest {
         // Null means "cannot be asked", not "no". Treating it as holding would
-        // fire a rule on a guess — for an app acting unattended, the worse of the
-        // two failures by a distance.
+        // fire a rule on a guess. For an app acting unattended, that is the worse
+        // of the two failures by a distance.
         assertFalse(one("sms_received").holds(someOtherLeaf, states("sms_received" to null)))
         assertFalse("a state nobody supplied is also unknown", one("wifi_state").holds(someOtherLeaf, states()))
     }
@@ -69,7 +69,7 @@ class GateTest {
     @Test
     fun `the leaf that fired holds without being asked`() = runTest {
         // The single most important property in this file: a component whose
-        // state cannot be read — null, or nothing supplied at all — still
+        // state cannot be read (null, or nothing supplied at all) still
         // counts as true when it is the leaf that just fired. Without this, a
         // momentary trigger (a tap, a notification) could never satisfy a
         // group on its own, because it has no state to be asked for.
@@ -122,8 +122,8 @@ class GateTest {
         val tree = all(one("notification"), one("time_window"))
 
         assertTrue(tree.holds(listOf(0), states("time_window" to true)))
-        // Same states, but nothing fired — the contrast that shows the true
-        // above came from the path match, not a lucky default.
+        // Same states, but nothing fired. That contrast shows the true above
+        // came from the path match, not a lucky default.
         assertFalse(tree.holds(notFired, states("time_window" to true)))
     }
 
@@ -131,12 +131,12 @@ class GateTest {
 
     @Test
     fun `a nested group changes the meaning of the tree, same leaves`() = runTest {
-        // A and (B or C) — true with only C.
+        // A and (B or C): true with only C.
         val grouped = all(one("a"), any(one("b"), one("c")))
         assertTrue(grouped.holds(notFired, states("a" to true, "b" to false, "c" to true)))
         assertFalse(grouped.holds(notFired, states("a" to false, "b" to true, "c" to true)))
 
-        // (A and B) or C — also true with only C, but for a different reason,
+        // (A and B) or C: also true with only C, but for a different reason,
         // and false where the first was true. Flattening would silently pick
         // one reading.
         val other = any(all(one("a"), one("b")), one("c"))
@@ -146,7 +146,7 @@ class GateTest {
 
     @Test
     fun `nesting three deep, mixing ALL and ANY, evaluates by structure not depth`() = runTest {
-        // a AND (b OR (c AND d)) — ALL wrapping an ANY wrapping an ALL.
+        // a AND (b OR (c AND d)): ALL wrapping an ANY wrapping an ALL.
         val tree = all(one("a"), any(one("b"), all(one("c"), one("d"))))
 
         assertTrue(tree.holds(notFired, states("a" to true, "b" to false, "c" to true, "d" to true)))
@@ -217,7 +217,7 @@ class GateTest {
 
     @Test
     fun `unknown names the leaves no installed factory knows`() {
-        // The editor stops these being built; this catches the other way in —
+        // The editor stops these being built. This catches the other way in:
         // an imported rule, or one saved by a newer version, naming a
         // component this build does not have.
         val tree = all(one("wifi_state"), any(one("ui_click")))
@@ -273,7 +273,7 @@ class GateTest {
     fun `ALL of two event-only components can never start`() {
         // Two edges describe two instants that never coincide: whichever one
         // fires, the other is asked for a state it does not have, answers
-        // unknown, and the group fails — forever, with no message on screen
+        // unknown, and the group fails. Forever, with no message on screen
         // to say why. This is the one mistake canStart exists to catch.
         assertFalse(all(one("edge-a"), one("edge-b")).canStart(::hasEvents, ::hasState))
     }
@@ -281,14 +281,15 @@ class GateTest {
     @Test
     fun `ALL cannot start if the would-be other child cannot be asked either`() {
         // "tap" can start the group on its own, but "edge-a" has no state to
-        // fall back on once "tap" is the one that fired — the same failure as
-        // two bare edges, just with only one of them able to start at all.
+        // fall back on once "tap" is the one that fired. That is the same
+        // failure as two bare edges, just with only one of them able to start
+        // at all.
         assertFalse(all(one("tap"), one("edge-a")).canStart(::hasEvents, ::hasState))
     }
 
     @Test
     fun `the starting child of an ALL group may itself be a group`() {
-        // ALL(ANY(tap, time_window), bluetooth) — the ANY sub-group can start
+        // ALL(ANY(tap, time_window), bluetooth): the ANY sub-group can start
         // (through "tap"), and "bluetooth" can be asked for its state. Same
         // shape as one edge and any number of levels, just with the edge
         // nested one level down.
@@ -357,8 +358,8 @@ class GateTest {
     @Test
     fun `canHold requires every child answerable, whatever the operator`() {
         assertTrue(any(one("time_window"), one("bluetooth")).canHold(::hasState))
-        // "tap" cannot be asked for a state at all, so the ALL cannot either —
-        // asking "is (a and b) true now" needs both a and b to be answerable.
+        // "tap" cannot be asked for a state at all, so the ALL cannot either.
+        // Asking "is (a and b) true now" needs both a and b to be answerable.
         assertFalse(all(one("time_window"), one("tap")).canHold(::hasState))
     }
 

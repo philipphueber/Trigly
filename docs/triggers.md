@@ -228,9 +228,9 @@ just the calendar read at the instant the gate asks. `docs/conditions.md`'s
 
 **Zone: the device's own, not typed in.** `SolarTrigger` takes a zone
 explicitly, because a sunrise it computes can name a place the phone is not
-currently standing in. None of these three names a place at all — "on
+currently standing in. None of these three names a place at all. "On
 weekdays", "in December" and "between 1 December and 6 January" are always
-questions about the calendar the phone is currently living in — so each reads
+questions about the calendar the phone is currently living in. So each reads
 `ZoneId.systemDefault()`, the same as `time_window`, and takes the zone and
 the clock as constructor parameters so a test can pin both without depending
 on the machine that runs it.
@@ -253,7 +253,7 @@ is genuinely a range. It stores a month and a day for each end and **no year**:
 a range with a year would answer a different, one-off question ("between
 2 March 2026 and 9 March 2026") that this component does not, and rather than
 accept a year and silently ignore it, there is simply nowhere to type one, so
-the range means what it looks like — it repeats every year. Both ends are
+the range means what it looks like: it repeats every year. Both ends are
 **inclusive**, unlike `time_window`'s adjacent-and-abutting windows, because two
 date ranges are not usually defined back to back. Wraparound is supported (1
 December to 6 January is a real range to want) via the same complement

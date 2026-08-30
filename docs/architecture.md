@@ -799,7 +799,7 @@ printing all three regardless of `mode` is what grew that field's help to four
 topics and 300 characters. `ConfigFieldEditor` reads it through
 `ConfigField.effectiveHelp(companions)` rather than `field.help` directly, and
 `companions` is the same map `NotificationButton` and friends already fill in
-from `companionKeys()` — so a mode-specific sentence reaches the screen through
+from `companionKeys()`. So a mode-specific sentence reaches the screen through
 a channel the editor cannot tell apart from a two-key field's own companion,
 and the editor itself never learns `mode`, `set_variable`, or any other
 factory's vocabulary. It only ever asks "does this sibling's value match",
@@ -807,7 +807,7 @@ the same question `shownWith` already asks.
 
 It resolves a missing sibling the opposite way `shownWith` does, on purpose.
 `shownWith` falls back to a sibling's own default, because guessing "hidden"
-wrongly is the worse mistake — a field vanishing from a form nobody has
+wrongly is the worse mistake: a field vanishing from a form nobody has
 touched. Guessing wrong here prints an extra sentence nobody asked for on a
 form nobody has touched, which is the smaller mistake, so a sibling with
 nothing stored contributes no extra sentence rather than one for its default.
@@ -2326,7 +2326,7 @@ both readable while still admitting, at a glance, that there is something to kno
 
 A field's own `help` follows the same rule once it runs long, with one
 deliberate difference. Nine of the app's 92 declared help strings cover more
-than one topic and run past 200 characters — `set_variable`'s value field was
+than one topic and run past 200 characters: `set_variable`'s value field was
 one before `helpWhen` split it up, and `play_alert`'s alarm-versus-music
 explanation is another that genuinely has no sibling to split on. `Hint` shows
 such a field's first sentence and a small chevron that reveals the rest, the
@@ -2576,15 +2576,15 @@ started holding code, and the same field has to keep drawing as prose in the
 mode where it is prose.
 
 **The box's shape follows the same signal, because a real phone showed that
-colour alone was not enough.** A `set_variable` expression clipped mid-line —
-`{{set_rule_enabled.enabled}} == "c`, the rest scrolled off sideways with no
-scrollbar and no ellipsis to say more was there — and everything below it, the
+colour alone was not enough.** A `set_variable` expression clipped mid-line
+(`{{set_rule_enabled.enabled}} == "c`, the rest scrolled off sideways with no
+scrollbar and no ellipsis to say more was there) and everything below it, the
 sample, "Insert variable", and the help, was pushed under the keyboard. Colour
 says *what* the box holds; it says nothing about *how much room* holding an
 expression needs, and an expression is source someone reads and edits line by
 line where a line of prose is not. So `isExpression` gates `minLines` and
 `maxLines` the same way it gates the highlighter: three lines to start, eight
-before it stops growing and scrolls internally instead — bounded, because
+before it stops growing and scrolls internally instead, bounded because
 Compose does not clip or ellipsise a text field's own content, so a field left
 to grow without limit would not reopen the clipping bug, but a long enough
 expression could still push everything under it off screen the same way the
@@ -2769,15 +2769,15 @@ artifact count and a licence name on the trailing edge that `SettingsRow` has
 no slot for, so it is a plain `Surface` instead, styled to match. The backup
 switch, the attribution row on `SettingsScreen`, and these two rows are all
 built on `SettingsRow`, and its signature is deliberately wide enough for a
-fourth shape none of them use yet — a row that shows a current value and
-opens a picker to change it — so that caller does not have to reshape the row
+fourth shape none of them use yet (a row that shows a current value and
+opens a picker to change it), so that caller does not have to reshape the row
 again.
 
 ## Update check
 
 One button on `AttributionScreen`, below the version: "Check for updates".
 Pressing it is the only thing that ever calls `checkForUpdate`, in
-`UpdateCheck.kt` — there is no scheduler, no `WorkManager` job and nothing
+`UpdateCheck.kt`. There is no scheduler, no `WorkManager` job and nothing
 else in this codebase that calls it. A person presses a control, Trigly looks
 once, and nothing about this app phones home any other way; see that file's
 own KDoc, which says so directly for the next person who goes looking for
@@ -2791,15 +2791,15 @@ Nothing changed there.
 `checkForUpdate` reads GitHub's own "latest release" API
 (`api.github.com/repos/philipphueber/Trigly/releases/latest`), the same
 information anyone visiting the releases page already sees, over
-`HttpURLConnection` — the same client `HttpRequestAction` uses in `:actions`,
-for the same reason: one caller does not justify adding OkHttp.
+`HttpURLConnection` (the same client `HttpRequestAction` uses in `:actions`,
+for the same reason: one caller does not justify adding OkHttp).
 `parseLatestReleaseTag` reads the response's `tag_name` field with
 `org.json`, the same library `RuleJson` uses in `:core` for the same reason:
 android.jar's own copy is a stub that throws at runtime, so `ui/build.gradle
 .kts` adds a `testImplementation` of the real one, for `UpdateCheckTest`.
 `isNewerVersion` compares each dot-separated part of a version as a number,
-not as text — `"0.10.0" < "0.9.0"` by plain string comparison, backwards for
-a version number — and treats a missing or non-numeric part as zero rather
+not as text (`"0.10.0" < "0.9.0"` by plain string comparison, backwards for
+a version number) and treats a missing or non-numeric part as zero rather
 than failing, since a malformed tag must not turn a button press into a
 crash.
 

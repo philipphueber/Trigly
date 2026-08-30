@@ -10,7 +10,7 @@ import org.junit.Test
 /**
  * [RuleJson]'s encoding of [TriggerNode] specifically: the v3 leaf/group shape,
  * the v1 shape it stays byte-compatible with, and the v2 edges-plus-conditions
- * shape it must still read. Runs on the JVM against the real `org.json` — see
+ * shape it must still read. Runs on the JVM against the real `org.json`. See
  * `RuleJsonTest` for why.
  *
  * The promise this exists to check: a rule that uses no group is written
@@ -51,7 +51,7 @@ class TriggerNodeJsonTest {
     @Test
     fun `a foldered rule with a plain trigger still writes the version 1 shape`() {
         // The folder key is additive on top of whichever shape the trigger
-        // itself needs — it must not be what pushes a plain rule to version 3.
+        // itself needs. It must not be what pushes a plain rule to version 3.
         val json = JSONObject(RuleJson.encode(plainRule.copy(folder = "Car")))
 
         assertEquals(1, json.getInt("version"))
@@ -118,8 +118,8 @@ class TriggerNodeJsonTest {
 
     @Test
     fun `a group of one child survives a round trip`() {
-        // The editor can never build this, but an imported file can hold one —
-        // e.g. after removing a sibling from a group elsewhere in the tree.
+        // The editor can never build this, but an imported file can hold one,
+        // for example after removing a sibling from a group elsewhere in the tree.
         val oneChildGroup = TriggerNode.Group(
             TriggerNode.Op.ANY,
             listOf(TriggerNode.One(spec("screen_state", mapOf("state" to "on")))),
@@ -142,7 +142,7 @@ class TriggerNodeJsonTest {
         val json = JSONObject(RuleJson.encode(listOf(plainRule, groupedRule)))
 
         assertEquals(3, json.getInt("version"))
-        // And the plain rule keeps its old leaf shape within that file — only
+        // And the plain rule keeps its old leaf shape within that file. Only
         // the rule that actually needs a group gets the new shape.
         val plainInFile = json.getJSONArray("rules").getJSONObject(0).getJSONObject("trigger")
         assertFalse(plainInFile.has("op"))
@@ -273,7 +273,7 @@ class TriggerNodeJsonTest {
     @Test
     fun `an empty triggers array in a v2 document is rejected`() {
         // A gate the editor could never build, reachable only from a hand-edited
-        // or downgraded-then-upgraded file — and a trigger with no edge can
+        // or downgraded-then-upgraded file. A trigger with no edge can
         // never fire, so this must fail the import rather than produce a dead
         // rule.
         val emptyTriggers = """
@@ -291,8 +291,8 @@ class TriggerNodeJsonTest {
     @Test
     fun `an unknown v2 condition node kind is rejected, not skipped, and the message names it`() {
         // Dropping the offending node (an 'all' branch, say) instead of
-        // rejecting it would make the rule fire in cases its author excluded —
-        // the exact failure this refusal exists to prevent.
+        // rejecting it would make the rule fire in cases its author excluded.
+        // That is the exact failure this refusal exists to prevent.
         val badConditions = """
             {"version":2,"rules":[{
               "name":"Bad conditions",

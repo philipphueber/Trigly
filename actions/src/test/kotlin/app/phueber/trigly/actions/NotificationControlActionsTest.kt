@@ -15,8 +15,8 @@ import org.junit.Test
 
 /**
  * The controller port is what makes these testable without a device: a fake
- * stands in for the listener service, so the interesting part — which
- * notification an action targets, and how it behaves when there isn't one — is
+ * stands in for the listener service, so the interesting part (which
+ * notification an action targets, and how it behaves when there isn't one) is
  * checked on the JVM.
  */
 class NotificationControlActionsTest {
@@ -180,7 +180,7 @@ class NotificationControlActionsTest {
      * The case the field help promises and a reader would assume the other way:
      * an app and a text filled in together must narrow the choice, not widen it.
      * Each of the three notifications below matches exactly one of the two
-     * conditions, and none of them is the target — only the fourth, which
+     * conditions, and none of them is the target. Only the fourth, which
      * matches both, is.
      */
     @Test
@@ -188,12 +188,12 @@ class NotificationControlActionsTest {
         val controller = FakeNotificationController(
             active = listOf(
                 // Matches the app only, and is the newest of the app-only match
-                // and the both-match below — if app alone decided, this would win.
+                // and the both-match below. If app alone decided, this would win.
                 notification(
                     "0|com.shopping|1|null|10", "com.shopping", postedAt = 9_000, text = "Eggs",
                 ),
-                // Matches the text only, and is newer than the both-match below —
-                // if text alone decided, this would win.
+                // Matches the text only, and is newer than the both-match below.
+                // If text alone decided, this would win.
                 notification(
                     "0|com.other|2|null|10", "com.other", postedAt = 8_000, text = "Milk",
                 ),
@@ -201,7 +201,7 @@ class NotificationControlActionsTest {
                 notification(
                     "0|com.other|3|null|10", "com.other", postedAt = 7_000, text = "Eggs",
                 ),
-                // Matches both, and is the oldest of the four — it must still win,
+                // Matches both, and is the oldest of the four. It must still win,
                 // because it is the only one that satisfies both filters at once.
                 notification(
                     "0|com.shopping|4|null|10", "com.shopping", postedAt = 1_000, text = "Milk",
@@ -243,7 +243,7 @@ class NotificationControlActionsTest {
 
     /**
      * The trigger's notification does not need to be in the active list to be
-     * dismissed — the payload names it exactly. Looking it up would only add a
+     * dismissed. The payload names it exactly. Looking it up would only add a
      * way to fail.
      */
     @Test

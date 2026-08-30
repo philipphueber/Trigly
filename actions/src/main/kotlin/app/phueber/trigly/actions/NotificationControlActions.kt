@@ -26,7 +26,7 @@ private val NOTIFICATION_ACCESS = listOf(
  *
  * **The target is not always the notification that fired the rule**, and until
  * now it had to be. The raw-key text box this action used to carry was rightly
- * removed — a key is minted by the posting app and cannot be typed in advance —
+ * removed (a key is minted by the posting app and cannot be typed in advance),
  * but nothing replaced it, which left the action able to dismiss only its own
  * trigger's notification. "When I leave the house, clear the shopping-list
  * reminder" was not expressible at all, and there was no field to suggest
@@ -36,23 +36,23 @@ private val NOTIFICATION_ACCESS = listOf(
  *
  *  · **App only.** The newest live notification from that app, as before.
  *  · **Text only.** The newest live notification, from any app, whose
- *    [notificationHaystack] (its title and body, joined — the same haystack
- *    `notification_posted` matches against, and what the notification
- *    inspector shows) matches [text].
+ *    [notificationHaystack] (its title and body, joined) matches [text].
+ *    That is the same haystack `notification_posted` matches against, and
+ *    what the notification inspector shows.
  *  · **Both.** The two narrow the choice together, not apart: a notification
  *    has to match the app *and* the text to be picked. "An app, or a text, or
  *    both" describes what a person may fill in, not an `or` between the two
- *    conditions — filling in a second field only to have it widen the match
+ *    conditions. Filling in a second field only to have it widen the match
  *    would be the opposite of what anyone filling in a second field wants.
  *  · **Neither.** Unchanged: the notification that fired the rule. That
- *    fallback is the common case and stays the default — "when my bank
+ *    fallback is the common case and stays the default: "when my bank
  *    notifies me, dismiss it" needs no configuration.
  *
  * A pattern [TextFilter] refuses to run to completion (`TextMatchMode.REGEX`,
  * a search [RegexGuard] abandons or already remembers as one that runs away)
  * reads as "does not match" for that one notification, the same as every other
  * [TextFilter] caller in this app. The selection simply has one fewer
- * candidate, which can end in the ordinary "nothing showing" failure below —
+ * candidate, which can end in the ordinary "nothing showing" failure below:
  * never a crash, and never a silent dismissal of the wrong notification.
  */
 class DismissNotificationAction(
@@ -65,15 +65,15 @@ class DismissNotificationAction(
     override suspend fun execute(event: TriggerEvent): ActionResult {
         // A key stored by an old rule still wins: it names one exact
         // notification, which is more specific than anything the selector can
-        // express. It will usually be stale — that is why the field is gone — but
+        // express. It will usually be stale (that is why the field is gone), but
         // honouring it keeps such a rule behaving as it did rather than silently
         // retargeting it at something else.
         legacyKey?.takeIf { it.isNotBlank() }?.let { return controller.dismiss(it) }
 
         // Neither an app nor a text was asked for: the payload already names the
         // exact notification, so dismiss it without looking anything up. Going
-        // through the active list here — as the button action must, because it
-        // needs the buttons — would add a way to fail that dismissing by key does
+        // through the active list here (as the button action must, because it
+        // needs the buttons) would add a way to fail that dismissing by key does
         // not have: a notification that has already gone, or a list read that
         // came back empty, would turn into "nothing to dismiss" instead of a
         // harmless no-op. This is the "neither" case from the class doc, and it
@@ -98,7 +98,7 @@ class DismissNotificationAction(
         }
 
         // Not chooseNotification: that helper also falls back to the triggering
-        // notification, which is wrong here — an app or a text was named, and
+        // notification, which is wrong here. An app or a text was named, and
         // quietly dismissing the trigger's notification instead when nothing
         // matches would be the wrong notification, reported as success. The two
         // filters are applied together, narrowing the same list, so "both" comes
@@ -141,9 +141,9 @@ class DismissNotificationAction(
  * asked for, so the failure names exactly what did not match rather than a
  * generic refusal.
  *
- * Only reached when at least one of [targetPackage] and [text] is set — see
+ * Only reached when at least one of [targetPackage] and [text] is set (see
  * [DismissNotificationAction.execute]'s "neither" branch, which returns before
- * this is ever called and has its own message.
+ * this is ever called and has its own message).
  */
 private fun noneShowingReason(targetPackage: String?, text: TextFilter): String {
     val whoseApp = targetPackage?.let { "from '$it'" }
@@ -161,7 +161,7 @@ class DismissNotificationActionFactory(
     override val category = ActionCategory.NOTIFICATIONS
 
     /**
-     * Two fields, both optional: which app, and what text. Neither is a key —
+     * Two fields, both optional: which app, and what text. Neither is a key:
      * a key cannot be known in advance, which is why the old text box existed
      * only to be left empty.
      *
@@ -197,7 +197,7 @@ class DismissNotificationActionFactory(
     override val warning: String =
         "Leave both fields blank and this action needs a notification trigger " +
             "before it in the rule: there is then nothing to dismiss but the " +
-            "one that fired it. Fill in an app, a text to match, or both — both " +
+            "one that fired it. Fill in an app, a text to match, or both. Both " +
             "together narrow the choice, so only a notification matching " +
             "everything filled in is dismissed, never one that only matches " +
             "part of it. Any of these dismisses its target no matter what fired " +
@@ -205,8 +205,8 @@ class DismissNotificationActionFactory(
 
     override val requirements = NOTIFICATION_ACCESS
 
-    // Its filters are written against what a notification actually contains — a
-    // package, a title, a piece of text — which is exactly what nobody can fill
+    // Its filters are written against what a notification actually contains (a
+    // package, a title, a piece of text), which is exactly what nobody can fill
     // in by guessing, and where a wrong guess yields a rule that silently never
     // fires. The inspector is the answer, so it is offered here rather than only
     // from the rule list, where you would have to know it exists.
@@ -332,12 +332,12 @@ internal fun resolveButtonTarget(
 }
 
 /**
- * Presses one of a notification's own buttons — "Reply", "Snooze", "Archive".
+ * Presses one of a notification's own buttons: "Reply", "Snooze", "Archive".
  *
  * **The target is not always the notification that fired the rule.** With a
  * package configured it acts on the newest live notification from that app, which
  * is what makes "when I connect to the car, press play on the music notification"
- * expressible — a Bluetooth trigger and a media target. With no package it falls
+ * expressible (a Bluetooth trigger and a media target). With no package it falls
  * back to the triggering notification, the commoner case.
  *
  * The button is identified by *meaning* first, then label, then the stored index;
@@ -352,8 +352,8 @@ class TriggerNotificationButtonAction(
     private val targetPackage: String?,
     private val legacyIndex: Int?,
     /**
-     * Used only when the notification API cannot reach the button — see
-     * [useScreenFallback]. Defaults to unavailable so the action assembles, and
+     * Used only when the notification API cannot reach the button (see
+     * [useScreenFallback]). Defaults to unavailable so the action assembles, and
      * behaves exactly as before, without accessibility access.
      */
     private val ui: UiController = UiController.Unavailable,
@@ -396,7 +396,7 @@ class TriggerNotificationButtonAction(
      * reported only the second would send someone to the wrong setting.
      *
      * Needs a label. Semantic actions and stored indexes describe entries in an
-     * `actions` array that, in this case, does not have them — only the words on
+     * `actions` array that, in this case, does not have them. Only the words on
      * the button exist on screen.
      */
     private suspend fun pressOnScreen(reason: String): ActionResult {
@@ -483,8 +483,8 @@ class TriggerNotificationButtonActionFactory(
 
     override val requirements = NOTIFICATION_ACCESS
 
-    // Its filters are written against what a notification actually contains — a
-    // package, a title, a piece of text — which is exactly what nobody can fill
+    // Its filters are written against what a notification actually contains (a
+    // package, a title, a piece of text), which is exactly what nobody can fill
     // in by guessing, and where a wrong guess yields a rule that silently never
     // fires. The inspector is the answer, so it is offered here rather than only
     // from the rule list, where you would have to know it exists.

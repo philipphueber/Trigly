@@ -18,7 +18,7 @@ import app.phueber.trigly.triggers.notification.NotificationWatchdogTriggerFacto
  * **This is the only existing file a new trigger touches.** Add the
  * implementation and its factory in new files, then add one line here. If a new
  * trigger type forces a change to `:core` or to a sibling trigger, the
- * abstraction is wrong — fix the interface instead of special-casing the type.
+ * abstraction is wrong. Fix the interface instead of special-casing the type.
  *
  * Files are organised by *broadcast source* rather than strictly one per type:
  * two triggers reading `ACTION_BATTERY_CHANGED` share a file because they share
@@ -49,7 +49,7 @@ fun triggerFactories(
     SolarTriggerFactory(scheduler),
     TimeOfDayTriggerFactory(scheduler, AndroidTimeZoneChanges(context)),
 
-    // Condition only — no event stream, so it can never start a rule. It lives in
+    // Condition only: no event stream, so it can never start a rule. It lives in
     // this list anyway because a condition *is* a trigger, asked rather than
     // watched; the editor decides which slots to offer it in from
     // `supportsCondition`. See `docs/conditions.md`.
@@ -57,7 +57,7 @@ fun triggerFactories(
     // It is the *exception*: there is no time trigger to fold it into, because
     // nobody has built a time-of-day trigger yet, even though `scheduler` above
     // could now back one. Everything else that can be asked is a passive form
-    // of a trigger that already existed — the location check folded into
+    // of a trigger that already existed. The location check folded into
     // `location` rather than standing beside it, which is what "one component,
     // the slot decides the question" means.
     TimeWindowCheckFactory(),
@@ -95,7 +95,7 @@ fun triggerFactories(
     DarkThemeTriggerFactory(context),
     OrientationTriggerFactory(context),
     DeviceRestartTriggerFactory(),
-    // Tapped by the user, so it can only ever be an edge — there is no "is a
+    // Tapped by the user, so it can only ever be an edge. There is no "is a
     // shortcut currently being tapped". Like `device_restart` it may arrive
     // before the engine exists, because the tap is what starts the process; see
     // `ShortcutEvents`.
@@ -112,7 +112,7 @@ fun triggerFactories(
     DndModeTriggerFactory(),
     NotificationWatchdogTriggerFactory(scheduler),
 
-    // Accessibility access — the most invasive grant Trigly asks for
+    // Accessibility access: the most invasive grant Trigly asks for
     UiClickTriggerFactory(),
     ScreenContentTriggerFactory(),
     KeyboardVisibilityTriggerFactory(),

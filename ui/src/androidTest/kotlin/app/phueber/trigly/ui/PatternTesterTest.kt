@@ -135,7 +135,7 @@ class PatternTesterTest {
     fun an_empty_pattern_is_reported_as_matching_anything() {
         open(null)
 
-        composeRule.onNodeWithText("EMPTY PATTERN — MATCHES ANYTHING").assertIsDisplayed()
+        composeRule.onNodeWithText("EMPTY PATTERN · MATCHES ANYTHING").assertIsDisplayed()
     }
 
     @Test

@@ -6,14 +6,14 @@
       background is resolved by the framework before any Compose code runs, so
       there is no way to read it from the theme.
 
-      Both sides are now written the same way — #RRGGBB here and `hex("#RRGGBB")`
-      there — so keeping them in step is a comparison, not a conversion.
+      Both sides are now written the same way: #RRGGBB here and `hex("#RRGGBB")`
+      there. So keeping them in step is a comparison, not a conversion.
     -->
     <color name="window_background">#FFFBF7</color>
 
     <!--
       The launcher icon's background layer. `Tone.Orange60`, which is also
-      `colorScheme.primary` in both themes — the icon and the app's header slab
+      `colorScheme.primary` in both themes. The icon and the app's header slab
       are now one colour rather than two neighbouring ones. This value used to be
       the odd one out, brighter than the `Orange40` the chrome carried, on the
       grounds that an icon competes with every other icon on a home screen while

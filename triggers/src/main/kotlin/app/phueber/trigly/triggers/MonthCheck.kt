@@ -27,7 +27,7 @@ fun monthHolds(current: Month, selectedMonths: Set<Month>): Boolean =
  * KDoc for the fuller reasoning; this repeats only what differs.
  *
  * **Zone:** the device's own, [ZoneId.systemDefault], for the same reason as
- * [DayOfWeekCheck] — a month is not a place, so there is nothing to type a
+ * [DayOfWeekCheck]: a month is not a place, so there is nothing to type a
  * zone about.
  *
  * **Twelve flags, not a from/to range.** "Holds in the months a person picks"

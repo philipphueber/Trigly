@@ -35,8 +35,8 @@ import org.junit.runner.RunWith
 
 /**
  * Chrome and rule labels are asserted in capitals on purpose: the design
- * uppercases them, so that is what the accessibility tree — and therefore a
- * screen reader — actually contains. Prose (the empty state, a requirement
+ * uppercases them, so that is what the accessibility tree (and therefore a
+ * screen reader) actually contains. Prose (the empty state, a requirement
  * explanation) stays in sentence case and is asserted that way.
  */
 @RunWith(AndroidJUnit4::class)
@@ -287,7 +287,7 @@ class RulesScreenTest {
         // The inspector used to sit in this bottom bar. It now opens from the
         // `Inspect` button on the block of whichever component reads
         // notifications, which is where someone is when a notification rule is
-        // not behaving — and, unlike navigating away, it cannot cost them a
+        // not behaving. And, unlike navigating away, it cannot cost them a
         // half-written rule. This asserts the old entry point is gone rather than
         // trusting that nobody put it back.
         composeRule.setContent { Screen(emptyList()) }
@@ -385,8 +385,8 @@ class RulesScreenTest {
         composeRule
             .onNodeWithText("(6 TRIGGERS) → SHOW A NOTIFICATION", substring = true)
             .assertTextContains("…", substring = true)
-        // The whole tree, spelled out, would not have needed truncating at all —
-        // if this is present the cut never happened and the test is not exercising it.
+        // The whole tree, spelled out, would not have needed truncating at all.
+        // If this is present the cut never happened and the test is not exercising it.
         composeRule
             .onNodeWithText(
                 "(BLUETOOTH CONNECTED AND WI-FI CONNECTED AND CHARGER IN AND HEADSET IN AND " +
@@ -627,7 +627,7 @@ class RulesScreenTest {
     /**
      * The requirement I care most about, in the spec's own words: a rule list
      * with no folder ever named on any rule must render exactly as it did
-     * before folders existed. No heading, no "Other" — nothing to distinguish
+     * before folders existed. No heading, no "Other": nothing to distinguish
      * it from the plain list at all.
      */
     @Test
@@ -643,14 +643,14 @@ class RulesScreenTest {
 
         composeRule.onNodeWithText("PING EVERY MINUTE").assertIsDisplayed()
         composeRule.onNodeWithText("SECOND RULE").assertIsDisplayed()
-        // No folder is in use, so "Other" — the bucket every unfoldered rule
-        // would otherwise collect under — must not appear either.
+        // No folder is in use, so "Other" (the bucket every unfoldered rule
+        // would otherwise collect under) must not appear either.
         composeRule.onNodeWithText("OTHER", substring = true).assertDoesNotExist()
     }
 
     /**
      * Two named folders plus a leftover rule become three headed sections,
-     * and "Other" sits after both — not where the letter O would otherwise
+     * and "Other" sits after both, not where the letter O would otherwise
      * sort it, which here would be between "Car" and "Night".
      */
     @Test
@@ -776,7 +776,7 @@ class RulesScreenTest {
 
     /**
      * A rule's name is the obvious match. This is the baseline the next test
-     * — matching by a component nobody named the rule after — is contrasted
+     * (matching by a component nobody named the rule after) is contrasted
      * against.
      */
     @Test
@@ -806,7 +806,7 @@ class RulesScreenTest {
 
     /**
      * A query with no hits must say so, rather than leaving an empty list that
-     * reads as "you have no rules" — a lie the moment a search is active.
+     * reads as "you have no rules": a lie the moment a search is active.
      */
     @Test
     fun a_search_with_no_matches_says_so() {
@@ -862,8 +862,8 @@ private val sampleRule = Rule(
 private fun statusesOf(vararg rules: Rule): List<RuleStatus> = rules.map { RuleStatus(it, unmet = emptyList()) }
 
 /**
- * In the "Car" folder, and named after nothing about its own trigger — the
- * fixture the component-search test needs: typing "bluetooth" must find this
+ * In the "Car" folder, and named after nothing about its own trigger. This is
+ * the fixture the component-search test needs: typing "bluetooth" must find this
  * one by what it does, not by its name.
  */
 private val drivingModeRule = Rule(
