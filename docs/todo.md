@@ -110,8 +110,8 @@ identifiers stay because T4, T8, T11 and R1 point at them.
   sight rather than abandoning a second thread for it; `MAX_ABANDONED_THREADS`
   caps how many distinct bad patterns may be abandoned at once, so several
   different bad patterns arriving together still cannot pin every core. A
-  refusal now names which of four reasons it was — timed out just now,
-  already known bad, another search is busy, or the cap is reached — and
+  refusal now names which of four reasons it was (timed out just now,
+  already known bad, another search is busy, or the cap is reached), and
   every caller that shows or reports a refusal to a person says the right one
   instead of "took too long" for a search that was never even tried.
 - **T25 A trace of the last trigger evaluation, per rule.** `onSuppressed`
@@ -629,6 +629,31 @@ so a huge `round` output no longer threatens the regex bound's own argument
 the way it used to. `round` is still worth fixing on its own terms: the
 `ArithmeticException` and the multi-second `BigDecimal` are real, just no
 longer tangled up with the regex bound's reasoning.
+
+### T26 Nothing tells a person which intent to send
+
+`fire_intent` can send an intent. Android keeps no catalogue of the intents an
+app accepts, and it offers no way to ask for one. So a person must already know
+the action string before the rule can use it, and almost nobody does. The
+action is built and the Test button says whether a configured intent would
+land, but neither of them helps a person who does not know what to type in the
+first place.
+
+`docs/intent-capture.md` holds the plan. Trigly makes itself a target in the
+share menu, and it shows the intent that arrives in plain words instead of
+acting on it. The other app writes the intent and Trigly reads it back, so the
+answer comes from the app itself and is known to work, because it worked once.
+That document also records the three routes that do not work, and why, so that
+nobody opens them again.
+
+**Decide first.** Three questions, all of them in that document: which MIME
+types Trigly claims in the share menu, whether a caught intent is kept or
+dropped, and whether an entry in every share menu on the phone is a fair price
+for everybody who never uses the feature.
+
+**Done when.** Either step 1 of that document is built and three real captures
+are written down in it, or the document gains the reason one of the three
+decisions killed it.
 
 ---
 
