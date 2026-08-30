@@ -25,13 +25,13 @@ val keystoreProperties = Properties().apply {
  * The signing password, from the system keyring rather than from a file.
  *
  * `scripts/setup-signing.sh` puts it there, which is what lets the password be
- * typed once by a person and then used by builds nobody is watching — without
+ * typed once by a person and then used by builds nobody is watching, without
  * the secret existing as plaintext anywhere on disk. The file keeps the parts
  * that are not secrets: which keystore, which alias.
  *
  * A `storePassword` in `keystore.properties` still wins if one is present. That
- * is the escape hatch for a machine with no keyring — CI, a container, a
- * headless box — and it is checked first so that a password somebody wrote down
+ * is the escape hatch for a machine with no keyring (CI, a container, a
+ * headless box), and it is checked first so that a password somebody wrote down
  * deliberately is never silently ignored in favour of a stale keyring entry.
  *
  * Every failure here resolves to null, and null means the release build comes
@@ -51,7 +51,7 @@ fun signingPasswordOrNull(): String? {
 
     // ProcessBuilder rather than providers.exec: exec() treats a non-zero exit
     // as a build failure, and "the keyring has no entry" is an expected answer
-    // here, not a failure. Cheap enough to run at configure time — it is one
+    // here, not a failure. Cheap enough to run at configure time: it is one
     // D-Bus round trip, and only for this module.
     return runCatching {
         val process = ProcessBuilder(
@@ -90,8 +90,8 @@ val releaseStoreFile = keystoreProperties.getProperty("storeFile")
  * A second literal in the task would be a version the build could disagree with
  * itself about, and the only symptom would be an APK whose name lies.
  */
-val triglyVersionName = "0.2.2"
-val triglyVersionCode = 15
+val triglyVersionName = "0.3.0"
+val triglyVersionCode = 16
 
 android {
     namespace = "app.phueber.trigly.ui"
@@ -168,7 +168,7 @@ android {
  * it is: `<repo>/dist/trigly-<version>.apk`.
  *
  * The build's own output is buried at `ui/build/outputs/apk/release/` under a
- * name that describes the *module* — `ui-release.apk` — which is the wrong name
+ * name that describes the *module* (`ui-release.apk`), which is the wrong name
  * for the thing being handed to someone to install, and a path nobody should
  * have to be told twice. `dist/` at the root is where a release artifact goes.
  *
@@ -179,9 +179,9 @@ android {
  * badging`.
  *
  * **The filename still carries the signing signal, because that is the only one
- * there is.** An unsigned release build is a success, not an error — a
+ * there is.** An unsigned release build is a success, not an error. A
  * contributor without the key can and should be able to check that R8 does not
- * break the release variant — so the one thing that says whether signing
+ * break the release variant. So the one thing that says whether signing
  * happened is what the file is called. Copying both possible inputs to one
  * output name would throw that away, so unsigned stays visibly unsigned.
  */
@@ -213,7 +213,7 @@ val distRelease by tasks.registering(Copy::class) {
         // unsigned build visibly unsigned.
         //
         // Filtered to this version, because versioned names mean `dist/` keeps
-        // the previous releases too — and listing those as if they had just been
+        // the previous releases too. Listing those as if they had just been
         // built is how the wrong APK gets published.
         val written = rootProject.file("dist")
             .listFiles { file ->
