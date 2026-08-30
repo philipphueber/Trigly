@@ -52,8 +52,8 @@ class MainActivity : ComponentActivity() {
     /**
      * Bumped whenever this activity resumes, to re-read permission state.
      *
-     * Granting happens in a system settings screen, which reports nothing back —
-     * the same round trip `onResume` already refreshes the rule list for. The
+     * Granting happens in a system settings screen, which reports nothing back.
+     * This is the same round trip `onResume` already refreshes the rule list for. The
      * editor needs it too, since it now hides a requirement once it is met, and
      * a row that stayed on screen after the grant would look like the grant had
      * not worked. Compose state, so reading it inside composition is what makes
@@ -118,8 +118,8 @@ class MainActivity : ComponentActivity() {
         // support, so the screens only have to handle one case. The insets are
         // then owned by `BlockHeader` and `BlockBottomBar`.
         enableEdgeToEdge(
-            // The status bar sits on `BlockHeader`, which is `colorScheme.primary`
-            // — the logo orange, and the one role that is the *same value* in
+            // The status bar sits on `BlockHeader`, which is `colorScheme.primary`:
+            // the logo orange, and the one role that is the *same value* in
             // both schemes (see `Palette.kt`). So the band behind the clock does
             // not change with the theme, and neither should the icons on it.
             //
@@ -161,7 +161,7 @@ class MainActivity : ComponentActivity() {
 
             TriglyTheme(colorScheme = resolved.colorScheme, extraColors = resolved.extra) {
                 // Saveable, so rotating the phone does not throw the user out of
-                // the editor — and so a rotation is not mistaken for leaving it,
+                // the editor, and so a rotation is not mistaken for leaving it,
                 // which is what `EditorHost` keys discarding the draft on.
                 var screen by rememberSaveable(stateSaver = ScreenSaver) {
                     mutableStateOf<Screen>(Screen.RuleList)
@@ -176,7 +176,7 @@ class MainActivity : ComponentActivity() {
                 // it just performed*, so a back press arrives while the callback
                 // that should answer it is being torn down. The rule list had no
                 // handler at all and leaned on the framework default to finish the
-                // activity — which is also why "back on the list closes the app"
+                // activity. That is also why "back on the list closes the app"
                 // was never something this app actually stated.
                 //
                 // Now it states it. [backTarget] holds the decision; null means
@@ -232,7 +232,7 @@ class MainActivity : ComponentActivity() {
                 // when a rule does, and what is kept in this process right now,
                 // which the reader asks for each time the dialog opens.
                 // Remembered so the provided lambda stays the same object across
-                // recomposition — a static local re-provided with a fresh value
+                // recomposition. A static local re-provided with a fresh value
                 // invalidates everything under it.
                 val declaredKept = remember(allRules) {
                     declaredKeptButtons(allRules.map { it.rule })
@@ -250,7 +250,7 @@ class MainActivity : ComponentActivity() {
                     LocalKeptButtons provides keptButtonReader,
                 ) {
                     // The page, as a Surface, for the content colour rather than
-                    // for the fill — `window_background` in `res/values*` already
+                    // for the fill. `window_background` in `res/values*` already
                     // paints the fill before Compose starts, and this agrees with
                     // it because both come from `Tone.Paper` / `Tone.Ink`.
                     //
@@ -488,11 +488,11 @@ class MainActivity : ComponentActivity() {
         // keyed on the constant "editor-new" and one instance serves every new
         // rule for the life of the activity; an existing rule keeps its own
         // instance under "editor-<id>". Either way, left alone the draft is
-        // whatever was last typed into it — saved, abandoned, half-finished — and
+        // whatever was last typed into it (saved, abandoned, half-finished), and
         // reopening shows that instead of what the rule actually is.
         //
         // Seeded on *entry*, not cleared on exit. An earlier version reset on
-        // dispose, reasoning that dispose catches every way of leaving — it does
+        // dispose, reasoning that dispose catches every way of leaving. It does
         // not catch them reliably: the disposal that coincides with a
         // configuration change has to be guarded out (or a rotation wipes the
         // draft), and any exit that is guarded out leaves the retained ViewModel
@@ -502,7 +502,7 @@ class MainActivity : ComponentActivity() {
         //
         // Every rule, not just a new one. `reset()` means "show what this editor
         // should start from", which is empty for a new rule and the *stored* rule
-        // for an existing one — so abandoning an edit and reopening shows what is
+        // for an existing one. So abandoning an edit and reopening shows what is
         // saved rather than the abandoned typing. For an existing rule that means
         // a blank form for the frame or two the read takes, which is the honest
         // way round: a flash of "loading" beats a flash of stale edits that look
@@ -521,7 +521,7 @@ class MainActivity : ComponentActivity() {
 
         // An effect, not a branch. Navigating from inside composition writes the
         // screen state while it is being read, which Compose is free to handle by
-        // recomposing — so the editor could be entered and left more than once for
+        // recomposing. So the editor could be entered and left more than once for
         // one save, churning the BackHandler registered beside it and leaving a
         // back press with nothing sensible to do. `exitHandled` is what stops the
         // signal being read again when this rule is next opened.
@@ -546,8 +546,8 @@ class MainActivity : ComponentActivity() {
             // rule being edited and has no business reading the whole table, while
             // the list's ViewModel is already observing exactly that.
             //
-            // Folder names compare exactly and case-sensitively — see
-            // `normalizeFolder` — so "Car" and "car" really are two folders. This
+            // Folder names compare exactly and case-sensitively (see
+            // `normalizeFolder`), so "Car" and "car" really are two folders. This
             // list is what stops someone creating the second one by accident.
             existingFolders = remember(statuses) {
                 statuses.mapNotNull { it.rule.folder }.distinct().sorted()
@@ -559,6 +559,7 @@ class MainActivity : ComponentActivity() {
             onMoveAction = editor::moveAction,
             onConfigChange = editor::setConfigValue,
             onTestAction = editor::testAction,
+            onCheckIntentTarget = editor::checkIntentTarget,
             onSave = editor::save,
             onDelete = editor::delete,
             onBack = onDone,
@@ -573,7 +574,7 @@ class MainActivity : ComponentActivity() {
             // The trigger tree: one slot that may be a group, addressed by
             // path. Every one of these defaults to a no-op on the screen, so
             // leaving any of them unwired would show the affordance and do
-            // nothing when tapped — which is why they are all listed here
+            // nothing when tapped. That is why they are all listed here
             // explicitly rather than relying on the defaults.
             onChangeTriggerType = editor::changeTriggerType,
             onAddTrigger = editor::addTrigger,
@@ -619,8 +620,8 @@ class MainActivity : ComponentActivity() {
      * Asks the launcher to pin a home-screen button for a shortcut trigger.
      *
      * Needs an `Activity` rather than the application context, because the
-     * launcher shows a confirmation dialog attributed to the foreground app —
-     * which is why this lives here and not in the screen.
+     * launcher shows a confirmation dialog attributed to the foreground app.
+     * That is why this lives here and not in the screen.
      *
      * A launcher that does not support pinning is reported rather than ignored.
      * Silence would be indistinguishable from success, and the user would go
@@ -653,7 +654,7 @@ class MainActivity : ComponentActivity() {
      * any one action.
      *
      * `EngineService` posts an ongoing notification, and from Android 13 the
-     * system silently drops it while this permission is refused — the service
+     * system silently drops it while this permission is refused. The service
      * keeps running, invisibly. That is the one outcome this app must not ship:
      * an automation app watching the device with nothing on screen to say so.
      * The user is still free to say no; they then get a running service they can
@@ -702,7 +703,7 @@ class MainActivity : ComponentActivity() {
     /**
      * Writes through the document picker rather than to a path of our choosing:
      * no storage permission, and the file lands somewhere the user picked and can
-     * find again — which is the whole point of an export.
+     * find again. That is the whole point of an export.
      */
     private fun export(payload: String, suggestedName: String) {
         pendingExport = payload
@@ -803,7 +804,7 @@ class MainActivity : ComponentActivity() {
         // `package:` URI, and on a list of every installed app when not. Which
         // ones is declared on the kind rather than guessed here, because handing
         // the URI to a screen that does not accept it makes the intent
-        // unresolvable — and the fallback below would then drop the user at the
+        // unresolvable, and the fallback below would then drop the user at the
         // top of Settings, which is worse than the list.
         if (kind.packageScoped) {
             intent.data = "package:$packageName".toUri()

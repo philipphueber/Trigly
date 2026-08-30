@@ -115,6 +115,7 @@ the tap start the activity: worse automation, but honest about who decided.
 | Keep a notification button | `capture_notification_button` | Notification access |
 | Press a kept button | `press_captured_button` | None |
 | Set Do Not Disturb | `set_dnd` | Do Not Disturb access |
+| Fire an intent | `fire_intent` | Display over other apps, only when sending as an activity |
 
 Design lines held deliberately:
 
@@ -137,6 +138,13 @@ Design lines held deliberately:
 - **`play_alert` custom sounds are `content:`/`file:` only.** A remote sound URI
   in an imported rule would be a beacon: it would report to a stranger's server
   every time the rule fired. Same reasoning as https-only `http_request`.
+- **`fire_intent` is the deliberate exception to every line above.** Its whole
+  job is to send an arbitrary command, so it cannot narrow a scheme the way
+  `open_url` does. What it does instead (refuse a `file:` data address,
+  refuse an intent that reaches Trigly's own package, and never expose a way
+  to set an `Intent` flag) is its own subsection below, "Firing a predefined
+  intent", for the same reason https-only `http_request` gets a full
+  paragraph rather than a bullet: the reasoning is the part worth keeping.
 - **Every action bounds its own wait; the engine does not.** `TriggerEngine`
   calls an action with no timeout around it, on purpose: no single number
   fits both `delay`, which waits on purpose for as long as an hour, and
@@ -598,6 +606,172 @@ mean `getLaunchIntentForPackage` returns null for apps not declared in
 options are `QUERY_ALL_PACKAGES` (Play-restricted) or building the app picker on
 the system's own chooser. It currently fails with a clear message rather than
 doing nothing.
+
+### Firing a predefined intent
+
+`fire_intent` sends the intent a person defined in advance: an action string, an
+optional target app and class, an optional data address, an optional MIME
+type, and up to three string extras, as an activity start, a broadcast, or a
+service start. It grew out of a concept for *learning* a command by catching
+it off the share menu; that capture screen is a separate, not-yet-built
+feature, and out of scope for this action. What is in scope here is the half
+that was always going to be needed regardless: a place to send the command
+once someone has it, and a way to check it before trusting a rule to fire it
+unattended.
+
+**This is the arbitrary-intent primitive the rest of this catalogue refuses to
+build**, on purpose, because sending an arbitrary command is the whole point.
+A rule's config can still arrive from an import or a shared recipe, so the
+question is not whether to narrow it (narrowing it would be building a
+different, useless action) but what has to be refused regardless, and this
+is the full reasoning behind the summary already given above:
+
+- **An intent that would reach Trigly's own package is refused, always,
+  regardless of whether the target is exported.** Trigly has exported
+  components of its own, and one of them acts on a value that an imported
+  rule can name. `ShortcutTargetActivity` fires whichever rule declares the
+  `shortcutId` it is handed, and `docs/architecture.md`'s "Importing a rule"
+  already establishes that such an id is not a secret inside the file.
+  Reaching that activity through `fire_intent` would be the same
+  confused-deputy route the sharing code already defends against, opened by a
+  different door. The refusal does not stop at exported components, either:
+  `AlarmWakeReceiver` is `exported="false"` and would still answer its own
+  app's broadcast with no package set at all, since a non-exported component
+  only refuses a *different* app, never its own. So the check asks Android
+  what would actually answer the configured intent (`decideIntentTargetCheck`
+  in `:actions`) and refuses whenever Trigly's own package is among the
+  answers, not only when a person typed Trigly's package name in by hand.
+- **A `file:` data address is refused outright**, for the same reason
+  `open_url` accepts only http and https: it can expose local content, and
+  handing one to another app throws `FileUriExposedException` on a modern API
+  level rather than merely failing. Nothing else about the data address is
+  narrowed: `geo:`, `tel:`, `market:`, an app's own custom scheme, and
+  `content:` all pass through unexamined, because refusing any of them would
+  be refusing the action's reason to exist.
+- **No `Intent` flag is ever exposed or set**, `FLAG_GRANT_READ_URI_PERMISSION`
+  included. This is not a rule that refuses a particular flag value; there is
+  no field anywhere in this action's schema that reaches `Intent.addFlags`,
+  so the whole class of "grant access to a URI as a side effect of firing a
+  rule" is not a decision this action can be talked into by a hostile config.
+  `launchForRule` still adds `FLAG_ACTIVITY_NEW_TASK` unconditionally for an
+  activity target, the same as every other action that opens something, and
+  that flag grants nothing.
+- **Typed extras (int, boolean, long) are deliberately out of scope, not
+  forgotten.** Every extra this sends is a string. The capture concept this
+  action grew from shows one or two named string values per command, and a
+  typed extra can be added later as new config keys, with no migration of a
+  saved rule, if a real command turns out to need one.
+
+**What an imported rule shows before it can fire.** `docs/architecture.md`'s
+"Importing a rule" already disables every imported rule regardless of what
+its file said, and `RulesViewModel.import`'s message already says the rules
+arrived switched off. Both apply to a `fire_intent` action exactly as they
+apply to any other. Whether that existing protection is enough, rather than
+something `fire_intent` needs on top of it, was worth asking rather than
+assuming: the config schema here is rendered by the same generic block UI
+every action uses, so the action string, the target app and class, the data
+address and the extras are all plainly on screen the moment the rule is
+opened, the same way an `http_request`'s URL already is. Nothing about this
+action's configuration is hidden, computed, or only visible once the rule
+runs. So the answer is that no extra plumbing was added: a person opening an
+imported rule sees exactly what it would send, next to this action's own
+`warning` explaining what each send mode really does, before they do
+anything that could turn it on.
+
+**Three send modes, three different platform realities, and none of them
+borrows another's requirement.**
+
+- **Activity.** Exactly the background-activity-start ban every other
+  "open" action carries (see `ACTIVITY_START_REQUIREMENTS` and
+  `BACKGROUND_START_WARNING` above). This is the one mode that needs the
+  overlay permission, and `requirementsFor` declares it only for this mode.
+- **Broadcast.** `sendBroadcast()` carries no background restriction at all:
+  any app, in any state, may call it. What it does not do is confirm that
+  anything received it: the call returns having only handed the intent to the
+  system, never learning whether a receiver ran. That makes it the one send
+  mode where "reported success" and "something happened" can genuinely come
+  apart, and there is no permission that fixes it, unlike the activity case.
+  `FireIntentAction` pre-resolves the target with `PackageManager` before
+  sending specifically so a broadcast that matches nothing earns a real
+  failure instead of a hollow success, but a receiver Trigly's queries cannot
+  see, or one registered dynamically at runtime rather than declared in a
+  manifest, is invisible to that pre-check the same way it is invisible to
+  the Test button below. Also worth stating plainly, since it is easy to read
+  the wrong way round: an *implicit* broadcast (no target app or class
+  chosen) has been undelivered to another app's manifest-declared receiver
+  since Android 8, the same background-broadcast limit that also governs
+  what a rule can *receive*. Naming a target app is what makes a broadcast
+  reliable here, not merely convenient.
+- **Service.** Since API 26, `startService()` refuses a call from an app the
+  platform considers background. But a foreground service is one of that
+  restriction's own exemptions, unlike the newer, stricter
+  background-*activity*-start ban that a foreground service does *not*
+  exempt from (see the cross-cutting blocker at the top of this document).
+  Trigly's engine runs as a foreground service for as long as any rule needs
+  it, so this mode needs no permission a settings screen could grant; if the
+  exemption were ever not held, the platform's own refusal is reported rather
+  than swallowed. Separately, and unconditionally: Android has required an
+  *explicit* intent for `startService()` since API 21, throwing
+  `IllegalArgumentException` for an implicit one, so this mode requires an
+  exact target app and class at config-build time, before a rule ever starts.
+  `startService()` also does not throw for a target that does not exist; it
+  returns null, which is read as a failure rather than as success.
+
+**What was verified about package visibility, and why it does not stop a real
+send.** On API 30+, `PackageManager`'s query methods (`queryIntentActivities`,
+`queryBroadcastReceivers`, `queryIntentServices`, and `getPackageInfo` for an
+explicit package name) answer nothing for an app Trigly has not declared in
+`<queries>`, whether or not that app is installed and would actually accept
+the intent. `open_app`'s own caveat above already establishes the same fact
+for `getLaunchIntentForPackage`; this is the identical, documented platform
+behaviour applied to a different set of `PackageManager` calls, rather than a
+measurement of each one. The query half was seen once on a device while this
+landed: on an API 35 emulator, a broadcast with an action string and no target
+app answered `HIDDEN_BY_VISIBILITY`, which is the filtered-query outcome this
+paragraph describes. That is one observation of the query side, not a test,
+and nothing automated covers it. The distinction that
+matters is *asking* versus *starting*: visibility filtering restricts what
+`PackageManager` will tell an app that queries it, not what the system will
+actually do for an app that already has an exact target and starts it. So a
+real send (naming a package, or naming nothing and letting Android resolve
+an implicit intent the way it always has) is not narrowed by this at all;
+only the *Test* answer can be. That is why `decideIntentTargetCheck` treats
+an empty, filtered query result as "Trigly cannot see the app" rather than as
+"no app accepts this" whenever filtering could be why the query came back
+empty, and why a real firing is never refused for that reason, only reported
+as a possibly-optimistic success where a broadcast already carries that
+caveat regardless.
+
+**The Test seam.** `ActionFactory.checkIntentTarget(config)` (`:core`) is the
+entry point, reached through `Registry.checkIntentTarget(ComponentSpec(type, config))`
+so the editor never needs `fire_intent`'s name to ask the question. That is
+the same indirection `toolsFor` already uses. It returns an `IntentTargetCheck?`:
+
+- `WOULD_RESOLVE`: an app Trigly can see would answer this.
+- `WOULD_NOT_RESOLVE`: earned only when Trigly could see every app that
+  might answer and asked all of them, and none does.
+- `HIDDEN_BY_VISIBILITY`: Android's package visibility rules hide whatever
+  might answer this from Trigly's own queries. Not a reason a real send would
+  fail; see above.
+- `REFUSED_SELF_TARGET`: the configured intent would reach Trigly's own
+  package. Not one of the concept's original three answers, and reported
+  separately from `WOULD_NOT_RESOLVE` on purpose: some app, Trigly itself,
+  genuinely would answer this, so claiming "no app will accept this" would be
+  false.
+- `null`: either this is not a `fire_intent` config at all, or one is but
+  cannot yet build a coherent intent for the chosen send mode (a required
+  field still blank, "service" chosen with no class name yet). Draw nothing
+  either way.
+
+It never sends anything: the whole function is `PackageManager` queries, the
+same ones a real send's pre-check already runs. Call it with every
+`{{...}}` reference in `config` already resolved to a sample value, the same
+way the generic Test flow resolves one before calling `create()`. This has
+no other way to see what a variable would hold. `fire_intent` declares
+`ComponentTool.CheckIntentTarget` instead of the generic `ComponentTool.Test`
+every other action gets by default, because the generic Test button really
+runs the action, and running an arbitrary intent to see whether it works is
+exactly the guess this whole action exists to remove.
 
 ---
 

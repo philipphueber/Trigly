@@ -152,7 +152,7 @@ class RuleEditorViewModelTest {
     /**
      * The bug this guards is not in the ViewModel so much as in its lifetime.
      * This one is keyed by rule id and kept in the activity's store, so it
-     * outlives the screen — and a `finished` flag left standing means the next
+     * outlives the screen. A `finished` flag left standing means the next
      * time that rule is opened, the editor reads "already done" and closes before
      * it is drawn. From the outside that is a rule that will not open, and a back
      * press swallowed by a screen that came and went.
@@ -199,8 +199,8 @@ class RuleEditorViewModelTest {
     }
 
     /**
-     * Config the factory refuses has to read as bad config, not as a failed run —
-     * they call for different fixes, and the factory's own message is the one
+     * Config the factory refuses has to read as bad config, not as a failed run.
+     * They call for different fixes, and the factory's own message is the one
      * written for a person.
      */
     @Test
@@ -292,6 +292,78 @@ class RuleEditorViewModelTest {
         assertNotNull(result)
         assertTrue("was: $result", result!!.contains("could not fill in a sample"))
         assertEquals("nothing should be left running", null, editor.state.value.testing)
+    }
+
+    /**
+     * `fire_intent` declares `ComponentTool.CheckIntentTarget` instead of the
+     * generic Test, and `checkIntentTarget` is the ViewModel side of that
+     * button. These three tests exercise it the same way the `testAction`
+     * tests above exercise Test, and stay deliberately clear of the
+     * `WOULD_RESOLVE` / `WOULD_NOT_RESOLVE` / `HIDDEN_BY_VISIBILITY` answers:
+     * telling those three apart depends on what `PackageManager` sees on this
+     * device, which `FireIntentActionTest` in `:actions` already covers
+     * against a fake resolver. `REFUSED_SELF_TARGET` needs no resolver at
+     * all: `decideIntentTargetCheck` answers it from the config alone, so
+     * it is the one answer this level can pin deterministically.
+     * `IntentTargetCheckMessageTest` is where all four messages themselves
+     * are checked, on the JVM.
+     */
+    @Test
+    fun checking_a_fire_intent_action_with_incomplete_config_draws_nothing() = runTest {
+        val editor = viewModel()
+        editor.addAction("vibrate")
+        editor.addAction("fire_intent")
+        editor.testAction(0)
+        assertNotNull("a prior result should be showing", editor.state.value.testResult)
+
+        // No intent action string is filled in yet, so `buildFireIntentSpec`
+        // cannot build a coherent intent and `checkIntentTarget` answers
+        // null. "Draw nothing" means the stale message from a different
+        // action must not linger as if it answered this one.
+        editor.checkIntentTarget(1)
+
+        assertNull(editor.state.value.testResult)
+    }
+
+    @Test
+    fun checking_a_fire_intent_action_that_targets_trigly_itself_is_refused() = runTest {
+        val editor = viewModel()
+        editor.setName("Loopback")
+        editor.chooseTrigger("bluetooth_connected")
+        editor.addAction("fire_intent")
+        editor.setConfigValue(Slot.ACTION, 0, "action", "com.example.COMMAND")
+        editor.setConfigValue(Slot.ACTION, 0, "package", context.packageName)
+        // A substitutable field, so this also proves a `{{...}}` reference is
+        // resolved before the check runs, the same as `testAction` already
+        // does for a real run. See `resolveSampleConfig`.
+        editor.setConfigValue(Slot.ACTION, 0, "extraKey1", "address")
+        editor.setConfigValue(Slot.ACTION, 0, "extraValue1", "{{trigger.address}}")
+
+        editor.checkIntentTarget(0)
+
+        val result = editor.state.value.testResult
+        assertNotNull(result)
+        assertTrue("expected the action's own name, got: $result", result!!.contains("Fire an intent"))
+        assertTrue("expected the refusal, got: $result", result.contains("Trigly refuses"))
+        assertTrue("expected a sample-value note, got: $result", result.contains("sample value"))
+        // Never runs anything, so nothing is ever "testing": there is no
+        // Stop state for a check that finishes before this call returns.
+        assertEquals(null, editor.state.value.testing)
+    }
+
+    @Test
+    fun checking_a_fire_intent_action_with_a_variable_nobody_offers_is_reported_without_checking() = runTest {
+        val editor = viewModel()
+        editor.addAction("fire_intent")
+        editor.setConfigValue(Slot.ACTION, 0, "action", "com.example.COMMAND")
+        editor.setConfigValue(Slot.ACTION, 0, "extraKey1", "address")
+        editor.setConfigValue(Slot.ACTION, 0, "extraValue1", "{{trigger.nope}}")
+
+        editor.checkIntentTarget(0)
+
+        val result = editor.state.value.testResult
+        assertNotNull(result)
+        assertTrue("was: $result", result!!.contains("could not fill in a sample"))
     }
 
     @Test
@@ -776,8 +848,8 @@ class RuleEditorViewModelTest {
     /**
      * The same proof [testing_an_action_that_reads_a_variable_uses_its_sample]
      * gives for trigger scope, for app scope: `VariableStore.scoped()` samples
-     * a variable with its own real value, "unlike a trigger's payload, this
-     * one is known right now" — so a test run reads the value actually in the
+     * a variable with its own real value ("unlike a trigger's payload, this
+     * one is known right now"), so a test run reads the value actually in the
      * store, not a placeholder.
      */
     @Test
@@ -862,7 +934,7 @@ class RuleEditorViewModelTest {
     }
 
     /**
-     * Whitespace is not a folder name — [normalizeFolder] in `:core` is where
+     * Whitespace is not a folder name. [normalizeFolder] in `:core` is where
      * that is decided, and [RuleDraft.toRuleOrNull] has to actually call it
      * rather than storing whatever the field held, or a rule could be saved
      * into a folder called "   " that looks identical to no folder at all and
@@ -998,8 +1070,8 @@ class RuleEditorViewModelTest {
     }
 
     /**
-     * Builds `ALL(screen_state, ALL(power_connection, battery_level))` — the
-     * three-deep shape several of the tests below share — by growing a lone
+     * Builds `ALL(screen_state, ALL(power_connection, battery_level))` (the
+     * three-deep shape several of the tests below share) by growing a lone
      * trigger through the same [RuleEditorViewModel.addTrigger] a person would
      * use: choose one, add a sibling (promotes to a group), then add a sibling
      * to that sibling (promotes it again, one level deeper).
@@ -1282,8 +1354,8 @@ class RuleEditorViewModelTest {
     }
 
     /**
-     * `time_window`'s `events()` is empty by design — see `TriggerFactory
-     * .producesEvents` — so a rule built around it alone would wait forever
+     * `time_window`'s `events()` is empty by design (see `TriggerFactory
+     * .producesEvents`), so a rule built around it alone would wait forever
      * with nothing on screen to say why. The picker has to refuse it before
      * the rule is ever saved, since [RuleEditorViewModel.save] only catches
      * config a factory *refuses*, not a tree that is merely pointless.
@@ -1302,8 +1374,8 @@ class RuleEditorViewModelTest {
     }
 
     /**
-     * `sms_received` and `clipboard_changed` are both pure edges — neither can
-     * answer "is this true right now" — so an `ALL` group holding both could
+     * `sms_received` and `clipboard_changed` are both pure edges (neither can
+     * answer "is this true right now"), so an `ALL` group holding both could
      * never be satisfied: whichever fires, the other is asked for a state it
      * does not have. `power_connection` can answer that question, so it is
      * still offered alongside the same edge.
@@ -1403,7 +1475,7 @@ class RuleEditorViewModelTest {
      * The bug: "New rule" showed the last one.
      *
      * An unsaved rule has no id, so its editor can only be keyed on the constant
-     * "editor-new" — and these ViewModels live in the activity's store, so that
+     * "editor-new". These ViewModels live in the activity's store, so that
      * one instance served every new rule for the life of the activity, carrying
      * the previous draft with it. [RuleEditorViewModel.reset] is what the screen
      * calls when it is genuinely left, and this is the behaviour it owes.
@@ -1426,7 +1498,7 @@ class RuleEditorViewModelTest {
     }
 
     /**
-     * For a rule that exists, "empty" is the wrong target — the stored rule is.
+     * For a rule that exists, "empty" is the wrong target. The stored rule is.
      * Reset reloads rather than blanks, so abandoning an edit and reopening shows
      * what is saved, not the abandoned typing and not a blank form.
      */
@@ -1456,8 +1528,8 @@ class RuleEditorViewModelTest {
 
     /**
      * The editor's *exit* now calls [RuleEditorViewModel.stopTest], not [reset],
-     * and that difference is the fix: leaving the editor — a rotation is a leave
-     * too — must not throw the draft away. Emptying a new rule happens on entry
+     * and that difference is the fix: leaving the editor (a rotation is a leave
+     * too) must not throw the draft away. Emptying a new rule happens on entry
      * instead. So stopping a test has to silence a run and touch nothing else.
      */
     @Test
