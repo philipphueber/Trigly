@@ -153,6 +153,13 @@ private fun LeafRow(
  * uses for a leaf: yes, no, or not consulted. A group has no "fired" or
  * "could not answer" of its own, those are leaf-only facts, so this only ever
  * shows the three that can be true of a whole subgroup's held answer.
+ *
+ * `maxLines = 1, softWrap = false`, the same guard `Blocks.kt`'s own KDoc
+ * documents for every button and chip label: this badge sits at the end of a
+ * [Row] beside a component name that is free to run long and wrap onto a
+ * second line, at whatever indentation a deep tree has pushed the row to. A
+ * badge left to wrap under a squeeze reads as a page of letters, one under
+ * the next; clipped, at least, it still reads as the one word it is.
  */
 @Composable
 private fun HeldBadge(held: Boolean?) {
@@ -161,13 +168,14 @@ private fun HeldBadge(held: Boolean?) {
         false -> "NO" to MaterialTheme.colorScheme.error
         null -> "NOT CHECKED" to MaterialTheme.colorScheme.onSurfaceVariant
     }
-    Text(text = text, style = MaterialTheme.typography.labelMedium, color = color)
+    Text(text = text, style = MaterialTheme.typography.labelMedium, color = color, maxLines = 1, softWrap = false)
 }
 
+/** Same reasoning as [HeldBadge]: a fixed word must not wrap under a squeeze. */
 @Composable
 private fun OutcomeBadge(outcome: LeafOutcome) {
     val (text, color) = outcome.label()
-    Text(text = text, style = MaterialTheme.typography.labelMedium, color = color)
+    Text(text = text, style = MaterialTheme.typography.labelMedium, color = color, maxLines = 1, softWrap = false)
 }
 
 /**
