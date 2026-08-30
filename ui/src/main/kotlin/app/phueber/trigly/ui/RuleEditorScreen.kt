@@ -10,7 +10,10 @@ import androidx.compose.foundation.layout.FlowRowScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -597,6 +600,10 @@ fun RuleEditorScreen(
         // and `BlockHeader` then pad themselves as they already do on every
         // screen that is not in a dialog. `RulesScreen`'s trace dialog carries
         // the same line for the same reason.
+        val systemBars = WindowInsets.systemBars.asPaddingValues()
+        val dialogHeight = LocalConfiguration.current.screenHeightDp.dp -
+            systemBars.calculateTopPadding() -
+            systemBars.calculateBottomPadding()
         Dialog(
             onDismissRequest = { inspecting = false },
             properties = DialogProperties(
@@ -604,8 +611,8 @@ fun RuleEditorScreen(
                 decorFitsSystemWindows = false,
             ),
         ) {
-            // `heightIn(max = …)`, not `fillMaxSize()`, and this is half the
-            // fix for a bottom bar that ran off the screen. The other half is
+            // A bounded height, not `fillMaxSize()`, and this is half the fix
+            // for a bottom bar that ran off the screen. The other half is
             // `decorFitsSystemWindows` above.
             //
             // `usePlatformDefaultWidth = false` makes the dialog window
@@ -625,9 +632,17 @@ fun RuleEditorScreen(
             // leaves a strip of the editor visible behind it, while one measured
             // taller loses the Back button. So this uses the configuration's
             // screen height, which never exceeds the window.
-            val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+            //
+            // The height also takes the system bars off, and that half is the
+            // reason the Back button is reachable at all. `RulesScreen`'s
+            // trace dialog carries the measurements: a dialog is never told
+            // the window insets, so `BlockBottomBar`'s own
+            // `navigationBarsPadding` adds nothing in here, and the plain
+            // screen height runs the bar under the gesture bar. Subtracting
+            // the bars, read outside the dialog where they are real, ends the
+            // content exactly where the navigation bar starts.
             Surface(
-                modifier = Modifier.fillMaxWidth().heightIn(max = screenHeight),
+                modifier = Modifier.fillMaxWidth().height(dialogHeight),
                 color = MaterialTheme.colorScheme.background,
             ) {
                 // Read on open and on Refresh, never held: what is posted changes

@@ -8,7 +8,10 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -564,20 +567,37 @@ private fun RuleBlock(
         // needs the width. See that screen's own comment for the rest of the
         // reasoning; it applies here unchanged.
         //
-        // **`decorFitsSystemWindows = false` is what keeps the Back button on
-        // screen.** It is not a style choice. Android 15 lays every window of
-        // an app that targets API 35 out edge to edge, and it does that to a
-        // dialog window too. The default `true` here does not stop that. It
-        // only makes Compose report the window insets inside this dialog as
-        // zero, on the promise that the system already inset the window. That
-        // promise is no longer kept. So the dialog covered the full height of
-        // the display, `BlockBottomBar`'s own `navigationBarsPadding` added
-        // nothing, and the Back label was drawn under the gesture bar with
-        // its bottom cut off. `heightIn(max = screenHeight)` cannot help,
-        // because `screenHeightDp` reports the whole display here, bars
-        // included. Saying `false` makes Compose dispatch the real insets,
-        // and `BlockBottomBar` and `BlockHeader` then pad themselves as they
-        // already do on every screen that is not in a dialog.
+        // **A dialog does not get the window insets, so this hands them in.**
+        //
+        // `BlockBottomBar` pads itself with `navigationBarsPadding` and
+        // `BlockHeader` with `statusBarsPadding`, which is right on every
+        // screen that is not in a dialog. Inside a dialog window both read
+        // zero. The bar was therefore drawn straight over the gesture bar,
+        // and the Back label lost its lower half. That is the fault this
+        // fixes, and it was reported against the "Last check" screen.
+        //
+        // Two things were measured on an API 35 emulator rather than assumed,
+        // because both are easy to get backwards:
+        //
+        // - `decorFitsSystemWindows = false` does **not** make the insets
+        //   arrive. It moves the window instead. The dialog then spans y 128
+        //   to 2400 on a 2400 pixel display: the system holds it clear of the
+        //   status bar, and still lets it run under the navigation bar. So it
+        //   fixes the top by accident and leaves the bottom exactly as broken.
+        //   Sizing the content to `screenHeightDp` on top of that makes it
+        //   worse again, because the display is taller than that window, and
+        //   the bar is then pushed off the bottom edge entirely.
+        // - Read outside the `Dialog` lambda, `WindowInsets.navigationBars`
+        //   holds the real value, because this composable runs in the
+        //   activity's own window where insets work normally.
+        //
+        // So the inset is read out here and applied as padding in there.
+        // `BlockBottomBar`'s own zero-valued padding inside the dialog adds
+        // nothing on top, so this does not double up.
+        val systemBars = WindowInsets.systemBars.asPaddingValues()
+        val dialogHeight = LocalConfiguration.current.screenHeightDp.dp -
+            systemBars.calculateTopPadding() -
+            systemBars.calculateBottomPadding()
         Dialog(
             onDismissRequest = { showingTrace = false },
             properties = DialogProperties(
@@ -585,9 +605,8 @@ private fun RuleBlock(
                 decorFitsSystemWindows = false,
             ),
         ) {
-            val screenHeight = LocalConfiguration.current.screenHeightDp.dp
             Surface(
-                modifier = Modifier.fillMaxWidth().heightIn(max = screenHeight),
+                modifier = Modifier.fillMaxWidth().height(dialogHeight),
                 color = MaterialTheme.colorScheme.background,
             ) {
                 TriggerTraceScreen(
