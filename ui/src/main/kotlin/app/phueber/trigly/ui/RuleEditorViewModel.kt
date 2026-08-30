@@ -7,6 +7,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.ComponentDescriptor
 import app.phueber.trigly.core.ComponentSpec
+import app.phueber.trigly.core.IntentTargetCheck
 import app.phueber.trigly.core.NodePath
 import app.phueber.trigly.core.Registry
 import app.phueber.trigly.core.RequirementChecker
@@ -43,7 +44,7 @@ data class EditorState(
     /** Set when a save was refused. Cleared on the next edit. */
     val error: String? = null,
     /**
-     * "This editor is finished with" — set by a successful save or a delete.
+     * "This editor is finished with." Set by a successful save or a delete.
      *
      * A one-shot signal, and [RuleEditorViewModel.exitHandled] is the other half
      * of it. It has to be, because this ViewModel is keyed by rule id and lives
@@ -104,13 +105,13 @@ class RuleEditorViewModel(
      * What the pickers offer: only what this device can actually run.
      *
      * A trigger whose API arrived after this phone's Android version, or whose
-     * radio the phone does not have, is filtered out — building a rule around it
+     * radio the phone does not have, is filtered out. Building a rule around it
      * would produce something that silently never fires. Permission-gated
      * components stay: those are a prompt away, and the editor states the
      * requirement inline.
      *
      * Filtered here rather than in `Registry`, which is deliberately
-     * device-agnostic — the engine must resolve a stored type on any device,
+     * device-agnostic. The engine must resolve a stored type on any device,
      * including one where the picker would no longer offer it. [descriptorFor]
      * goes to the registry unfiltered for exactly that reason, so an imported or
      * previously-saved rule still renders its component instead of going blank.
@@ -221,7 +222,7 @@ class RuleEditorViewModel(
      * Throws the current draft away.
      *
      * Called when the editor screen is genuinely left, because this ViewModel
-     * outlives it — see `MainActivity.EditorHost`. Without it the draft for an
+     * outlives it. See `MainActivity.EditorHost`. Without it the draft for an
      * unsaved rule persisted under the one key an unsaved rule can have,
      * "editor-new", and reappeared the next time "New rule" was tapped.
      *
@@ -236,7 +237,7 @@ class RuleEditorViewModel(
     }
 
     // Every node in the trigger tree resolves through this same lookup, under
-    // Slot.TRIGGER, whatever depth it sits at — see the KDoc on [Slot] for why
+    // Slot.TRIGGER, whatever depth it sits at. See the KDoc on [Slot] for why
     // there is no third value for it.
     fun descriptorFor(slot: Slot, type: String): ComponentDescriptor? = when (slot) {
         Slot.TRIGGER -> registry.triggerDescriptor(type)
@@ -264,7 +265,7 @@ class RuleEditorViewModel(
     }
 
     /**
-     * The rule's own folder name, typed or picked from an existing one — see
+     * The rule's own folder name, typed or picked from an existing one. See
      * [RuleEditorScreen]'s `existingFolders`. Stored as-is; [RuleDraft.folder]'s
      * own KDoc is where blank collapses to "no folder", at save time, not here.
      */
@@ -273,8 +274,8 @@ class RuleEditorViewModel(
     /**
      * Replaces whatever is at [path] with a fresh trigger of [type], migrating
      * compatible config across the swap the same way [changeActionType] does
-     * for an action. Whatever was there before — a lone trigger, or (rarer,
-     * but not refused) a whole group — is discarded; there is no sensible
+     * for an action. Whatever was there before, a lone trigger, or (rarer,
+     * but not refused) a whole group, is discarded; there is no sensible
      * config to carry over from a group, and none is lost that the person did
      * not just ask to replace.
      *
@@ -283,7 +284,7 @@ class RuleEditorViewModel(
      * name for the common one-trigger case.
      */
     fun changeTriggerType(path: NodePath, type: String) = edit {
-        // A group arrives here as an ordinary picked type — see [GROUP_OPTIONS] —
+        // A group arrives here as an ordinary picked type (see [GROUP_OPTIONS])
         // because the screen must not know that two of the picker's rows mean
         // something structural. This is the one place that reads them.
         groupOpFor(type)?.let { op ->
@@ -317,7 +318,7 @@ class RuleEditorViewModel(
         )
     }
 
-    /** Sets or replaces the trigger at the root — the whole tree, when the
+    /** Sets or replaces the trigger at the root: the whole tree, when the
      * rule has only ever had one. See [changeTriggerType], which this is a
      * thin wrapper over.
      */
@@ -327,8 +328,8 @@ class RuleEditorViewModel(
      * Appends a new trigger of [type] to whatever is at [path].
      *
      * A [TriggerDraft.Group] there just gains a sibling. A [TriggerDraft.One]
-     * there — including the common case of a rule with a single root trigger,
-     * addressed by the empty path — has no group of its own yet, so adding a
+     * there (including the common case of a rule with a single root trigger,
+     * addressed by the empty path) has no group of its own yet, so adding a
      * second promotes it into one, combined with [TriggerNode.Op.ALL]: see
      * [addTriggerChild].
      */
@@ -354,7 +355,7 @@ class RuleEditorViewModel(
     }
 
     /**
-     * Removes the node at [path], root included — an empty [path] clears the
+     * Removes the node at [path], root included. An empty [path] clears the
      * whole trigger back to its empty "choose a trigger" state rather than
      * leaving a node with nothing in it. A group that drops to one child
      * un-promotes into that child; see [transformTrigger].
@@ -379,7 +380,7 @@ class RuleEditorViewModel(
 
     /**
      * What a picker opened at [path] offers: only components that would leave
-     * the tree still able to start — see [TriggerNode.canStart] for why an
+     * the tree still able to start. See [TriggerNode.canStart] for why an
      * `ALL of` group can fail even though every part in it looks fine alone.
      *
      * Derived rather than listed, on purpose: each candidate is inserted at
@@ -387,8 +388,8 @@ class RuleEditorViewModel(
      * promotes into a group, a group gains a child, an empty root becomes the
      * trigger outright), and kept only if the resulting tree still
      * [TriggerNode.canStart]. That single check is what a hand-written pair of
-     * rules — "`time_window` cannot be a rule's only trigger", "a second
-     * event-only component cannot join an `ALL` group" — would otherwise have
+     * rules ("`time_window` cannot be a rule's only trigger", "a second
+     * event-only component cannot join an `ALL` group") would otherwise have
      * to state twice and would eventually let drift apart from each other;
      * both are exactly this same tree, after exactly this same insertion,
      * failing to start.
@@ -398,8 +399,8 @@ class RuleEditorViewModel(
         // The group rows are offered everywhere and are not put through the
         // can-this-still-start test below, because a group arrives empty: there is
         // nothing in it yet to start anything. An empty group is an unfinished
-        // draft, not an invalid rule, and `save()` is what refuses it — the same
-        // way it refuses a rule with no trigger at all.
+        // draft, not an invalid rule, and `save()` is what refuses it. That is the
+        // same way it refuses a rule with no trigger at all.
         return GROUP_OPTIONS + triggerOptions.filter { descriptor ->
             val addition = TriggerDraft.One(ComponentDraft(descriptor.type))
             // Empty groups ignored rather than refused here: see
@@ -439,7 +440,7 @@ class RuleEditorViewModel(
         copy(actions = actions.filterIndexed { i, _ -> i != index })
     }
 
-    /** Order is semantic — actions run in sequence — so moving them must persist. */
+    /** Order is semantic (actions run in sequence), so moving them must persist. */
     fun moveAction(from: Int, to: Int) = edit {
         if (from !in actions.indices || to !in actions.indices) return@edit this
         val reordered = actions.toMutableList()
@@ -450,13 +451,13 @@ class RuleEditorViewModel(
     /**
      * Edits one config value on an action, addressed by its flat index.
      *
-     * A trigger node's config goes through [setTriggerConfigValue] instead —
-     * it needs a tree path, not a flat index, now that a trigger is a tree
+     * A trigger node's config goes through [setTriggerConfigValue] instead.
+     * It needs a tree path, not a flat index, now that a trigger is a tree
      * rather than a list; there is no longer an index for [Slot.TRIGGER] to
      * mean. [Slot] is kept as a parameter anyway, an exhaustive `when` with a
      * no-op [Slot.TRIGGER] branch rather than dropped from the signature,
      * because this is the one *index*-addressed action method other code
-     * outside this file already calls by this exact name and shape — see
+     * outside this file already calls by this exact name and shape. See
      * [Slot]'s own KDoc for why it keeps both values regardless.
      */
     fun setConfigValue(slot: Slot, index: Int, key: String, value: String?) = edit {
@@ -577,12 +578,64 @@ class RuleEditorViewModel(
     }
 
     /**
+     * Fills in every `{{...}}` reference in [spec]'s config with a sample value,
+     * the same [SampleLookup] the picker itself shows, before anything is built
+     * from it.
+     *
+     * Shared by [testAction] and [checkIntentTarget], which both need the exact
+     * same resolution and for the same reason: neither can see what a variable
+     * would really hold, so both stand in a sample instead, and a rule that
+     * reads `{{trigger.title}}` is tried against a realistic title rather than
+     * an empty hole. Pulled out into one function so the two call sites answer
+     * "what does resolved config mean here" identically, rather than one
+     * quietly drifting from the other the next time either is edited.
+     *
+     * A field that cannot resolve is a failure here rather than a hole passed
+     * through, the same "refuse rather than run wrong" rule `Template.substitute`
+     * states for the engine itself.
+     *
+     * @return the resolved spec, paired with whether anything was actually
+     *   substituted (used to decide whether the caller's result needs
+     *   [SAMPLE_VALUES_NOTE]), or the reason a reference could not be filled in.
+     */
+    private fun resolveSampleConfig(spec: ComponentSpec, index: Int): Result<Pair<ComponentSpec, Boolean>> {
+        // Includes app scope, the same as [availableVariables]: a run that
+        // could not resolve `{{app.something}}` because this list forgot app
+        // scope would be the sample path silently narrower than the save path
+        // it is supposed to stand in for.
+        // Per index, not the screen-wide list: an action that reads
+        // `{{action.value}}` from the one above it has to resolve to that
+        // action's declared sample here, or a run would report a reference the
+        // real firing resolves without trouble as unfillable.
+        val lookup = SampleLookup(availableVariablesForAction(index))
+        val resolvedConfig = spec.config.toMutableMap()
+        var readsAVariable = false
+        for ((key, encoding) in registry.substitutionsFor(spec)) {
+            val raw = spec.config[key] ?: continue
+            val template = parseTemplate(raw)
+            // A field that holds no reference is left exactly as it was typed,
+            // and it is what decides whether the caller's result mentions
+            // samples at all.
+            if (!template.hasReferences) continue
+            readsAVariable = true
+            when (val resolved = template.substitute(lookup, encoding)) {
+                is Substituted.Ok -> resolvedConfig[key] = resolved.value
+                is Substituted.Failed -> {
+                    val reason = "could not fill in a sample for '$key'. ${resolved.reason}"
+                    return Result.failure(IllegalStateException(reason))
+                }
+            }
+        }
+        return Result.success(spec.copy(config = resolvedConfig) to readsAVariable)
+    }
+
+    /**
      * Runs one action now, so it can be judged by ear rather than by reading it
      * back.
      *
      * The reason this earns its place: half the settings on an action are
-     * *sensory* — which sound, how loud, how long, what the spoken text sounds
-     * like — and the alternative to a Test button is saving the rule, waiting for
+     * *sensory* (which sound, how loud, how long, what the spoken text sounds
+     * like), and the alternative to a Test button is saving the rule, waiting for
      * the real trigger, and inferring what happened. Picking a sound and hearing
      * it is one tap.
      *
@@ -615,39 +668,10 @@ class RuleEditorViewModel(
         val spec = ComponentSpec(draft.type, draft.config)
         val name = registry.displayNameOf(spec.type)
 
-        // Every field the action's own schema marks as substitutable is filled
-        // in from samples before anything is built. A field that cannot resolve
-        // is reported as the test result rather than run with a hole in it. That
-        // is the same "refuse rather than run wrong" rule `Template.substitute`
-        // states for the engine itself.
-        // Includes app scope, the same as [availableVariables]: a test run
-        // that could not resolve `{{app.something}}` because this list forgot
-        // app scope would be the sample path silently narrower than the save
-        // path it is supposed to stand in for.
-        // Per index, not the screen-wide list: an action that reads
-        // `{{action.value}}` from the one above it has to resolve to that
-        // action's declared sample here, or a test run would report a
-        // reference the real firing resolves without trouble as unfillable.
-        val lookup = SampleLookup(availableVariablesForAction(index))
-        val resolvedConfig = spec.config.toMutableMap()
-        var readsAVariable = false
-        for ((key, encoding) in registry.substitutionsFor(spec)) {
-            val raw = spec.config[key] ?: continue
-            val template = parseTemplate(raw)
-            // A field that holds no reference is left exactly as it was typed,
-            // and it is what decides whether the result mentions samples at all.
-            if (!template.hasReferences) continue
-            readsAVariable = true
-            when (val resolved = template.substitute(lookup, encoding)) {
-                is Substituted.Ok -> resolvedConfig[key] = resolved.value
-                is Substituted.Failed -> {
-                    val reason = "could not fill in a sample for '$key'. ${resolved.reason}"
-                    _state.update { it.copy(testing = null, testResult = "$name: $reason") }
-                    return
-                }
-            }
+        val (resolvedSpec, readsAVariable) = resolveSampleConfig(spec, index).getOrElse { cause ->
+            _state.update { it.copy(testing = null, testResult = "$name: ${cause.message}") }
+            return
         }
-        val resolvedSpec = spec.copy(config = resolvedConfig)
 
         // Built here rather than inside the coroutine so config the factory
         // refuses is reported as such, instead of as a failed run.
@@ -698,13 +722,60 @@ class RuleEditorViewModel(
         }
     }
 
+    /**
+     * Answers `fire_intent`'s "would this land" question, for the action at
+     * [index], without sending anything. This is the button
+     * `ActionFactory.checkIntentTarget` exists for. See [ComponentTool.CheckIntentTarget]'s
+     * KDoc in `:core` for why `fire_intent` declares that instead of
+     * [ComponentTool.Test], and `docs/actions.md`'s "Firing a predefined
+     * intent" for the whole design.
+     *
+     * **Reported through the same [EditorState.testResult] slot [testAction]
+     * writes.** That is the same "what did pressing that button say" surface
+     * on screen, prefixed with the action's own name the same way every
+     * [testAction] outcome is, and a second surface next to it would say
+     * nothing this one does not already cover.
+     *
+     * **Never touches [EditorState.testing].** That field exists so a second
+     * press can stop a *running* action; [Registry.checkIntentTarget] runs no
+     * coroutine and finishes before this function returns, so there is
+     * nothing to stop and nothing for a "Stop" label to mean. Leaving it
+     * alone also means pressing this cannot be mistaken for cancelling
+     * whichever other action's Test happens to be running.
+     *
+     * A `null` answer, per [Registry.checkIntentTarget]'s own contract, means
+     * either "this is not `fire_intent`" or "not enough config is filled in
+     * yet to build a coherent intent". Both draw nothing: the result is
+     * cleared rather than left showing a message about a different
+     * configuration than the one now on screen.
+     */
+    fun checkIntentTarget(index: Int) {
+        val draft = _state.value.draft.actions.getOrNull(index) ?: return
+        val spec = ComponentSpec(draft.type, draft.config)
+        val name = registry.displayNameOf(spec.type)
+
+        val (resolvedSpec, readsAVariable) = resolveSampleConfig(spec, index).getOrElse { cause ->
+            _state.update { it.copy(testResult = "$name: ${cause.message}") }
+            return
+        }
+
+        val check = registry.checkIntentTarget(resolvedSpec)
+        if (check == null) {
+            _state.update { it.copy(testResult = null) }
+            return
+        }
+
+        val note = if (readsAVariable) " $SAMPLE_VALUES_NOTE" else ""
+        _state.update { it.copy(testResult = "$name: ${describeIntentTargetCheck(check)}$note") }
+    }
+
     fun clearTestResult() = _state.update { it.copy(testResult = null) }
 
     /**
      * Stops a running test and leaves the draft alone.
      *
      * What the editor calls when it is left: [reset] would also throw the draft
-     * away, which is wrong on exit — a rotation is an exit too, and the draft has
+     * away, which is wrong on exit. A rotation is an exit too, and the draft has
      * to survive it. Silencing a looping `play_alert` is the part that must
      * happen whenever the screen goes away.
      */
@@ -730,9 +801,9 @@ class RuleEditorViewModel(
     /** @return a human-readable problem, or null if every component builds. */
     private fun validate(rule: Rule): String? {
         // Every leaf resolves through the same factory lookup whether it is
-        // the edge that starts the rule or a passive node nested under it —
-        // see `docs/conditions.md`'s "grouped under one component,
-        // transparently" — so they get one loop and one label, unsuffixed for
+        // the edge that starts the rule or a passive node nested under it
+        // (see `docs/conditions.md`'s "grouped under one component,
+        // transparently"), so they get one loop and one label, unsuffixed for
         // the common one-leaf rule so its message reads exactly as it always
         // has; only a tree with several leaves needs to say which one is at
         // fault.

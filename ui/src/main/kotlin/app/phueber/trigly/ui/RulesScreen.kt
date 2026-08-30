@@ -56,7 +56,7 @@ import app.phueber.trigly.core.leaves
  * Laid out as a header slab, a scrolling column of blocks, and a bottom strip,
  * rather than with `Scaffold`: the design wants the orange band painted *behind*
  * the status bar, and `Scaffold`'s job is to keep content out of exactly that
- * area. The insets are handled instead by the two pieces that touch them —
+ * area. The insets are handled instead by the two pieces that touch them:
  * [BlockHeader] and [BlockBottomBar].
  */
 @Composable
@@ -101,7 +101,7 @@ fun RulesScreen(
     // Both are view state, not rule data: what someone is typing into the
     // search field and which folders they last folded shut describe how this
     // screen is being looked at right now, not anything about a `Rule`.
-    // `rememberSaveable` is the right amount of persistence for that — it
+    // `rememberSaveable` is the right amount of persistence for that. It
     // survives a rotation, which would otherwise reopen every folder, but
     // neither belongs in the ViewModel or gets written back to a rule.
     var query by rememberSaveable { mutableStateOf("") }
@@ -167,7 +167,7 @@ fun RulesScreen(
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                // Uppercase, matching every other label in this chrome — the
+                // Uppercase, matching every other label in this chrome: the
                 // name field's "NAME *" in the editor, the search field other
                 // pickers already have (`ValuePickerDialog`'s `searchLabel`).
                 label = { Text(stringResource(R.string.rules_search_label).uppercase()) },
@@ -179,7 +179,7 @@ fun RulesScreen(
         val filtered = statuses.filter { matchesQuery(it, query, describeComponent) }
         // Decided from every rule, not the filtered set: a search that happens
         // to match only unfoldered rules must not make the folder chrome
-        // disappear, and — the case that matters most — someone who has never
+        // disappear, and (the case that matters most) someone who has never
         // typed a folder name sees exactly the flat list this screen showed
         // before folders existed, with or without a search in progress.
         val foldersInUse = statuses.any { it.rule.folder != null }
@@ -209,7 +209,7 @@ fun RulesScreen(
                     // disappearing with the rest of the chrome: it is how
                     // someone tells apart two rules that would otherwise both
                     // read "Driving mode" once the list is down to matches.
-                    // Only non-empty sections are shown — a folder heading
+                    // Only non-empty sections are shown. A folder heading
                     // with nothing under it, in a filtered view, would claim
                     // a match that is not there.
                     groupByFolder(filtered, otherLabel).forEach { section ->
@@ -297,8 +297,8 @@ private fun RulesEmptyState(message: String, modifier: Modifier = Modifier) {
  * A rule's name is not the only way someone recognises it: "Driving mode" says
  * nothing about Bluetooth to whoever typed that word, but the rule may well be
  * built on a Bluetooth trigger. Matching only the name would silently hide it,
- * so this also checks every leaf of the trigger tree — the whole tree, not
- * just its first node, now that a trigger can nest — and every action, by the
+ * so this also checks every leaf of the trigger tree (the whole tree, not
+ * just its first node, now that a trigger can nest) and every action, by the
  * same display name their own summary line already shows on screen. That is
  * why `describeComponent` is threaded all the way down here instead of
  * comparing against the raw type string nothing but this codebase ever sees.
@@ -316,7 +316,7 @@ private fun matchesQuery(
     return componentTypes.any { type -> describeComponent(type).contains(query, ignoreCase = true) }
 }
 
-/** One folder's worth of rules to show under one heading — "Other" included. */
+/** One folder's worth of rules to show under one heading, "Other" included. */
 private data class FolderSection(
     val key: String,
     val displayName: String,
@@ -376,13 +376,13 @@ private val CollapsedFoldersSaver: Saver<Set<String>, Any> = listSaver(
 )
 
 /**
- * A folder's own heading — never a rule, and must not read as one.
+ * A folder's own heading, never a rule, and must not read as one.
  * [SectionLabel] (`RuleEditorScreen.kt`) is the closest thing already in the
  * vocabulary: a solid tag in the chrome colour, no border, no shadow, unlike
  * every [BlockCard]. It is not reused as-is because it is a static,
  * wrap-content label with no count and no click; this is what it would need
  * to grow both. Worth promoting into `Blocks.kt` as a shared "counted,
- * collapsible heading" if another screen ever wants the same shape — this one
+ * collapsible heading" if another screen ever wants the same shape. This one
  * is kept local because only the rule list needs it today.
  *
  * Full width and clickable across its whole row, the same as [BlockCard]'s
@@ -561,13 +561,29 @@ private fun RuleBlock(
     if (showingTrace && trace != null) {
         // Full-bleed, the same shape `RuleEditorScreen`'s notification
         // inspector uses and for the same reason: a tree several levels deep
-        // needs the width, and `heightIn(max = screenHeight)` is what keeps
-        // the bottom bar on screen rather than pushed past the edge by an
-        // unbounded dialog window. See that screen's own comment for the
-        // full reasoning; it applies here unchanged.
+        // needs the width. See that screen's own comment for the rest of the
+        // reasoning; it applies here unchanged.
+        //
+        // **`decorFitsSystemWindows = false` is what keeps the Back button on
+        // screen.** It is not a style choice. Android 15 lays every window of
+        // an app that targets API 35 out edge to edge, and it does that to a
+        // dialog window too. The default `true` here does not stop that. It
+        // only makes Compose report the window insets inside this dialog as
+        // zero, on the promise that the system already inset the window. That
+        // promise is no longer kept. So the dialog covered the full height of
+        // the display, `BlockBottomBar`'s own `navigationBarsPadding` added
+        // nothing, and the Back label was drawn under the gesture bar with
+        // its bottom cut off. `heightIn(max = screenHeight)` cannot help,
+        // because `screenHeightDp` reports the whole display here, bars
+        // included. Saying `false` makes Compose dispatch the real insets,
+        // and `BlockBottomBar` and `BlockHeader` then pad themselves as they
+        // already do on every screen that is not in a dialog.
         Dialog(
             onDismissRequest = { showingTrace = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false),
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false,
+            ),
         ) {
             val screenHeight = LocalConfiguration.current.screenHeightDp.dp
             Surface(
@@ -924,7 +940,7 @@ private fun MoreMenu(
  * a fault in the rule, unlike a component's caveat, which is amber and merely
  * informative.
  *
- * Only shown for enabled rules — a disabled rule not firing is not a mystery
+ * Only shown for enabled rules. A disabled rule not firing is not a mystery
  * that needs explaining.
  */
 @Composable
@@ -989,23 +1005,23 @@ private fun RequirementCell(
  * The one line that says what a rule does, in display names rather than type
  * strings.
  *
- * **It must describe the whole tree.** It used to read `rule.gate.triggers` — the
- * first-level edges, joined with "or" — and append a bare count of conditions.
+ * **It must describe the whole tree.** It used to read `rule.gate.triggers` (the
+ * first-level edges, joined with "or") and append a bare count of conditions.
  * That was accurate only while "condition" was a separate, flatter thing beside
  * the triggers; once a gate became one [TriggerNode] that can nest to any depth,
- * the old join could state something the rule does not do — a two-deep "all of"
+ * the old join could state something the rule does not do: a two-deep "all of"
  * read the same as a two-deep "any of", and a rule three levels deep read no
  * differently from one two levels deep, just fewer or more words in an unordered
  * list. This line is where someone checks what a rule does without opening the
  * editor, so a summary that misdescribes is worse than one that is merely terse.
  *
  * A [TriggerNode.Group] is parenthesised and its children joined by "and" or
- * "or" depending on [TriggerNode.Op] — the same mark of grouping the tree itself
- * uses, so "a and (b or c)" reads exactly as nested as it is.
+ * "or" depending on [TriggerNode.Op]. This is the same mark of grouping the tree
+ * itself uses, so "a and (b or c)" reads exactly as nested as it is.
  *
  * **Never fewer triggers than the rule has.** A long tree can run this line past
  * the point of being scannable, but cutting it short must not make the rule read
- * as simpler than it is — that is the bug this replaced. So a cut string is never
+ * as simpler than it is. That is the bug this replaced. So a cut string is never
  * handed back on its own: it is always suffixed with the true leaf count, however
  * the text before it was truncated, which is what keeps a truncated summary
  * honest about having been truncated rather than looking complete.
@@ -1028,7 +1044,7 @@ private fun describeTrigger(node: TriggerNode, describeComponent: (String) -> St
     val full = renderTrigger(node, describeComponent)
     if (full.length <= MAX_TRIGGER_SUMMARY_LENGTH) return full
 
-    // A cut mid-tree can drop a whole child, or a whole side of an "or" — which
+    // A cut mid-tree can drop a whole child, or a whole side of an "or". That
     // is exactly the shape of the bug this line exists to prevent. Naming the
     // true count after the cut is what makes the truncation honest regardless
     // of where the text happened to break.

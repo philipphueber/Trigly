@@ -5,7 +5,7 @@ package app.phueber.trigly.core
  *
  * Config is stored as `Map<String, String>`, which the engine is happy with and a
  * form cannot be drawn from. This is the missing half: each factory declares its
- * fields, and the editor renders them. Same pattern as [ComponentRequirement] —
+ * fields, and the editor renders them. Same pattern as [ComponentRequirement]:
  * declared on the factory, consumed by the UI, invisible to the engine.
  *
  * **The schema renders; the factory validates.** Nothing here duplicates the
@@ -25,8 +25,8 @@ sealed interface ConfigField {
 
     /**
      * Shown beneath the field. This is where the caveats that currently live in
-     * KDoc — battery cost, platform restrictions, "this only works while the
-     * screen is on" — finally reach the person building the rule.
+     * KDoc (battery cost, platform restrictions, "this only works while the
+     * screen is on") finally reach the person building the rule.
      */
     val help: String?
 
@@ -40,7 +40,7 @@ sealed interface ConfigField {
      * they are looking at does nothing.
      *
      * Declared on the field rather than computed by the editor so the rule lives
-     * with the schema that owns it — a new field's author decides when it
+     * with the schema that owns it. A new field's author decides when it
      * applies, and no screen has to learn about it.
      */
     val shownWhen: FieldCondition?
@@ -74,7 +74,7 @@ sealed interface ConfigField {
         val placeholder: String? = null,
         /**
          * What leaving this empty *means*, when empty is a real setting rather
-         * than a missing value — "any device", "all apps".
+         * than a missing value: "any device", "all apps".
          *
          * Load-bearing: several components treat an absent value as "match
          * anything", so an editor that helpfully substituted a default would
@@ -111,7 +111,7 @@ sealed interface ConfigField {
          * explanations regardless of mode is what grew its help to four topics
          * and 300 characters. Declaring the mode-specific sentences here instead
          * keeps the editor itself ignorant of `mode`, `set_variable`, or any
-         * other factory's vocabulary — it only ever asks "does this sibling's
+         * other factory's vocabulary. It only ever asks "does this sibling's
          * value match", the same question [shownWith] already asks.
          */
         val helpWhen: List<ConditionalHelp> = emptyList(),
@@ -141,7 +141,7 @@ sealed interface ConfigField {
         val unit: String? = null,
     ) : ConfigField
 
-    /** A number with decimals — coordinates, radii. */
+    /** A number with decimals: coordinates, radii. */
     data class Decimal(
         override val key: String,
         override val label: String,
@@ -159,14 +159,14 @@ sealed interface ConfigField {
      * nobody ever types or reads.
      *
      * `shortcut` needs one: a launcher shortcut has to name the rule it fires,
-     * and a trigger is never told its own rule id — so the identity has to live
+     * and a trigger is never told its own rule id, so the identity has to live
      * in the trigger's own config. Before this kind existed it was a required
      * `Text` field whose help said "generated automatically" while nothing
      * generated it, which is the worst shape a field can have: mandatory,
      * unfillable, and silently fatal to the rule.
      *
      * Declared rather than special-cased so the editor stays free of
-     * per-component knowledge — the same reason [ConfigField] exists at all. The
+     * per-component knowledge, the same reason [ConfigField] exists at all. The
      * editor seeds it once at creation and draws no control for it, because
      * there is nothing here for a person to decide.
      */
@@ -198,8 +198,8 @@ sealed interface ConfigField {
      * an identifier rather than a description: a rule can be renamed, and a rule
      * that stops being found because someone tidied up its title would be a
      * silent failure of exactly the kind this app keeps trying not to have. The
-     * editor shows the name and stores the id — the trade [AppPackage] already
-     * makes.
+     * editor shows the name and stores the id. That is the trade [AppPackage]
+     * already makes.
      *
      * A picker, necessarily: an id is a UUID nobody can type or recognise.
      */
@@ -228,8 +228,8 @@ sealed interface ConfigField {
 
     /**
      * A sound on this device, stored as its `content:` or `file:` URI. Stored and
-     * validated exactly like [Text]; separate for the same reason [AppPackage] is
-     * — nobody can produce `content://media/internal/audio/media/54` from
+     * validated exactly like [Text]; separate for the same reason [AppPackage] is:
+     * nobody can produce `content://media/internal/audio/media/54` from
      * memory, and nobody should have to go looking for it.
      *
      * Blankness carries the same weight it does on [AppPackage]: an alert with no
@@ -251,7 +251,7 @@ sealed interface ConfigField {
      * actually paired with rather than asking for `00:11:22:33:44:55`.
      *
      * Paired devices are not the same set as devices that could ever connect, so
-     * the editor keeps a way to type an address — the same escape hatch
+     * the editor keeps a way to type an address. That is the same escape hatch
      * [AppPackage] keeps for an app with no launcher icon. Reading the pairing
      * list needs `BLUETOOTH_CONNECT` from API 31, so an empty list can mean "not
      * allowed to look" rather than "nothing paired"; that is a distinction for the
@@ -268,8 +268,8 @@ sealed interface ConfigField {
 
     /**
      * An emoji, stored as the literal character(s). Stored and validated exactly
-     * like [Text]; separate for the same reason [AppPackage] and [SoundUri] are —
-     * so the editor can offer a curated grid instead of sending someone off to
+     * like [Text]; separate for the same reason [AppPackage] and [SoundUri] are:
+     * the editor can offer a curated grid instead of sending someone off to
      * find their keyboard's emoji tab and remember which one they used last time.
      *
      * Blankness carries the same weight it does on [AppPackage] and [SoundUri]:
@@ -291,15 +291,15 @@ sealed interface ConfigField {
      * suits.
      *
      * Every duration in the app used to be a raw `Number` in ms, because that is
-     * what the engine wants — defensible for a vibration and absurd for a
+     * what the engine wants: defensible for a vibration and absurd for a
      * watchdog, where half an hour reads as `1800000`. This keeps the storage and
      * changes the control, which is the same trade [AppPackage] and [Slider]
      * make.
      *
      * [maxMillis] is a real cap rather than a hint where one exists: `vibrate`
      * and `play_alert` both bound their duration because a mistyped one is
-     * otherwise unstoppable from inside the app. The factory still enforces it —
-     * this only stops the editor offering what will be refused.
+     * otherwise unstoppable from inside the app. The factory still enforces it.
+     * This only stops the editor offering what will be refused.
      */
     data class Duration(
         override val key: String,
@@ -322,8 +322,8 @@ sealed interface ConfigField {
      *
      * **Worth knowing what this cannot fix.** An absolute instant is a poor fit
      * for a rule that fires repeatedly: after the first run the moment is in the
-     * past. The editor cannot rescue that — only an offset from the firing time
-     * could — so a component using this should say what it means for a rule that
+     * past. The editor cannot rescue that (only an offset from the firing time
+     * could), so a component using this should say what it means for a rule that
      * fires twice.
      */
     data class Timestamp(
@@ -343,7 +343,7 @@ sealed interface ConfigField {
      * makes the user do a conversion their phone already has a picker for.
      *
      * Two keys rather than one "HH:mm" string so that nothing stored has to
-     * change — [minuteKey] defaults to the hour key plus `Minute`, matching the
+     * change: [minuteKey] defaults to the hour key plus `Minute`, matching the
      * convention [TextPattern.modeKey] set.
      */
     data class TimeOfDay(
@@ -362,8 +362,8 @@ sealed interface ConfigField {
      * a rule with only one of them set is meaningless. Kept as two stored values
      * so nothing saved has to change.
      *
-     * Still typeable — a place you are not currently standing has to be enterable
-     * somehow — but the editor also offers the device's own position, which is the
+     * Still typeable (a place you are not currently standing has to be enterable
+     * somehow), but the editor also offers the device's own position, which is the
      * answer for "home" and "work" and removes the copy-two-numbers-from-a-map
      * errand that a sixth decimal place makes easy to get silently wrong.
      */
@@ -379,14 +379,14 @@ sealed interface ConfigField {
     /**
      * A whole number on a bounded scale, set by feel rather than by typing.
      * Stored and validated exactly like [Number]; separate for the same reason
-     * [AppPackage] is separate from [Text] — so the editor can offer a different
+     * [AppPackage] is separate from [Text]: the editor can offer a different
      * control.
      *
      * The distinction is not "does it have bounds" but *what the bounds mean*.
      * `Number` bounds are a guard rail on a value you know: a poll interval of
      * 5000 ms is a decision, and a slider would make it fiddly to hit and
-     * illegible once set. A `Slider` value is a position — half volume, a
-     * quarter brightness — where the exact digits are the least interesting part
+     * illegible once set. A `Slider` value is a position (half volume, a
+     * quarter brightness) where the exact digits are the least interesting part
      * and dragging is how anyone actually thinks about it.
      *
      * [min] and [max] are required, unlike on [Number]: a scale with an open end
@@ -418,7 +418,7 @@ sealed interface ConfigField {
      *
      * The only kind that owns **two** config keys: [key] holds the pattern and
      * [modeKey] holds the [TextMatchMode]. They are one field because they are
-     * one decision — "what counts as a match here" — and splitting them into a
+     * one decision ("what counts as a match here") and splitting them into a
      * text box and an unrelated dropdown would put the mode somewhere the
      * pattern's own editor cannot see it. It has to see it: a regex is worth
      * syntax-highlighting and worth checking as it is typed, and a substring is
@@ -443,7 +443,7 @@ sealed interface ConfigField {
      *
      * The kind that owns the most keys, and each is load-bearing. [key] holds the
      * button's label, [semanticKey] what the button *means* where the app said so,
-     * and [packageKey] which app's notification to act on — because **the target
+     * and [packageKey] which app's notification to act on, because **the target
      * is not always the notification that fired the rule.** "When I connect to
      * the car, press play on the music notification" has a Bluetooth trigger and
      * a media target, and an action tied to its own trigger cannot express it.
@@ -493,7 +493,7 @@ enum class TextSuggestions {
  * Deliberately just equality against a set of strings. Config is a
  * `Map<String, String>`, the fields that gate others are choices and flags, and
  * an expression language here would be a second, worse validator competing with
- * the `create()` that already owns cross-field rules — see [ConfigField].
+ * the `create()` that already owns cross-field rules (see [ConfigField]).
  */
 data class FieldCondition(val key: String, val isAnyOf: Set<String>) {
     constructor(key: String, value: String) : this(key, setOf(value))
@@ -509,7 +509,7 @@ data class ConditionalHelp(val condition: FieldCondition, val help: String)
  * The fields to draw, given what has been filled in so far.
  *
  * The sibling's *effective* value decides it: what is stored, or failing that
- * what the sibling would show — [defaultValue]. That matters for a rule nobody
+ * what the sibling would show ([defaultValue]). That matters for a rule nobody
  * has touched yet, where the gating key is absent from the config while the
  * editor is plainly displaying its default. Reading only the stored value would
  * hide "keep sounding for" on every new alert, because "repeat" had not been
@@ -563,8 +563,8 @@ fun List<ConfigField>.unfilled(config: Map<String, String>): List<ConfigField> =
     }
 
 /**
- * The extra config keys a field kind owns beyond [ConfigField.key], plus —
- * for a [ConfigField.Text] with [ConfigField.Text.helpWhen] — the sibling keys
+ * The extra config keys a field kind owns beyond [ConfigField.key], plus (for
+ * a [ConfigField.Text] with [ConfigField.Text.helpWhen]) the sibling keys
  * it only *reads*.
  *
  * Declared once, here, because three places need the same answer and had grown
@@ -576,7 +576,7 @@ fun List<ConfigField>.unfilled(config: Map<String, String>): List<ConfigField> =
  * [ConfigField.Text.helpWhen] stretches this beyond "owns": a `mode` field is
  * not the value field's own key, only one it needs to *see*. It is still the
  * right list to add it to, because the one consumer that cares about the
- * distinction — the schema contract test's synthetic sample — already treats a
+ * distinction (the schema contract test's synthetic sample) already treats a
  * key that coincides with another field's own key as that field's problem to
  * seed, not this one's. See its `sampleConfig`.
  */
@@ -594,15 +594,15 @@ fun ConfigField.companionKeys(): List<String> = when (this) {
  * apply, given the sibling values in [companions].
  *
  * Every kind but [ConfigField.Text] has no [ConfigField.Text.helpWhen] to
- * apply, so every kind but that one answers with [ConfigField.help] unchanged
- * — this only exists at all because the one kind's help can vary.
+ * apply, so every kind but that one answers with [ConfigField.help] unchanged.
+ * This only exists at all because the one kind's help can vary.
  *
  * Unlike [shownWith], a sibling with nothing stored is read as *not* matching
  * any condition rather than falling back to that sibling's own default. The
  * two asymmetric failure modes justify the asymmetric rule: [shownWith]
  * guessing wrong hides a field that should be on screen, which is the
  * obviously worse mistake, so it resolves the sibling's default to be safe.
- * Here, guessing wrong prints a sentence that does not apply yet — a rule
+ * Here, guessing wrong prints a sentence that does not apply yet: a rule
  * still being built, with its `mode` not yet chosen, has no evaluate-only or
  * add-only sentence to show, and showing one anyway would describe a mode
  * nobody picked.
@@ -638,7 +638,7 @@ enum class DurationUnit(val millis: Long, val label: String) {
 }
 
 /**
- * The value the editor should start this field at — the declared default, or
+ * The value the editor should start this field at: the declared default, or
  * nothing. Deliberately null rather than an empty string for text fields whose
  * blankness is meaningful; see [ConfigField.Text.blankMeaning].
  */
@@ -646,13 +646,13 @@ fun ConfigField.defaultValue(): String? = when (this) {
     is ConfigField.Text -> null
     is ConfigField.AppPackage -> null
     // Deliberately null: a fresh identifier cannot come from a pure function
-    // called on every read — it would differ each time it was asked. The editor
+    // called on every read. It would differ each time it was asked. The editor
     // mints one when the component is added; see `defaultConfigFor`.
     is ConfigField.GeneratedId -> null
     // Nothing to preselect: which rule is the whole question.
     is ConfigField.RuleRef -> null
-    // Both pick something whose absence is itself a setting — the device's own
-    // tone, any Bluetooth device — so there is nothing to preselect.
+    // Both pick something whose absence is itself a setting (the device's own
+    // tone, any Bluetooth device), so there is nothing to preselect.
     is ConfigField.SoundUri -> null
     is ConfigField.BluetoothAddress -> null
     // Same reasoning: a chosen icon is a choice, not a starting position, and a

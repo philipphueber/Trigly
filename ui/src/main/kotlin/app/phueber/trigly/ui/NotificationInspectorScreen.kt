@@ -34,7 +34,7 @@ import app.phueber.trigly.core.notificationHaystack
  * **It shows the strings the matchers use, not a tidied version of them.** The
  * joined haystack comes from [notificationHaystack], the same function
  * `matchesNotification` calls, so a pattern that behaves oddly can be compared
- * against the exact text it was tested against — including the space a missing
+ * against the exact text it was tested against, including the space a missing
  * title still contributes. A screen that reconstructed an approximation would be
  * worse than nothing, because the entire point of it is to be believed.
  *
@@ -66,22 +66,22 @@ fun NotificationInspectorScreen(
             // on, because it isn't a rule. The permission is real and the
             // same one a notification trigger needs, so the way in is
             // through one of those.
-            // Not a parameter. This screen has exactly one host — the
+            // Not a parameter. This screen has exactly one host (the
             // `Inspect` button on the block of whichever component reads
-            // notifications — and the way out of "no access" is the Grant
+            // notifications) and the way out of "no access" is the Grant
             // control on that same block, directly behind this screen. When it
             // was also a destination on the rules list, the sentence had to be
             // vaguer ("that lives on a rule's notification trigger") because the
             // control genuinely was elsewhere. It is not any more, so it says so.
             !listenerConnected -> Explanation(
                 "Trigly cannot read notifications without access. Close this and " +
-                    "grant it on the block you came from — the Grant button is " +
-                    "right behind this screen — then open it again."
+                    "grant it on the block you came from. The Grant button is " +
+                    "right behind this screen. Then open it again."
             )
 
             notifications.isEmpty() -> Explanation(
                 "Nothing is showing. Only notifications posted right now can be " +
-                    "inspected — there is no history to look through. Make the one " +
+                    "inspected. There is no history to look through. Make the one " +
                     "you care about appear, then tap Refresh."
             )
 
@@ -202,7 +202,7 @@ private fun Field(label: String, value: String?) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         // Quoted, and monospaced, because leading and trailing spaces matter here
-        // and are invisible otherwise — a missing title leaves one at the front of
+        // and are invisible otherwise. A missing title leaves one at the front of
         // the haystack, which is exactly the kind of thing this screen is for.
         Mono(if (value == null) "(none)" else "\"$value\"")
     }

@@ -16,7 +16,7 @@ import app.phueber.trigly.core.VariableStore
 /**
  * Every action type this module provides.
  *
- * **This is the only existing file a new action touches** — same rule as
+ * **This is the only existing file a new action touches.** Same rule as
  * `triggerFactories`: new files for the implementation and its factory, one
  * line here.
  *
@@ -55,8 +55,8 @@ fun actionFactories(
     notifications: NotificationController = NotificationController.Unavailable,
     /**
      * The accessibility service, for the one action that can fall back to
-     * pressing through the rendered shade. Same source as [notifications] —
-     * `:ui` is the only module that can see both services — and the same default,
+     * pressing through the rendered shade. Same source as [notifications]
+     * (`:ui` is the only module that can see both services), and the same default,
      * so nothing here requires accessibility access to be granted.
      */
     ui: UiController = UiController.Unavailable,
@@ -116,6 +116,10 @@ fun actionFactories(
 
     // Reach the outside world
     HttpRequestActionFactory(),
+
+    // Advanced: an arbitrary intent, for someone who already knows the
+    // command an app accepts
+    FireIntentActionFactory(context),
 
     // Other apps' notifications, via the listener service
     DismissNotificationActionFactory(notifications),

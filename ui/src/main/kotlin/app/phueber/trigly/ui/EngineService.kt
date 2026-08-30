@@ -34,7 +34,7 @@ import kotlinx.coroutines.launch
  *
  * **Why a foreground service and not the application scope.** Since API 26 most
  * implicit broadcasts may not be declared in a manifest, so every broadcast
- * trigger registers its receiver at runtime — which means a live process is not
+ * trigger registers its receiver at runtime. That means a live process is not
  * an optimisation, it is the mechanism. An engine in the application scope has
  * exactly the lifetime the system feels like giving the process, and on many
  * OEM builds that is minutes. A foreground service with an ongoing notification
@@ -124,7 +124,7 @@ class EngineService : Service() {
         // Re-post, because a start request is also how the app says "something
         // changed out here". The case that needs it: on Android 13 and later the
         // system silently drops this notification while POST_NOTIFICATIONS is
-        // refused, so the grant arrives long after the only notify() call — and
+        // refused, so the grant arrives long after the only notify() call. And
         // without this the service would keep running invisibly until the next
         // rule edit.
         //
@@ -371,7 +371,7 @@ class EngineService : Service() {
     /**
      * `IMPORTANCE_LOW`: the notification has to exist, but it is a status line,
      * not news. Low keeps it silent and out of the heads-up area while leaving
-     * it visible in the shade, which is the honest middle — importance `MIN`
+     * it visible in the shade, which is the honest middle. Importance `MIN`
      * would hide the one thing telling the user the app is watching.
      */
     private fun createChannel() {
@@ -441,8 +441,8 @@ class EngineService : Service() {
          *
          * **The refusal is caught rather than prevented**, and the reason is
          * that it cannot be prevented from here. From API 31 an app may only
-         * start a foreground service while it is exempt — visible on screen,
-         * responding to `BOOT_COMPLETED`, or excused from battery optimisation —
+         * start a foreground service while it is exempt (visible on screen,
+         * responding to `BOOT_COMPLETED`, or excused from battery optimisation),
          * and there is no API that answers "am I exempt right now?" reliably
          * enough to branch on. Every call site here is one of the exempt cases,
          * so a refusal means the process woke for some other reason and the
@@ -454,7 +454,7 @@ class EngineService : Service() {
                 context.startForegroundService(Intent(context, EngineService::class.java))
             } catch (refused: IllegalStateException) {
                 // ForegroundServiceStartNotAllowedException, which is API 31+ and
-                // an IllegalStateException — catching the supertype avoids a
+                // an IllegalStateException. Catching the supertype avoids a
                 // version guard for a class that does not exist on API 30.
                 Log.w(TAG, "the system refused a background start of the engine", refused)
             }

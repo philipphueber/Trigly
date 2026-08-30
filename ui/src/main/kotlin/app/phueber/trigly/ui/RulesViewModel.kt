@@ -107,8 +107,8 @@ class RulesViewModel(
 ) : ViewModel() {
 
     /**
-     * Permissions change outside the app — in a settings screen we sent the user
-     * to — and nothing notifies us when they come back. Bumping this on resume
+     * Permissions change outside the app, in a settings screen we sent the user
+     * to, and nothing notifies us when they come back. Bumping this on resume
      * is what makes the warnings disappear once the user has acted, instead of
      * leaving stale "permission missing" text on screen.
      */
@@ -159,7 +159,7 @@ class RulesViewModel(
     }
 
     /**
-     * Rules as a portable document. This — not Android's Auto Backup — is how
+     * Rules as a portable document. This, not Android's Auto Backup, is how
      * rules reach a new phone: Auto Backup needs a Google account and does not
      * run on de-Googled devices, which is the audience this project targets.
      */

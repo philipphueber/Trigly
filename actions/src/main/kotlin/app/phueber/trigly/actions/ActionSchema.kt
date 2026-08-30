@@ -28,6 +28,14 @@ internal object ActionCategory {
      * as a whole.
      */
     const val TIMING = "Timing"
+
+    /**
+     * `fire_intent` alone. Not [OPEN] or [HAND_OFF]: this can also send a
+     * broadcast or start a service, neither of which opens or hands off
+     * anything, and it is the one action built for someone who already knows
+     * the exact command an app accepts rather than a plain-language task.
+     */
+    const val ADVANCED = "Advanced"
 }
 
 /**
@@ -102,7 +110,7 @@ internal const val RECIPIENT_SUBSTITUTION_HELP: String =
  * What every action that calls `launchForRule` has to declare.
  *
  * A list rather than six copies of the same line, so "the actions that open
- * something" is one fact stated in one place — the same reason
+ * something" is one fact stated in one place. That is the same reason
  * [BACKGROUND_START_WARNING] exists. An action added later gets the requirement
  * by using this, and an action that forgets it is a rule that silently does
  * nothing with the screen off.
@@ -111,7 +119,7 @@ internal const val RECIPIENT_SUBSTITUTION_HELP: String =
  * `SYSTEM_ALERT_WINDOW` is one of the few exemptions from the background
  * activity-start ban, and it is the only one an automation app can reach: the
  * others are having a visible window, being the input method, or the user
- * tapping a notification. Measured on Android 15, not assumed — the system logs
+ * tapping a notification. Measured on Android 15, not assumed. The system logs
  * the allowed launch as `BAL_ALLOW_SAW_PERMISSION`, and blocks it outright
  * without the permission even while the engine's foreground service is running.
  *

@@ -52,7 +52,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * The editor's rendering, driven from a plain [EditorState] with no ViewModel —
+ * The editor's rendering, driven from a plain [EditorState] with no ViewModel,
  * the same stateless-screen approach as [RulesScreenTest]. Uses the real
  * registry, so what is on screen is what the factories actually declare.
  */
@@ -76,6 +76,7 @@ class RuleEditorScreenTest {
 
     private val configChanges = mutableListOf<Triple<Slot, String, String?>>()
     private val tested = mutableListOf<Int>()
+    private val checkedIntentTargets = mutableListOf<Int>()
     private val pinned = mutableListOf<Map<String, String>>()
     private var saves = 0
     private var backs = 0
@@ -96,21 +97,21 @@ class RuleEditorScreenTest {
         toolsFor: (String, Map<String, String>) -> List<ComponentTool> = { type, config ->
             registry.toolsFor(ComponentSpec(type, config))
         },
-        // Defaults to recording nothing, like the other intents below — a test
+        // Defaults to recording nothing, like the other intents below. A test
         // that cares whether an action actually moves passes its own, backed by
         // state it holds, rather than this stub reordering anything itself.
         onMoveAction: (Int, Int) -> Unit = { _, _ -> },
-        // What a real caller would draw from the saved rules — empty by default,
+        // What a real caller would draw from the saved rules. Empty by default,
         // so a test that says nothing about folders still gets a working field.
         existingFolders: List<String> = emptyList(),
-        // What this rule can offer a `{{variable}}` reference — empty by
+        // What this rule can offer a `{{variable}}` reference. Empty by
         // default, the same reason [ConfigFieldEditor]'s own default is: a
         // test that says nothing about variables gets a field with no picker
         // and no preview, same as before this parameter existed.
         availableVariables: List<ScopedVariable> = emptyList(),
         // Overridable, unlike the other recorders above, because the one test
         // that picks a variable needs the inserted reference to actually reach
-        // the field it was inserted into, not merely be recorded — the same
+        // the field it was inserted into, not merely be recorded. The same
         // reason [onMoveAction] is overridable and the others are not.
         onConfigChange: (Slot, Int, String, String?) -> Unit =
             { slot, _, key, value -> configChanges += Triple(slot, key, value) },
@@ -119,7 +120,7 @@ class RuleEditorScreenTest {
             state = state,
             // Ignores the path: nothing here exercises `canStart`-style
             // filtering, which belongs to the ViewModel this stateless screen
-            // does not have — every test that opens a picker just wants the
+            // does not have. Every test that opens a picker just wants the
             // full, real list back.
             // The group rows come first, exactly as `RuleEditorViewModel`
             // assembles them: a group is one of the picker's options, and a
@@ -150,6 +151,7 @@ class RuleEditorScreenTest {
             onConfigChange = onConfigChange,
             availableVariables = availableVariables,
             onTestAction = { tested += it },
+            onCheckIntentTarget = { checkedIntentTargets += it },
             onSave = { saves++ },
             onDelete = {},
             onBack = { backs++ },
@@ -305,7 +307,7 @@ class RuleEditorScreenTest {
         // The tone still needs choosing; the length does not exist for one pass.
         // assertExists rather than assertIsDisplayed: the action block is below
         // the fold of a scrolling form, and being on screen is not the claim.
-        // Required, hence the marker — the same convention the field tests above
+        // Required, hence the marker. The same convention the field tests above
         // rely on. Asserted so this is "only the duration is gone", not "the
         // block failed to render".
         composeRule.onNodeWithText("PLAY IT *").assertExists()
@@ -335,7 +337,7 @@ class RuleEditorScreenTest {
     @Test
     fun the_alert_duration_is_shown_on_an_untouched_action() {
         // Nothing stored for `playback` yet, and the editor is showing its
-        // default of "repeat" — so the duration must be there. Reading only the
+        // default of "repeat". So the duration must be there. Reading only the
         // stored value would hide it on every newly added alert.
         composeRule.setContent {
             Editor(
@@ -406,8 +408,8 @@ class RuleEditorScreenTest {
     fun tapping_the_caveat_badge_does_not_fold_the_block() {
         // The badge and the fold chevron sit next to each other in the header,
         // and both want a 48dp touch target around a 22dp glyph. While both got
-        // it by overhanging, they claimed the same pixels and the chevron — drawn
-        // later — won: tapping "!" folded the block instead of showing the
+        // it by overhanging, they claimed the same pixels and the chevron (drawn
+        // later) won: tapping "!" folded the block instead of showing the
         // caveat, silently closing the only route to that prose.
         //
         // Asserting the block is still open is the half that catches it. A test
@@ -447,7 +449,7 @@ class RuleEditorScreenTest {
             )
         }
 
-        // The block is open — its fields are showing — but the caveat prose is
+        // The block is open (its fields are showing), but the caveat prose is
         // not: hiding it is the whole change, and an open block must not leak it.
         composeRule.onNodeWithText("SCREEN CONTAINS *").assertIsDisplayed()
         assertTrue(
@@ -512,7 +514,7 @@ class RuleEditorScreenTest {
      * The picker kinds say the same thing differently, and on purpose: blankness
      * is shown as the field's current *value* rather than as a hint underneath,
      * because a picker has no empty box for an instruction to sit below. Asserted
-     * separately so the two phrasings cannot quietly converge — a picker reading
+     * separately so the two phrasings cannot quietly converge. A picker reading
      * "Leave blank for any device" would be telling the user to do something the
      * control does not offer.
      */
@@ -551,7 +553,7 @@ class RuleEditorScreenTest {
         // trigger's fields, and the editor gained a folder field above it, so
         // whether it is on screen is now a question about the emulator's height
         // rather than about the requirement being stated. It was displayed until
-        // one field was added — which is exactly the trap this file's other tests
+        // one field was added, which is exactly the trap this file's other tests
         // avoid by asserting existence.
         composeRule
             .onNodeWithText("Needs notification access, granted in system settings")
@@ -650,7 +652,7 @@ class RuleEditorScreenTest {
 
     /**
      * Picking one of the folders other rules already use, rather than typing
-     * it again — the whole point of offering the list, so a repeat name is a
+     * it again. That is the whole point of offering the list, so a repeat name is a
      * tap instead of a second, possibly mistyped, spelling of the same one.
      */
     @Test
@@ -670,7 +672,7 @@ class RuleEditorScreenTest {
 
     /**
      * Clearing has to be reachable from a rule that already has a folder, and
-     * has to actually report it — [RuleDraft.toRuleOrNull] is where "" then
+     * has to actually report it. [RuleDraft.toRuleOrNull] is where "" then
      * becomes a real `null`, not here, but the screen has to get "" out in the
      * first place or that conversion never gets a chance to run.
      */
@@ -764,7 +766,7 @@ class RuleEditorScreenTest {
             )
         }
 
-        // Tapping the badge reveals the sentence in place — and does not fall
+        // Tapping the badge reveals the sentence in place. It does not fall
         // through to the row's own click, which would pick the component out from
         // under someone who only wanted to read the catch.
         composeRule.onNodeWithContentDescription(CAVEAT_DESCRIPTION).performClick()
@@ -776,7 +778,7 @@ class RuleEditorScreenTest {
     fun the_caveat_badge_is_tappable_well_outside_its_glyph() {
         // The badge draws at 22dp and is the only route to a component's caveat
         // prose, so its *touch* target is grown to Android's 48dp minimum
-        // without the glyph or the row around it changing size — the target
+        // without the glyph or the row around it changing size. The target
         // overhangs the space the row reserves for it. That is easy to write and
         // easy to have silently not work, because `performClick` hits a node's
         // centre and would pass either way. So this presses near the corner of
@@ -822,8 +824,8 @@ class RuleEditorScreenTest {
     fun every_field_kind_renders_without_crashing() {
         // The field kinds are the whole editor surface, so a missing branch would
         // break an arbitrary subset of the 47 components. This list is
-        // hand-maintained and therefore the weak point — it silently missed four
-        // kinds once already — so a new kind belongs here as well as in the
+        // hand-maintained and therefore the weak point (it silently missed four
+        // kinds once already), so a new kind belongs here as well as in the
         // editor's `when`, which at least the compiler enforces.
         val fields = listOf<ConfigField>(
             ConfigField.Text("t", "Some text"),
@@ -866,11 +868,15 @@ class RuleEditorScreenTest {
         //
         // `assertExists` rather than `assertIsDisplayed` from here down. Fourteen
         // fields are taller than the test surface, so displayed-ness would be an
-        // assertion about screen height — which passes on one emulator and fails
+        // assertion about screen height, which passes on one emulator and fails
         // on the next, for no reason anybody wants to hear about.
         composeRule.onNodeWithText("A DURATION").assertExists()
         composeRule.onNodeWithText("A MOMENT").assertExists()
-        composeRule.onNodeWithText("PICK A TIME").assertExists()
+        // Two nodes, not one: the moment field's own time box reads "Pick a
+        // time" when nothing is stored, the same placeholder the time-of-day
+        // field below uses for the same reason, and both are on screen at once
+        // only because this test renders every field kind together.
+        composeRule.onAllNodesWithText("PICK A TIME").assertCountEquals(2)
         composeRule.onNodeWithText("A LATITUDE").assertExists()
         composeRule.onNodeWithText("USE WHERE I AM NOW").assertExists()
         composeRule.onNodeWithText("CAPTURE A BUTTON").assertExists()
@@ -878,7 +884,7 @@ class RuleEditorScreenTest {
 
     /**
      * Folding is what makes a six-action rule navigable, so what it hides and
-     * what it keeps is the behaviour worth pinning down — not merely that a
+     * what it keeps is the behaviour worth pinning down, not merely that a
      * button exists.
      */
     @Test
@@ -897,7 +903,7 @@ class RuleEditorScreenTest {
 
         composeRule.onNodeWithText("THRESHOLD (%) *").assertIsDisplayed()
 
-        // One fixed control, not two different lookups for open versus closed —
+        // One fixed control, not two different lookups for open versus closed.
         // `toggleable` carries the open/closed state on this same node, so
         // `assertIsOn`/`assertIsOff` is what used to be "find HIDE" / "find SHOW".
         val fold = composeRule.onNodeWithContentDescription(EXPAND_DESCRIPTION)
@@ -945,7 +951,7 @@ class RuleEditorScreenTest {
         composeRule.onNodeWithText("TEST").assertExists()
         // Two Removes now, not one: a lone trigger carries its own, since
         // clearing the trigger slot is a thing you can do. So this counts them
-        // instead of expecting a single match — the action's is the second, in
+        // instead of expecting a single match. The action's is the second, in
         // the same order as the fold controls above.
         composeRule.onAllNodesWithText("REMOVE").assertCountEquals(2)
         composeRule.onNodeWithText("SPEAK OUT LOUD").assertExists()
@@ -1010,6 +1016,56 @@ class RuleEditorScreenTest {
         composeRule.onNodeWithText("INSPECT").assertExists()
     }
 
+    /**
+     * `fire_intent` declares `ComponentTool.CheckIntentTarget` in place of
+     * `ComponentTool.Test`, not beside it. See `FireIntentActionFactory.toolsFor`
+     * in `:actions`. So its block must offer "Check target" and must *not*
+     * offer "Test": drawing both would let someone press the ordinary Test
+     * button and really send the intent, which is exactly what this whole
+     * control exists to make unnecessary.
+     */
+    @Test
+    fun a_fire_intent_action_offers_check_target_instead_of_test() {
+        composeRule.setContent {
+            Editor(
+                EditorState(
+                    RuleDraft(
+                        id = null,
+                        name = "Fire",
+                        trigger = TriggerDraft.One(ComponentDraft("power_connection", mapOf("state" to "connected"))),
+                        actions = listOf(ComponentDraft("fire_intent")),
+                    )
+                )
+            )
+        }
+
+        composeRule.onNodeWithText("CHECK TARGET").assertExists()
+        composeRule.onNodeWithText("TEST").assertDoesNotExist()
+    }
+
+    @Test
+    fun pressing_check_target_reports_the_actions_own_index() {
+        composeRule.setContent {
+            Editor(
+                EditorState(
+                    RuleDraft(
+                        id = null,
+                        name = "Fire",
+                        trigger = TriggerDraft.One(ComponentDraft("power_connection", mapOf("state" to "connected"))),
+                        // Vibrate first, so the fire_intent action is not at
+                        // index 0. The index reported has to be its own,
+                        // not merely "some action's".
+                        actions = listOf(ComponentDraft("vibrate"), ComponentDraft("fire_intent")),
+                    )
+                )
+            )
+        }
+
+        composeRule.onNodeWithText("CHECK TARGET").performScrollTo().performClick()
+
+        assertEquals(listOf(1), checkedIntentTargets)
+    }
+
     @Test
     fun the_inspector_opens_over_the_editor_without_leaving_it() {
         composeRule.setContent {
@@ -1036,7 +1092,7 @@ class RuleEditorScreenTest {
         // Still the same editor, with the draft it had. This is the whole reason
         // the inspector is a dialog here and not a destination: navigating away
         // would reset the draft on the way back in. `assertExists`, not
-        // `assertIsDisplayed` — the editor is still scrolled to where the action
+        // `assertIsDisplayed`. The editor is still scrolled to where the action
         // block is, so its header is off-screen but very much present.
         composeRule.onNodeWithText("EDIT RULE").assertExists()
         composeRule.onNodeWithText("Kept").assertExists()
@@ -1069,7 +1125,7 @@ class RuleEditorScreenTest {
     /*
      * The "When" section is a single slot now: nothing chosen, one component,
      * or a group of them. There used to be a second region here, captioned
-     * "Must also be true.", with its own "Add trigger"/"Add a group" pair — a
+     * "Must also be true.", with its own "Add trigger"/"Add a group" pair. A
      * gate is a trigger now, and it lives in this one slot. The tests below
      * cover that directly, rather than trusting the region's absence to fall
      * out of the ones above.
@@ -1092,7 +1148,7 @@ class RuleEditorScreenTest {
         }
 
         composeRule.onNodeWithText("CHARGER").assertIsDisplayed()
-        // No AND/OR, no fold summary — a lone trigger looks exactly like one.
+        // No AND/OR, no fold summary. A lone trigger looks exactly like one.
         composeRule.onNodeWithText("ALL OF", substring = true).assertDoesNotExist()
         composeRule.onNodeWithText("ANY OF", substring = true).assertDoesNotExist()
         // The one way a group comes into existence: adding a sibling here.
@@ -1124,7 +1180,7 @@ class RuleEditorScreenTest {
             )
         }
 
-        // A group starts folded when its rule is opened — one line, not the
+        // A group starts folded when its rule is opened: one line, not the
         // tree, until asked.
         composeRule.onNodeWithText("ALL OF · 2 TRIGGERS").assertIsDisplayed()
         composeRule.onNodeWithText("CHARGER").assertDoesNotExist()
@@ -1133,7 +1189,7 @@ class RuleEditorScreenTest {
         composeRule.onNodeWithContentDescription(EXPAND_DESCRIPTION).performClick()
 
         // Open: the operator on its own, both children, and the AND/OR choice.
-        // `assertExists` from here down — expanding pushed content further
+        // `assertExists` from here down. Expanding pushed content further
         // down the scrolling form, and whether it has scrolled off is a
         // question about the emulator's screen height, not about this change.
         composeRule.onNodeWithText("ALL OF").assertExists()
@@ -1154,7 +1210,7 @@ class RuleEditorScreenTest {
                         trigger = TriggerDraft.Group(
                             TriggerNode.Op.ALL,
                             listOf(
-                                // Carries a caveat — see the caveat-badge tests above.
+                                // Carries a caveat. See the caveat-badge tests above.
                                 TriggerDraft.One(ComponentDraft("screen_content")),
                                 TriggerDraft.One(
                                     ComponentDraft("power_connection", mapOf("state" to "connected"))
@@ -1166,7 +1222,7 @@ class RuleEditorScreenTest {
             )
         }
 
-        // The mark says a hidden child has something to say — not that the
+        // The mark says a hidden child has something to say, not that the
         // group itself does; there is no prose to print here.
         composeRule.onNodeWithContentDescription(GROUP_CAVEAT_DESCRIPTION).assertExists()
         assertTrue(
@@ -1231,7 +1287,7 @@ class RuleEditorScreenTest {
         // There is no "Add gate" button, and that absence is the point: a group
         // is a row in the same picker every trigger comes from, so nesting one is
         // the same gesture as adding a trigger. It reaches the screen as an
-        // ordinary picked type — see [GROUP_ALL_TYPE].
+        // ordinary picked type. See [GROUP_ALL_TYPE].
         composeRule.onNodeWithText("ADD GATE").assertDoesNotExist()
 
         // A group opens folded, so its footer is not composed yet.
@@ -1308,8 +1364,8 @@ class RuleEditorScreenTest {
 
     /**
      * Up/Down replace the "Up"/"Down" text buttons with a chevron pair, but the
-     * behaviour they drive — actions run in the order they are listed, and
-     * these are the only controls that change it — must survive unchanged. The
+     * behaviour they drive (actions run in the order they are listed, and
+     * these are the only controls that change it) must survive unchanged. The
      * icon is not the thing worth asserting; the reorder is.
      */
     @Test
@@ -1347,7 +1403,7 @@ class RuleEditorScreenTest {
             composeRule.onNodeWithText(text).getUnclippedBoundsInRoot().top
 
         // Toast is first in the draft, so it must render above speak before
-        // anything is pressed — the baseline the rest of this test moves from.
+        // anything is pressed. That is the baseline the rest of this test moves from.
         assertTrue(
             "toast starts above speak",
             topOf("SHOW A BRIEF MESSAGE") < topOf("SPEAK OUT LOUD"),
@@ -1387,7 +1443,7 @@ class RuleEditorScreenTest {
         }
 
         // Three actions: the middle one offers both, the first offers only
-        // Down, the last only Up — two of each, never three.
+        // Down, the last only Up. Two of each, never three.
         composeRule.onAllNodesWithContentDescription("Move up").assertCountEquals(2)
         composeRule.onAllNodesWithContentDescription("Move down").assertCountEquals(2)
     }
@@ -1497,7 +1553,7 @@ class RuleEditorScreenTest {
      *
      * A real `remember`ed config, not a recorded intent, because picking a
      * variable has to be judged by what lands in the field, not merely by
-     * which callback fired — the same reasoning [moving_an_action_down_swaps_its_running_order]
+     * which callback fired. That is the same reasoning [moving_an_action_down_swaps_its_running_order]
      * gives for holding its own state.
      */
     @Test

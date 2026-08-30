@@ -70,7 +70,7 @@
     <!--
       Sentence case, like rules_empty above: this is prose explaining a state,
       not chrome. Named with the query in it rather than a bare "No matches" so
-      it cannot be read as "you have no rules" — the whole reason this string
+      it cannot be read as "you have no rules". That is the whole reason this string
       exists instead of reusing rules_empty for a filtered-to-nothing list.
     -->
     <string name="rules_no_matches">No rules match “%1$s”.</string>

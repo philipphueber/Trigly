@@ -51,7 +51,7 @@ import app.phueber.trigly.core.substitute
  * its fields; nothing here changes.
  *
  * Values are strings throughout, matching how config is stored. Numeric fields
- * restrict the keyboard but do not reject input — the factory decides what is
+ * restrict the keyboard but do not reject input. The factory decides what is
  * valid at save time, and blocking keystrokes here would fight the user
  * mid-number ("-" and "." are both invalid prefixes of valid input).
  */
@@ -66,7 +66,7 @@ fun ConfigFieldEditor(
      *
      * A map rather than a single extra value, because "one companion" turned out
      * to be an accident of the first kind that needed one. A match mode, a
-     * minute, a longitude — and now a notification's package and a button's
+     * minute, a longitude, and now a notification's package and a button's
      * meaning, which is three at once. Keyed by config key so a field reads and
      * writes the ones it declared and cannot reach another field's.
      *
@@ -272,14 +272,14 @@ fun ConfigFieldEditor(
  * A text filter and the mode that decides how it matches.
  *
  * The mode toggle sits *in* the field's label row rather than below it, because
- * it changes what the box above means — a control that reads "CONTAINS / REGEX"
+ * it changes what the box above means: a control that reads "CONTAINS / REGEX"
  * next to the words "Title or text contains" answers the question the label
  * raises.
  *
  * Two things only happen in regex mode. The pattern is syntax-coloured, and it
  * is checked on every keystroke with the error shown underneath. The check is
  * the same `Regex(...)` the factory will run at save time, so what is shown here
- * is exactly what would otherwise be a failure at Save — moved to the moment the
+ * is exactly what would otherwise be a failure at Save, moved to the moment the
  * mistake is made, when the cursor is still next to it.
  */
 @Composable
@@ -397,7 +397,7 @@ private fun TextField(
  * exactly what it always has.
  *
  * The box itself keeps the same shape [TextField] draws, label floated inside
- * it and all — except in expression mode, which grows it into a bounded
+ * it and all, except in expression mode, which grows it into a bounded
  * multi-line box; see the comment on `minLines`/`maxLines` below. That is what
  * a component's existing screen tests already find by that label text and type
  * into. "Insert variable" and the preview sit underneath, alongside where the
@@ -409,14 +409,14 @@ private fun TextField(
  */
 /**
  * How tall an expression box starts, and how far it is let grow before it
- * scrolls internally instead. `docs/expressions.md`'s own examples — a
- * comparison, a ternary, a `contains(...)` call with its match mode — mostly
+ * scrolls internally instead. `docs/expressions.md`'s own examples (a
+ * comparison, a ternary, a `contains(...)` call with its match mode) mostly
  * run two or three lines once wrapped at a phone's width, so
  * [EXPRESSION_MIN_LINES] shows one of those without looking oversized for a
  * short one. [EXPRESSION_MAX_LINES] is generous enough for a longer expression
  * built from several calls, while still leaving the sample line, "Insert
  * variable" and the help visible underneath on a typical phone with the
- * keyboard up — which a field free to grow without bound would not.
+ * keyboard up. A field free to grow without bound would not.
  */
 private const val EXPRESSION_MIN_LINES = 3
 private const val EXPRESSION_MAX_LINES = 8
@@ -487,7 +487,7 @@ private fun SubstitutableTextField(
             // Expression mode changes what this box means, not just how it is
             // coloured: an expression is source someone reads and edits line by
             // line, where a one-line field only ever scrolls sideways with
-            // nothing to show that there is more off the edge — measured on a
+            // nothing to show that there is more off the edge. Measured on a
             // real `set_variable` rule, where the field clipped mid-expression
             // and everything below it (the sample, "Insert variable", the help)
             // was pushed under the keyboard. So the box's shape follows
@@ -502,7 +502,7 @@ private fun SubstitutableTextField(
             // field would not clip again, but a single pathological expression
             // could still push the sample, "Insert variable" and the help text
             // off screen the way the one-line box used to. [EXPRESSION_MAX_LINES]
-            // stops that — once an expression grows past it, the box itself
+            // stops that. Once an expression grows past it, the box itself
             // stays put and scrolls internally, the way any bounded
             // `BasicTextField` does, rather than reopening the original bug at a
             // larger size.
@@ -696,8 +696,8 @@ private fun FlagField(
  * Picked from the real distribution across the app's 92 declared help
  * strings: a median of about 87 characters, and a gap in the data between 198
  * and 279 that no field's help falls into. 200 sits in that gap, so it folds
- * exactly the nine outlier paragraphs that cover more than one topic — the
- * kind [ConfigField.Text.helpWhen] exists to split up in the first place —
+ * exactly the nine outlier paragraphs that cover more than one topic (the
+ * kind [ConfigField.Text.helpWhen] exists to split up in the first place)
  * without touching any of the ordinary one- or two-sentence hints that make up
  * the rest of the app.
  */
@@ -707,7 +707,7 @@ private const val HINT_COLLAPSE_THRESHOLD = 200
 internal const val HINT_EXPAND_DESCRIPTION = "Show the rest of this"
 
 /**
- * The first sentence of [this], including its own punctuation — or the whole
+ * The first sentence of [this], including its own punctuation, or the whole
  * string, if it does not look like more than one sentence.
  *
  * A hand-rolled scan of `.`/`!`/`?` followed by whitespace or the end of the
@@ -725,8 +725,8 @@ private fun String.firstSentence(): String {
 private val HintFirstSentenceEnd = Regex("""[.!?](\s|$)""")
 
 /**
- * A caveat too long to sit on screen unconditionally — one of the nine over
- * [HINT_COLLAPSE_THRESHOLD] characters, out of 92 declared help strings — shows
+ * A caveat too long to sit on screen unconditionally (one of the nine over
+ * [HINT_COLLAPSE_THRESHOLD] characters, out of 92 declared help strings) shows
  * its first sentence and a control to reveal the rest. Anything at or under
  * the threshold is unchanged: this is not a fold for every hint, only the ones
  * long enough to need one.
@@ -734,7 +734,7 @@ private val HintFirstSentenceEnd = Regex("""[.!?](\s|$)""")
  * Follows [CaveatBadge]'s rule rather than inventing a third way to hide
  * prose: default to less, and give the reader one visible way to ask for more.
  * The shape still differs from [CaveatBadge] itself, because the two start
- * from different amounts of nothing — a caveat is worth a glyph precisely
+ * from different amounts of nothing. A caveat is worth a glyph precisely
  * because most components have none, so showing zero characters until asked is
  * the honest starting point. A [Hint] is help text every field already shows in
  * full below the threshold, so collapsing it to *nothing* would make a long
@@ -767,7 +767,7 @@ internal fun Hint(text: String) {
         // [BlockExpandButton]: that control's [EXPAND_DESCRIPTION] is looked up
         // as the one fold toggle on a block header, and a screen that also
         // carries one of these would turn that lookup ambiguous. Overhung the
-        // way [CaveatBadge] is, for the same reason — this sits beside a single
+        // way [CaveatBadge] is, for the same reason. This sits beside a single
         // line of caption text, not a block header tall enough to absorb a
         // reserved 48dp box for free.
         OverflowingTouchTarget(visualSize = 18.dp, touchSize = 48.dp) {
@@ -809,7 +809,7 @@ internal fun Hint(text: String) {
  *
  * A missing or unparseable stored value falls back to the declared default
  * rather than to the minimum. Zero volume is a legitimate setting, so treating
- * "no value yet" as 0 would silently turn a new alert silent — the field's own
+ * "no value yet" as 0 would silently turn a new alert silent. The field's own
  * default is the only honest starting position.
  */
 @Composable
@@ -852,7 +852,7 @@ private fun SliderField(
 /**
  * Labels are uppercased here rather than at each call site.
  *
- * They are tags in this design, not sentences — and doing it in one place means a
+ * They are tags in this design, not sentences, and doing it in one place means a
  * new field kind cannot arrive in the wrong case. Help text and warnings are
  * deliberately *not* uppercased: they are prose, and prose in capitals is
  * unreadable.

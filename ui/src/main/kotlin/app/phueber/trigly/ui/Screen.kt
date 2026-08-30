@@ -10,7 +10,7 @@ import androidx.compose.runtime.saveable.listSaver
  *
  * The notification inspector used to be a third. It is now opened as a dialog
  * over the editor, from the `Inspect` button on the block of whichever component
- * reads notifications — which is where someone actually is when a notification
+ * reads notifications, which is where someone actually is when a notification
  * rule is not doing what they expected, and which cannot cost them a
  * half-written rule the way navigating away does. Nothing navigates to it, so it
  * is not a destination.
@@ -44,14 +44,14 @@ sealed interface Screen {
      * Reached from a row on [Settings], not from the rule list's overflow the
      * way the other three destinations are. That makes it the app's first
      * two-level destination, and the one whose own back target is [Settings]
-     * rather than [RuleList] — see `backTarget`.
+     * rather than [RuleList]. See `backTarget`.
      */
     data object Attribution : Screen
 }
 
 /**
  * What a back press means, as a value rather than as a branch inside the
- * handler. Null is "nothing left to go back to" — the app closes.
+ * handler. Null is "nothing left to go back to": the app closes.
  *
  * Extracted because this is the part with a real decision in it, and because the
  * decision is the one thing here a JVM test can check. The rule it encodes:

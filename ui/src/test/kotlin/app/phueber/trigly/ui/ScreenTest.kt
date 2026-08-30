@@ -12,7 +12,7 @@ import org.junit.Test
  * press means, and that a destination survives being written to a Bundle and read
  * back.
  *
- * Both used to be implicit — the destination lived in a plain `remember`, and back
+ * Both used to be implicit. The destination lived in a plain `remember`, and back
  * on the rule list was whatever the framework did with no callback registered.
  * Neither was stated anywhere, which is why neither could be wrong on purpose.
  */
@@ -69,7 +69,7 @@ class ScreenTest {
 
     /**
      * The empty string is how "no id yet" is stored, so it has to come back as
-     * null rather than as a rule whose id happens to be blank — that would send
+     * null rather than as a rule whose id happens to be blank. That would send
      * the editor looking in the repository for a rule that cannot be there.
      */
     @Test

@@ -39,7 +39,7 @@ interface Action {
 
 /**
  * Builds an [Action] of one type from stored configuration. The plugin seam
- * for actions — see [TriggerFactory] for the rule it follows.
+ * for actions (see [TriggerFactory] for the rule it follows).
  */
 interface ActionFactory : ComponentFactory {
     /**
@@ -62,7 +62,7 @@ interface ActionFactory : ComponentFactory {
      *
      * A trigger cannot: "run this trigger" means waiting for the world to change.
      * That asymmetry is why the default lives here rather than on
-     * [ComponentFactory] — the editor used to hardcode a Test button for actions
+     * [ComponentFactory]. The editor used to hardcode a Test button for actions
      * and nothing for triggers, which was the same knowledge in a place that could
      * not be overridden.
      *
@@ -71,4 +71,69 @@ interface ActionFactory : ComponentFactory {
      */
     override fun toolsFor(config: Map<String, String>): List<ComponentTool> =
         listOf(ComponentTool.Test)
+
+    /**
+     * Whether the intent this config would build finds something to run it,
+     * without running it. Null for every action but `fire_intent`, meaning
+     * "this action has no such question to answer". The editor draws nothing
+     * for it. See `app.phueber.trigly.actions.FireIntentActionFactory` for the
+     * one override, `ComponentTool.CheckIntentTarget` for the button that reads
+     * it, and `docs/actions.md`'s "Firing a predefined intent" section for the
+     * whole design.
+     *
+     * Declared here, on every [ActionFactory], rather than only on the one
+     * factory that answers it, for the same reason [toolsFor] is declared on
+     * [ComponentFactory] rather than hardcoded per action name in the editor:
+     * `Registry.checkIntentTarget` reaches this by type string, so the editor
+     * never has to know `fire_intent`'s name to ask the question. It stops at
+     * [ActionFactory] rather than reaching all the way up to [ComponentFactory]
+     * the way [toolsFor] does, because a trigger has no intent to check at all.
+     *
+     * **Must never send anything.** Unlike [ComponentTool.Test], which really
+     * runs the action, this answers a question about the *configured* intent
+     * by asking `PackageManager`, and nothing else. Pass the config with every
+     * `{{...}}` reference already resolved to a sample value, the same way the
+     * generic Test flow resolves one before calling `create()`. This reads
+     * config, not live rule state, and has no other way to see a variable's
+     * value.
+     */
+    fun checkIntentTarget(config: Map<String, String>): IntentTargetCheck? = null
+}
+
+/**
+ * What checking a `fire_intent` action's configured intent found, without
+ * sending it. See [ActionFactory.checkIntentTarget].
+ *
+ * Three of the four match the capture concept's own "Test" button exactly:
+ * an app will accept this, no app will accept this, or Trigly cannot see the
+ * app because Android hides it. The fourth, [REFUSED_SELF_TARGET], is not
+ * one Android would ever report on its own. It is Trigly's own refusal, and
+ * it is reported here rather than folded into [WOULD_NOT_RESOLVE] because
+ * some app, Trigly itself, genuinely would answer this; saying "no app will
+ * accept this" would be false. See `docs/actions.md` for why sending back
+ * into Trigly's own package is refused unconditionally rather than only when
+ * the target happens to be an exported component.
+ */
+enum class IntentTargetCheck {
+    /** At least one app Trigly can see would answer this. */
+    WOULD_RESOLVE,
+
+    /**
+     * Trigly can see every app that could possibly answer this, and asked, and
+     * none does. Reported only when that claim is actually earned (see
+     * `decideIntentTargetCheck` in `:actions` for when it is, versus when the
+     * honest answer is [HIDDEN_BY_VISIBILITY] instead).
+     */
+    WOULD_NOT_RESOLVE,
+
+    /**
+     * Android's package visibility rules (API 30+) hide the app that might
+     * answer this from Trigly's own queries. This is a limit on *asking*, not
+     * on *sending*: `docs/actions.md` records what was verified about the
+     * difference, and a real firing is not refused for this reason alone.
+     */
+    HIDDEN_BY_VISIBILITY,
+
+    /** The configured intent would reach Trigly's own package. Refused outright. */
+    REFUSED_SELF_TARGET,
 }

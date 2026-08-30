@@ -63,7 +63,7 @@ private data class TestResult(
  *
  * A regular expression written into a field and never run is a guess. The
  * editor already refuses one that does not *compile*, which catches a stray
- * bracket and nothing else — a pattern can be perfectly valid and match the
+ * bracket and nothing else. A pattern can be perfectly valid and match the
  * wrong thing, or nothing, and the only way that surfaces today is a rule that
  * silently never fires.
  *
@@ -252,7 +252,7 @@ fun PatternTesterDialog(
 /**
  * The answer, in words, including the states that are neither yes nor no.
  *
- * A blank pattern is not a failed match — it is a filter with no opinion, which
+ * A blank pattern is not a failed match. It is a filter with no opinion, which
  * lets everything through. Saying "no match" there would be a lie about what the
  * rule does. [refusal] is the fourth such state: the pattern compiled, but
  * `TextFilter` would not run it against [hasSample]'s text. It carries which of
@@ -280,7 +280,7 @@ private fun Verdict(
     hits: Int,
 ) {
     val (text, colour) = when {
-        !hasPattern -> "EMPTY PATTERN — MATCHES ANYTHING" to
+        !hasPattern -> "EMPTY PATTERN · MATCHES ANYTHING" to
             MaterialTheme.colorScheme.onSurfaceVariant
         compileError -> "PATTERN DOES NOT COMPILE" to MaterialTheme.colorScheme.error
         !hasSample -> "TYPE SOME SAMPLE TEXT" to MaterialTheme.colorScheme.onSurfaceVariant
@@ -290,7 +290,7 @@ private fun Verdict(
         // is a fill colour and fails AA contrast as label text. See Palette.kt.
         matches && hits > 0 -> "MATCHES · $hits ${if (hits == 1) "HIT" else "HITS"}" to
             MaterialTheme.extra.accent
-        // Matched, but with nothing to underline — a zero-width pattern such as
+        // Matched, but with nothing to underline: a zero-width pattern such as
         // `a*`. Both halves are true and saying only one of them would mislead.
         matches -> "MATCHES · NOTHING TO HIGHLIGHT" to MaterialTheme.extra.accent
         else -> "NO MATCH" to MaterialTheme.colorScheme.error
@@ -320,7 +320,7 @@ private fun refusalText(reason: RegexRefusal): String = when (reason) {
  * The sample with matched spans marked.
  *
  * Uses the theme's own primary rather than a new colour, and marks with a
- * background so the matched characters stay readable — inverting the text would
+ * background so the matched characters stay readable. Inverting the text would
  * make a one-character match hard to see against a monospaced run.
  */
 @Composable

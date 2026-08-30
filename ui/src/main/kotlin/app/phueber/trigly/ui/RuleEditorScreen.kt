@@ -84,7 +84,7 @@ internal typealias SubstitutionLookup = (String, Map<String, String>) -> Map<Str
  * navigation-bar inset, and the whole screen takes `imePadding` so the keyboard
  * pushes it up instead of covering it.
  *
- * Stateless, like [RulesScreen] — it takes the draft and emits intents, which is
+ * Stateless, like [RulesScreen]. It takes the draft and emits intents, which is
  * what lets the instrumented tests drive it without a ViewModel or a database.
  */
 @OptIn(ExperimentalLayoutApi::class)
@@ -92,7 +92,7 @@ internal typealias SubstitutionLookup = (String, Map<String, String>) -> Map<Str
 fun RuleEditorScreen(
     state: EditorState,
     /**
-     * What a trigger picker offers at a given point in the tree — the empty
+     * What a trigger picker offers at a given point in the tree: the empty
      * path for the root, a group's own path for a sibling inside it. A
      * function rather than a flat list because availability is path-dependent:
      * `TriggerNode.canStart`'s "one edge, any number of levels" rule means a
@@ -106,15 +106,15 @@ fun RuleEditorScreen(
     onNameChange: (String) -> Unit,
     onEnabledChange: (Boolean) -> Unit,
     /**
-     * Folder names already used by other rules — not this one's own current
-     * value, which is [EditorState.draft]'s own [RuleDraft.folder] — offered so
+     * Folder names already used by other rules (not this one's own current
+     * value, which is [EditorState.draft]'s own [RuleDraft.folder]), offered so
      * a repeat name is a pick rather than a retyped, and possibly mistyped, one.
      * The caller draws this from the saved rules; an editor working from its own
      * one-rule snapshot has no way to know what else exists. Defaults to empty,
      * so a rule with nothing to offer still gets a working "type a new one" field.
      */
     existingFolders: List<String> = emptyList(),
-    /** Sets the rule's folder — see [existingFolders] and [FolderField]. */
+    /** Sets the rule's folder. See [existingFolders] and [FolderField]. */
     onFolderChange: (String) -> Unit = {},
     /** Sets the first trigger, from the empty "Choose a trigger" slot. */
     onChooseTrigger: (String) -> Unit,
@@ -125,7 +125,7 @@ fun RuleEditorScreen(
     onChangeTriggerType: (NodePath, String) -> Unit = { _, _ -> },
     /**
      * Adds a sibling beside the node at this path. A leaf there becomes a
-     * group of two — see `TriggerNode.addAt` — which is how a group comes
+     * group of two (see `TriggerNode.addAt`), which is how a group comes
      * into existence without the user first having to choose a container.
      */
     onAddTrigger: (NodePath, String) -> Unit = { _, _ -> },
@@ -134,7 +134,7 @@ fun RuleEditorScreen(
     onSetTriggerOp: (NodePath, TriggerNode.Op) -> Unit = { _, _ -> },
     /**
      * Removes the node at this path. An empty path clears the whole "When"
-     * section back to its unchosen state — see `TriggerNode.removeAt`.
+     * section back to its unchosen state. See `TriggerNode.removeAt`.
      */
     onRemoveTrigger: (NodePath) -> Unit = {},
     /** Edits one config value on the leaf at this path. */
@@ -145,14 +145,25 @@ fun RuleEditorScreen(
     onMoveAction: (Int, Int) -> Unit,
     onConfigChange: (Slot, Int, String, String?) -> Unit,
     onTestAction: (Int) -> Unit,
+    /**
+     * Checks whether the action at this index's configured intent would find
+     * something to run it, without sending it. This is the `fire_intent` control
+     * that stands in for [onTestAction], since that action declares
+     * [ComponentTool.CheckIntentTarget] instead of [ComponentTool.Test]. See
+     * `RuleEditorViewModel.checkIntentTarget` for where the answer comes from
+     * and [EditorState.testResult] for where it lands: the same surface
+     * [onTestAction]'s outcome already uses. Defaults to a no-op so a caller
+     * that has not wired this, such as a preview, still renders the button.
+     */
+    onCheckIntentTarget: (Int) -> Unit = {},
     onSave: () -> Unit,
     onDelete: () -> Unit,
     onBack: () -> Unit,
     onResolveRequirement: (ComponentRequirement) -> Unit,
     /**
      * Whether a requirement is already met. Passed in rather than checked here
-     * because it reads live device state — a permission granted in system
-     * settings, an access toggled — which a stateless screen has no business
+     * because it reads live device state (a permission granted in system
+     * settings, an access toggled), which a stateless screen has no business
      * reaching for, and which the activity re-evaluates when it resumes.
      */
     isRequirementSatisfied: (ComponentRequirement) -> Boolean = { false },
@@ -163,7 +174,7 @@ fun RuleEditorScreen(
      */
     onPinShortcut: (Map<String, String>) -> Unit = {},
     /**
-     * What tools a component offers on its block — see [ComponentTool].
+     * What tools a component offers on its block. See [ComponentTool].
      *
      * Asked per component *and per configuration*, rather than derived from a type
      * string, which is how this screen stopped knowing that shortcut triggers can
@@ -190,7 +201,7 @@ fun RuleEditorScreen(
     substitutionsFor: SubstitutionLookup = { _, _ -> emptyMap() },
     /** Live notifications for the inspector, shown over the editor rather than navigated to. */
     inspectorNotifications: () -> List<ActiveNotification> = { emptyList() },
-    /** Whether the notification listener is bound — an empty list means two different things. */
+    /** Whether the notification listener is bound: an empty list means two different things. */
     inspectorConnected: () -> Boolean = { false },
     describeApp: (String) -> String = { it },
     /**
@@ -231,7 +242,7 @@ fun RuleEditorScreen(
     // look exactly as it did before this existed, and folding is something the
     // user does rather than something they undo.
     //
-    // Keyed by *position* — "trigger", "action-0" — because a `ComponentDraft`
+    // Keyed by *position* (`"trigger"`, `"action-0"`) because a `ComponentDraft`
     // has no identity of its own. That is the right way round for the job
     // folding does, which is getting a long rule down to a list of headings.
     //
@@ -239,7 +250,7 @@ fun RuleEditorScreen(
     // to the same "everything starts open" default: it is what makes a rule
     // with several nested gates one line until asked, rather than the whole
     // tree dumped on screen the moment its rule is opened. The seeding only
-    // ever runs once — inside `rememberSaveable`'s initial-value lambda — so it
+    // ever runs once, inside `rememberSaveable`'s initial-value lambda, so it
     // captures the tree exactly as this editor was entered with. A group added
     // afterwards, in this same session, is not in that snapshot and so stays
     // open: the person just built it and is still working in it.
@@ -256,8 +267,8 @@ fun RuleEditorScreen(
     // fold and separate from the block itself: the caveat is hidden by default
     // even in an open block, and the one way to see it is to tap its badge. Kept
     // out here, keyed by position like the fold, so it survives a rotation and so
-    // Up/Down move the *slot's* state rather than the action's — the same choice,
-    // for the same reason, as [collapsed].
+    // Up/Down move the *slot's* state rather than the action's. That is the same
+    // choice, for the same reason, as [collapsed].
     val shownCaveats = rememberSaveable(saver = stringListSaver) { mutableStateListOf<String>() }
     fun toggleCaveat(key: String) {
         if (!shownCaveats.remove(key)) shownCaveats += key
@@ -269,7 +280,7 @@ fun RuleEditorScreen(
     // KDoc in `RulePicker.kt` for why a rule-reference field needs this at
     // all: it's what lets the picker mark this rule as the one being
     // edited, rather than excluding it (a deliberate, documented feature
-    // — see `SetRuleEnabledActionFactory`).
+    // described in `SetRuleEnabledActionFactory`).
     CompositionLocalProvider(LocalCurrentRuleId provides draft.id) {
         Column(modifier = modifier.fillMaxSize().imePadding()) {
             BlockHeader(
@@ -298,7 +309,7 @@ fun RuleEditorScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                // The rule's own property, next to the name it sits beside — not a
+                // The rule's own property, next to the name it sits beside. It is not a
                 // component's config field, so it does not go through `ConfigField`
                 // or `ComponentBlock`.
                 FolderField(
@@ -345,8 +356,8 @@ fun RuleEditorScreen(
                 }
 
                 // What a test run reported. Deliberately not the error colour: a
-                // test that fails is information, not a fault in the rule — and one
-                // that succeeds still needs saying, or pressing Test on a silent
+                // test that fails is information, not a fault in the rule. A test
+                // that succeeds still needs saying, too, or pressing Test on a silent
                 // action looks like nothing happened.
                 state.testResult?.let { message ->
                     Surface(
@@ -371,7 +382,7 @@ fun RuleEditorScreen(
 
                 SectionLabel("When")
                 // The whole trigger side is one slot: nothing chosen, one
-                // component, or a group of them — see [TriggerDraft]. There is
+                // component, or a group of them. See [TriggerDraft]. There is
                 // deliberately no second "must also be true" region beneath
                 // this any more; a gate is a trigger, and it lives here.
                 when (val trigger = draft.trigger) {
@@ -394,8 +405,8 @@ fun RuleEditorScreen(
                         node = trigger,
                         path = emptyList(),
                         descriptorFor = { type -> descriptorFor(Slot.TRIGGER, type) },
-                        // Whatever this component says it offers — a notification
-                        // trigger's Inspect, a shortcut trigger's pin — the same
+                        // Whatever this component says it offers (a notification
+                        // trigger's Inspect, a shortcut trigger's pin), the same
                         // as any other trigger block, wherever in the tree it sits.
                         tools = { type, config ->
                             ComponentTools(
@@ -442,8 +453,8 @@ fun RuleEditorScreen(
                         footer = {
                             // Test is no longer written here: every action declares
                             // it through `ActionFactory.toolsFor`, and the ones with
-                            // more to offer — the notification actions, which can
-                            // open the inspector — declare that alongside it. The
+                            // more to offer (the notification actions, which can
+                            // open the inspector) declare that alongside it. The
                             // running/Stop state stays the screen's business,
                             // because only the screen knows which action is running.
                             //
@@ -458,9 +469,10 @@ fun RuleEditorScreen(
                                 onInspect = { inspecting = true },
                                 testLabel = if (state.testing == index) "Stop" else "Test",
                                 onTest = { onTestAction(index) },
+                                onCheckIntentTarget = { onCheckIntentTarget(index) },
                                 modifier = Modifier.align(Alignment.CenterVertically),
                             )
-                            // Order matters — actions run in sequence, so the
+                            // Order matters. Actions run in sequence, so the
                             // mapping from icon to effect is fixed: Up is always
                             // `index - 1`, never the reverse, because an icon that
                             // is ambiguous about direction is worse than the text
@@ -527,7 +539,7 @@ fun RuleEditorScreen(
     when (val target = picking) {
         null -> Unit
 
-        // The very first trigger, unchosen — the only picking moment that has
+        // The very first trigger, unchosen. It is the only picking moment that has
         // no path of its own, since there is nothing yet to be a sibling of.
         Picking.NewTrigger -> ComponentPickerDialog(
             title = "Choose a trigger",
@@ -567,15 +579,34 @@ fun RuleEditorScreen(
 
     if (inspecting) {
         // Full-bleed rather than an inset dialog: it is a screen's worth of
-        // content — several notifications, each with every field a matcher can
-        // read — and squeezing that into a dialog's default width would make the
+        // content (several notifications, each with every field a matcher can
+        // read), and squeezing that into a dialog's default width would make the
         // one thing it exists to show, the exact strings, wrap into mush.
+        // **`decorFitsSystemWindows = false` is the second half of keeping the
+        // bottom bar reachable, and it is a different fault from the one the
+        // height bound below fixes.** Android 15 lays every window of an app
+        // that targets API 35 out edge to edge, and a dialog window is no
+        // exception. The default `true` does not stop that. It only makes
+        // Compose report the window insets inside this dialog as zero, on the
+        // promise that the system already inset the window. That promise is no
+        // longer kept, so `BlockBottomBar`'s own `navigationBarsPadding` added
+        // nothing and the Back label was drawn under the gesture bar with its
+        // bottom cut off. The height bound cannot see this, because
+        // `screenHeightDp` reports the whole display, bars included. Saying
+        // `false` makes Compose dispatch the real insets, and `BlockBottomBar`
+        // and `BlockHeader` then pad themselves as they already do on every
+        // screen that is not in a dialog. `RulesScreen`'s trace dialog carries
+        // the same line for the same reason.
         Dialog(
             onDismissRequest = { inspecting = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false),
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false,
+            ),
         ) {
-            // `heightIn(max = …)`, not `fillMaxSize()`, and this is the whole fix
-            // for a bottom bar that ran off the screen.
+            // `heightIn(max = …)`, not `fillMaxSize()`, and this is half the
+            // fix for a bottom bar that ran off the screen. The other half is
+            // `decorFitsSystemWindows` above.
             //
             // `usePlatformDefaultWidth = false` makes the dialog window
             // full-width, but its height stays wrap-content. So the content is
@@ -584,8 +615,8 @@ fun RuleEditorScreen(
             // bounded height to fill, so it behaves as wrap; and the inspector's
             // `LazyColumn`, which takes `weight(1f)` of the remaining space,
             // instead measures to the full height of every notification it holds.
-            // The window then grows taller than the display and the bottom bar —
-            // the only way back out — is pushed past the bottom edge. One
+            // The window then grows taller than the display, and the bottom bar,
+            // the only way back out, is pushed past the bottom edge. One
             // notification hides it; six show it.
             //
             // Bounding the height gives the weight something to divide. The
@@ -621,10 +652,10 @@ fun RuleEditorScreen(
  * This exists so that "this block has a button on it" is a fact a factory states
  * rather than a name this screen recognises. Before it, testing an action was
  * hardcoded here and pinning a shortcut was keyed off a config key that happened
- * to be unique — two special cases, and the inspector would have been a third.
+ * to be unique. Two special cases, and the inspector would have been a third.
  *
- * A tool that needs state only the screen has — Test doubles as Stop while an
- * action runs — takes it as a parameter. A tool nobody passes a handler for is
+ * A tool that needs state only the screen has (Test doubles as Stop while an
+ * action runs) takes it as a parameter. A tool nobody passes a handler for is
  * simply not drawn, which is why [onTest] is nullable: triggers declare no Test
  * and would have nothing to run.
  */
@@ -642,11 +673,16 @@ private fun ComponentTools(
     modifier: Modifier = Modifier,
     testLabel: String = "Test",
     onTest: (() -> Unit)? = null,
+    // Nullable for the same reason [onTest] is: a trigger's `ComponentTools`
+    // call site passes neither, because [ComponentTool.CheckIntentTarget] is
+    // an `ActionFactory`-only tool and a trigger's own `tools` list can never
+    // include it.
+    onCheckIntentTarget: (() -> Unit)? = null,
 ) {
     tools.forEach { tool ->
         when (tool) {
-            // Half of what an action does is sensory — which sound, how loud, how
-            // the spoken text reads — and the alternative is saving, waiting for
+            // Half of what an action does is sensory (which sound, how loud, how
+            // the spoken text reads), and the alternative is saving, waiting for
             // the real trigger, and guessing.
             ComponentTool.Test ->
                 if (onTest != null) BlockTextButton(testLabel, modifier = modifier, onClick = onTest)
@@ -662,6 +698,22 @@ private fun ComponentTools(
             // without this the rule saves, looks healthy, and never fires.
             ComponentTool.PinShortcut ->
                 BlockTextButton("Add to home screen", modifier = modifier) { onPinShortcut(config) }
+
+            // Declared by `fire_intent` in place of Test, because running an
+            // arbitrary intent to "test" it is exactly what this tool avoids.
+            // See its own KDoc in `core/Action.kt`. The button reports into the
+            // same result surface Test does (`EditorState.testResult`), through
+            // `RuleEditorViewModel.checkIntentTarget`, which calls
+            // `Registry.checkIntentTarget(ComponentSpec(type, config))` and maps
+            // the four-answer `IntentTargetCheck?` to one of the four messages
+            // in `IntentTargetCheckMessage.kt`. It never shows a "Stop" state:
+            // the check runs no coroutine and finishes before the call
+            // returns, so there is nothing a second press would need to
+            // cancel.
+            ComponentTool.CheckIntentTarget ->
+                if (onCheckIntentTarget != null) {
+                    BlockTextButton("Check target", modifier = modifier, onClick = onCheckIntentTarget)
+                }
         }
     }
 }
@@ -739,15 +791,15 @@ private fun ActionOrderButton(
  * already use offered so a repeat is a pick rather than a second, possibly
  * mistyped, spelling of the same one.
  *
- * Built on [PickerValueBox] and [ValuePickerDialog] — the same "pick, don't
+ * Built on [PickerValueBox] and [ValuePickerDialog] (the same "pick, don't
  * type" shape [AppPackageField], [SoundUriField] and [BluetoothAddressField]
- * already use for a package, a sound and a device — rather than a second
+ * already use for a package, a sound and a device), rather than a second
  * convention for what is, underneath, the same shape: a searchable list, an
  * escape hatch for a value the list does not contain, and a box showing what
  * is chosen now. A plain text field was the other option and would have been
  * *worse* here, not merely different: `Rule.folder`'s comparison is an exact,
  * case-sensitive string match (see its KDoc in `:core`), so "Car" and "car"
- * group under two different headings rather than one — exactly the failure a
+ * group under two different headings rather than one. That is exactly the failure a
  * free-typed field invites on a second rule, once the first name is a few
  * days old and half-remembered.
  *
@@ -838,8 +890,8 @@ internal fun SectionLabel(text: String) {
  * One trigger or action, as a block split into cells: what it is, what to know
  * about it, its settings, what it needs, and what can be done to it.
  *
- * [expanded] folds the middle away. What it hides is what you *read and fill in*
- * — the settings that apply, and the requirements not yet met. A setting a
+ * [expanded] folds the middle away. What it hides is what you *read and fill in*:
+ * the settings that apply, and the requirements not yet met. A setting a
  * sibling has made irrelevant, and a permission already granted, are not hidden
  * by the fold: they are not drawn at all. What it keeps is the heading, the caveat
  * badge, the controls that act on the block, and any fault: a rule with six
@@ -848,19 +900,19 @@ internal fun SectionLabel(text: String) {
  * exactly what you still want to reach in a folded list.
  *
  * The caveat is not part of that middle. Its prose is hidden by default whether
- * the block is open or shut, and [caveatShown] — driven by the badge in the
- * header — is the only thing that reveals it. So it sits above the fold, reachable
+ * the block is open or shut, and [caveatShown] (driven by the badge in the
+ * header) is the only thing that reveals it. So it sits above the fold, reachable
  * even from a folded block: a caveat is worth reading before reordering a rule,
  * not only while filling one in.
  *
- * The fold is not offered when there would be nothing behind it — a chosen
+ * The fold is not offered when there would be nothing behind it: a chosen
  * component with no applicable settings and nothing left to grant has no middle,
  * and a button that visibly does nothing is worse than no button. A lone caveat does not bring the
  * fold back, because the caveat has its own control.
  *
  * `internal` rather than `private`: [TriggerNodeBlock] renders a leaf of the
  * trigger tree with this same block, whether that leaf sits at the root or
- * nested several gates deep — a trigger is a trigger, and the two must never
+ * nested several gates deep. A trigger is a trigger, and the two must never
  * drift into looking like different kinds of thing.
  */
 @OptIn(ExperimentalLayoutApi::class)
@@ -889,7 +941,7 @@ internal fun ComponentBlock(
 ) {
     // Only what applies right now. A setting a sibling has made irrelevant is
     // not drawn at all, and a requirement already granted has nothing left to
-    // say — see the fold's KDoc above.
+    // say. See the fold's KDoc above.
     val fields = descriptor?.configFields.orEmpty().shownWith(config)
     val unmet = descriptor?.requirements.orEmpty().filterNot(isRequirementSatisfied)
 
@@ -914,8 +966,8 @@ internal fun ComponentBlock(
                 )
                 // The one control for the caveat, in the header so it stays with
                 // the block whether it is folded or open, and beside the fold
-                // button so the two reads — "show me the settings", "tell me the
-                // catch" — sit together.
+                // button so the two reads ("show me the settings", "tell me the
+                // catch") sit together.
                 if (descriptor?.warning != null) {
                     CaveatBadge(shown = caveatShown, onToggle = onToggleCaveat)
                 }
@@ -932,8 +984,8 @@ internal fun ComponentBlock(
             }
 
             // The caveat prose, hidden until the badge above is tapped, and shown
-            // regardless of the fold — above the early returns below on purpose,
-            // so a folded block can still surface its catch. The picker only ever
+            // regardless of the fold. It is placed above the early returns below on
+            // purpose, so a folded block can still surface its catch. The picker only ever
             // marks that this exists; here is where the sentence lives.
             if (descriptor?.warning != null && caveatShown) {
                 BlockDivider()
@@ -951,8 +1003,8 @@ internal fun ComponentBlock(
             }
 
             if (descriptor == null) {
-                // A stored rule can name a component this build does not have —
-                // after a downgrade, or an import from a newer version.
+                // A stored rule can name a component this build does not have. That
+                // can happen after a downgrade, or an import from a newer version.
                 chosenType?.let {
                     BlockDivider()
                     Surface(
@@ -1077,7 +1129,7 @@ private fun Footer(footer: (@Composable FlowRowScope.() -> Unit)?) {
 
 /**
  * The unchosen trigger placeholder's fold key, and the root node's once
- * something is chosen — there is only ever one node at the empty path.
+ * something is chosen. There is only ever one node at the empty path.
  */
 private const val TRIGGER_KEY = "trigger"
 
@@ -1088,8 +1140,8 @@ internal fun triggerKey(path: NodePath): String =
 private fun actionKey(index: Int) = "action-$index"
 
 /**
- * Every group already in [node] when the editor is entered, as fold keys —
- * what seeds [RuleEditorScreen]'s `collapsed` set so a saved rule opens with
+ * Every group already in [node] when the editor is entered, as fold keys.
+ * This is what seeds [RuleEditorScreen]'s `collapsed` set so a saved rule opens with
  * its gates shut. Walked once, from the tree the screen was handed on this
  * composition's first pass; see the KDoc on `collapsed` for why running this
  * again later would be wrong.
@@ -1106,7 +1158,7 @@ private fun initiallyCollapsedTriggerGroups(
 }
 
 /**
- * Saves a set of position keys across a configuration change — the folded blocks
+ * Saves a set of position keys across a configuration change. The folded blocks
  * and the blocks whose caveat is open both use it.
  *
  * A `SnapshotStateList` is not saveable on its own, and the contents are plain

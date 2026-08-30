@@ -35,14 +35,14 @@ import kotlinx.coroutines.launch
  * share.
  *
  * Reached from a row on [SettingsScreen], which is why its own back target is
- * [Screen.Settings] and not the rule list — see [Screen.Attribution].
+ * [Screen.Settings] and not the rule list. See [Screen.Attribution].
  *
  * Stateless, the same reasoning [SettingsScreen] gives for itself: nothing on
  * this screen changes while it is open, so there is no ViewModel and the
  * instrumented test can drive it with plain values. [projects], [licenseUrl]
  * and [repositoryUrl] are parameters rather than reads of
  * [shippedDependencies] and a hardcoded string here, so a dependency bump
- * cannot break this screen's own test — see `AttributionHost`, in
+ * cannot break this screen's own test. See `AttributionHost`, in
  * `MainActivity.kt`, for where the real values come from:
  * `shippedDependencies.groupIntoProjects()` and the two fixed URLs.
  *

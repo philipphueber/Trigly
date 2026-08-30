@@ -72,6 +72,9 @@ class ActionTypeStringsTest {
         // Reach the outside world
         "http_request" to HttpRequestAction.TYPE,
 
+        // Advanced
+        "fire_intent" to FireIntentAction.TYPE,
+
         // Other apps' notifications, via the listener service
         "dismiss_notification" to DismissNotificationAction.TYPE,
         "notification_button" to TriggerNotificationButtonAction.TYPE,
@@ -99,7 +102,7 @@ class ActionTypeStringsTest {
         // A guard that only checks equality would pass on an empty list too.
         // This pins the count so deleting a line reads as a failure, not as
         // one fewer thing to maintain.
-        assertEquals(26, pinned.size)
+        assertEquals(27, pinned.size)
     }
 
     /**

@@ -38,33 +38,33 @@ import java.util.UUID
  *   plus an optional `"conditions"` tree, whose nodes were
  *   `{"node": "check"|"all"|"any", ...}`.
  * - **v3** (this build): [Rule.trigger] is a single [TriggerNode], and `"trigger"`
- *   holds it directly. A leaf is exactly a component spec — `{"type", "config"}`
- *   — so it is byte-identical to what v1 wrote; a group is
+ *   holds it directly. A leaf is exactly a component spec (`{"type", "config"}`),
+ *   so it is byte-identical to what v1 wrote; a group is
  *   `{"op": "all"|"any", "children": [...]}`. The reader tells them apart by
  *   whether `"op"` is present, which is also why a leaf must never gain a
  *   discriminator of its own.
  *
  * Every file a released version wrote must still import, forever. v2's
  * `triggers` + `conditions` split is read by folding it into the equivalent
- * [TriggerNode] tree — see [legacyTriggerNode].
+ * [TriggerNode] tree (see [legacyTriggerNode]).
  *
  * `"folder"` (this build) is additive on top of whichever of the three shapes
- * above a rule is written in — see [VERSION]'s kdoc for why it does not earn
- * a v4.
+ * above a rule is written in (see [VERSION]'s kdoc for why it does not earn
+ * a v4).
  */
 object RuleJson {
 
     /**
      * Bumped when the shape changes incompatibly. A file from a *newer* version
-     * is refused rather than half-read — losing a rule silently is worse than
+     * is refused rather than half-read. Losing a rule silently is worse than
      * failing to import.
      *
-     * `"folder"` does not bump this. No released build has ever written v4 —
-     * 0.0.4 was pulled before it shipped — so there is no file on a real device
+     * `"folder"` does not bump this. No released build has ever written v4
+     * (0.0.4 was pulled before it shipped), so there is no file on a real device
      * today that a bump would even be protecting against. And an unbumped
      * version is the *more* correct choice here regardless: `"folder"` is read
      * with [org.json.JSONObject.optString], not required, so a build that has
-     * never heard of it just sees a rule with no folder — it loses the
+     * never heard of it just sees a rule with no folder. It loses the
      * grouping and keeps the rule, which is the right failure. Bumping VERSION
      * would instead make an older build refuse the *whole file* over one key
      * it does not need in order to read everything else correctly.
@@ -82,8 +82,8 @@ object RuleJson {
      * This deliberately never writes version 2, even for a tree that a v2 file
      * could have expressed (one level of edges, optionally ANDed with a
      * condition tree). Detecting "is this [TriggerNode] shaped like the old
-     * edges-plus-conditions split" is real logic — a second grouping operator,
-     * ALL vs ANY at the top, nesting depth — and it is logic a v2-shaped tree
+     * edges-plus-conditions split" is real logic (a second grouping operator,
+     * ALL vs ANY at the top, nesting depth), and it is logic a v2-shaped tree
      * built by hand or by re-import could get subtly wrong in a way that would
      * only surface as a corrupted re-export. v2 shipped for exactly one release.
      * The promise this codec has to keep is that it *reads* every file an old
@@ -126,7 +126,7 @@ object RuleJson {
 
     /**
      * A plain trigger (`One`, no group) writes as exactly the spec object v1
-     * wrote — no wrapper, no discriminator — which is what keeps an ordinary
+     * wrote (no wrapper, no discriminator), which is what keeps an ordinary
      * export byte-comparable with a pre-gate build's output. A [TriggerNode.Group]
      * writes as `{"op", "children"}`; see [nodeToJson].
      */
@@ -138,7 +138,7 @@ object RuleJson {
         .put(KEY_ACTIONS, JSONArray(rule.actions.map(::specToJson)))
         .let { json ->
             // Normalized again here rather than trusting `rule.folder` was
-            // already clean — see `Rule`'s kdoc. A rule with no folder writes
+            // already clean (see `Rule`'s kdoc). A rule with no folder writes
             // no key at all, not `"folder": null`, so an export of ungrouped
             // rules stays byte-identical to what a build before this one wrote.
             normalizeFolder(rule.folder)?.let { folder -> json.put(KEY_FOLDER, folder) }
@@ -169,7 +169,7 @@ object RuleJson {
         }
 
         val version = root.optInt(KEY_VERSION, -1)
-        require(version != -1) { "That file has no version field — it was not exported by Trigly." }
+        require(version != -1) { "That file has no version field. It was not exported by Trigly." }
         require(version <= VERSION) {
             "That file was exported by a newer version of Trigly (format $version, " +
                 "this build understands $VERSION). Update the app first."
@@ -212,7 +212,7 @@ object RuleJson {
         }
 
         return Rule(
-            // A missing id is tolerated — a hand-written or hand-edited file is a
+            // A missing id is tolerated. A hand-written or hand-edited file is a
             // legitimate way to author rules, and the id carries no meaning.
             id = json.optString(KEY_ID).takeIf { it.isNotBlank() } ?: newId(),
             name = name,
@@ -222,15 +222,15 @@ object RuleJson {
             enabled = json.optBoolean(KEY_ENABLED, true),
             // Missing key (an older export, or v1/v2), present-but-blank (a
             // hand-edited file), and a real name all funnel through the same
-            // normalization — see `Rule`'s kdoc for why blank must not survive
-            // as a second spelling of "no folder".
+            // normalization (see `Rule`'s kdoc for why blank must not survive
+            // as a second spelling of "no folder").
             folder = normalizeFolder(json.optString(KEY_FOLDER)),
         )
     }
 
     /**
-     * Folds the pre-gate two-part shape — a list of edges plus a separate
-     * condition tree — into the single [TriggerNode] it meant.
+     * Folds the pre-gate two-part shape (a list of edges plus a separate
+     * condition tree) into the single [TriggerNode] it meant.
      *
      * This mapping *is* the definition of what the old shape meant, which is
      * why it is tested against hand-written v2 documents rather than only a
@@ -238,11 +238,11 @@ object RuleJson {
      * exercise the shape it is meant to translate.
      *
      * - The edges become `One(spec)` if there was exactly one, else
-     *   `Group(ANY, ones)` — the old model ran a rule when any edge fired.
+     *   `Group(ANY, ones)`: the old model ran a rule when any edge fired.
      * - Each condition node becomes `check` → `One`, `all` → `Group(ALL, …)`,
      *   `any` → `Group(ANY, …)`.
      * - If there were no conditions, the edges node is the whole trigger. If
-     *   there were, the trigger is `Group(ALL, [edgesNode, conditionsNode])` —
+     *   there were, the trigger is `Group(ALL, [edgesNode, conditionsNode])`:
      *   the old model required every condition to hold on top of an edge
      *   firing, which is exactly ALL of the two halves.
      */
@@ -287,8 +287,8 @@ object RuleJson {
      * Reads one v2 condition node into the [TriggerNode] it means.
      *
      * An unknown node kind is an error rather than a skip. Dropping a node would
-     * change what the rule *means* — losing an `all` branch makes a rule fire in
-     * cases its author excluded — and a rule that silently does more than it was
+     * change what the rule *means* (losing an `all` branch makes a rule fire in
+     * cases its author excluded), and a rule that silently does more than it was
      * told is worse than an import that stops and says why.
      */
     private fun legacyConditionNode(json: JSONObject, where: String): TriggerNode {
@@ -315,9 +315,9 @@ object RuleJson {
     }
 
     /**
-     * Reads one v3 trigger node. A group has an `"op"` key; a leaf does not — see
+     * Reads one v3 trigger node. A group has an `"op"` key; a leaf does not (see
      * the class doc for why a leaf must never grow a discriminator that would
-     * make v1 files unreadable as leaves.
+     * make v1 files unreadable as leaves).
      *
      * An empty `"children"` array is accepted rather than refused. It used to be
      * refused here: an editor that could only ever build a group with something

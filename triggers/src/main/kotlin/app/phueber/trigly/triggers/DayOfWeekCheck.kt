@@ -41,8 +41,8 @@ fun dayOfWeekHolds(current: DayOfWeek, selectedDays: Set<DayOfWeek>): Boolean =
  * **All seven default to checked**, so a freshly added condition holds every
  * day, the same "no restriction until deliberately narrowed" reading
  * [TimeWindowCheck] gives a start-equal-to-end window. Unlike that window,
- * though, unchecking every box here is not read back as "no restriction" —
- * see [DayOfWeekCheckFactory.create]: an explicit, all-unchecked config means
+ * though, unchecking every box here is not read back as "no restriction".
+ * See [DayOfWeekCheckFactory.create]: an explicit, all-unchecked config means
  * exactly what it shows, a condition that never holds. The two cases are not
  * the same shape: a window collapsed to zero width could never have been
  * meant literally, because no instant is both inside and outside its own

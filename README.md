@@ -7,7 +7,7 @@ Kotlin, and it uses Jetpack Compose for its UI.
 
 > ### This is beta software
 >
-> The version number is `0.2.2`, and both halves of it are a statement. The
+> The version number is `0.3.0`, and both halves of it are a statement. The
 > leading zero says the surface is still not settled: a control can move, a
 > trigger can change its name, and a setting can change its meaning between two
 > releases. The move up from `0.0.x` says the shape has settled enough to ask

@@ -16,13 +16,13 @@ package app.phueber.trigly.core
  *
  * The previous version modelled the two halves separately: a list of edges, and a
  * tree of conditions beside it. That made a *structural* distinction the user
- * never asked for — the editor grew a second region with its own vocabulary, and
+ * never asked for: the editor grew a second region with its own vocabulary, and
  * "a condition is just a trigger, asked instead of watched" stopped being true of
  * the code even while the documentation claimed it. One tree says it properly: a
  * group is a trigger, it is chosen from the same picker as any other trigger, and
  * it can contain groups.
  *
- * ### Edges and levels still exist — as a property of a component, not a slot
+ * ### Edges and levels still exist, as a property of a component, not a slot
  *
  * A trigger is an edge ("the screen turned on"); the same component asked for its
  * state is a level ("the screen is on"). Two edges are essentially never true at
@@ -107,7 +107,7 @@ fun TriggerNode.mapSpecs(transform: (ComponentSpec) -> ComponentSpec): TriggerNo
  * Whether this tree is satisfied, given the leaf that just fired.
  *
  * [firedPath] is the leaf whose event started this evaluation. It counts as true
- * without being asked, because it just happened — asking a component whether it
+ * without being asked, because it just happened: asking a component whether it
  * *is* connected right after it reported connecting would fail for anything
  * momentary, and "a tap happened" has no state to read at all.
  *
@@ -117,7 +117,7 @@ fun TriggerNode.mapSpecs(transform: (ComponentSpec) -> ComponentSpec): TriggerNo
  * not, and both are silent.
  *
  * **Null does not satisfy.** A component that cannot answer, or that fails while
- * trying, is unknown — and unknown is not yes. The alternative is unattended
+ * trying, is unknown. And unknown is not yes. The alternative is unattended
  * actions running on a guess, which for this app is the worse failure by a
  * distance.
  *
@@ -309,7 +309,7 @@ enum class LeafOutcome {
  * that only ever produce events, in the same [TriggerNode.Op.ALL] group, describe
  * two instants that never coincide: whichever one fires, the other is asked for a
  * state it does not have, answers unknown, and the group fails. Forever, with no
- * message — the failure this project keeps designing against.
+ * message. This is the failure this project keeps designing against.
  *
  * So it is computed rather than assumed:
  *
@@ -319,7 +319,7 @@ enum class LeafOutcome {
  *   for a state. One edge and any number of levels is the useful rule; a second
  *   edge is the mistake.
  *
- * [hasEvents] and [hasState] come from the component's factory — see
+ * [hasEvents] and [hasState] come from the component's factory. See
  * `Registry`. Both are passed in rather than read here, because `:core`'s model
  * must not need the registry to describe itself.
  *
@@ -348,7 +348,7 @@ fun TriggerNode.canStart(
 }
 
 /**
- * Whether this tree can be asked for a state — the other half of [canStart].
+ * Whether this tree can be asked for a state, the other half of [canStart].
  *
  * A group can be asked if all of its children can, whatever the operator: asking
  * "is (a or b) true now" is answerable exactly when both a and b are.
@@ -454,7 +454,7 @@ fun TriggerNode.replaceAt(path: NodePath, replacement: TriggerNode): TriggerNode
  *
  * A group that loses its second-to-last child collapses into its remaining child,
  * because "all of: one thing" is a box drawn around nothing. A group that loses
- * its last child is removed in turn, up to the root — and removing the root
+ * its last child is removed in turn, up to the root. Removing the root
  * returns null, which the caller renders as the empty "choose a trigger" slot.
  */
 fun TriggerNode.removeAt(path: NodePath): TriggerNode? {

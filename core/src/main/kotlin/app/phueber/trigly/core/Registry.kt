@@ -8,7 +8,7 @@ class UnknownComponentException(message: String) : IllegalArgumentException(mess
  * it the factory itself.
  *
  * A flattened snapshot rather than the live factory, so the UI cannot
- * accidentally call `create()` while someone is still typing — construction is
+ * accidentally call `create()` while someone is still typing. Construction is
  * the validation step, and it belongs at save time.
  */
 data class ComponentDescriptor(
@@ -19,8 +19,8 @@ data class ComponentDescriptor(
     val configFields: List<ConfigField>,
     val warning: String?,
     /**
-     * Whether this can be used as a *condition* as well as a trigger — see
-     * `docs/conditions.md`. Always false for an action, which has no state to be
+     * Whether this can be used as a *condition* as well as a trigger (see
+     * `docs/conditions.md`). Always false for an action, which has no state to be
      * asked about.
      *
      * On the descriptor so the editor can decide which slots to offer a component
@@ -28,11 +28,11 @@ data class ComponentDescriptor(
      * [requirements] are here.
      */
     val supportsCondition: Boolean = false,
-    /** Whether this component can start a rule at all — see `TriggerFactory.producesEvents`. */
+    /** Whether this component can start a rule at all (see `TriggerFactory.producesEvents`). */
     val producesEvents: Boolean = true,
     /**
-     * What this component's events carry, for a rule's actions to read — see
-     * [VariableSpec]. For an action, this is what it produced for a later
+     * What this component's events carry, for a rule's actions to read (see
+     * [VariableSpec]). For an action, this is what it produced for a later
      * action to read; see [ComponentFactory.variables] and [ActionResult.Success].
      */
     val variables: List<VariableSpec> = emptyList(),
@@ -96,7 +96,7 @@ class Registry(
     fun actionDescriptor(type: String): ComponentDescriptor? = actions[type]?.describe()
 
     /**
-     * Whether [type] can ever start a rule — the by-type-string form of
+     * Whether [type] can ever start a rule: the by-type-string form of
      * [TriggerFactory.producesEvents], for feeding [TriggerNode.canStart]'s
      * `hasEvents` parameter from the editor, which has only the type string a
      * slot is considering, not a built factory.
@@ -108,14 +108,14 @@ class Registry(
     fun producesEvents(type: String): Boolean = triggers[type]?.producesEvents ?: false
 
     /**
-     * Whether [type] can be asked for its current state — the by-type-string
+     * Whether [type] can be asked for its current state: the by-type-string
      * form of [TriggerFactory.supportsCondition], for [TriggerNode.canStart]
      * and [TriggerNode.canHold]'s `hasState` parameter.
      */
     fun supportsCondition(type: String): Boolean = triggers[type]?.supportsCondition ?: false
 
     /**
-     * What a component type's events carry — see [VariableSpec].
+     * What a component type's events carry (see [VariableSpec]).
      *
      * By type string rather than by descriptor, because both callers have only
      * that: [availableVariables] walks a trigger tree of stored specs, and the
@@ -145,7 +145,7 @@ class Registry(
 
     /**
      * Which of this component's config keys accept a variable, and how each is
-     * escaped — see [ComponentFactory.substitutionsFor].
+     * escaped (see [ComponentFactory.substitutionsFor]).
      *
      * Asked per spec rather than per type because the answer can depend on the
      * configuration. An unknown type answers empty, which means the engine
@@ -163,20 +163,20 @@ class Registry(
         (triggers[type] ?: actions[type])?.displayName ?: type
 
     /**
-     * Everything [rule] needs, deduplicated — what a "why isn't this firing?"
+     * Everything [rule] needs, deduplicated: what a "why isn't this firing?"
      * screen shows.
      *
      * **Every leaf of the trigger tree, not just the first one.** This read
      * `rule.trigger` as a single [ComponentSpec] while a rule could only have
      * one; once a rule's trigger became a tree that can hold several
-     * components — see [TriggerNode] — a permission needed by a second leaf,
+     * components (see [TriggerNode]), a permission needed by a second leaf,
      * whether it is asked as an edge or only ever read as a state, became
      * invisible, and the list would call such a rule firable when it was not.
      * That is the exact failure the requirement model exists to prevent, so
      * it is worth being explicit: every leaf, every action.
      *
-     * Each component is asked what it needs *as configured* — see
-     * [ComponentFactory.requirementsFor]. A rule that never uses a capability is
+     * Each component is asked what it needs *as configured* (see
+     * [ComponentFactory.requirementsFor]). A rule that never uses a capability is
      * not blocked on it.
      */
     fun requirementsOf(rule: Rule): List<ComponentRequirement> {
@@ -192,7 +192,7 @@ class Registry(
      * The tools a component offers on its editor block, for this configuration.
      *
      * Deliberately *not* a field on [ComponentDescriptor]: a descriptor is a
-     * config-independent snapshot, and the tools depend on config — a shortcut
+     * config-independent snapshot, and the tools depend on config: a shortcut
      * trigger offers pinning only once it has an id to pin. Asking the registry
      * keeps the descriptor honest about what it is.
      *
@@ -202,6 +202,18 @@ class Registry(
      */
     fun toolsFor(spec: ComponentSpec): List<ComponentTool> =
         (triggers[spec.type] ?: actions[spec.type])?.toolsFor(spec.config).orEmpty()
+
+    /**
+     * Whether the intent this spec's config would build finds something to run
+     * it, without running it. See [ActionFactory.checkIntentTarget] for the
+     * whole contract and why this never sends anything.
+     *
+     * Null for a trigger, for any action but `fire_intent`, and for an unknown
+     * type: the same "nothing to ask" answer for three different reasons, so
+     * the editor draws a check result only when there is one to draw.
+     */
+    fun checkIntentTarget(spec: ComponentSpec): IntentTargetCheck? =
+        actions[spec.type]?.checkIntentTarget(spec.config)
 
     /**
      * The same spec with anything an older build left out filled in. See

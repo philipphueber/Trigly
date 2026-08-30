@@ -47,7 +47,7 @@ import androidx.compose.ui.unit.dp
  * the other half of it.
  *
  * [onAttribution] opens [AttributionScreen], the app's second row and its
- * first that is not a switch — see [SettingsRow].
+ * first that is not a switch. See [SettingsRow].
  *
  * [colorSchemeChoice] and [onColorSchemeChoiceChange] follow the same shape:
  * the current choice in, what someone picked out. The picker itself is

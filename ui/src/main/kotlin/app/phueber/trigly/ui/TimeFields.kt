@@ -37,8 +37,8 @@ import java.util.Locale
  * so all three keep the storage exactly as it was: nothing saved, exported or
  * imported changes.
  *
- * Built from the same vocabulary as the rest of the editor — [PickerValueBox] for
- * a value that opens a dialog, [BlockToggleChip] for a small exclusive choice —
+ * Built from the same vocabulary as the rest of the editor ([PickerValueBox] for
+ * a value that opens a dialog, [BlockToggleChip] for a small exclusive choice)
  * rather than new lookalikes, which is what keeps a border width from drifting
  * between one field kind and the next.
  */
@@ -54,7 +54,7 @@ import java.util.Locale
  * A second key holding the unit could disagree with the first, and there would be
  * no way to say which was right.
  *
- * Switching unit re-expresses what is stored and never edits it — so tapping
+ * Switching unit re-expresses what is stored and never edits it. So tapping
  * "min" on a 30-second value shows 0.5, not 30.
  */
 @Composable
@@ -83,8 +83,8 @@ fun DurationField(
                 } else {
                     // Decimal keyboards show a comma as the decimal key on many
                     // non-English locales, but toDoubleOrNull() only ever accepts a
-                    // period. Left alone, that comma keystroke is silently dropped —
-                    // the field is controlled, so a rejected value never even shows
+                    // period. Left alone, that comma keystroke is silently dropped.
+                    // The field is controlled, so a rejected value never even shows
                     // in the box. Normalize before parsing; do not "simplify" this
                     // away, it is the whole fix.
                     typed.replace(',', '.').toDoubleOrNull()?.let { amount ->
@@ -172,7 +172,7 @@ fun TimestampField(
                 // stored moment, so marking only one half required would lie about
                 // the other.
                 label = fieldLabel("Time", field.required),
-                primary = if (stored != null) formatTime(calendar) else "—",
+                primary = if (stored != null) formatTime(calendar) else "Pick a time",
                 secondary = null,
                 onClick = { pickingTime = true },
                 modifier = Modifier.weight(1f).padding(start = 8.dp),
@@ -194,8 +194,8 @@ fun TimestampField(
             },
             dismissButton = {
                 Row {
-                    // Blankness is a setting here — the calendar app picks the
-                    // time itself — so the picker must not be a one-way door.
+                    // Blankness is a setting here (the calendar app picks the
+                    // time itself), so the picker must not be a one-way door.
                     if (stored != null) {
                         BlockTextButton("Clear") {
                             onValueChange(null)
@@ -240,7 +240,7 @@ fun TimestampField(
  * The picked day, keeping whatever time of day was already stored.
  *
  * The date picker reports midnight UTC for the chosen day, so the day is read out
- * as year/month/day and re-applied locally — taking the returned instant directly
+ * as year/month/day and re-applied locally. Taking the returned instant directly
  * would shift the day by one either side of UTC.
  */
 private fun withDateOf(pickedMillis: Long, stored: Long?): Long {
