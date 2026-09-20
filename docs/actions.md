@@ -196,6 +196,35 @@ can express is a flash unit with one brightness, which most phones have: the
 action reads `FLASH_INFO_STRENGTH_MAXIMUM_LEVEL`, falls back to plain on, and
 the field's own help says so before anybody sets it.
 
+**Two device faults sit on that path, and both are worked around rather than
+reported.** The first: from a dark start, several devices take the level
+`turnOnTorchWithStrengthLevel` is given and still bring the LED up at the
+default brightness, so the setting silently does nothing. The workaround, which
+other apps ship and document, is `setTorchMode(id, true)` first and the level
+second, and `Camera2Torch.turnOn` does exactly that, but only when a level
+below full was actually asked for: full brightness stays one binder call,
+because a blink pays for that call on every edge. The second: a device can
+report a large maximum, 164 levels in the case that is documented from more
+than one app, and throw when asked to set one. That refusal is now dropped
+rather than reported, because the plain on already happened and the light is
+on. A torch at full brightness is much better than no torch, and reporting a
+failure for a lit torch would be false.
+
+The person is not told at the moment the brightness is ignored. There is
+nothing they can do about it, a `Failure` would be a lie about a light that is
+on, and an action has no way to say "it worked, partly" that a rule could act
+on. The field's help carries it instead, where it is read before the rule is
+built. The case deliberately not chased is the third one: a device that reports
+several levels, accepts the call, and drives the LED at one brightness anyway.
+Nothing in the API can see that, and guessing would cost every honest device
+its brightness.
+
+Both workarounds are call *sequences*, so they are pinned by a test. That is
+what the `FlashUnit` seam under `Torch` is for: `CameraManager` cannot be
+called from a JVM test and the emulators have no flash unit, so without it the
+only evidence either workaround behaves as described would be one person's
+memory of one phone.
+
 **A phone with no flash unit at all** is answered by
 `SystemFeature(FEATURE_CAMERA_FLASH)` on both factories, which
 `RequirementChecker.isPossible` treats as permanent, so the pickers never offer

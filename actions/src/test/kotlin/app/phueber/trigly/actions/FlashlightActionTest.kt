@@ -152,6 +152,91 @@ class TorchStrengthTest {
     }
 }
 
+/**
+ * The order [Camera2Torch] calls the camera in, which is where two known device
+ * faults are worked around.
+ *
+ * Both faults are silent on the devices that have them and invisible on every
+ * device that does not, including every emulator here, which report no flash
+ * unit at all. So the sequence is asserted rather than trusted, against a fake
+ * camera, which is the only place it can be seen.
+ */
+class TorchCallOrderTest {
+
+    @Test
+    fun `full brightness is a single call`() {
+        // The path the blink takes, twice per flash. A second binder call here
+        // would be paid hundreds of times in one pattern.
+        val unit = FakeFlashUnit(maxStrengthLevel = 100)
+
+        assertEquals(TorchResult.Ok, Camera2Torch(unit).turnOn(100))
+
+        assertEquals(listOf("switch(true)"), unit.calls)
+    }
+
+    @Test
+    fun `a flash unit with one brightness is never asked for a level`() {
+        val unit = FakeFlashUnit(maxStrengthLevel = SINGLE_STRENGTH_LEVEL)
+
+        Camera2Torch(unit).turnOn(40)
+
+        assertEquals(listOf("switch(true)"), unit.calls)
+    }
+
+    @Test
+    fun `a brightness below full switches on first, then sets the level`() {
+        // The first device fault: from a dark start several devices take the
+        // level and still bring the LED up at the default brightness, so the
+        // setting silently does nothing. The plain on first is the workaround.
+        val unit = FakeFlashUnit(maxStrengthLevel = 100)
+
+        assertEquals(TorchResult.Ok, Camera2Torch(unit).turnOn(40))
+
+        assertEquals(listOf("switch(true)", "level(40)"), unit.calls)
+    }
+
+    @Test
+    fun `a device that refuses the level still reports a lit torch`() {
+        // The second device fault: phones that report many levels and throw
+        // when asked for one. The light is already on by then, so a failure
+        // would be false, and no torch is much worse than an undimmed torch.
+        val unit = FakeFlashUnit(maxStrengthLevel = 164)
+        unit.strengthFails = true
+
+        val result = Camera2Torch(unit).turnOn(25)
+
+        assertEquals(TorchResult.Ok, result)
+        assertEquals(listOf("switch(true)", "level(41)"), unit.calls)
+        assertTrue("the torch must be on, at full", unit.isOn)
+    }
+
+    @Test
+    fun `a torch that cannot be switched on at all still fails`() {
+        // The fallback must not swallow a real refusal. Nothing is lit here, so
+        // reporting success would be the silent failure the workaround is meant
+        // to prevent, arriving from the other side.
+        val unit = FakeFlashUnit(maxStrengthLevel = 100)
+        unit.switchFailsWith = "Another app is using the camera, so the flashlight is not free."
+
+        val result = Camera2Torch(unit).turnOn(40)
+
+        assertEquals(
+            TorchResult.Failed("Another app is using the camera, so the flashlight is not free."),
+            result,
+        )
+        assertEquals("the level must not be asked for after a failed on", 1, unit.calls.size)
+    }
+
+    @Test
+    fun `switching off is one call and never asks about brightness`() {
+        val unit = FakeFlashUnit(maxStrengthLevel = 100)
+
+        assertEquals(TorchResult.Ok, Camera2Torch(unit).turnOff())
+
+        assertEquals(listOf("switch(false)"), unit.calls)
+    }
+}
+
 /** Turning the torch on and off, and what the factory declares for each. */
 class FlashlightActionTest {
 

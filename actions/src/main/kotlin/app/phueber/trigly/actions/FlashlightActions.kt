@@ -72,9 +72,10 @@ interface Torch {
      *
      * [strengthPercent] is a percentage of this flash unit's own maximum, not a
      * physical unit: see [torchStrengthLevel]. A device that has one brightness
-     * only, or that runs an Android older than 13, comes on at full and reports
-     * [TorchResult.Ok], because it did switch the torch on. The setting says how
-     * bright, never whether.
+     * only, that runs an Android older than 13, or that refuses the brightness
+     * call outright comes on at full and reports [TorchResult.Ok], because it
+     * did switch the torch on. The setting says how bright, never whether. See
+     * [Camera2Torch.turnOn] for the two device faults behind that last case.
      */
     fun turnOn(strengthPercent: Int = FULL_STRENGTH_PERCENT): TorchResult
 
@@ -187,12 +188,109 @@ fun torchStrengthPercent(raw: String?): Int {
 // ---------------------------------------------------------------------------
 
 /**
- * The real [Torch], over `CameraManager`.
+ * The calls a torch makes into the camera, one level below [Torch].
+ *
+ * A second seam under the first, and it earns its place because the order of
+ * these calls is a decision and not a detail. Two device faults have to be
+ * worked around on the brightness path, see [Camera2Torch.turnOn], and a
+ * workaround nobody can test is a workaround nobody can change later with any
+ * confidence. `CameraManager` cannot be called from a JVM test, and the
+ * emulators here report no flash unit, so without this seam the only evidence
+ * that either workaround does what it says would be somebody's memory of one
+ * phone.
+ *
+ * Every method answers with a [TorchResult] rather than throwing. The
+ * exceptions are Android types, so a fake that threw the real ones could not
+ * be built on the JVM at all. A caller that has to decide what to do next also
+ * reads a returned value more plainly than a `catch`. [CameraFlashUnit] is the
+ * only implementation with anything to convert.
+ */
+interface FlashUnit {
+
+    /**
+     * How many brightness levels this unit has. [SINGLE_STRENGTH_LEVEL] means
+     * on and off, which is most phones and every phone below Android 13.
+     */
+    val maxStrengthLevel: Int
+
+    /** Plain on or off, at whatever brightness the device chooses. */
+    fun switch(on: Boolean): TorchResult
+
+    /**
+     * On, at [level], which is a level and not a percentage: see
+     * [torchStrengthLevel]. Only ever called with a level this unit reported.
+     */
+    fun switchOnAt(level: Int): TorchResult
+}
+
+/**
+ * The real [Torch]: the order of the calls, over a [FlashUnit] that makes them.
  *
  * **It holds nothing open.** There is no camera session here and no callback
  * registered, so building one of these costs nothing and two of them are free.
  * That is what lets both factories take their own instance and keeps
  * `actionFactories` to one line per action.
+ */
+class Camera2Torch(private val unit: FlashUnit) : Torch {
+
+    constructor(context: Context) : this(CameraFlashUnit(context))
+
+    /**
+     * **Full brightness is one call.** Nothing below happens on the path the
+     * blink and almost every rule take, and that matters: a blink makes two
+     * switches per flash, so a needless second binder call on each edge would
+     * be paid hundreds of times in one pattern.
+     *
+     * **A brightness below full switches the torch on first, then sets the
+     * level.** On several devices `turnOnTorchWithStrengthLevel` from a dark
+     * start takes the level internally and still brings the LED up at the
+     * default brightness, so the setting silently does nothing. Switching on
+     * first and then setting the level is the workaround other apps ship and
+     * document for it. It costs one extra binder call, on a path somebody
+     * explicitly asked for, and the alternative is the failure this project
+     * designs against hardest: a rule that quietly does something other than
+     * what it says.
+     *
+     * **A device that reports levels and then refuses to set one still gets a
+     * torch.** There are phones that report a maximum of 164 levels whose
+     * `turnOnTorchWithStrengthLevel` throws, seen from more than one app, so
+     * this is not a bug in the caller to be found and fixed. The plain on has
+     * already happened by then, so the light is on, and reporting a failure
+     * would be false as well as useless. The refusal is dropped and the run
+     * reports success. A torch at full brightness is much better than no
+     * torch, and it is the brightness that could not be honoured, not the
+     * request.
+     *
+     * The person is not told at the moment it happens, and that is a choice.
+     * There is nothing for them to do about it, an [ActionResult.Failure] would
+     * be a lie about a light that is on, and an action has no way to report "it
+     * worked, partly" that a rule could act on. The place where it is worth
+     * knowing is before the rule is built, so the brightness field's own help
+     * says a phone may ignore it.
+     *
+     * The one case deliberately not chased is a device that reports several
+     * levels, accepts the call, and drives the LED at one brightness anyway.
+     * Nothing in the API can see that, and guessing at it would cost every
+     * honest device its brightness setting.
+     */
+    override fun turnOn(strengthPercent: Int): TorchResult {
+        val level = torchStrengthLevel(strengthPercent, unit.maxStrengthLevel)
+            ?: return unit.switch(on = true)
+
+        val lit = unit.switch(on = true)
+        if (lit is TorchResult.Failed) return lit
+
+        // Deliberately dropped. The torch is already on, and this is the one
+        // call a working device can still refuse on its own.
+        unit.switchOnAt(level)
+        return TorchResult.Ok
+    }
+
+    override fun turnOff(): TorchResult = unit.switch(on = false)
+}
+
+/**
+ * The real [FlashUnit], over `CameraManager`.
  *
  * **The camera id is resolved once.** Enumerating the cameras is one binder call
  * per camera plus the characteristics of each, and a blink would otherwise pay
@@ -200,7 +298,7 @@ fun torchStrengthPercent(raw: String?): Int {
  * lives. The one case this gets wrong is a USB camera plugged in after the first
  * use, and [pickTorchCamera] puts an external camera last anyway.
  */
-class Camera2Torch(private val context: Context) : Torch {
+class CameraFlashUnit(private val context: Context) : FlashUnit {
 
     private val manager: CameraManager? by lazy {
         context.getSystemService(CameraManager::class.java)
@@ -213,11 +311,16 @@ class Camera2Torch(private val context: Context) : Torch {
     /**
      * How many brightness levels this flash unit has. One means on and off.
      *
+     * Cached for the life of the process, like the camera id, and a device is
+     * known whose maximum changed across an OS update. A process restart covers
+     * that: the update restarts this app long before one of its rules runs
+     * again.
+     *
      * The version check is not a formality even though the characteristic is
      * absent on an older platform: reading a key that arrived in API 33 is the
      * kind of call lint has to be able to see is guarded.
      */
-    private val maxStrengthLevel: Int by lazy {
+    override val maxStrengthLevel: Int by lazy {
         val id = cameraId
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || id == null) {
             SINGLE_STRENGTH_LEVEL
@@ -232,21 +335,33 @@ class Camera2Torch(private val context: Context) : Torch {
         }
     }
 
-    override fun turnOn(strengthPercent: Int): TorchResult = switch(on = true, strengthPercent)
+    override fun switch(on: Boolean): TorchResult = asking { manager, id ->
+        manager.setTorchMode(id, on)
+    }
 
-    override fun turnOff(): TorchResult = switch(on = false, FULL_STRENGTH_PERCENT)
+    override fun switchOnAt(level: Int): TorchResult = asking { manager, id ->
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            manager.turnOnTorchWithStrengthLevel(id, level)
+        } else {
+            // Unreachable: maxStrengthLevel is one below Android 13, so
+            // torchStrengthLevel never asks for a level there. Written as the
+            // honest fallback rather than as a throw, because "on at full" is
+            // what a level means on a unit that has only one.
+            manager.setTorchMode(id, true)
+        }
+    }
 
-    private fun switch(on: Boolean, strengthPercent: Int): TorchResult {
+    /**
+     * Makes one call into the camera and turns everything it can go wrong with
+     * into a [TorchResult]. Both methods above need exactly this, and the
+     * mapping is the part worth keeping in one place.
+     */
+    private fun asking(call: (CameraManager, String) -> Unit): TorchResult {
         val manager = manager ?: return TorchResult.Failed("This device has no camera service.")
         val id = cameraId ?: return TorchResult.Failed("This device has no flashlight.")
-        val level = if (on) torchStrengthLevel(strengthPercent, maxStrengthLevel) else null
 
         return try {
-            if (level != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                manager.turnOnTorchWithStrengthLevel(id, level)
-            } else {
-                manager.setTorchMode(id, on)
-            }
+            call(manager, id)
             TorchResult.Ok
         } catch (refused: CameraAccessException) {
             TorchResult.Failed(torchRefusalReason(refused))
@@ -461,8 +576,9 @@ class FlashlightActionFactory(private val torch: Torch) : ActionFactory {
             shownWhen = FieldCondition(FlashlightMode.CONFIG_KEY, FlashlightMode.ON.configValue),
             help = "Full brightness works on every phone with a flashlight. A lower " +
                 "brightness needs Android 13 or later, and a flashlight that has more " +
-                "than one brightness. Many phones have only one. On those the light " +
-                "comes on at full.",
+                "than one brightness. Many phones have only one. Some phones report " +
+                "more than one and ignore this setting anyway. On all of those the " +
+                "light comes on at full, and the rule still reports success.",
         ),
     )
 

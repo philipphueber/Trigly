@@ -2171,6 +2171,15 @@ unit, so a device test can never watch the light come on: `FakeTorch` in a JVM
 test is the only place the timing of the edges, the cap on the pattern, and the
 switch-off after a cancellation are actually asserted.
 
+A second seam, `FlashUnit`, sits under that one for the same reason taken one
+step further. Two known device faults on the brightness path are worked around
+by the *order* of the camera calls, not by a value (`docs/actions.md` has both).
+An order is a behaviour, so it should be pinned by a test rather than by a
+comment, and the only way to see the order from the JVM is a fake camera. The
+rule that produces two seams instead of one is worth stating: a port exists
+where something has to be substituted, and "the action under test" and "the
+call sequence under test" are two different somethings.
+
 The line this draws is worth stating for the next seam: a port belongs in
 `:core` when `:core` or another module calls through it, and in the module that
 owns the caller when only that module does. Both kinds exist to make an Android
