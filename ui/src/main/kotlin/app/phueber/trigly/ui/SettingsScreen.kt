@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
@@ -20,11 +22,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 
 /**
  * Reached from `RulesScreen`'s overflow beside "Saved values". See
@@ -49,6 +53,15 @@ import androidx.compose.ui.unit.dp
  * [onAttribution] opens [AttributionScreen], the app's second row and its
  * first that is not a switch. See [SettingsRow].
  *
+ * [appVersion] and [onCheckForUpdates] are this screen's last block and not
+ * one of its rows, because a version is an identity line and not a setting:
+ * it answers "what am I running", and no tap on it changes anything. Putting
+ * it among the controls would make a reader scanning for something to change
+ * rule it out first, and giving it a row's shape would promise a tap that
+ * does nothing. Below the rows it is where a person already looks for it,
+ * and where it stops competing with them. See [AppVersionCard] for why the
+ * update check moved here with it, and for the local state that check keeps.
+ *
  * [colorSchemeChoice] and [onColorSchemeChoiceChange] follow the same shape:
  * the current choice in, what someone picked out. The picker itself is
  * `ColorSchemePickerDialog`; whether its dialog is open is the one piece of
@@ -61,6 +74,8 @@ fun SettingsScreen(
     colorSchemeChoice: ColorSchemeChoice,
     onColorSchemeChoiceChange: (ColorSchemeChoice) -> Unit,
     onAttribution: () -> Unit,
+    appVersion: String,
+    onCheckForUpdates: suspend () -> UpdateCheckResult,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -80,7 +95,15 @@ fun SettingsScreen(
         )
 
         Column(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            // Scrolls, the same shape [AttributionScreen] uses: with the
+            // version block added there are four blocks here, and the backup
+            // caution folds out above them. A short phone in landscape can
+            // run out of room, and a version pushed off the bottom edge
+            // cannot be read at all.
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             BackupSettingsCard(
@@ -97,6 +120,11 @@ fun SettingsScreen(
             SettingsRow(
                 title = stringResource(R.string.settings_attribution_title),
                 onClick = onAttribution,
+            )
+
+            AppVersionCard(
+                appVersion = appVersion,
+                onCheckForUpdates = onCheckForUpdates,
             )
         }
     }
@@ -223,6 +251,86 @@ private fun BackupSettingsCard(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * The app's version, and the one button that finds out whether a newer one
+ * exists.
+ *
+ * These two used to sit on [AttributionScreen], the "Used components" screen
+ * one row above. They moved together on purpose. A version is what someone
+ * reads to answer "what am I running", and that question is asked in
+ * settings, not in a credit list for other people's projects. The update
+ * check had to come with it: a version number on one screen, and the only
+ * way to learn a newer one exists on a different screen, is worse than
+ * either arrangement, because the person who just read the number is exactly
+ * the person who wants the check.
+ *
+ * Not a [SettingsRow], although it sits under three of them. Every row on
+ * this screen changes something when it is tapped, and this block changes
+ * nothing: the version is a fact about the install. Giving it a row's shape
+ * would promise a tap that does nothing, so it keeps the plain [BlockCard]
+ * shape instead, with the button as the only target in it.
+ *
+ * `checking` and the last result live here in local `remember`ed state, the
+ * same shape `TextPatternField`'s own `testing` flag uses for its "Test"
+ * button, and the same reasoning [SettingsScreen] gives for keeping
+ * `showColorSchemePicker` to itself: nothing outside this card needs to know,
+ * and there is nothing worth surviving a configuration change, since a stale
+ * "checking…" after a rotation is one press away from correct and the result
+ * is not data this app keeps. See `UpdateCheck.kt` for why a button press is
+ * the only thing that ever calls this, and `SettingsHost`, in
+ * `MainActivity.kt`, for where the real [onCheckForUpdates] comes from:
+ * `checkForUpdate`.
+ */
+@Composable
+private fun AppVersionCard(
+    appVersion: String,
+    onCheckForUpdates: suspend () -> UpdateCheckResult,
+    modifier: Modifier = Modifier,
+) {
+    var checking by remember { mutableStateOf(false) }
+    var updateCheckResult by remember { mutableStateOf<UpdateCheckResult?>(null) }
+    val scope = rememberCoroutineScope()
+
+    BlockCard(modifier = modifier) {
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(
+                text = stringResource(R.string.settings_version, appVersion),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            BlockTextButton(
+                text = stringResource(R.string.settings_check_for_updates),
+                modifier = Modifier.padding(top = 8.dp),
+            ) {
+                checking = true
+                scope.launch {
+                    updateCheckResult = onCheckForUpdates()
+                    checking = false
+                }
+            }
+            val resultText = if (checking) {
+                stringResource(R.string.settings_update_checking)
+            } else {
+                when (val result = updateCheckResult) {
+                    null -> null
+                    is UpdateCheckResult.UpToDate -> stringResource(R.string.settings_up_to_date)
+                    is UpdateCheckResult.UpdateAvailable ->
+                        stringResource(R.string.settings_update_available, result.latestVersion)
+                    is UpdateCheckResult.CheckFailed ->
+                        stringResource(R.string.settings_update_check_failed, result.reason)
+                }
+            }
+            resultText?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
             }
         }
     }

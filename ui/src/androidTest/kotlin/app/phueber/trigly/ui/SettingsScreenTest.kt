@@ -10,6 +10,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -22,6 +23,12 @@ import org.junit.runner.RunWith
  * Drives [SettingsScreen] the way [SavedValuesScreenTest] drives
  * [SavedValuesScreen]: a plain boolean and stub callbacks, no ViewModel and no
  * `BackupSettings` behind it.
+ *
+ * A fake version and a fake update-check result, not a real `versionName` and
+ * not a real network call: a version bump must not break this test, and no
+ * test in this project reaches GitHub. The version and its check used to sit
+ * on `AttributionScreen`, and `AttributionScreenTest` used to hold these
+ * assertions; they followed the block to the screen that shows it now.
  */
 @RunWith(AndroidJUnit4::class)
 class SettingsScreenTest {
@@ -34,6 +41,9 @@ class SettingsScreenTest {
     private var attributionTaps = 0
     private val colorSchemeChanges = mutableListOf<ColorSchemeChoice>()
 
+    /** What the fake [Screen]'s "Check for updates" button reports on a tap. */
+    private var fakeUpdateCheckResult: UpdateCheckResult = UpdateCheckResult.UpToDate
+
     @Composable
     private fun Screen(
         cloudBackupEnabled: Boolean,
@@ -45,6 +55,8 @@ class SettingsScreenTest {
             colorSchemeChoice = colorSchemeChoice,
             onColorSchemeChoiceChange = { colorSchemeChanges += it },
             onAttribution = { attributionTaps++ },
+            appVersion = "9.9.9-test",
+            onCheckForUpdates = { fakeUpdateCheckResult },
             onBack = { backTaps++ },
         )
     }
@@ -242,5 +254,75 @@ class SettingsScreenTest {
         composeRule.onNodeWithText("Default".uppercase()).performClick()
 
         assertEquals(listOf(ColorSchemeChoice.Default), colorSchemeChanges)
+    }
+
+    /**
+     * The version is on this screen now, at the bottom: see `AppVersionCard`
+     * in `SettingsScreen.kt` for why it is here and why it is not a row.
+     *
+     * Scrolled to first, in this test and the three below it. This screen
+     * scrolls since the version block joined it, and a node below the fold
+     * cannot be clicked or asserted as displayed where it is. A short
+     * emulator would otherwise fail this for a reason that has nothing to do
+     * with what it measures.
+     */
+    @Test
+    fun the_version_renders() {
+        composeRule.setContent { Screen(cloudBackupEnabled = true) }
+
+        composeRule.onNodeWithText("9.9.9-test", substring = true)
+            .performScrollTo()
+            .assertIsDisplayed()
+    }
+
+    /**
+     * "Check for updates" is one button, pressed by a person: see
+     * `UpdateCheck.kt`. This confirms a press shows the up to date result;
+     * the two tests below confirm the other two outcomes render their own
+     * text, using the same fake so a real network call never runs in a test.
+     */
+    @Test
+    fun checking_for_updates_reports_up_to_date() {
+        fakeUpdateCheckResult = UpdateCheckResult.UpToDate
+        composeRule.setContent { Screen(cloudBackupEnabled = true) }
+
+        composeRule.onNodeWithText("CHECK FOR UPDATES").performScrollTo().performClick()
+
+        composeRule.onNodeWithText("You have the latest version.").assertIsDisplayed()
+    }
+
+    @Test
+    fun checking_for_updates_reports_an_available_version() {
+        fakeUpdateCheckResult = UpdateCheckResult.UpdateAvailable("9.9.10-test")
+        composeRule.setContent { Screen(cloudBackupEnabled = true) }
+
+        composeRule.onNodeWithText("CHECK FOR UPDATES").performScrollTo().performClick()
+
+        composeRule.onNodeWithText("9.9.10-test", substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun checking_for_updates_reports_a_failure_reason() {
+        fakeUpdateCheckResult = UpdateCheckResult.CheckFailed("No network.")
+        composeRule.setContent { Screen(cloudBackupEnabled = true) }
+
+        composeRule.onNodeWithText("CHECK FOR UPDATES").performScrollTo().performClick()
+
+        composeRule.onNodeWithText("No network.", substring = true).assertIsDisplayed()
+    }
+
+    /**
+     * The version is a fact, not a control: a tap on the block that carries
+     * it must not report a settings change. The button inside it is the only
+     * thing on that block anything can act on.
+     */
+    @Test
+    fun the_version_block_changes_no_setting() {
+        composeRule.setContent { Screen(cloudBackupEnabled = true) }
+
+        composeRule.onNodeWithText("9.9.9-test", substring = true).performScrollTo().performClick()
+
+        assertEquals(emptyList<Boolean>(), changes)
+        assertEquals(0, attributionTaps)
     }
 }

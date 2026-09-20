@@ -130,8 +130,9 @@
     <string name="battery_optimization_action">Allow</string>
 
     <!--
-      The settings screen. One switch today: see TriglyBackupAgent and
-      SettingsScreen.kt.
+      The settings screen: the backup switch, the colour scheme row, the row
+      that opens Used components, and the app's own version at the bottom.
+      See TriglyBackupAgent and SettingsScreen.kt.
 
       settings_backup_warning_body says four things and stops there, in the
       order a person needs them: what backup can copy, where the copy goes,
@@ -182,24 +183,34 @@
     <string name="settings_attribution_title">Used components</string>
 
     <!--
-      AttributionScreen: the app's own name, version and licence, a link to
-      Trigly's own repository, every project it ships code from with a link
-      to each one's own page, and a link to the licence text they share. See
-      AttributionScreen.kt and Attribution.kt.
-    -->
-    <string name="attribution_title">Used components</string>
-    <string name="attribution_version">Version %1$s</string>
-    <string name="attribution_license">This app uses the Apache License 2.0.</string>
-    <!--
-      One button, pressed by a person, that looks once at GitHub's own
-      release list. See UpdateCheck.kt: nothing calls checkForUpdate but this
+      The app's own version, and the one button that checks for a newer one.
+      Both were attribution_* strings on AttributionScreen until the version
+      moved here: someone asking what they are running looks in settings, not
+      in a credit list for other projects, and the check has to stay beside
+      the number it is about. Renamed with the rest, so a string's prefix
+      keeps naming the screen that shows it.
+
+      The button looks once at GitHub's own release list, only when it is
+      pressed. See UpdateCheck.kt: nothing calls checkForUpdate but this
       button, on a schedule or otherwise.
     -->
-    <string name="attribution_check_for_updates">Check for updates</string>
-    <string name="attribution_update_checking">Checking…</string>
-    <string name="attribution_up_to_date">You have the latest version.</string>
-    <string name="attribution_update_available">Version %1$s is available.</string>
-    <string name="attribution_update_check_failed">Could not check for updates. %1$s</string>
+    <string name="settings_version">Version %1$s</string>
+    <string name="settings_check_for_updates">Check for updates</string>
+    <string name="settings_update_checking">Checking…</string>
+    <string name="settings_up_to_date">You have the latest version.</string>
+    <string name="settings_update_available">Version %1$s is available.</string>
+    <string name="settings_update_check_failed">Could not check for updates. %1$s</string>
+
+    <!--
+      AttributionScreen: the app's own name and licence, a link to Trigly's
+      own repository, every project it ships code from with a link to each
+      one's own page, and a link to the licence text they share. The version
+      is not here any more, and neither is the update check: both are on the
+      settings screen, as settings_version and settings_check_for_updates
+      above. See AttributionScreen.kt and Attribution.kt.
+    -->
+    <string name="attribution_title">Used components</string>
+    <string name="attribution_license">This app uses the Apache License 2.0.</string>
     <!-- Opens this app's own repository. See MainActivity.AttributionHost. -->
     <string name="attribution_repository_title">Trigly on GitHub</string>
     <string name="attribution_dependencies_heading">Open source components</string>

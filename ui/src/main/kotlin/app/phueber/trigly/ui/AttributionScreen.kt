@@ -16,23 +16,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
 
 /**
- * The used-components notices: the app's own name, version and licence, a
- * link to Trigly's own repository, every project it ships code from with a
- * link to that project's own page, and a link to the licence text they
- * share.
+ * The used-components notices: the app's own name and licence, a link to
+ * Trigly's own repository, every project it ships code from with a link to
+ * that project's own page, and a link to the licence text they share.
  *
  * Reached from a row on [SettingsScreen], which is why its own back target is
  * [Screen.Settings] and not the rule list. See [Screen.Attribution].
@@ -52,15 +45,14 @@ import kotlinx.coroutines.launch
  * (see `MainActivity.openUrl`). Nothing on this screen needs to tell those
  * three apart.
  *
- * [onCheckForUpdates] is the one exception to "stateless": pressing the
- * button below the version holds a `checking`/result pair in local
- * `remember`ed state, the same shape `TextPatternField`'s own `testing` flag
- * uses for its "Test" button. That is not a ViewModel, because there is
- * nothing here to survive a configuration change for: a stale "checking…" on
- * rotation is a re-press away from correct, and the result is not data this
- * app keeps. See `UpdateCheck.kt` for why a button press is the only thing
- * that ever calls this, and `AttributionHost`, in `MainActivity.kt`, for
- * where the real [onCheckForUpdates] comes from: `checkForUpdate`.
+ * The app's own version, and the "Check for updates" button that sat under
+ * it, are on [SettingsScreen] now. Someone asking "what am I running" looks
+ * in settings, not in a list of other people's projects, and the two had to
+ * travel together: a version on one screen with the only way to find a newer
+ * one on another is worse than either arrangement. That is also what makes
+ * the paragraph above true without an exception. This screen keeps no
+ * `remember`ed state at all now. See `AppVersionCard`, in
+ * `SettingsScreen.kt`.
  *
  * A `Column` with `verticalScroll`, the same shape `PatternTester` uses for
  * its own scrollable prose, and not a `LazyColumn`: a dozen static rows do
@@ -68,18 +60,13 @@ import kotlinx.coroutines.launch
  */
 @Composable
 fun AttributionScreen(
-    appVersion: String,
     projects: List<AttributionProject>,
     licenseUrl: String,
     repositoryUrl: String,
     onOpenUrl: (String) -> Unit,
-    onCheckForUpdates: suspend () -> UpdateCheckResult,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var checking by remember { mutableStateOf(false) }
-    var updateCheckResult by remember { mutableStateOf<UpdateCheckResult?>(null) }
-    val scope = rememberCoroutineScope()
     Column(modifier = modifier.fillMaxSize()) {
         BlockHeader(
             title = stringResource(R.string.attribution_title),
@@ -104,45 +91,10 @@ fun AttributionScreen(
                         style = MaterialTheme.typography.titleMedium,
                     )
                     Text(
-                        text = stringResource(R.string.attribution_version, appVersion),
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                    Text(
                         text = stringResource(R.string.attribution_license),
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(top = 4.dp),
                     )
-                    BlockTextButton(
-                        text = stringResource(R.string.attribution_check_for_updates),
-                        modifier = Modifier.padding(top = 8.dp),
-                    ) {
-                        checking = true
-                        scope.launch {
-                            updateCheckResult = onCheckForUpdates()
-                            checking = false
-                        }
-                    }
-                    val resultText = if (checking) {
-                        stringResource(R.string.attribution_update_checking)
-                    } else {
-                        when (val result = updateCheckResult) {
-                            null -> null
-                            is UpdateCheckResult.UpToDate -> stringResource(R.string.attribution_up_to_date)
-                            is UpdateCheckResult.UpdateAvailable ->
-                                stringResource(R.string.attribution_update_available, result.latestVersion)
-                            is UpdateCheckResult.CheckFailed ->
-                                stringResource(R.string.attribution_update_check_failed, result.reason)
-                        }
-                    }
-                    resultText?.let {
-                        Text(
-                            text = it,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
-                    }
                 }
             }
 

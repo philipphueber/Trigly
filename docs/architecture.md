@@ -2709,17 +2709,31 @@ components", not "Open source licenses": every row on it is a link to a
 project's own page, not only a licence notice, and the old name described
 only the licence half of what it does.
 
-`AttributionScreen` is stateless for its own data, the same reasoning
-`SettingsScreen` gives for itself: nothing about the project list, the
-licence link or the repository link changes while the screen is open. It
-takes its project list and two fixed URLs as parameters rather than reading
-`shippedDependencies` and a hardcoded string itself, so its own instrumented
-test can run against fake values that a real dependency bump cannot break.
-`AttributionHost`, beside `SettingsHost` in `MainActivity.kt`, supplies the
-real ones: the version from `packageManager.getPackageInfo`, since
-`buildFeatures.buildConfig` is off and turning it on for one string is not
-worth it, and two constants, the Apache 2.0 licence's own canonical URL and
-Trigly's own repository URL (see the License section of `README.md`).
+`AttributionScreen` is stateless, not only for its own data: nothing about
+the project list, the licence link or the repository link changes while the
+screen is open, and since the version left it the screen holds no `remember`ed
+state at all. It takes its project list and two fixed URLs as parameters
+rather than reading `shippedDependencies` and a hardcoded string itself, so
+its own instrumented test can run against fake values that a real dependency
+bump cannot break. `AttributionHost`, beside `SettingsHost` in
+`MainActivity.kt`, supplies the real ones: two constants, the Apache 2.0
+licence's own canonical URL and Trigly's own repository URL (see the License
+section of `README.md`).
+
+**The app's own version is on `SettingsScreen`, not here.** It used to head
+the first card on this screen, above the licence line. A version answers
+"what am I running", and that is a settings question, not a credit for
+somebody else's project; a person looking it up has no reason to open a list
+of dependencies first. `AppVersionCard`, in `SettingsScreen.kt`, is where it
+lives now, as the last block on that screen rather than one of its rows,
+because every row there changes something when it is tapped and a version
+changes nothing. The "Check for updates" button travelled with it, for the
+reason the Update check section below gives. `SettingsHost` reads the version
+from `packageManager.getPackageInfo`, since `buildFeatures.buildConfig` is off
+and turning it on for one string is not worth it, and hands the same string to
+both the line and the check, so the check can never be about a different
+number than the one on screen. What stays here is the app's name and the line
+naming its licence, which is what the rest of this screen is about.
 
 **Every link opens through one callback.** A project's row, the licence row
 and the repository row all call the same `onOpenUrl: (String) -> Unit`; the
@@ -2822,17 +2836,27 @@ it.
 `AttributionScreen` too: a title, and whatever the row shows or does on its
 trailing edge. A project's own row is not built on it, since it also needs an
 artifact count and a licence name on the trailing edge that `SettingsRow` has
-no slot for, so it is a plain `Surface` instead, styled to match. The backup
-switch, the attribution row on `SettingsScreen`, and these two rows are all
-built on `SettingsRow`, and its signature is deliberately wide enough for a
+no slot for, so it is a plain `Surface` instead, styled to match.
+`AppVersionCard` is not built on it either, and for a different reason: a row
+on this shape reads as something to tap, and the version is a fact about the
+install, so it keeps the plain `BlockCard` shape with the update button as
+the only target in it. The backup switch, the attribution row on
+`SettingsScreen`, and these two rows are all built on `SettingsRow`, and its signature is deliberately wide enough for a
 fourth shape none of them use yet (a row that shows a current value and
 opens a picker to change it), so that caller does not have to reshape the row
 again.
 
 ## Update check
 
-One button on `AttributionScreen`, below the version: "Check for updates".
-Pressing it is the only thing that ever calls `checkForUpdate`, in
+One button on `SettingsScreen`, below the version, inside the same
+`AppVersionCard` that shows it: "Check for updates". It used to sit below the
+version on `AttributionScreen`, and the two moved together on purpose: they
+are one affordance, and a version number on one screen with the only way to
+find out that a newer one exists on another is worse than either arrangement,
+because the person who has just read the number is exactly the person who
+wants the check.
+
+Pressing the button is the only thing that ever calls `checkForUpdate`, in
 `UpdateCheck.kt`. There is no scheduler, no `WorkManager` job and nothing
 else in this codebase that calls it. A person presses a control, Trigly looks
 once, and nothing about this app phones home any other way; see that file's
@@ -2865,7 +2889,7 @@ failed (carrying why). The third exists on purpose: a check that silently
 fails offline and says nothing is worse than no check at all.
 
 The button's own "checking…" flag and its last result live in
-`AttributionScreen`'s local `remember`ed state, the same shape
+`AppVersionCard`'s local `remember`ed state, the same shape
 `TextPatternField`'s own `testing` flag uses for its "Test" button, not a
 ViewModel: nothing here is data worth surviving a configuration change for,
 and a stale "checking…" after a rotation is one more press away from

@@ -379,6 +379,25 @@ class MainActivity : ComponentActivity() {
      * A single instance for the life of the activity, the same reasoning
      * [SavedValuesHost] gives for itself: one switch, no per-rule draft to key
      * on.
+     *
+     * The version comes from `packageManager` rather than from `BuildConfig`:
+     * this module has `buildFeatures.buildConfig` off, and turning it on for
+     * one string is not worth it. `getPackageInfo(String, Int)` is deprecated
+     * from API 33 in favour of the `PackageInfoFlags` overload, but this app's
+     * `minSdk` is 26, so the deprecated overload is what every supported
+     * device actually runs; the suppression below is deliberate, not an
+     * oversight.
+     *
+     * `remember` rather than a `val` on the activity: the read is cheap
+     * enough that there is no reason to pay for it before this screen is
+     * ever opened, and a fresh read each time it opens costs nothing a
+     * `Composable` needs to guard against, since the version does not change
+     * while the app is running.
+     *
+     * The version and its update check read out of the same `appVersion`,
+     * which is why both are supplied here and not one level apart: a check
+     * against a different number than the one on screen would be a lie the
+     * screen could not show.
      */
     @androidx.compose.runtime.Composable
     private fun SettingsHost(onAttribution: () -> Unit, onDone: () -> Unit) {
@@ -395,6 +414,10 @@ class MainActivity : ComponentActivity() {
         )
         val cloudBackupEnabled by settings.cloudBackupEnabled.collectAsStateWithLifecycle()
         val colorSchemeChoice by settings.colorSchemeChoice.collectAsStateWithLifecycle()
+        val appVersion = remember {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(packageName, 0).versionName.orEmpty()
+        }
 
         SettingsScreen(
             cloudBackupEnabled = cloudBackupEnabled,
@@ -402,6 +425,8 @@ class MainActivity : ComponentActivity() {
             colorSchemeChoice = colorSchemeChoice,
             onColorSchemeChoiceChange = settings::setColorSchemeChoice,
             onAttribution = onAttribution,
+            appVersion = appVersion,
+            onCheckForUpdates = { checkForUpdate(appVersion) },
             onBack = onDone,
         )
     }
@@ -411,34 +436,18 @@ class MainActivity : ComponentActivity() {
      * [SettingsHost] gives for itself: nothing here changes while the screen
      * is open, so there is no ViewModel.
      *
-     * The version comes from `packageManager` rather than from `BuildConfig`:
-     * this module has `buildFeatures.buildConfig` off, and turning it on for
-     * one string is not worth it. `getPackageInfo(String, Int)` is deprecated
-     * from API 33 in favour of the `PackageInfoFlags` overload, but this app's
-     * `minSdk` is 26, so the deprecated overload is what every supported
-     * device actually runs; the suppression below is deliberate, not an
-     * oversight.
-     *
-     * `remember` rather than a `val` on the activity: the read is cheap
-     * enough that there is no reason to pay for it before this screen is
-     * ever opened, and a fresh read each time it opens costs nothing a
-     * `Composable` needs to guard against, since the version does not change
-     * while the app is running.
+     * The version and the update check used to be supplied here. They are
+     * [SettingsHost]'s now, because the screen that shows them is
+     * [SettingsScreen]; this host is left with the project list and the two
+     * fixed URLs, which is everything Used components still shows.
      */
     @androidx.compose.runtime.Composable
     private fun AttributionHost(onDone: () -> Unit) {
-        val appVersion = remember {
-            @Suppress("DEPRECATION")
-            packageManager.getPackageInfo(packageName, 0).versionName.orEmpty()
-        }
-
         AttributionScreen(
-            appVersion = appVersion,
             projects = shippedDependencies.groupIntoProjects(),
             licenseUrl = APACHE_LICENSE_URL,
             repositoryUrl = TRIGLY_REPOSITORY_URL,
             onOpenUrl = ::openUrl,
-            onCheckForUpdates = { checkForUpdate(appVersion) },
             onBack = onDone,
         )
     }

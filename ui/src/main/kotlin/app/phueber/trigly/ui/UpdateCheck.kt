@@ -10,7 +10,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * What one press of "Check for updates" on [AttributionScreen] finds out.
+ * What one press of "Check for updates" on [SettingsScreen] finds out.
  *
  * A sealed result rather than a nullable version string: [CheckFailed]
  * carries why, so the screen can say something true when the phone is
@@ -69,8 +69,9 @@ fun isNewerVersion(current: String, latest: String): Boolean {
  * Looks once, at GitHub's own release list, for a release newer than
  * [currentVersion].
  *
- * Nothing calls this but a button press: see `AttributionScreen`'s "Check for
- * updates" row, wired from `MainActivity.AttributionHost`. There is no
+ * Nothing calls this but a button press: see `AppVersionCard`'s "Check for
+ * updates" button, in `SettingsScreen.kt`, wired from
+ * `MainActivity.SettingsHost`. There is no
  * scheduler and no background worker anywhere in this codebase that calls
  * this function; a person presses a control and Trigly looks, once, and
  * nothing here runs on its own or reports anything to anyone but GitHub's own

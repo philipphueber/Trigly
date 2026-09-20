@@ -17,9 +17,13 @@ import org.junit.runner.RunWith
  * [SettingsScreen]: plain values and stub callbacks, no ViewModel and no
  * `Context` behind it.
  *
- * Fed fake entries and a fake version, not [shippedDependencies] grouped by
- * [groupIntoProjects] and a real `versionName`, so a dependency bump or a
- * version bump cannot break this test.
+ * Fed fake entries, not [shippedDependencies] grouped by [groupIntoProjects],
+ * so a dependency bump cannot break this test.
+ *
+ * The version and the "Check for updates" button are not asserted here any
+ * more, because they are not on this screen any more. `SettingsScreenTest`
+ * carries those assertions now, beside the screen that shows them. See
+ * `AppVersionCard` in `SettingsScreen.kt`.
  */
 @RunWith(AndroidJUnit4::class)
 class AttributionScreenTest {
@@ -29,9 +33,6 @@ class AttributionScreenTest {
 
     private var backTaps = 0
     private var openedUrl: String? = null
-
-    /** What the fake [Screen]'s "Check for updates" button reports on a tap. */
-    private var fakeUpdateCheckResult: UpdateCheckResult = UpdateCheckResult.UpToDate
 
     private val fakeProjects = listOf(
         AttributionProject("Some Project", "Apache License 2.0", artifactCount = 3, url = "https://example.com/some-project"),
@@ -44,12 +45,10 @@ class AttributionScreenTest {
     @Composable
     private fun Screen() {
         AttributionScreen(
-            appVersion = "9.9.9-test",
             projects = fakeProjects,
             licenseUrl = fakeLicenseUrl,
             repositoryUrl = fakeRepositoryUrl,
             onOpenUrl = { openedUrl = it },
-            onCheckForUpdates = { fakeUpdateCheckResult },
             onBack = { backTaps++ },
         )
     }
@@ -71,11 +70,29 @@ class AttributionScreenTest {
         composeRule.onNodeWithText("1 artifact", substring = true).assertIsDisplayed()
     }
 
+    /**
+     * The version and the update check are gone from this screen; the licence
+     * line the card still carries is what proves the card itself survived
+     * losing them.
+     */
     @Test
-    fun the_version_renders() {
+    fun the_license_line_still_renders() {
         composeRule.setContent { Screen() }
 
-        composeRule.onNodeWithText("9.9.9-test", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("This app uses the Apache License 2.0.").assertIsDisplayed()
+    }
+
+    /**
+     * The other half of the move, asserted where it can actually fail: an
+     * edit that put the version back here would leave it on two screens at
+     * once, which is the arrangement the move exists to end.
+     */
+    @Test
+    fun the_version_and_its_update_check_are_not_on_this_screen() {
+        composeRule.setContent { Screen() }
+
+        composeRule.onNodeWithText("Version", substring = true).assertDoesNotExist()
+        composeRule.onNodeWithText("CHECK FOR UPDATES").assertDoesNotExist()
     }
 
     /**
@@ -124,42 +141,6 @@ class AttributionScreenTest {
         composeRule.onNodeWithText("Trigly on GitHub").performClick()
 
         assertEquals(fakeRepositoryUrl, openedUrl)
-    }
-
-    /**
-     * "Check for updates" is one button, pressed by a person: see
-     * `UpdateCheck.kt`. This confirms a press shows the up to date result;
-     * the two tests below confirm the other two outcomes render their own
-     * text, using the same fake so a real network call never runs in a test.
-     */
-    @Test
-    fun checking_for_updates_reports_up_to_date() {
-        fakeUpdateCheckResult = UpdateCheckResult.UpToDate
-        composeRule.setContent { Screen() }
-
-        composeRule.onNodeWithText("CHECK FOR UPDATES").performClick()
-
-        composeRule.onNodeWithText("You have the latest version.").assertIsDisplayed()
-    }
-
-    @Test
-    fun checking_for_updates_reports_an_available_version() {
-        fakeUpdateCheckResult = UpdateCheckResult.UpdateAvailable("9.9.10-test")
-        composeRule.setContent { Screen() }
-
-        composeRule.onNodeWithText("CHECK FOR UPDATES").performClick()
-
-        composeRule.onNodeWithText("9.9.10-test", substring = true).assertIsDisplayed()
-    }
-
-    @Test
-    fun checking_for_updates_reports_a_failure_reason() {
-        fakeUpdateCheckResult = UpdateCheckResult.CheckFailed("No network.")
-        composeRule.setContent { Screen() }
-
-        composeRule.onNodeWithText("CHECK FOR UPDATES").performClick()
-
-        composeRule.onNodeWithText("No network.", substring = true).assertIsDisplayed()
     }
 
     @Test
