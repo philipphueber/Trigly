@@ -163,9 +163,26 @@ class RulesViewModel(
      * rules reach a new phone: Auto Backup needs a Google account and does not
      * run on de-Googled devices, which is the audience this project targets.
      */
-    fun exportAll(): String = RuleJson.encode(statuses.value.map { it.rule })
+    fun exportAll(): String = exportSome(statuses.value.map { it.rule })
 
     fun exportOne(rule: Rule): String = RuleJson.encode(rule)
+
+    /**
+     * A chosen few rules as one document, in exactly the [exportAll] format.
+     *
+     * The caller says which rules, because the one caller that needs this is
+     * sharing a folder, and what is under a folder heading is decided on the
+     * screen: a search narrows it, and this ViewModel does not know about the
+     * search. So the set arrives from outside rather than being worked out
+     * from [statuses] here.
+     *
+     * It is deliberately not a format of its own. A folder is a name each rule
+     * carries, not a thing with an identity, so a file of rules says
+     * everything there is to say, and the far end imports it through the one
+     * import path rather than through a second one that would have to be kept
+     * working.
+     */
+    fun exportSome(rules: List<Rule>): String = RuleJson.encode(rules)
 
     /**
      * Imported rules arrive alongside existing ones, switched off, and with

@@ -301,6 +301,7 @@ class MainActivity : ComponentActivity() {
                     onEditRule = { onNavigate(Screen.RuleEditor(it)) },
                     onExportAll = { export(listViewModel.exportAll(), "trigly-rules.json") },
                     onExportRule = ::shareSingle,
+                    onExportFolder = ::shareFolder,
                     onDuplicateRule = listViewModel::duplicate,
                     onImport = { openDocument.launch(arrayOf("application/json", "text/*")) },
                     // About the whole rule set rather than any one rule, which
@@ -682,19 +683,41 @@ class MainActivity : ComponentActivity() {
      * controls did one thing, and the name that promised the share sheet was the
      * one that did not open it. They are different jobs now: Export all writes a
      * file you keep, Share sends this rule somewhere.
+     */
+    private fun shareSingle(rule: Rule) {
+        shareOrSayWhyNot("that rule") {
+            shareRuleIntent(this, rule.name, listViewModel.exportOne(rule))
+        }
+    }
+
+    /**
+     * Hands one folder's worth of rules to the share sheet, as one file.
      *
+     * [rules] is what the list has under that heading right now, not every
+     * rule filed under that name. A search narrows the heading's count, and a
+     * share that sent more than the count in front of the person would be
+     * sending something they never saw.
+     */
+    private fun shareFolder(folderName: String, rules: List<Rule>) {
+        shareOrSayWhyNot("that folder") {
+            shareFolderIntent(this, folderName, listViewModel.exportSome(rules))
+        }
+    }
+
+    /**
      * A failure is reported rather than swallowed. Nothing guarantees that any
      * installed app accepts an `application/json` send, and a Share button that
      * does nothing on a device with no such app is the silent failure this
      * project keeps designing against.
+     *
+     * Shared by both share controls because the thing that can fail is the
+     * same one in both: the device, not the rule.
      */
-    private fun shareSingle(rule: Rule) {
-        runCatching {
-            startActivity(shareRuleIntent(this, rule.name, listViewModel.exportOne(rule)))
-        }.exceptionOrNull()?.let { cause ->
+    private fun shareOrSayWhyNot(what: String, intent: () -> Intent) {
+        runCatching { startActivity(intent()) }.exceptionOrNull()?.let { cause ->
             Toast.makeText(
                 this,
-                "Could not share that rule: ${cause.message}",
+                "Could not share $what: ${cause.message}",
                 Toast.LENGTH_LONG,
             ).show()
         }

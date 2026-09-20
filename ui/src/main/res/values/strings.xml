@@ -79,6 +79,15 @@
       folder name, so it is not given capitals of its own here.
     -->
     <string name="rules_folder_other">Other</string>
+    <!--
+      The share control on a folder heading. A description, never drawn: the
+      control is the same glyph the per-rule Share is. It names the folder
+      because a list of folders puts several of these on one screen, and
+      "Share" said five times tells a screen reader user nothing about which
+      one they are on. The name is the heading's own display name, so the
+      catch-all bucket reads "Share folder Other".
+    -->
+    <string name="rules_share_folder">Share folder %1$s</string>
 
     <!--
       The engine's ongoing notification. Sentence case, not the uppercase the

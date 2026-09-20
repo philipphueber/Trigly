@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -37,6 +38,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -88,6 +90,22 @@ fun RulesScreen(
     /** Opens the settings screen. See [Screen.Settings] and [MoreMenu]. */
     onSettings: () -> Unit,
     onExportRule: (Rule) -> Unit,
+    /**
+     * Sends one folder's worth of rules out as one file: the heading's display
+     * name, and the rules currently under it.
+     *
+     * The rules are handed over rather than the folder's name alone, because
+     * what is under a heading is not always every rule filed there. With a
+     * search active these are the matches, which is the count the heading
+     * shows and therefore the only set the person can see themselves choosing.
+     * A folder share that quietly sent the rules a filter had hidden would be
+     * the same kind of surprise as a "delete all" that took more than the list
+     * showed.
+     *
+     * Never called when no folder is in use anywhere: that list draws no
+     * headings at all, and "Export all" is already the control for it.
+     */
+    onExportFolder: (String, List<Rule>) -> Unit,
     /** Saves a copy of the rule. See [RulesViewModel.duplicate]. */
     onDuplicateRule: (Rule) -> Unit = {},
     onImport: () -> Unit,
@@ -221,6 +239,12 @@ fun RulesScreen(
                                 name = section.displayName,
                                 count = section.statuses.size,
                                 expanded = section.key !in collapsedFolders,
+                                onShare = {
+                                    onExportFolder(
+                                        section.displayName,
+                                        section.statuses.map { it.rule },
+                                    )
+                                },
                                 onToggleExpanded = {
                                     collapsedFolders = if (section.key in collapsedFolders) {
                                         collapsedFolders - section.key
@@ -391,12 +415,36 @@ private val CollapsedFoldersSaver: Saver<Set<String>, Any> = listSaver(
  * Full width and clickable across its whole row, the same as [BlockCard]'s
  * clickable branch, rather than a small chevron button of its own: the fold
  * target is then a whole thumb-height row instead of a few dp of glyph.
+ *
+ * **Sharing sits inside that row, which makes it a clickable inside a
+ * clickable.** Two things have to be true for that to be honest, and both are
+ * arranged here rather than left to the framework's defaults.
+ *
+ * The first is the touch target. The share control reserves its full 48dp and
+ * does not overhang, the reason [ShareGlyphButton]'s KDoc records: a control
+ * that reports a smaller footprint than the area it catches touches in steals
+ * its neighbour's taps. The neighbour here is the fold, which is the whole
+ * rest of the row, so an overhang would lose taps into the fold or take taps
+ * meant for it. The row's own vertical padding therefore moves onto the text,
+ * which leaves the share control free to be a plain 48dp box. The heading
+ * grows from 40dp to 48dp tall, and that is the honest price of putting a real
+ * target in it. Reserving is affordable for the same reason it was on
+ * [BlockExpandButton]: it costs width at the one edge with room to spare.
+ *
+ * The second is what a tap does. `Modifier.clickable` on the share control
+ * consumes the press, so a tap on it does not also toggle the fold. That same
+ * nesting is what keeps the two announced apart: a merging node stops merging
+ * at a descendant that merges on its own, so the heading's merged node still
+ * reads as the heading and its count, and the share control keeps a name of
+ * its own. That name carries the folder in it, because a screen of folders
+ * shows one of these per heading, and "Share" five times over is not a name.
  */
 @Composable
 private fun FolderHeader(
     name: String,
     count: Int,
     expanded: Boolean,
+    onShare: () -> Unit,
     onToggleExpanded: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -408,7 +456,7 @@ private fun FolderHeader(
         modifier = modifier.fillMaxWidth(),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier.padding(start = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
@@ -422,16 +470,37 @@ private fun FolderHeader(
             Text(
                 text = "${name.uppercase()} ($count)",
                 style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.padding(start = 8.dp),
+                // The weight is what holds sharing at the far edge whatever the
+                // folder is called. The vertical padding is the row's own,
+                // moved here so that the share control's reserved 48dp is the
+                // only thing that sets how tall the heading is.
+                modifier = Modifier.weight(1f).padding(start = 8.dp, top = 10.dp, bottom = 10.dp),
+            )
+            ShareGlyphButton(
+                description = stringResource(R.string.rules_share_folder, name),
+                onClick = onShare,
+                // The heading is a solid slab of the chrome colour. The accent
+                // this glyph carries on a rule block would be a third colour on
+                // a two-colour slab, so it takes the slab's own content colour,
+                // which is what everything else drawn on it uses.
+                tint = LocalContentColor.current,
             )
         }
     }
 }
 
 /**
- * The per-rule "send this rule elsewhere" control: the platform's own share
- * glyph rather than the word "Share", so a row of several rule actions reads
- * as share at a glance instead of as one more word to parse.
+ * The "send this elsewhere" control: the platform's own share glyph rather
+ * than the word "Share", so a row of several controls reads as share at a
+ * glance instead of as one more word to parse.
+ *
+ * One composable for both the per-rule control and the per-folder one on
+ * [FolderHeader]. The two differ in what they send, which is the caller's
+ * business, and in nothing about the control itself. What they must not
+ * differ in is the reserved 48dp below: the second copy of a touch target is
+ * where the reasoning gets dropped, and this one was a real bug once.
+ * [description] and [tint] are parameters for that reason, rather than a
+ * second composable being written next to this one.
  *
  * Built the same way [ActionOrderButton] (`RuleEditorScreen.kt`) is, for the
  * same two reasons.
@@ -443,23 +512,31 @@ private fun FolderHeader(
  * control's own hard edges instead.
  *
  * The 48dp is **reserved**, not overhung the way [CaveatBadge] deliberately
- * overhangs its own. This control sits in a row beside "Duplicate", which is
- * itself a real button rather than a few dp of glyph. That matters because
- * the touch-target bug [BlockExpandButton]'s KDoc records was two overhanging
- * targets stealing each other's taps, which only happens when a control
- * reports a footprint smaller than where it actually catches touches.
- * Reserving the full 48dp here means this control's layout size and its
- * touch size are the same number, so it cannot steal a tap aimed at its
- * neighbour, or lose one to it.
+ * overhangs its own. On a rule this control sits in a row beside "Duplicate",
+ * which is itself a real button rather than a few dp of glyph; on a folder
+ * heading its neighbour is the fold, which is the entire rest of the row.
+ * That matters because the touch-target bug [BlockExpandButton]'s KDoc
+ * records was two overhanging targets stealing each other's taps, which only
+ * happens when a control reports a footprint smaller than where it actually
+ * catches touches. Reserving the full 48dp means this control's layout size
+ * and its touch size are the same number, so it cannot steal a tap aimed at
+ * its neighbour, or lose one to it.
  *
- * The content description reuses [R.string.rules_share] rather than adding a
- * second string: that resource said "Share" when it was the button's label,
- * and it says the same thing now that the label is a glyph instead. Several
- * instrumented tests already select this control by it.
+ * On a rule, [description] is [R.string.rules_share] rather than a string of
+ * its own: that resource said "Share" when it was the button's label, and it
+ * says the same thing now that the label is a glyph instead. Several
+ * instrumented tests already select this control by it. A folder heading
+ * names the folder in its own description instead, because there is one of
+ * these per heading and they have to be told apart, by a screen reader and by
+ * a test alike.
  */
 @Composable
-private fun RuleShareButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val description = stringResource(R.string.rules_share)
+private fun ShareGlyphButton(
+    description: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tint: Color = MaterialTheme.extra.accent,
+) {
     Box(
         modifier = modifier.size(48.dp),
         contentAlignment = Alignment.Center,
@@ -474,7 +551,7 @@ private fun RuleShareButton(onClick: () -> Unit, modifier: Modifier = Modifier) 
             Icon(
                 imageVector = Icons.Filled.Share,
                 contentDescription = null,
-                tint = MaterialTheme.extra.accent,
+                tint = tint,
                 modifier = Modifier.size(22.dp),
             )
         }
@@ -531,7 +608,10 @@ private fun RuleBlock(
 
             BlockDivider()
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
-                RuleShareButton(onClick = { onExportRule(status.rule) })
+                ShareGlyphButton(
+                    description = stringResource(R.string.rules_share),
+                    onClick = { onExportRule(status.rule) },
+                )
                 BlockTextButton(
                     text = stringResource(R.string.rules_duplicate),
                     contentColor = MaterialTheme.extra.accent,

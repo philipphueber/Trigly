@@ -7,18 +7,24 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertWidthIsAtLeast
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.height
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -49,6 +55,13 @@ class RulesScreenTest {
     private val resolved = mutableListOf<ComponentRequirement>()
     private val edited = mutableListOf<String>()
     private val exported = mutableListOf<String>()
+
+    /**
+     * What each folder share reported: the heading's name, and the ids of the
+     * rules it handed over. The ids matter as much as the name, because the
+     * set is what a search can change under the heading.
+     */
+    private val exportedFolders = mutableListOf<Pair<String, List<String>>>()
     private var newRuleTaps = 0
     private var importTaps = 0
     private var savedValuesTaps = 0
@@ -91,6 +104,7 @@ class RulesScreenTest {
             savedValueCount = savedValueCount,
             onSettings = { settingsTaps++ },
             onExportRule = { exported += it.id },
+            onExportFolder = { name, rules -> exportedFolders += name to rules.map { it.id } },
             onDuplicateRule = { duplicated += it.id },
             onImport = { importTaps++ },
             describeComponent = describe,
@@ -775,6 +789,113 @@ class RulesScreenTest {
     }
 
     /**
+     * Every heading offers a share of its own, "Other" included: it is a
+     * heading with rules under it, and that is the whole of what the control
+     * sends.
+     *
+     * The descriptions have to differ, which is why they name the folder. A
+     * screen of five headings all called "Share" tells a screen reader user
+     * nothing about which one they have reached, and would leave this test no
+     * way to tap a chosen one either.
+     */
+    @Test
+    fun every_folder_heading_offers_a_share_of_its_own() {
+        composeRule.setContent { Screen(statusesOf(drivingModeRule, nightRule, looseRule)) }
+
+        composeRule.onNodeWithContentDescription("Share folder Car").assertExists()
+        composeRule.onNodeWithContentDescription("Share folder Night").assertExists()
+        composeRule.onNodeWithContentDescription("Share folder Other").assertExists()
+
+        // The per-rule control is untouched and still says only "Share": one
+        // per rule, none of them absorbed into a heading.
+        composeRule.onAllNodesWithContentDescription("Share").assertCountEquals(3)
+    }
+
+    /** No heading, so nothing to hang a folder share on. "Export all" covers it. */
+    @Test
+    fun no_folders_in_use_offers_no_folder_share() {
+        composeRule.setContent { Screen(statusesOf(looseRule, extraLooseRule)) }
+
+        composeRule.onAllNodesWithContentDescription("Share folder", substring = true)
+            .assertCountEquals(0)
+    }
+
+    @Test
+    fun sharing_a_folder_reports_that_folder_and_its_rules() {
+        composeRule.setContent { Screen(statusesOf(drivingModeRule, carErrandsRule, nightRule)) }
+
+        composeRule.onNodeWithContentDescription("Share folder Car").performScrollTo().performClick()
+
+        assertEquals(
+            listOf("Car" to listOf(drivingModeRule.id, carErrandsRule.id)),
+            exportedFolders,
+        )
+    }
+
+    /**
+     * The heading says how many rules are under it, and a search changes that
+     * number. Sharing has to send that set and not every rule filed under the
+     * name, or the file holds rules the person could not see when they chose
+     * to send it.
+     */
+    @Test
+    fun sharing_a_folder_sends_what_the_search_left_under_the_heading() {
+        composeRule.setContent { Screen(statusesOf(drivingModeRule, carErrandsRule, nightRule)) }
+
+        composeRule.onNodeWithText("SEARCH").performTextInput("driving")
+
+        // The count the person is looking at, and then the file that matches it.
+        composeRule.onNodeWithText("CAR (1)").assertExists()
+        composeRule.onNodeWithContentDescription("Share folder Car").performScrollTo().performClick()
+
+        assertEquals(listOf("Car" to listOf(drivingModeRule.id)), exportedFolders)
+    }
+
+    /**
+     * A clickable inside a clickable. The whole heading row folds the section,
+     * so the one thing that could quietly break is a share tap folding it as
+     * well: the rules would vanish under the person's finger the moment they
+     * shared them.
+     *
+     * The corner tap is the same check [RuleEditorScreenTest]'s "move down"
+     * test makes, and for the same reason. The glyph is 22dp inside a 48dp
+     * target, so a tap that only ever lands in the middle would pass even if
+     * the target were the size of the glyph, and the fold is the neighbour
+     * that would then be catching the rest.
+     */
+    @Test
+    fun sharing_a_folder_does_not_fold_it() {
+        composeRule.setContent { Screen(statusesOf(drivingModeRule, nightRule)) }
+
+        val share = composeRule.onNodeWithContentDescription("Share folder Car").performScrollTo()
+        share.assertWidthIsAtLeast(48.dp)
+        share.assertHeightIsAtLeast(48.dp)
+
+        // 3dp in from the target's own corner: clear of the glyph centred in
+        // it, and well inside the reserved 48dp.
+        share.performTouchInput { click(Offset(3.dp.toPx(), 3.dp.toPx())) }
+
+        assertEquals(listOf("Car" to listOf(drivingModeRule.id)), exportedFolders)
+        // Still open. The fold is the rest of the row, and it was not toggled.
+        composeRule.onNodeWithText("DRIVING MODE").assertExists()
+    }
+
+    /**
+     * The other half of the same boundary: the rest of the row still folds.
+     * A share control that swallowed the row's own tap would be the same bug
+     * seen from the other side.
+     */
+    @Test
+    fun the_rest_of_the_heading_still_folds_the_section() {
+        composeRule.setContent { Screen(statusesOf(drivingModeRule, nightRule)) }
+
+        composeRule.onNodeWithText("CAR (1)").performScrollTo().performClick()
+
+        composeRule.onNodeWithText("DRIVING MODE").assertDoesNotExist()
+        assertTrue("folding is not sharing", exportedFolders.isEmpty())
+    }
+
+    /**
      * A rule's name is the obvious match. This is the baseline the next test
      * (matching by a component nobody named the rule after) is contrasted
      * against.
@@ -882,6 +1003,21 @@ private val nightRule = Rule(
     actions = listOf(ComponentSpec("post_notification")),
     enabled = true,
 ).copy(folder = "Night")
+
+/**
+ * A second rule in the "Car" folder, and the fixture the folder-share tests
+ * need: a folder of one rule cannot show the difference between sharing the
+ * folder and sharing the rule under it. Named and built so that the search
+ * tests' own query ("driving") leaves it out, which is what lets one test
+ * prove that a filtered heading shares only what it still shows.
+ */
+private val carErrandsRule = Rule(
+    id = "car-errands",
+    name = "Errands",
+    trigger = ComponentSpec("screen_on"),
+    actions = listOf(ComponentSpec("post_notification")),
+    enabled = true,
+).copy(folder = "Car")
 
 /** No folder at all. Collects under "Other". */
 private val looseRule = Rule(

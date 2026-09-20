@@ -73,6 +73,31 @@ class ShareRuleTest {
     }
 
     /**
+     * A folder goes out through the same hand-off as one rule, so the flags
+     * and the provider are already covered above. What is left is the two
+     * things only a folder share decides: the file is named as a folder, and
+     * the whole folder is in it rather than the first rule of it.
+     */
+    @Test
+    fun a_folder_is_sent_as_one_file_named_after_the_folder() {
+        val json = """{"version":3,"rules":[{"name":"Driving mode"},{"name":"Parked"}]}"""
+
+        val chooser = shareFolderIntent(context, "Car", json)
+        val send = chooser.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)!!
+        val uri = send.extras!!.get(Intent.EXTRA_STREAM) as android.net.Uri
+
+        // The heading's own name, for a receiver that wants a subject.
+        assertEquals("Car", send.getStringExtra(Intent.EXTRA_TITLE))
+        // Not `trigly-car.json`: a rule called "Car" already takes that name,
+        // and the two files must not replace each other on arrival.
+        assertEquals("trigly-folder-car.json", uri.lastPathSegment)
+
+        val read = context.contentResolver.openInputStream(uri)!!
+            .use { it.readBytes().decodeToString() }
+        assertEquals(json, read)
+    }
+
+    /**
      * One share writes one file. The directory is cleared each time, so sharing
      * a second rule does not leave the first one behind for the next receiving
      * app to be granted along with it, and a rule deleted from the app does not

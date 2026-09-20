@@ -299,7 +299,8 @@ control that promised the share sheet was the one that did not open it.
 permission, and the file lands where the person put it and can find it again,
 which is what an export is for.
 
-**Share** sends one rule through `ACTION_SEND`, wrapped in a chooser.
+**Share** sends one rule through `ACTION_SEND`, wrapped in a chooser. A folder
+heading carries the same control, and sends every rule under it as one file.
 
 It sends a *file*, not text in `EXTRA_TEXT`. Text reads fine in a chat and is
 useless on arrival, because importing reads a file through the document picker:
@@ -328,7 +329,31 @@ the real provider for a URI and reads it back through the resolver.
 
 A failed `startActivity` is reported. Nothing guarantees an installed app accepts
 an `application/json` send, and a Share button that does nothing is the failure
-mode this project keeps designing against.
+mode this project keeps designing against. Both share controls report it through
+the same place, because what can fail is the device rather than the rule.
+
+**Sharing a folder is the same hand-off with a different payload**, and
+deliberately not a format of its own. The file is the list form of
+`RuleJson.encode`, which is exactly what "Export all" writes, so a folder
+imports on the other end through the one import path rather than through a
+second one that would have to be kept working. A folder is a name each rule
+carries rather than a thing with an identity of its own, so a file of rules says
+all there is to say: where they land on the far side is decided by the `folder`
+each rule carries in the file.
+
+What it sends is what the heading shows: the rules under that heading *right
+now*, handed to the callback by the screen. With a search active, that is the
+filtered set, which is also the count in the heading. The alternative, looking
+the folder up again by name, would send rules the person could not see when they
+chose to send them.
+
+The file name has `folder` in it: `trigly-folder-car.json` beside a rule's
+`trigly-car.json`. A folder and a rule can hold the same name, the two files are
+not the same kind of thing, and on most receivers the second one to arrive
+replaces the first. Both names come from one slugging helper rather than two
+copies of one regex, and each keeps its own fallback word for a name that strips
+to nothing. A folder named only in a script that leaves no ASCII letters behind
+therefore arrives as `trigly-folder.json`, and not as a hidden file.
 
 ### Duplicating a rule
 
@@ -1639,6 +1664,20 @@ Three decisions in there worth keeping:
 - **Headings survive a search**, showing only matching rules and only non-empty
   sections. The heading is how someone tells which "Driving mode" they just
   found.
+- **The heading carries a share of its own**, beside the per-rule one, so a
+  whole folder goes out as one file. See "Getting a rule out of the app" above
+  for what it sends. Two things make a control inside the heading safe, since
+  the rest of that row is the fold. Its 48dp is reserved rather than overhung:
+  an overhanging target claims pixels it does not report, and the neighbour it
+  would steal them from here is the fold, which is the whole rest of the row.
+  The heading grew from 40dp to 48dp tall to pay for it, which is why the row's
+  vertical padding now sits on the text. And the tap is consumed by the inner
+  `clickable`, so sharing a folder does not also fold it. Both directions are
+  tested, the share by a corner tap rather than a centre one: a centre tap
+  lands on the glyph and would pass even if the target were only as big as the
+  glyph. The same nesting keeps the two announced apart, because merging stops
+  at a descendant that merges on its own. The share names the folder in its
+  description, since a screen of headings has one of these on each.
 - **Collapsing a section does not compose its rules at all**, rather than drawing
   them and hiding them. Which sections are shut is `rememberSaveable` view state:
   it survives a rotation, and it is deliberately not stored on the rule, because
