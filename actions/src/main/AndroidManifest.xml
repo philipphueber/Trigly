@@ -23,4 +23,25 @@
     -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
+    <!--
+      The flashlight, and there is no permission line to go with it.
+      CameraManager.setTorchMode needs none: the SDK's own permission database
+      (platforms/android-35/data/annotations.zip) marks both openCamera
+      overloads with RequiresPermission(CAMERA) and marks nothing on
+      setTorchMode, turnOnTorchWithStrengthLevel or registerTorchCallback. So
+      the flashlight actions run with no prompt.
+
+      required="false" is what keeps the app installable on a phone with no
+      flash unit. The two actions declare the feature as a ComponentRequirement
+      instead, so a phone without one is never offered them. The camera group is
+      declared beside it, also optional, because asking for the flash implies
+      the camera and an implied feature is required by default.
+    -->
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.camera.flash"
+        android:required="false" />
+
 </manifest>

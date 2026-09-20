@@ -115,6 +115,8 @@ the tap start the activity: worse automation, but honest about who decided.
 | Keep a notification button | `capture_notification_button` | Notification access |
 | Press a kept button | `press_captured_button` | None |
 | Set Do Not Disturb | `set_dnd` | Do Not Disturb access |
+| Flashlight | `flashlight` | A flash unit on the device. No permission. Android 13+ only when the brightness is turned down |
+| Blink the flashlight | `flashlight_blink` | A flash unit on the device. No permission |
 | Fire an intent | `fire_intent` | Display over other apps, only when sending as an activity |
 
 Design lines held deliberately:
@@ -154,6 +156,115 @@ Design lines held deliberately:
   that needed fixing: `MediaPlayer.prepare()` blocks the calling thread with
   no bound of its own, so both now wait on `prepareAsync()` instead, behind a
   fifteen-second timeout that can actually cancel it.
+
+### The flashlight, and what it costs to have no toggle
+
+Two actions, `flashlight` and `flashlight_blink`, over
+`CameraManager.setTorchMode`. Four things were settled before either was
+written.
+
+**The permission, which is the part people get wrong.** `setTorchMode` needs
+none. The evidence is the SDK's own permission database, the one lint reads:
+`platforms/android-35/data/annotations.zip` marks both `openCamera` overloads
+with `RequiresPermission(android.permission.CAMERA)` and holds no entry at all
+for `setTorchMode`, `turnOnTorchWithStrengthLevel` or `registerTorchCallback`.
+So the torch runs from a rule with no prompt and no settings screen, which few
+actions in this list can say. The manifest declares the flash unit as an
+optional feature, and that is a Play Store filter rather than a permission.
+`FlashlightOnDeviceTest` measures the same claim on a phone that has a flash
+unit: the app holds no camera permission, and the switch still works.
+
+**Which camera.** A phone has several and they do not all have a flash.
+`getCameraIdList` promises no order, so reading the flash out of camera "0" is
+how an app works on the phones it was tested on and lights nothing on the next
+one. `pickTorchCamera` takes the back-facing camera that reports
+`FLASH_INFO_AVAILABLE`, then any built-in one, then an external one last: a USB
+camera can be unplugged and its flash is not what anybody means by their
+phone's torch. It is a pure function, so the preference is tested rather than
+observed once.
+
+**Brightness is offered, and it is gated.**
+`turnOnTorchWithStrengthLevel` arrived in API 33
+(`platforms/android-35/data/api-versions.xml`, `since="33"`, against
+`since="23"` for `setTorchMode`) and this app's minSdk is 26. Declaring that
+floor unconditionally would hide the whole action from every older phone for a
+setting almost nobody moves, and declaring it never would leave a slider that
+quietly does nothing. So `requirementsFor` declares `MinApiLevel(33)` exactly
+when the brightness is turned below full on a torch being switched *on*, which
+is provably the only path that reaches the newer call. The case no requirement
+can express is a flash unit with one brightness, which most phones have: the
+action reads `FLASH_INFO_STRENGTH_MAXIMUM_LEVEL`, falls back to plain on, and
+the field's own help says so before anybody sets it.
+
+**Two device faults sit on that path, and both are worked around rather than
+reported.** The first: from a dark start, several devices take the level
+`turnOnTorchWithStrengthLevel` is given and still bring the LED up at the
+default brightness, so the setting silently does nothing. The workaround, which
+other apps ship and document, is `setTorchMode(id, true)` first and the level
+second, and `Camera2Torch.turnOn` does exactly that, but only when a level
+below full was actually asked for: full brightness stays one binder call,
+because a blink pays for that call on every edge. The second: a device can
+report a large maximum, 164 levels in the case that is documented from more
+than one app, and throw when asked to set one. That refusal is now dropped
+rather than reported, because the plain on already happened and the light is
+on. A torch at full brightness is much better than no torch, and reporting a
+failure for a lit torch would be false.
+
+The person is not told at the moment the brightness is ignored. There is
+nothing they can do about it, a `Failure` would be a lie about a light that is
+on, and an action has no way to say "it worked, partly" that a rule could act
+on. The field's help carries it instead, where it is read before the rule is
+built. The case deliberately not chased is the third one: a device that reports
+several levels, accepts the call, and drives the LED at one brightness anyway.
+Nothing in the API can see that, and guessing would cost every honest device
+its brightness.
+
+Both workarounds are call *sequences*, so they are pinned by a test. That is
+what the `FlashUnit` seam under `Torch` is for: `CameraManager` cannot be
+called from a JVM test and the emulators have no flash unit, so without it the
+only evidence either workaround behaves as described would be one person's
+memory of one phone.
+
+**A phone with no flash unit at all** is answered by
+`SystemFeature(FEATURE_CAMERA_FLASH)` on both factories, which
+`RequirementChecker.isPossible` treats as permanent, so the pickers never offer
+either action there. A runtime failure would be a worse way to say the same
+thing. It also means the emulators cannot test the interesting half: they
+report no flash unit, so the only path they exercise is the stated refusal.
+
+**There is no toggle, and the reason is that the torch is shared.**
+`set_rule_enabled` has one because a rule's enabled flag is Trigly's own and
+nothing else writes it. The torch is written by the quick settings tile, by the
+camera app, and by any other app that asks. Android offers no synchronous read
+of it: `registerTorchCallback` reports the current mode, and reports it later,
+on a callback. A toggle would be a read, a wait and a write with the tile free
+to move in between, which produces the failure this app works hardest to avoid,
+a rule that looks like it worked and did the opposite. The cost is real and is
+named here rather than left to be discovered: a single home-screen button that
+alternates, built on the shortcut trigger, is not possible today. What it needs
+first is an asynchronous read of the torch with an honest answer for "nobody
+replied", not a third option in a list.
+
+**The blink is a wait, so it carries a wait's whole problem.** The pattern runs
+inside one `WakeGuard` span, because a bare `delay` stops counting when the
+device suspends and a blink is worth doing exactly when the screen is off. The
+alarm port is not an option at any length here: `AlarmManagerScheduler` floors
+its window at five seconds and a whole blink cycle is shorter than that. That
+is why the pattern is capped at 30 seconds, the same boundary `delay` defends
+from the other direction, and why a pattern asking for more blinks fewer times
+rather than running longer. Two more properties are promises and not
+conveniences. The torch is switched off in a `finally`, so a rule disabled
+mid-pattern cannot leave the light burning, which is a fault the user can see
+and which drains a battery fast; the port is deliberately not suspending, so
+that last call still runs after the coroutine is cancelled. And a refused edge
+stops the pattern and reports why, which is how "another app took the camera"
+arrives without registering a torch callback, a handler, and a race against
+this app's own edges.
+
+The configuration follows what a person says rather than what is easy to store:
+"blink three times" and "blink for five seconds" are both offered, and the
+second is turned into a count once, by `blinkTimesWithin`, rather than by a
+second kind of loop.
 
 ### Pressing a button on a notification that is not the trigger's
 
