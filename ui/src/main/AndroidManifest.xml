@@ -87,13 +87,26 @@
       callback either way - the flag governs the system's predictive-back
       gesture animation, not whether the callback runs.
     -->
+    <!--
+      android:icon below is NOT the launcher icon and must not be one of the
+      nine coloured `ic_launcher*` assets. The launcher reads the enabled
+      `activity-alias`, each of which names its own icon further down, so the
+      home screen already follows the colour scheme. This attribute is what
+      the *toast* draws instead: from Android 12 SystemUI puts an icon in every
+      text toast, and it takes it from the package's `ApplicationInfo`, which
+      is this attribute and nothing else. An alias cannot reach it and no
+      `PackageManager` call can change it at run time, so a coloured plate here
+      would be the wrong colour for eight of the nine schemes. The mark with no
+      plate is the honest answer; `mipmap/ic_app_mark.xml` carries the
+      evidence and the reasoning.
+    -->
     <application
         android:name=".TriglyApp"
         android:allowBackup="true"
         android:backupAgent=".TriglyBackupAgent"
         android:enableOnBackInvokedCallback="true"
         android:fullBackupOnly="true"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@mipmap/ic_app_mark"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.Trigly">

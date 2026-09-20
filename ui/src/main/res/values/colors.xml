@@ -43,4 +43,26 @@
          than every other preset's, see PresetSchemes.kt's banner. -->
     <color name="ic_launcher_background_stone">#BCAAA0</color>
     <color name="ic_launcher_background_slate">#84969F</color>
+
+    <!--
+      The mark's own colour in `mipmap/ic_app_mark.xml`, the plate-less icon
+      the toast draws. `Tone.Ink` here and plain white in values-night, so the
+      mark reads as ink on a light toast and as white on a dark one.
+
+      This is the one icon resource in this file that IS overridden for night,
+      and the two above say why they are not: a launcher icon that changed
+      with the system theme would be a different mark on half the phones. The
+      toast is the opposite case. It has no plate of its own to sit on, so it
+      sits directly on the platform's `?android:attr/colorSurface`, which is
+      near white in light and near black in dark. One colour for both grounds
+      can only ever be a compromise between them; two colours are simply
+      right on each.
+
+      SystemUI loads this in its own process, and it resolves a night
+      qualifier against its own configuration. That is the same system dark
+      mode that decides the toast background, which is why the pair tracks the
+      ground it is drawn on rather than the app's own scheme choice.
+      `AppMarkContrastTest` holds both ratios.
+    -->
+    <color name="ic_app_mark_foreground">#17100C</color>
 </resources>

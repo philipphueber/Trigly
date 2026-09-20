@@ -1652,7 +1652,7 @@ above. The list groups by it, each section collapsible with a count, and rules
 without one collect under "Other", pinned last however the alphabet would sort
 the letter O, because it is the leftovers rather than a peer.
 
-Three decisions in there worth keeping:
+Four decisions in there worth keeping:
 
 - **With no folder in use anywhere, the list renders exactly as it did before the
   feature existed**: the same `LazyColumn` over the same blocks, no headings, no
@@ -2281,6 +2281,19 @@ mode still follows the system rather than its own setting: it is a platform
 convention nobody expects an app to override, which is a different question
 from which *hue* renders in either mode.
 
+**A scheme change has to be pushed, not only stored.** Picking a swatch does
+three things, and the third is easy to leave out. It stores the choice, it
+switches the launcher-icon alias, and it pokes `EngineService` with a start
+request. The poke is what makes the ongoing notification pick the new colour
+up: the service reads the setting when it *builds* a notification, and it
+builds one only when it starts or when the rule list changes, so without the
+poke a person watched the launcher icon change while the shade kept the old
+tint until an unrelated rule edit happened days later. The start request is
+already this app's way of saying "something changed out here"; `MainActivity`
+sends the same one after a permission grant. Two surfaces stay outside this
+reach whatever is pushed, and "Three icons, and only two of them can be
+coloured" below says which and why.
+
 ### Blocks, not cards
 
 The design is flat rectangles with hard 2dp borders, a 3dp corner, and a solid
@@ -2461,6 +2474,76 @@ adaptive-icon canvas, but only the centre 66dp circle survives every launcher
 mask, and the mark's widest points sit 33.3dp from centre against a 33dp budget.
 The foreground is therefore scaled to 0.94. Without it, a circular mask shaves
 the ends off the T's bar and it reads as a lowercase r.
+
+#### Three icons, and only two of them can be coloured
+
+The mark ships three times, and the difference between them is not decoration.
+
+`mipmap/ic_launcher*.xml` is the plated adaptive icon, one per preset, and it
+follows the chosen scheme through the `activity-alias` list; see "Colours live
+in one file".
+
+`drawable/ic_notification.xml` is the mark alone, alpha only. A notification's
+small icon is a stencil: the platform keeps the alpha channel, throws the
+colours away and paints the silhouette itself, in the colour the app passed to
+`setColor`, after holding that colour to 4.5:1 against the shade's own
+background. So the scheme does reach the shade, and no plate can ever appear
+there. The copy of the same icon in the status bar is tinted by SystemUI to the
+status bar's foreground instead, so it is monochrome for every app.
+
+`mipmap/ic_app_mark.xml` is the mark alone again, this time in the brand
+orange, and it is `<application android:icon>`. It exists because of the
+toast. From Android 12 the platform draws an icon in every text toast, and
+SystemUI chooses it: it reads the posting package's `ApplicationInfo` and loads
+`IconDrawableFactory.getBadgedIcon`, which is the `<application>` icon. No
+alias reaches that attribute, `PackageManager` has no setter for it, and
+`Toast`'s public API has no icon lever at all. `setView` would put an arbitrary
+view on screen, and it has been deprecated since Android 11 and is dropped
+outright for a background app, which is the state a rule fires in. The toast
+therefore cannot follow the scheme, on any route the app has, and the icon that
+cannot be right for eight of the nine schemes wears no plate rather than the
+wrong one. API 30, the other level this project tests on, draws no toast icon
+at all.
+
+That icon is the one place a plain vector beats an adaptive one.
+`IconDrawableFactory` sends an adaptive drawable through
+`LauncherIcons.wrapIconDrawableWithShadow`, which draws a blurred shadow of the
+icon *mask*, so a transparent adaptive background renders as a grey rounded
+square behind nothing; a plain drawable comes back untouched.
+
+That is true from Android 13 only, and the exception is worth knowing before
+someone "fixes" this file. Android 12 and 12L load the toast icon through the
+launcher's `IconFactory` instead, with `shrinkNonAdaptiveIcons` on, which
+shrinks a non-adaptive icon into a wrapper whose background is plain white. So
+on those two releases the mark does get a plate. That is the accepted cost: a
+plate on two releases beats a naked mask shadow on every release from 13 up,
+which is both gate devices and almost every phone in use.
+
+The mark's colour is a `values` / `values-night` pair, ink on a light toast
+and white on a dark one, and it is the only icon resource here that is. The
+launcher backgrounds beside it are deliberately not paired, because an app
+icon that changed with the system theme would be a different mark on half the
+phones. The toast is the opposite case: with no plate, the mark sits straight
+on the platform's `colorSurface`, which is near white in light and near black
+in dark, so a single colour can only be a compromise between two grounds. The
+best single colour available was the brand orange, at 3.16:1 and 3.96:1
+against those two; the pair is 16.9:1 and 11.4:1.
+
+Relying on the qualifier is safe here for a reason worth stating, since
+SystemUI loads this resource in its own process: it resolves the qualifier
+against SystemUI's configuration, which is the same system dark mode that
+chooses the toast background. Mark and ground are therefore decided by one
+setting and cannot disagree. What the pair does not follow is the app's own
+scheme choice, which is correct, because the toast is the platform's surface
+and not the app's page.
+
+The cost lands on Android 12 and 12L alone, where that white wrapper plate
+appears: in dark mode the white mark is white on white and cannot be seen.
+Neither is a gate level, and what is lost is decoration on a toast that still
+carries its text. `AppMarkContrastTest` asserts that cost rather than
+describing it, so nobody meets it as a surprise, and
+`ApplicationIconOnDeviceTest` holds the resource to the half of the pair the
+device's own mode selects.
 
 ### Only what the device can run
 

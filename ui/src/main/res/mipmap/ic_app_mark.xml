@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Trigly mark with nothing behind it. This is `<application android:icon>`,
+  and it is the one icon in this app that cannot follow the chosen colour
+  scheme.
+
+  WHY IT CANNOT FOLLOW. From Android 12 the platform draws an icon inside every
+  toast, and SystemUI picks that icon itself: it reads the package's
+  `ApplicationInfo` (`getApplicationInfoAsUser`) and loads
+  `IconDrawableFactory.getBadgedIcon(appInfo, user)`. That is the
+  `<application>` icon. It is never an `activity-alias` icon, and the nine
+  aliases are the whole mechanism by which the launcher icon follows the
+  scheme, so none of them is reachable from the toast. `PackageManager` offers
+  no way to change an application icon at run time either: it has
+  `getApplicationIcon` and no setter. See `ToastAction` for the full finding.
+
+  So the mark loses its plate here rather than wear a plate in the wrong
+  colour. Three decisions follow from that, and each has a reason that is not
+  visible in the shapes below.
+
+  NOT AN ADAPTIVE ICON, unlike `ic_launcher.xml` and its eight preset
+  siblings. A plate is what the adaptive canvas exists for. Without one, two
+  of its rules turn into faults. Its safe zone is a 66dp circle on the 108
+  board, which holds the mark to the 0.94 scale `ic_launcher_foreground.xml`
+  explains, and 0.94 of the board reads as a small mark adrift in a large
+  empty box the moment the plate is gone. And `LauncherIcons`
+  `wrapIconDrawableWithShadow`, which `IconDrawableFactory` calls on the way
+  to the toast, draws a blurred shadow of the icon *mask* for an adaptive
+  icon: a transparent adaptive background therefore renders as a grey rounded
+  square behind nothing at all, on every Android 13 and later. That same
+  function returns a plain drawable untouched, which is what this is.
+
+  The cost of that choice, stated rather than hidden, and it is two OS
+  versions wide. SystemUI changed how it loads this icon in Android 13.
+  Android 12 and 12L use the launcher's own `IconFactory`
+  (`createBadgedIconBitmap(icon, user, shrinkNonAdaptiveIcons = true)`), which
+  shrinks a non-adaptive icon into an adaptive wrapper whose background is
+  `BaseIconFactory.DEFAULT_WRAPPER_BACKGROUND`, plain white. So on exactly
+  those two releases the mark does arrive on a white plate, smaller than it is
+  drawn here. Android 13 and later replaced that call with the framework's
+  `IconDrawableFactory`, which adds no wrapper at all. The trade was made in
+  that direction on purpose: the plated version is wrong on two releases and
+  still legible, 3.32:1 orange on white; the adaptive version is wrong on
+  every release from 13 up, which is both gate devices and nearly every phone
+  in use.
+
+  THE SCALE IS `ic_notification.xml`'s, 99 of 108 units, and for the same
+  reason: an icon with no plate should fill its box. The mark spans y 29..79,
+  so 50 of 108 units, and 99/50 = 1.98. See that file for the arithmetic.
+
+  INK IN LIGHT, WHITE IN DARK, AND NOT THE BRAND ORANGE. The mark has no
+  plate here, so it sits straight on the toast frame, which is
+  `?android:attr/colorSurface`: `#FAF8FF` in light and `#2F3036` in dark on
+  the platform's own palette. One colour would have to serve both grounds, and
+  the brand orange is the best single answer at 3.16:1 and 3.96:1, over the
+  3:1 WCAG floor for a graphic but no more than that. A `values-night` pair
+  needs no compromise at all: ink `#17100C` is 16.9:1 on the light ground and
+  white is 11.4:1 on the dark one.
+
+  The pair is safe to rely on here, and that is worth stating because it is
+  not obvious. SystemUI loads this resource in SystemUI's process and resolves
+  the night qualifier against SystemUI's own configuration. That is the same
+  system dark mode that chooses the toast background, so the mark and the
+  ground it lands on are decided by one setting and cannot disagree. What the
+  qualifier does NOT follow is the app's own scheme choice, which is correct:
+  the toast is the platform's surface, not the app's page.
+
+  The cost is on Android 12 and 12L only, where the white wrapper plate
+  described above appears. In dark mode on exactly those two releases the mark
+  is white on that white plate and cannot be seen. Neither gate level is one
+  of them, an unreadable toast icon loses nothing but decoration, and the
+  alternative was a mark that is merely adequate on every release instead of
+  right on nearly all of them. `AppMarkContrastTest` holds the ratios.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="1.98"
+        android:scaleY="1.98">
+
+        <!-- The bar of the T. -->
+        <path
+            android:fillColor="@color/ic_app_mark_foreground"
+            android:pathData="M32,29 h44 v12 h-44 z" />
+
+        <!-- The stem, running into the arrowhead rather than stopping short. -->
+        <path
+            android:fillColor="@color/ic_app_mark_foreground"
+            android:pathData="M49,41 h10 v22 h-10 z" />
+
+        <!-- The arrowhead. -->
+        <path
+            android:fillColor="@color/ic_app_mark_foreground"
+            android:pathData="M42,63 h24 l-12,16 z" />
+    </group>
+</vector>

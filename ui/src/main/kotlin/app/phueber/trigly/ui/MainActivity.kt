@@ -150,6 +150,7 @@ class MainActivity : ComponentActivity() {
                     backupSettings = container.backupSettings,
                     colorSchemeSettings = container.colorSchemeSettings,
                     launcherIconEnabler = container.launcherIconEnabler,
+                    pokeEngine = { EngineService.start(this@MainActivity) },
                 ),
             )
             val colorSchemeChoice by settings.colorSchemeChoice.collectAsStateWithLifecycle()
@@ -410,6 +411,13 @@ class MainActivity : ComponentActivity() {
                 backupSettings = container.backupSettings,
                 colorSchemeSettings = container.colorSchemeSettings,
                 launcherIconEnabler = container.launcherIconEnabler,
+                // Repeated from the call in setContent for the same reason
+                // every other argument here is: viewModel() resolves to the
+                // instance that one already built, so this factory is only
+                // ever the one that loses the race. See
+                // SettingsViewModel.setColorSchemeChoice for what the poke is
+                // for.
+                pokeEngine = { EngineService.start(this@MainActivity) },
             ),
         )
         val cloudBackupEnabled by settings.cloudBackupEnabled.collectAsStateWithLifecycle()

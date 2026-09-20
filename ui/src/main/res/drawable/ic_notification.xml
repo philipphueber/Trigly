@@ -6,6 +6,14 @@
   be thrown away — while its generous adaptive-icon margins would remain, and
   the glyph would come out too small to read at 24dp.
 
+  The tint the system applies is the app's own: `EngineService` sets it with
+  `NotificationCompat.Builder.setColor`, and the platform paints this
+  silhouette in that colour after holding it to 4.5:1 against the shade. So
+  this file is already the answer to "the mark with no background colour", and
+  it is the surface where the chosen scheme does come through. See
+  `EngineService.notificationColor`. The white below is only what renders
+  before any tint is applied.
+
   Same three shapes and the same numbers as `docs/branding/trigly-mark.svg`, on
   the same 108 board so they can be compared line by line. Only the scale
   differs, and it is derived rather than eyeballed: the mark spans y 29..79, so

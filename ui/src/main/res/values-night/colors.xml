@@ -1,4 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="window_background">#17100C</color>
+
+    <!--
+      The mark on a dark toast. See the light-mode entry in `values/colors.xml`
+      for why this one resource is a night pair while the launcher backgrounds
+      beside it are not.
+
+      Plain white rather than `Tone.Paper`: the ground here is the platform's
+      dark surface and not the app's own page, so the app's warm off-white has
+      nothing to be in step with, and white is the most legible thing the mark
+      can be.
+    -->
+    <color name="ic_app_mark_foreground">#FFFFFF</color>
 </resources>

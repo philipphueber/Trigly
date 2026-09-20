@@ -386,8 +386,20 @@ class EngineService : Service() {
         notifications.createNotificationChannel(channel)
     }
 
+    /**
+     * Rebuilt on every post rather than cached, which is what lets the colour
+     * below be current. [onStartCommand] re-posts on every start request, and
+     * that is how a colour-scheme change in Settings reaches the shade; see
+     * `SettingsViewModel.setColorSchemeChoice`.
+     */
     private fun notification(text: String): Notification =
         NotificationCompat.Builder(this, CHANNEL_ID)
+            // A small icon is an alpha channel and nothing else: the system
+            // throws the colours away and paints the silhouette itself. That is
+            // why this is `ic_notification` and not a launcher asset, and it is
+            // also why no launcher-style plate can appear here whatever the
+            // colour scheme says. What the scheme does reach is the tint, on
+            // the line below.
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(getString(R.string.app_name))
             .setContentText(text)
@@ -410,6 +422,23 @@ class EngineService : Service() {
      * Light or dark comes from `resources.configuration`, the only answer
      * available here: `isSystemInDarkTheme()` needs a composition, and this
      * runs long before or entirely without one.
+     *
+     * **This is the small icon's colour, and it is the only colour the app
+     * gets to choose here.** `Notification.Builder.bindSmallIcon` hands the
+     * icon view `getSmallIconColor`, which is this value put through
+     * `ContrastColorUtil.resolveContrastColor` against the shade's own
+     * background. So the hue the user picked does reach the icon, and it
+     * arrives darkened in a light shade and lightened in a dark one, because
+     * the platform holds it to 4.5:1 there whatever the app asked for. Two
+     * presets that differ mainly in lightness rather than in hue, Stone and
+     * Slate, therefore land closer together in the shade than they do in the
+     * app.
+     *
+     * Two places this colour deliberately does not reach. The copy of the icon
+     * in the status bar is tinted by SystemUI to the status bar's own
+     * foreground, so it is monochrome on every device and for every app. And a
+     * toast cannot be coloured at all; see `ToastAction` for why that is a
+     * platform fact rather than a gap here.
      */
     private fun notificationColor(): Int {
         val darkTheme = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
@@ -427,8 +456,16 @@ class EngineService : Service() {
 
     companion object {
         private const val TAG = "Trigly"
-        private const val CHANNEL_ID = "trigly_engine"
-        private const val NOTIFICATION_ID = 1
+
+        /**
+         * Both `internal` rather than private, so an instrumented test can
+         * find this service's own notification among whatever else the device
+         * is showing. Named here rather than repeated in the test, because a
+         * test that guessed the channel id would keep passing by looking at
+         * the wrong notification.
+         */
+        internal const val CHANNEL_ID = "trigly_engine"
+        internal const val NOTIFICATION_ID = 1
 
         /** Either of these satisfies the platform for the `location` type. */
         private val LOCATION_PERMISSIONS = listOf(

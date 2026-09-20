@@ -2,7 +2,6 @@ package app.phueber.trigly.ui
 
 import androidx.compose.material3.ColorScheme
 import androidx.compose.ui.graphics.Color
-import kotlin.math.pow
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -18,22 +17,6 @@ import org.junit.Test
  * this is what catches one before it ships.
  */
 class ColorPresetContrastTest {
-
-    private fun linearChannel(c: Float): Double {
-        val cs = c.toDouble()
-        return if (cs <= 0.03928) cs / 12.92 else ((cs + 0.055) / 1.055).pow(2.4)
-    }
-
-    private fun relativeLuminance(color: Color): Double =
-        0.2126 * linearChannel(color.red) + 0.7152 * linearChannel(color.green) + 0.0722 * linearChannel(color.blue)
-
-    private fun contrastRatio(a: Color, b: Color): Double {
-        val (lighter, darker) = relativeLuminance(a).let { la ->
-            val lb = relativeLuminance(b)
-            if (la >= lb) la to lb else lb to la
-        }
-        return (lighter + 0.05) / (darker + 0.05)
-    }
 
     private fun assertAA(label: String, foreground: Color, background: Color) {
         val ratio = contrastRatio(foreground, background)
