@@ -149,10 +149,9 @@ const val SINGLE_STRENGTH_LEVEL: Int = 1
  * phone reads as one level here as well. Asking for a level on such a device
  * would do exactly what plain on does, through a newer API, for nothing.
  *
- * [FULL_STRENGTH_PERCENT] is the setting nobody moved. It must not drag the
- * newer API into the common case, because the action declares a minimum Android
- * version only when the brightness is actually turned down; see
- * [flashlightRequirements].
+ * [FULL_STRENGTH_PERCENT] is the setting nobody moved, and it must not drag the
+ * newer API into the common case: returning null there is what keeps a plain
+ * "on" to one binder call on every Android version this app runs on.
  *
  * The scale is a percentage of the unit's own maximum, for the reason
  * [volumeIndexFor] gives about audio streams: the maximum differs by device, so
@@ -512,37 +511,36 @@ internal val FLASHLIGHT_REQUIREMENTS: List<ComponentRequirement> = listOf(
 )
 
 /**
- * What this configuration of the flashlight action needs, which is more than
- * [FLASHLIGHT_REQUIREMENTS] only when the brightness is turned down.
+ * Why the brightness does NOT declare an API floor, which is the question a
+ * reader of `requirementsFor` will come here with.
  *
  * `turnOnTorchWithStrengthLevel` arrived in API 33
  * (`platforms/android-35/data/api-versions.xml` says `since="33"`, against
- * `since="23"` for `setTorchMode`), and this module's minSdk is 26. Declaring
- * the floor unconditionally would hide the whole action from every phone
- * running Android 12 or older, for a setting almost nobody moves. Declaring it
- * never would leave a brightness that quietly does nothing on those phones,
- * which is the failure the requirement model exists to prevent.
+ * `since="23"` for `setTorchMode`), and this module's minSdk is 26. So a
+ * brightness below full does nothing at all on Android 12 and older, and
+ * declaring `MinApiLevel(33)` when the brightness is turned down looks like
+ * exactly the honesty this requirement model is for.
  *
- * So it is declared exactly when it is used, which is the `requirementsFor`
- * contract and needs a proven claim rather than a plausible one. The claim here
- * is proven by [torchStrengthLevel]: at [FULL_STRENGTH_PERCENT], and whenever
- * the torch is being switched off, the action calls `setTorchMode` and never
- * reaches the newer method at all.
+ * It is the wrong instrument here, and the rules list is where that shows. An
+ * unmet requirement draws a row on the rule with a "Grant" button. A person on
+ * Android 12 would get a row saying the rule needs Android 13, with a button
+ * that can do nothing, for a rule that **does** run: the torch lights, at full
+ * strength. Marking a working rule as blocked by something nobody can clear is
+ * a worse answer than the setting quietly meaning "as bright as this phone
+ * goes".
  *
- * A mode this build does not know reads as no extra requirement, the same way
- * `requirementsForSendAs` treats one. A half filled form must not accuse the
- * phone of being too old.
+ * The same argument covers the case no requirement could ever express, and it
+ * is the common one: a flash unit with a single brightness step. Most phones
+ * are that. There is no feature string for it, the maximum can change under
+ * the app across an OS update, and a phone can report several steps and ignore
+ * them. So the honest place for all of it is the brightness field's own help,
+ * which says the setting is a percentage of what the phone can do and that
+ * some phones have one step only.
+ *
+ * The action still declares [FLASHLIGHT_REQUIREMENTS], because a phone with no
+ * flash unit at all cannot run this in any configuration, and that one IS
+ * permanent and IS worth hiding the action for.
  */
-internal fun flashlightRequirements(config: Map<String, String>): List<ComponentRequirement> {
-    val mode = FlashlightMode.parseOrNull(config[FlashlightMode.CONFIG_KEY])
-    val percent = torchStrengthPercent(config[FlashlightAction.CONFIG_STRENGTH_PERCENT])
-    return if (mode?.on == true && percent < FULL_STRENGTH_PERCENT) {
-        FLASHLIGHT_REQUIREMENTS + ComponentRequirement.MinApiLevel(Build.VERSION_CODES.TIRAMISU)
-    } else {
-        FLASHLIGHT_REQUIREMENTS
-    }
-}
-
 class FlashlightActionFactory(private val torch: Torch) : ActionFactory {
     override val type = FlashlightAction.TYPE
 
@@ -583,9 +581,6 @@ class FlashlightActionFactory(private val torch: Torch) : ActionFactory {
     )
 
     override val requirements = FLASHLIGHT_REQUIREMENTS
-
-    override fun requirementsFor(config: Map<String, String>): List<ComponentRequirement> =
-        flashlightRequirements(config)
 
     override val warning: String =
         "Trigly does not switch the flashlight off again by itself. It stays on " +

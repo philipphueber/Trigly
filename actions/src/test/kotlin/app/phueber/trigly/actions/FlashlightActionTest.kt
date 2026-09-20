@@ -305,42 +305,44 @@ class FlashlightFactoryTest {
     }
 
     @Test
-    fun `full brightness needs nothing but the flash unit`() {
-        val config = mapOf(
-            FlashlightMode.CONFIG_KEY to "on",
-            FlashlightAction.CONFIG_STRENGTH_PERCENT to "100",
+    fun `no configuration of the flashlight asks for more than the flash unit`() {
+        // A brightness below full reaches an API 33 method and does nothing at
+        // all on an older phone, so declaring MinApiLevel(33) for it reads as
+        // the honest move. It is the wrong instrument, and the rules list is
+        // where that shows: an unmet requirement draws a row with a "Grant"
+        // button, so a person on Android 12 would see a rule marked as needing
+        // Android 13, with a button that can do nothing, for a rule that does
+        // run and lights the torch at full. The same argument covers the case
+        // no requirement could express anyway, which is the common one: a
+        // flash unit with a single brightness step. The brightness field's
+        // help carries this instead.
+        val configs = listOf(
+            mapOf(FlashlightMode.CONFIG_KEY to "on", FlashlightAction.CONFIG_STRENGTH_PERCENT to "100"),
+            mapOf(FlashlightMode.CONFIG_KEY to "on", FlashlightAction.CONFIG_STRENGTH_PERCENT to "40"),
+            mapOf(FlashlightMode.CONFIG_KEY to "off", FlashlightAction.CONFIG_STRENGTH_PERCENT to "40"),
         )
 
-        assertEquals(factory.requirements, factory.requirementsFor(config))
+        configs.forEach { config ->
+            assertEquals(
+                "config $config should need nothing but the flash unit",
+                factory.requirements,
+                factory.requirementsFor(config),
+            )
+        }
     }
 
     @Test
-    fun `a brightness that is turned down needs Android 13`() {
-        // turnOnTorchWithStrengthLevel arrived in API 33 and this module's
-        // minSdk is 26, so the floor has to be declared when it is used and
-        // only then. Declared always, it would hide the action from every
-        // older phone; declared never, the slider would quietly do nothing.
-        val config = mapOf(
-            FlashlightMode.CONFIG_KEY to "on",
-            FlashlightAction.CONFIG_STRENGTH_PERCENT to "40",
-        )
+    fun `the brightness help says what a phone that cannot dim will do`() {
+        // The promise that replaces the requirement. If this text stops saying
+        // it, a person on a single-step phone has nothing at all to read.
+        val help = factory.configFields
+            .first { it.key == FlashlightAction.CONFIG_STRENGTH_PERCENT }
+            .help
+            .orEmpty()
 
-        assertEquals(
-            factory.requirements + ComponentRequirement.MinApiLevel(33),
-            factory.requirementsFor(config),
-        )
-    }
-
-    @Test
-    fun `switching the torch off never needs Android 13, whatever the slider says`() {
-        // A brightness left behind by an earlier edit must not accuse the phone
-        // of being too old for an action that only calls setTorchMode(false).
-        val config = mapOf(
-            FlashlightMode.CONFIG_KEY to "off",
-            FlashlightAction.CONFIG_STRENGTH_PERCENT to "40",
-        )
-
-        assertEquals(factory.requirements, factory.requirementsFor(config))
+        assertTrue("the brightness help is empty", help.isNotBlank())
+        assertTrue("it must name the Android version a lower brightness needs", help.contains("Android 13"))
+        assertTrue("it must say what a phone that cannot dim does instead", help.contains("full"))
     }
 
     @Test
