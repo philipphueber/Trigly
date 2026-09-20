@@ -1042,6 +1042,59 @@ actually draws something: a popup a rule can put on screen over whatever the
 user is doing. That needs a window rather than a permission, and it now needs no
 new permission to get there.
 
+### Vendor lights: the Glyph, and everything like it
+
+Nothing's Glyph Developer Kit is the only phone light with a public interface,
+and Trigly cannot ship it. The kit is one `.aar` committed to a GitHub
+repository. It is in no public artifact repository, JitPack cannot build it
+because the repository holds no source, and its licence forbids redistribution
+and forbids commercial use without written permission from Nothing. So the file
+cannot be committed here, and a clone would not build without a manual download
+step. `:ui` also allows Apache-2.0 only through `licensee`, and the attribution
+screen is generated from that report, which a closed licence fails. And
+`GlyphManager.register` checks the calling package against a list the vendor
+ships, and on one model checks the signing certificate, so an app built from a
+clone is a different app to the kit.
+
+**Deliberately not added**, on the same grounds as geofencing in
+`docs/triggers.md`: a dependency that a clone-built or a de-Googled build
+cannot resolve is not a dependency this project takes. A separate module does
+not rescue it, unlike the `:triggers-gms` shape that document describes, and
+the difference is worth stating because the two look alike:
+`play-services-location` is on a public Maven repository and is redistributable,
+and this is neither.
+
+There is no platform equivalent and no other vendor route.
+`android.hardware.lights.LightsManager` is public from API 31, and an app still
+cannot reach it: `CONTROL_DEVICE_LIGHTS` is absent from `android.jar`
+altogether, and `Light.getType()` carries an `@IntDef` closed to a microphone,
+an input device, a player id and a keyboard backlight. No public light type
+names a notification LED or a glyph. No manufacturer other than Nothing
+publishes an app-drivable light interface, and every working light app on those
+phones drives it through a user-run ADB shell service.
+
+The camera flash is the only light an app can drive portably, which is what
+`flashlight` and `flashlight_blink` do.
+
+### The notification light
+
+`NotificationChannel.enableLights` and `setLightColor` are safe to call and do
+nothing on nearly every current phone. `Notification.Builder.setLights` has been
+deprecated since API 26. The compatibility document names no light at all and
+requires an API for absent hardware to be a silent no-op, so the call never
+fails and never reports anything, and the platform lights an LED only with the
+screen off, behind a configuration flag that defaults to false.
+
+There is also no way to ask whether a phone has one. `NotificationManager` has
+no light method, `NotificationChannel.shouldShowLights` reads back the channel's
+own setting rather than the hardware, and no `PackageManager` feature string
+names a light. An action here could never be reported as working or as broken,
+which is the failure the requirement model exists to prevent.
+
+**Deliberately not added.** Android 14's "Flash notifications", which the user
+turns on for themselves, is the substitute, and any notification Trigly posts
+already gets it.
+
 ### Default dialer role: answer, end, reject, screen calls
 `RoleManager.ROLE_DIALER` or `ROLE_CALL_SCREENING`. Becoming the *default phone
 app* is a large commitment: the app must then implement the whole dialer

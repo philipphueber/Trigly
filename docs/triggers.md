@@ -750,6 +750,14 @@ app running, and reporting a crossing from a side recorded three days ago is a
 wrong report where losing it is a missing one. This project treats a wrong
 unattended action as the worse failure.
 
+### Vendor lights
+
+Not a trigger, and recorded in `docs/actions.md`. A Nothing Glyph, and every
+phone light like it, sits behind a vendor library whose licence forbids
+redistribution, or behind no public interface at all, and the platform
+`LightsManager` reaches none of them. The camera flash is the only light an app
+can drive, and `flashlight` drives it.
+
 ### Notification action buttons
 Firing a notification's action `PendingIntent` is an *action*, not a trigger, and
 belongs in `:actions` alongside `PostNotificationAction`. The listener service
