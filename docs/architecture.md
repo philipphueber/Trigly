@@ -2519,31 +2519,52 @@ on those two releases the mark does get a plate. That is the accepted cost: a
 plate on two releases beats a naked mask shadow on every release from 13 up,
 which is both gate devices and almost every phone in use.
 
-The mark's colour is a `values` / `values-night` pair, ink on a light toast
-and white on a dark one, and it is the only icon resource here that is. The
-launcher backgrounds beside it are deliberately not paired, because an app
-icon that changed with the system theme would be a different mark on half the
-phones. The toast is the opposite case: with no plate, the mark sits straight
-on the platform's `colorSurface`, which is near white in light and near black
-in dark, so a single colour can only be a compromise between two grounds. The
-best single colour available was the brand orange, at 3.16:1 and 3.96:1
-against those two; the pair is 16.9:1 and 11.4:1.
+The mark wears a neutral plate here, and the way that was settled is worth
+keeping, because the obvious answer was tried twice and was wrong twice.
 
-Relying on the qualifier is safe here for a reason worth stating, since
-SystemUI loads this resource in its own process: it resolves the qualifier
-against SystemUI's configuration, which is the same system dark mode that
-chooses the toast background. Mark and ground are therefore decided by one
-setting and cannot disagree. What the pair does not follow is the app's own
-scheme choice, which is correct, because the toast is the platform's surface
-and not the app's page.
+This icon lands on grounds the app does not own. The toast frame is the
+platform's `colorSurface`, near white in light mode and near black in dark.
+The launcher badges a pinned rule shortcut with this same icon, on a plate of
+the launcher's choosing, and that plate is white in **either** theme. Android
+12 and 12L put the same white behind the toast icon.
 
-The cost lands on Android 12 and 12L alone, where that white wrapper plate
-appears: in dark mode the white mark is white on white and cannot be seen.
-Neither is a gate level, and what is lost is decoration on a toast that still
-carries its text. `AppMarkContrastTest` asserts that cost rather than
-describing it, so nobody meets it as a surprise, and
-`ApplicationIconOnDeviceTest` holds the resource to the half of the pair the
-device's own mode selects.
+A plate-less mark therefore has to be one colour that survives all of them.
+The brand orange is the only one that does, at 3.16:1, 3.96:1 and 3.32:1, over
+the 3:1 graphic floor everywhere and never by much. A `values` / `values-night`
+pair reads far better on the two toast grounds, 16.9:1 and 11.4:1, and 0.3.2
+shipped it on exactly that reasoning. It failed within the hour: a qualifier
+can tell a light toast from a dark one, and it cannot tell a dark toast from a
+white badge plate, because in dark mode those are the same configuration. The
+white half arrived as a white mark on a white badge.
+
+An opaque plate ends the argument instead of winning it. The only contrast
+left is the mark against its own plate, which is a number this repo controls:
+ink on `Tone.Neutral90`, about 14.7:1, held to the 4.5:1 text floor rather
+than the 3:1 graphic one because there is no reason to settle when the value
+is ours to choose. `AppMarkContrastTest` keeps both rejected answers as tests,
+so neither is proposed again without an answer to the ground that ruled it
+out.
+
+The plate is neutral rather than the orange `ic_launcher.xml` wears, because
+this is the icon that *cannot* follow the scheme. A fixed orange plate would
+sit beside eight other scheme colours claiming to be the scheme's icon and be
+wrong for eight of the nine. Neutral claims nothing, which is the honest thing
+for an icon with no way to follow.
+
+Having a plate is also what lets this icon be adaptive again. `IconDrawableFactory`
+sends an adaptive drawable through `wrapIconDrawableWithShadow`, which draws a
+blurred shadow of the icon mask: correct for an icon with a plate, and the
+whole fault when there is none, which is why the plate-less version was
+deliberately not adaptive. The foreground is `ic_launcher_foreground.xml`
+itself rather than a copy, so the mark cannot drift between the two icons.
+
+Size was the other thing a phone corrected. `ic_notification` was drawn at
+1.98, which fills the maximum a status bar icon may occupy. Filling the
+allowance is not the same as being the right size: in the shade the mark
+touched the top and bottom of its slot and sat visibly heavier than every
+other app's icon beside it, because those leave a margin. It is 1.5 now, a
+little over two thirds of the box. The cost is in the status bar, where the
+icon is a few pixels tall and smaller artwork is harder to pick out.
 
 ### Only what the device can run
 

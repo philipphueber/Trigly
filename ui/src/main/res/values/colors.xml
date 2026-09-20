@@ -45,24 +45,22 @@
     <color name="ic_launcher_background_slate">#84969F</color>
 
     <!--
-      The mark's own colour in `mipmap/ic_app_mark.xml`, the plate-less icon
-      the toast draws. `Tone.Ink` here and plain white in values-night, so the
-      mark reads as ink on a light toast and as white on a dark one.
+      The plate behind the mark in `mipmap/ic_app_mark.xml`, the application
+      icon that the toast, the launcher's shortcut badge, Settings and the
+      share sheet all draw. `Tone.Neutral90`.
 
-      This is the one icon resource in this file that IS overridden for night,
-      and the two above say why they are not: a launcher icon that changed
-      with the system theme would be a different mark on half the phones. The
-      toast is the opposite case. It has no plate of its own to sit on, so it
-      sits directly on the platform's `?android:attr/colorSurface`, which is
-      near white in light and near black in dark. One colour for both grounds
-      can only ever be a compromise between them; two colours are simply
-      right on each.
+      Neutral rather than one of the nine scheme colours above, because this
+      icon is the one that cannot follow the scheme: a fixed orange plate would
+      be the wrong colour for eight of the nine, while a neutral one claims
+      nothing about the scheme at all. Light rather than dark so the ink mark
+      on it is the darkest thing in the icon, at about 14.7:1, and a shade
+      warmer than white so the plate still has an edge against the white badge
+      plate a launcher puts behind it.
 
-      SystemUI loads this in its own process, and it resolves a night
-      qualifier against its own configuration. That is the same system dark
-      mode that decides the toast background, which is why the pair tracks the
-      ground it is drawn on rather than the app's own scheme choice.
-      `AppMarkContrastTest` holds both ratios.
+      Deliberately not overridden in values-night, the same as the launcher
+      backgrounds above: an app icon that changed with the system theme would
+      be a different mark on half the phones. That mistake was made once here
+      already, with a values-night pair on a mark that had no plate.
     -->
-    <color name="ic_app_mark_foreground">#17100C</color>
+    <color name="ic_app_mark_background">#F2E3DA</color>
 </resources>

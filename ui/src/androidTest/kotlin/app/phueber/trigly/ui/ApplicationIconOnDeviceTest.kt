@@ -2,7 +2,6 @@ package app.phueber.trigly.ui
 
 import android.content.Context
 import android.content.pm.PackageManager
-import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -12,7 +11,6 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -92,40 +90,50 @@ class ApplicationIconOnDeviceTest {
     }
 
     /**
-     * Not adaptive, and this is load-bearing rather than incidental.
-     * `IconDrawableFactory`, which is how SystemUI gets to this icon, sends an
+     * Adaptive, with an opaque plate, and both halves of that matter.
+     *
+     * `IconDrawableFactory`, which is how SystemUI reaches this icon, sends an
      * adaptive drawable through `LauncherIcons.wrapIconDrawableWithShadow`,
-     * and that draws a blurred shadow of the icon *mask*. With no background
-     * layer the shadow is all that would be left: a grey rounded square
-     * behind nothing. A plain drawable comes back from that call untouched.
+     * which draws a blurred shadow of the icon *mask*. That is the correct
+     * look for an icon that has a plate and the whole fault when it does not:
+     * the plate-less version shipped in 0.3.2 was deliberately NOT adaptive
+     * for exactly that reason, and this test asserted the opposite of what it
+     * asserts now. Being adaptive is also what lets a launcher mask this icon
+     * the way it masks every other one.
      */
     @Test
-    fun the_application_icon_is_not_an_adaptive_icon() {
+    fun the_application_icon_is_adaptive() {
         val icon = context.getDrawable(R.mipmap.ic_app_mark)
 
-        assertFalse(
-            "an adaptive app icon gets a mask-shaped shadow, which is a background by another name",
+        assertTrue(
+            "an adaptive icon is what gives the plate a mask and a shadow like every other app's",
             icon is AdaptiveIconDrawable,
         )
     }
 
     /**
-     * "The T with no background colour", checked by rendering it rather than
-     * by reading the XML: every corner of the box is fully transparent and the
-     * centre is the mark.
+     * The plate is opaque, checked by rendering rather than by reading the
+     * XML: a corner well inside the adaptive canvas is fully opaque, and so is
+     * the centre where the mark itself sits.
+     *
+     * An adaptive icon's outer edge is masked by the launcher, so the very
+     * corner pixel proves nothing either way. What matters is that there is no
+     * hole behind the mark, which is what let the ground underneath decide
+     * whether the mark could be seen.
      */
     @Test
-    fun the_application_icon_has_nothing_behind_the_mark() {
+    fun the_application_icon_has_an_opaque_plate_behind_the_mark() {
         val size = 48
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val icon = requireNotNull(context.getDrawable(R.mipmap.ic_app_mark))
         icon.setBounds(0, 0, size, size)
         icon.draw(Canvas(bitmap))
 
-        listOf(0 to 0, size - 1 to 0, 0 to size - 1, size - 1 to size - 1).forEach { (x, y) ->
+        val inset = size / 4
+        listOf(inset to inset, size - inset to inset, inset to size - inset).forEach { (x, y) ->
             assertEquals(
-                "the mark has a plate behind it at ($x, $y)",
-                0,
+                "the plate has a hole in it at ($x, $y)",
+                255,
                 Color.alpha(bitmap.getPixel(x, y)),
             )
         }
@@ -135,28 +143,23 @@ class ApplicationIconOnDeviceTest {
     }
 
     /**
-     * The mark's colour is a `values` / `values-night` pair, and each half is
-     * a literal that also exists in Kotlin: `Tone.Ink` and plain white.
-     * `AppMarkContrastTest` checks the contrast of the Kotlin ones; only a
-     * device can resolve a qualifier, so this is where the two are held
-     * together.
+     * The plate's colour is a literal in `values/colors.xml` and the same
+     * literal again in `Tone.Neutral90`, the way `ic_launcher_background`
+     * already is. `AppMarkContrastTest` checks the contrast of the Kotlin
+     * one; only a device can read the resource, so this is where the two are
+     * held together.
      *
-     * The expected half is read from the device's own configuration rather
-     * than hard-coded, because this suite runs on whatever mode the emulator
-     * image came up in. A test that assumed light would pass for the wrong
-     * reason on a dark image, and fail for no reason at all if that default
-     * ever changes.
+     * One value, with no night branch to choose between. A `values-night`
+     * pair was shipped once and taken back out: the launcher badges a pinned
+     * shortcut with this icon on a white plate in either theme, so the white
+     * half of the pair was invisible in dark mode. See
+     * `mipmap/ic_app_mark.xml`.
      */
     @Test
-    fun the_mark_colour_is_the_half_of_the_pair_this_mode_selects() {
-        val night = context.resources.configuration.uiMode and
-            Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
-        val expected = if (night) Color.WHITE else Tone.Ink.toArgb()
-
+    fun the_plate_colour_is_the_neutral_from_the_palette() {
         assertEquals(
-            if (night) "the mark should be white on a dark toast" else "the mark should be ink on a light toast",
-            expected,
-            context.getColor(R.color.ic_app_mark_foreground),
+            Tone.Neutral90.toArgb(),
+            context.getColor(R.color.ic_app_mark_background),
         )
     }
 }

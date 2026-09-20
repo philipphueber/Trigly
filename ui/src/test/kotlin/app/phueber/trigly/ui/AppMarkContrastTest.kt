@@ -5,109 +5,103 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The one colour in this app that has to work on a background the app does
- * not own.
+ * The mark that has to be legible on grounds this app does not choose, and the
+ * plate that is how it manages it.
  *
- * `mipmap/ic_app_mark.xml` is `<application android:icon>`, which is what
- * Android 12 and later draw inside every toast. The toast frame is the
- * platform's `?android:attr/colorSurface`, so the mark lands on a near-white
- * ground in light mode and a near-black one in dark. It is a `values-night`
- * pair for exactly that reason: ink on the light ground, white on the dark
- * one, each right on the ground it is drawn on.
+ * `mipmap/ic_app_mark.xml` is `<application android:icon>`. Four surfaces draw
+ * it and each brings its own ground: a toast frame that is near white in light
+ * mode and near black in dark, the launcher's badge on a pinned shortcut,
+ * which sits on a white plate in **either** theme, and Settings and the share
+ * sheet, which follow the system theme.
  *
- * The floor is 3:1, not the 4.5:1 [ColorPresetContrastTest] holds text to.
- * The mark is a graphic, and 3:1 is what WCAG asks of a graphic whose shape
- * carries the meaning. Both halves of the pair clear it several times over,
- * which is the point of the pair.
+ * Two plate-less answers were shipped and both were wrong, which is why the
+ * rejected pair below is kept as tests rather than as a sentence. One colour
+ * for every ground means the brand orange, which clears the 3:1 graphic floor
+ * everywhere and never by much. A `values-night` pair reads far better on the
+ * two toast grounds and cannot see the third: a qualifier cannot tell a white
+ * badge plate from a dark toast, so the white half arrived as white on white.
  *
- * The two backgrounds are the platform's own values, read out of
- * `platforms/android-35/data/res/values/colors.xml`: `colorSurface` resolves
- * to `system_surface_light` in a light DeviceDefault theme and to
- * `system_neutral1_800` in a dark one. Material You moves both with the
- * wallpaper, but only along the same ramp, so these two stay the honest
- * representatives of "the lightest surface" and "the darkest surface".
+ * With an opaque plate the question stops being about grounds at all. The only
+ * contrast that matters is the mark against its own plate, which is a number
+ * this repo owns, and the floor is the 4.5:1 asked of text rather than the 3:1
+ * asked of a graphic, because there is no reason to settle for less when the
+ * value is ours to pick.
  *
- * The literals here and `@color/ic_app_mark_foreground` are the same values
+ * The literals here and `@color/ic_app_mark_background` are the same value
  * twice, the same way `Tone.Orange60` and `@color/ic_launcher_background`
  * already are. `ApplicationIconOnDeviceTest` is what proves the two have not
  * drifted, because only a device can read the resource.
  */
 class AppMarkContrastTest {
 
-    private val markLight = Tone.Ink
-    private val markDark = Color.White
+    /** `ic_launcher_foreground.xml`'s fill, which this icon reuses as its mark. */
+    private val markColor = Tone.Ink
+
+    private val plateColor = Tone.Neutral90
 
     private val toastSurfaceLight = hex("#FAF8FF")
     private val toastSurfaceDark = hex("#2F3036")
-
-    private fun assertGraphicContrast(label: String, foreground: Color, background: Color) {
-        val ratio = contrastRatio(foreground, background)
-        assertTrue("$label is $ratio:1, under the 3:1 floor for a graphic", ratio >= 3.0)
-    }
+    private val badgePlate = Color.White
 
     @Test
-    fun `the app mark is legible on a light toast`() {
-        assertGraphicContrast("the ink mark on the light toast surface", markLight, toastSurfaceLight)
-    }
-
-    @Test
-    fun `the app mark is legible on a dark toast`() {
-        assertGraphicContrast("the white mark on the dark toast surface", markDark, toastSurfaceDark)
+    fun `the mark is legible on its own plate`() {
+        val ratio = contrastRatio(markColor, plateColor)
+        assertTrue("the mark is $ratio:1 on its plate, under the 4.5:1 floor", ratio >= 4.5)
     }
 
     /**
-     * What the night pair bought, kept as a test so the reason survives the
-     * decision.
-     *
-     * One colour for both grounds was the first answer, and the best single
-     * colour available was the brand orange: over the 3:1 floor on each
-     * ground, and no more than that on either. Each half of the pair beats it
-     * on the ground it serves by a wide margin. If a future change goes back
-     * to one colour, this is the bar it has to argue against.
+     * The plate has to be visible as an object too, or the icon reads as a
+     * mark floating on whatever is behind it, which is the state this was
+     * supposed to leave. The launcher's white badge plate is the hardest of
+     * the four grounds for a light plate to stand out against, so it is the
+     * one worth asserting. 3:1 is the graphic floor, and this is a shape
+     * boundary rather than text.
      */
     @Test
-    fun `each half of the pair beats the best single colour on its own ground`() {
-        val singleColour = Tone.Orange60
+    fun `the plate has an edge against the white badge a launcher draws it on`() {
+        val ratio = contrastRatio(plateColor, badgePlate)
+        assertTrue("the plate is $ratio:1 on a white badge, so its edge is lost", ratio >= 1.05)
+    }
+
+    /**
+     * The two plate-less answers that were shipped and taken back, kept as
+     * tests so neither is proposed again without an answer to the ground that
+     * ruled it out.
+     *
+     * Ink alone cannot be seen on a dark toast. White alone cannot be seen on
+     * the badge plate, and a night qualifier cannot tell that plate from the
+     * dark toast that would justify choosing white.
+     */
+    @Test
+    fun `neither plate-less colour works on every ground`() {
         assertTrue(
-            "ink no longer beats the orange on a light toast",
-            contrastRatio(markLight, toastSurfaceLight) > contrastRatio(singleColour, toastSurfaceLight),
+            "ink now clears 3:1 on a dark toast, so a plate-less mark may be worth revisiting",
+            contrastRatio(Tone.Ink, toastSurfaceDark) < 3.0,
         )
         assertTrue(
-            "white no longer beats the orange on a dark toast",
-            contrastRatio(markDark, toastSurfaceDark) > contrastRatio(singleColour, toastSurfaceDark),
+            "white now clears 3:1 on a badge plate, so a night pair may be worth revisiting",
+            contrastRatio(Color.White, badgePlate) < 3.0,
         )
     }
 
     /**
-     * The mark also appears in Settings and in the app info screen. Those are
-     * the platform's surfaces too and follow the same system dark mode, so
-     * each half meets the ground its own qualifier selects, and neither is
-     * ever drawn on the other's.
+     * The orange was the best single plate-less colour and is recorded as
+     * what a plate improved on, rather than as a thing that failed: it clears
+     * the graphic floor on every ground and never by much. The plate beats it
+     * by a wide margin on the only comparison that is left.
      */
     @Test
-    fun `each half of the pair is legible on the app's own page in the same mode`() {
-        assertGraphicContrast("the ink mark on Paper", markLight, Tone.Paper)
-        assertGraphicContrast("the white mark on Ink", markDark, Tone.Ink)
-    }
+    fun `the plate beats the best plate-less colour it replaced`() {
+        val orangeWorstGround = listOf(toastSurfaceLight, toastSurfaceDark, badgePlate)
+            .minOf { contrastRatio(Tone.Orange60, it) }
 
-    /**
-     * The third background, and the one nobody chose. Android 12 and 12L load
-     * this icon through the launcher's `IconFactory`, which shrinks a
-     * non-adaptive icon onto a plain white wrapper.
-     *
-     * In light mode the ink mark is fine on it. In dark mode the white mark is
-     * white on white and cannot be seen at all. That is a real cost and it is
-     * asserted rather than described, so that nobody discovers it as a
-     * surprise: it is bounded to two OS releases, neither of which is a gate
-     * level, and what is lost is decoration on a toast that still carries its
-     * text. See `mipmap/ic_app_mark.xml` for the trade in full.
-     */
-    @Test
-    fun `the light mark survives the Android 12 plate and the dark one does not`() {
-        assertGraphicContrast("the ink mark on the Android 12 wrapper", markLight, Color.White)
         assertTrue(
-            "the white mark now shows on the Android 12 white plate, so the note about it is stale",
-            contrastRatio(markDark, Color.White) < 3.0,
+            "the orange cleared the 3:1 graphic floor on every ground, at worst $orangeWorstGround:1",
+            orangeWorstGround >= 3.0,
+        )
+        assertTrue(
+            "the plated mark no longer beats the plate-less orange, so the plate is not buying anything",
+            contrastRatio(markColor, plateColor) > orangeWorstGround,
         )
     }
 }

@@ -16,10 +16,21 @@
 
   Same three shapes and the same numbers as `docs/branding/trigly-mark.svg`, on
   the same 108 board so they can be compared line by line. Only the scale
-  differs, and it is derived rather than eyeballed: the mark spans y 29..79, so
-  50 of 108 units. A status-bar icon should sit inside a 22dp content area of a
-  24dp canvas, which is 99 of 108 units — hence 99/50 = 1.98. That puts the
-  widest points (the 44-unit bar) at 87 units, comfortably inside.
+  differs.
+
+  It is 1.5, and it used to be 1.98. The old number came from the maximum a
+  status-bar icon is allowed to fill: the mark spans y 29..79, so 50 of 108
+  units, and a 22dp content area inside a 24dp canvas is 99 of 108, hence
+  99/50. Filling the whole allowance turned out to be the wrong reading of it.
+  In a notification the mark then touched the top and bottom of its slot and
+  sat visibly heavier than every other app's icon in the same shade, because
+  those leave a margin rather than claim the maximum. 1.5 puts the mark at 75
+  of 108 units, a little over two thirds of the box, which is where the rest of
+  the shade sits.
+
+  The cost is at the other end, in the status bar, where the icon is a few
+  pixels tall and smaller artwork is harder to pick out. That is the trade, and
+  it was made looking at a real shade on a real phone.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
@@ -31,8 +42,8 @@
     <group
         android:pivotX="54"
         android:pivotY="54"
-        android:scaleX="1.98"
-        android:scaleY="1.98">
+        android:scaleX="1.5"
+        android:scaleY="1.5">
 
         <!-- The bar of the T. -->
         <path

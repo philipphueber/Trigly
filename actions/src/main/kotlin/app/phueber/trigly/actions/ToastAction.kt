@@ -42,12 +42,18 @@ import kotlinx.coroutines.withContext
  * the launcher icon between the nine colour schemes has nothing to switch.
  *
  * So the toast keeps the app's colour-scheme choice out of reach by
- * construction. What it shows instead is the Trigly mark with no plate behind
- * it, which is what `ui/src/main/res/mipmap/ic_app_mark.xml` is and why that
- * file exists. The engine's own notification is left in the same state on
- * purpose: its small icon is the same plateless mark. The difference is that
- * the system tints a notification's small icon with the colour the app asks
- * for, and it tints nothing in a toast.
+ * construction. What it shows instead is the Trigly mark on a neutral plate,
+ * which is what `ui/src/main/res/mipmap/ic_app_mark.xml` is and why that file
+ * exists. The plate is there because a mark with nothing behind it has to be
+ * legible on whatever the platform puts behind it, and no single colour and no
+ * `values-night` pair manages that across a light toast, a dark toast and the
+ * white badge a launcher draws a pinned shortcut on. That file records both
+ * attempts.
+ *
+ * The engine's own notification is the one surface where the scheme does come
+ * through, and it needs no plate to do it: the system tints a notification's
+ * small icon with the colour the app asks for, and it tints nothing in a
+ * toast.
  */
 class ToastAction(
     private val context: Context,
