@@ -255,7 +255,12 @@ Each item here has a `TODO` comment at the matching place in the code.
   Trigly runs no script you write. See the reasons under Variables above.
 - **Geofencing and activity recognition.** These need Google Play Services.
   Trigly leaves them out on purpose so the app works on a de-Googled device.
-  The location trigger uses the plain Android platform API instead.
+  The location trigger uses the plain Android platform API instead. Android
+  runs a real geofence for itself, so it costs nothing until the phone crosses
+  the line and it keeps working after Android stops Trigly. Trigly must wake up
+  and ask, so it pays for every check, it finds a crossing no faster than its
+  own check interval, and it forgets which side of the area the phone was on
+  when Android stops it.
 - **Android can stop Trigly.** Some manufacturers stop an app that sits idle,
   and a stopped app watches nothing. Trigly asks to be excused from battery
   optimisation, and the rules screen says when Android can still stop it.
@@ -266,7 +271,10 @@ Each item here has a `TODO` comment at the matching place in the code.
   precise, because an approximate fix answers that question correctly, and
   Trigly asks the cheapest source first and GPS last, because GPS is the most
   exact source and cannot answer indoors, which is where the question is
-  usually asked.
+  usually asked. Two more follow from the cost of a check: Trigly checks less
+  often when the phone is far from the area, and it reports a crossing only
+  when the position is clear of the edge by more than the position's own error,
+  so a phone that stops near the edge does not start the rule again and again.
 
 ## Modules
 

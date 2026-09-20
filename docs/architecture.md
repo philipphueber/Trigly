@@ -2266,6 +2266,35 @@ later, which is a platform quirk rather than a second event, and that
 duplicate is dropped once, at the point the sighting is recorded, rather than
 detected separately by every trigger reading it.
 
+**A third shape, and it shares a *reading* rather than a moment.** `AreaFixes`
+is process-wide like the three above and is not an event record at all. The
+others exist because an event can land before the trigger that wants it;
+this one exists because a position is a property of the phone and not of the
+rule that asked for it, so the newest one is the best answer for every area
+rule at once. Every source writes to its single slot: the watching request in
+`LocationTrigger`, the free `PASSIVE_PROVIDER` registration beside it, and each
+one-shot read the checking role performs. A check reads the slot before it opens
+a read of its own.
+
+Three properties make it correct rather than merely cheap. It holds a position
+and not an answer, because whether a fix still settles the question depends on
+the radius being asked about, and two rules asking about two areas need two
+different judgements from the one reading. That judgement is by distance and not
+by a clock: a fix is accepted only when the phone could not have reached *that*
+area's boundary since, at the same assumed speed the poll interval is planned
+from, with a ten-minute backstop for what a speed model cannot see, such as a
+phone switched off or flown. And a write never moves the slot backwards in time,
+because a one-shot read that started before a passive fix arrived can finish
+after it.
+
+Nothing is persisted, for `BootEvents`' reason turned around: a new process
+means the phone may be anywhere, so a fix that outlived its process is exactly
+the stale answer the component refuses to give. The same choice applies to the
+edge role's memory of which side of the area the phone was on, and there it
+costs something real. See `docs/triggers.md` under "Geofencing and activity
+recognition" for what that loses against a system-managed geofence, which keeps
+its registration in the system and therefore survives the app dying.
+
 ## Look and feel
 
 ### Colours live in one file

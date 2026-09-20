@@ -350,6 +350,33 @@ reports as a component that could not read. Declined on the radius rather than o
 the distance to the boundary: the tighter test would answer in the middle of an
 area and report a fault near its edge, which is one rule behaving as two.
 
+**A fix that is accurate enough to answer can still be too vague to prove a
+crossing.** That is the second half of the same thought and it took longer to
+find, because the symptom looks nothing like a fault. `insideArea` decides
+whether a reading can resolve the area at all. It says nothing about whether two
+readings that disagree actually disagree, and near the edge of an area they
+usually do not: they are one place, measured twice, with the error moving
+between them. The edge role turned every such disagreement into a crossing, so a
+phone left near its home boundary ran the rule again every minute. `AreaWatch`
+is the fix, and `triggers.md`'s "What the two rows share, and where it lives"
+holds the reasoning for the band, for the poll interval that follows the
+distance to the boundary, and for the passive provider.
+
+**The level role gets no band, and that is not an oversight.** A band exists to
+stop a *state* flipping, and `currentlyHolds` has no state: it is asked, it
+answers, and it keeps nothing between calls. A band there would only mean the
+answer near the edge depends on which component asked the question.
+
+**What the level role does get is the fix the edge role already paid for.**
+`AreaFixes` is one process-wide slot that every source writes to. A check reads
+it before it opens a read of its own, and uses it only when the phone could not
+have reached that area's boundary since the fix was taken. Two consequences
+worth naming. Two area leaves in one evaluation now cost one read rather than
+two fifteen-second budgets in series, which matters because those budgets run
+with the rule's actions waiting. And a rule that watches an area hands its fixes
+to the check beside it for nothing, which is the one case where the expensive
+role subsidises the cheap one instead of the other way round.
+
 ## Storage
 
 `Rule.trigger` is a single `TriggerNode`, stored as its own JSON column,

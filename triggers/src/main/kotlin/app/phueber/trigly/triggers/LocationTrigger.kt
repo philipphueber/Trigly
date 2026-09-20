@@ -208,8 +208,23 @@ fun distanceMeters(
  * system-managed and far cheaper on battery, while this holds an active location
  * request. See `docs/triggers.md`; this is a product decision, not a settled one.
  *
- * Entering and leaving are edges, so [StateTracker] does the same job it does for
- * broadcasts: the position at the moment the rule starts is recorded, not fired.
+ * Entering and leaving are edges, and [AreaWatch] is what turns positions into
+ * them: the position at the moment the rule starts is recorded and not fired,
+ * the same as [StateTracker] does for a broadcast, and a reading near the edge
+ * of the area has to clear the edge by more than its own error before it counts
+ * as a crossing. See [hysteresisMarginMeters] for why a plain comparison against
+ * the radius fired the same rule over and over for a phone parked near its
+ * boundary.
+ *
+ * [AreaWatch] also decides how long to wait for the next position, from the
+ * distance to the boundary. See [areaPollIntervalMillis]. The configured
+ * interval is the floor and the arithmetic can only lengthen the gap, which is
+ * what keeps an existing rule as quick to notice an arrival as it was.
+ *
+ * A second, free request on `PASSIVE_PROVIDER` runs beside the paid one. It
+ * starts no hardware and delivers whatever other apps have already asked for,
+ * so it shortens the wait for nothing on a phone that is doing something else
+ * with its position, and delivers nothing on a phone that is not.
  *
  * Also answers as a condition, via [currentlyHolds]: "am I currently inside" is
  * the same geometry asked instead of watched, per `docs/conditions.md`'s
@@ -253,43 +268,7 @@ class LocationTrigger(
         val manager = context.getSystemService(LocationManager::class.java)
             ?: return@callbackFlow
 
-        val tracker = StateTracker(suppressInitialState = true)
-
-        val listener = object : LocationListener {
-            override fun onLocationChanged(location: Location) {
-                // A fix too coarse to place the phone in or out of this area is
-                // dropped rather than turned into an edge. It is not a state
-                // this trigger has failed to notice; it is an update that says
-                // nothing about the question, and feeding it to the tracker
-                // would invent a crossing.
-                val inside = insideArea(
-                    distanceMeters(latitude, longitude, location.latitude, location.longitude),
-                    radiusMeters,
-                    location.accuracyOrNull(),
-                ) ?: return
-
-                val key = if (inside) INSIDE else OUTSIDE
-                if (!tracker.accept(key)) return
-                if (inside != onEnter) return
-
-                trySend(
-                    TriggerEvent(
-                        triggerType = TYPE,
-                        firedAtMillis = now(),
-                        payload = mapOf(PAYLOAD_STATE to if (inside) ENTERED else EXITED),
-                    )
-                )
-            }
-
-            // Abstract before API 30; overridden so the class is complete on
-            // every supported version rather than relying on default methods.
-            @Deprecated("Required on API < 30", ReplaceWith(""))
-            override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
-
-            override fun onProviderEnabled(provider: String) = Unit
-
-            override fun onProviderDisabled(provider: String) = Unit
-        }
+        val watch = AreaWatch(radiusMeters = radiusMeters, floorMillis = minIntervalMillis)
 
         // One provider, chosen by the same order and for the same reason as the
         // checking half. See [locationProviderOrder]. This was `GPS_PROVIDER`,
@@ -306,6 +285,96 @@ class LocationTrigger(
             runCatching { manager.isProviderEnabled(it) }.getOrDefault(false)
         } ?: CANDIDATE_PROVIDERS.last()
 
+        // The interval currently asked of the provider, and the way the listener
+        // asks for a different one. Declared before the listener and assigned
+        // after it because the two refer to each other: the listener decides the
+        // new interval, and applying it needs the listener to pass to
+        // `removeUpdates`.
+        var askedIntervalMillis = minIntervalMillis
+        var repoll: (Long) -> Unit = {}
+
+        /**
+         * What every fix goes through, whether it was asked for or overheard.
+         *
+         * Returns nothing and sends at most one event. A reading that reports no
+         * crossing still does work: it feeds [AreaFixes] so the checking leaves
+         * beside this rule can answer without paying for a read, and it can move
+         * the poll interval.
+         */
+        fun handle(location: Location) {
+            val accuracy = location.accuracyOrNull()
+            AreaFixes.record(
+                Fix(
+                    latitude = location.latitude,
+                    longitude = location.longitude,
+                    accuracyMeters = accuracy,
+                    atMillis = now(),
+                )
+            )
+
+            val distance =
+                distanceMeters(latitude, longitude, location.latitude, location.longitude)
+
+            // Null means the fix could not resolve this area at all. It is not a
+            // state this trigger has failed to notice; it is an update that says
+            // nothing about the question. It must not become an edge, and it
+            // must not be allowed to lengthen the wait for the next fix either.
+            val reading = watch.accept(distance, accuracy) ?: return
+
+            if (reading.nextPollMillis != askedIntervalMillis) {
+                askedIntervalMillis = reading.nextPollMillis
+                repoll(reading.nextPollMillis)
+            }
+
+            val crossing = reading.crossing ?: return
+            val entered = crossing == AreaCrossing.ENTERED
+            if (entered != onEnter) return
+
+            trySend(
+                TriggerEvent(
+                    triggerType = TYPE,
+                    firedAtMillis = now(),
+                    payload = mapOf(PAYLOAD_STATE to if (entered) ENTERED else EXITED),
+                )
+            )
+        }
+
+        /** The shape every listener here has, so the two below stay thin. */
+        fun listenerFor(onFix: (Location) -> Unit) = object : LocationListener {
+            override fun onLocationChanged(location: Location) = onFix(location)
+
+            // Abstract before API 30; overridden so the class is complete on
+            // every supported version rather than relying on default methods.
+            @Deprecated("Required on API < 30", ReplaceWith(""))
+            override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
+
+            override fun onProviderEnabled(provider: String) = Unit
+
+            override fun onProviderDisabled(provider: String) = Unit
+        }
+
+        val active = listenerFor(::handle)
+
+        // A second registration on the same provider replaces the first only if
+        // the platform decides to key them together, and the documented way to
+        // be certain is to remove and ask again. Both calls run on the looper
+        // the listener is registered on, which is the one this is called from,
+        // so there is no window where a fix could arrive between them and find
+        // no listener; the platform posts deliveries to that same looper and
+        // cannot run one inside this call.
+        repoll = { intervalMillis ->
+            runCatching {
+                manager.removeUpdates(active)
+                manager.requestLocationUpdates(
+                    provider,
+                    intervalMillis,
+                    0f,
+                    active,
+                    Looper.getMainLooper(),
+                )
+            }
+        }
+
         runCatching {
             manager.requestLocationUpdates(
                 provider,
@@ -313,12 +382,47 @@ class LocationTrigger(
                 // Distance filter left to the trigger's own maths; the provider's
                 // filter would suppress the very update that crosses the boundary.
                 0f,
-                listener,
+                active,
                 Looper.getMainLooper(),
             )
         }
 
-        awaitClose { manager.removeUpdates(listener) }
+        // The passive provider costs nothing and is the only part of this that
+        // is free. It starts no hardware. It delivers the fixes *other* apps
+        // have already paid for, so a phone with a map or a weather app running
+        // gives this trigger updates between its own polls, and an arrival is
+        // found sooner than the interval alone would find it. On a phone where
+        // nothing else asks for a position it delivers nothing, which is why it
+        // is an addition to the active request and not a replacement for it.
+        //
+        // Throttled to the configured interval rather than taken raw. A
+        // navigation app produces a fix a second, and this trigger has no use
+        // for more updates than the person asked for.
+        //
+        // Registered only with the precise grant, because the platform
+        // documents the passive provider as needing it. The call is wrapped as
+        // well: a device without the provider, and a version that disagrees
+        // about the grant, both come back as a rejected argument, and a trigger
+        // that still has its own active request must not die of that.
+        val passive = listenerFor(::handle)
+        val passiveRegistered = if (hasPrecisePositionAccess()) {
+            runCatching {
+                manager.requestLocationUpdates(
+                    LocationManager.PASSIVE_PROVIDER,
+                    minIntervalMillis,
+                    0f,
+                    passive,
+                    Looper.getMainLooper(),
+                )
+            }.isSuccess
+        } else {
+            false
+        }
+
+        awaitClose {
+            manager.removeUpdates(active)
+            if (passiveRegistered) manager.removeUpdates(passive)
+        }
     }
 
     /**
@@ -337,20 +441,61 @@ class LocationTrigger(
      * config, same [distanceMeters] call [events] uses to find the boundary —
      * only the question changes from "did you just cross it" to "which side
      * are you on".
+     *
+     * **A fix this process already has is used instead of asking for another
+     * one.** See [AreaFixes]. The stored fix is accepted only when the phone
+     * could not have reached this area's boundary since it was taken, which is
+     * a different test for every radius and is why the store holds a position
+     * rather than an answer. This is what makes two area leaves in one rule
+     * cost one read, and it is also what lets a rule watching an area hand its
+     * fix to the check beside it for nothing.
+     *
+     * No hysteresis here, deliberately. A band exists to stop a *state* from
+     * flipping, and this call has no state: it is asked, it answers, and it
+     * keeps nothing between calls. Applying a band to a bare question would
+     * only mean the answer near the edge depends on which component asked it.
      */
     @SuppressLint("MissingPermission") // ACCESS_FINE_LOCATION is declared as a requirement.
     override suspend fun currentlyHolds(): Boolean? {
         if (!hasPositionAccess()) return null
 
+        fromSharedFix()?.let { return it == onEnter }
+
         val manager = context.getSystemService(LocationManager::class.java) ?: return null
         val location = readPosition(manager) ?: return null
+
+        val accuracy = location.accuracyOrNull()
+        AreaFixes.record(
+            Fix(
+                latitude = location.latitude,
+                longitude = location.longitude,
+                accuracyMeters = accuracy,
+                atMillis = now(),
+            )
+        )
 
         val inside = insideArea(
             distanceMeters(latitude, longitude, location.latitude, location.longitude),
             radiusMeters,
-            location.accuracyOrNull(),
+            accuracy,
         ) ?: return null
         return inside == onEnter
+    }
+
+    /**
+     * Whether the shared fix already answers this area, and what it says.
+     *
+     * Null covers three different things on purpose, because the caller does
+     * the same thing for all three: nothing stored, something stored that is
+     * too old or too far travelled, and something stored that is too coarse for
+     * this radius. Each means "ask the platform", and none of them means the
+     * rule cannot be answered.
+     */
+    private fun fromSharedFix(): Boolean? {
+        val fix = AreaFixes.latest() ?: return null
+        val distance = distanceMeters(latitude, longitude, fix.latitude, fix.longitude)
+        if (!fix.stillAnswers(now(), distance, radiusMeters)) return null
+        return insideArea(distance, radiusMeters, fix.accuracyMeters)
     }
 
     /**
@@ -375,6 +520,19 @@ class LocationTrigger(
                     ContextCompat.checkSelfPermission(context, requirement.permission) ==
                     PackageManager.PERMISSION_GRANTED
             }
+
+    /**
+     * Whether this app holds the precise grant specifically.
+     *
+     * Separate from [hasPositionAccess], which asks whether the area can be
+     * answered at all and is satisfied by the approximate grant for a large
+     * one. The passive provider is the one caller that needs the stricter
+     * question: the platform documents it as requiring precise location, so
+     * asking for it on an approximate grant is a call that can only be refused.
+     */
+    private fun hasPrecisePositionAccess(): Boolean =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
 
     /**
      * The first position any provider will give, or null when none of them will.
@@ -456,9 +614,6 @@ class LocationTrigger(
         const val EXITED = "exited"
 
         const val DEFAULT_MIN_INTERVAL_MILLIS = 60_000L
-
-        private const val INSIDE = "inside"
-        private const val OUTSIDE = "outside"
     }
 }
 
@@ -488,7 +643,10 @@ class LocationTriggerFactory(private val context: Context) : TriggerFactory {
             unit = "m",
             help = "How far from the point counts as arriving. A phone's " +
                 "position is not exact, so a radius under 100 m fires wrongly " +
-                "more often. From 3 km, approximate location is enough and " +
+                "more often. Trigly reports the crossing when the position is " +
+                "clear of the edge by more than the position's own error, so a " +
+                "phone that stops near the edge does not start the rule again " +
+                "and again. From 3 km, approximate location is enough and " +
                 "Trigly asks only for that.",
         ),
         stateChoice("Fires when you", "entered", "arrive", "exited", "leave"),
@@ -497,7 +655,11 @@ class LocationTriggerFactory(private val context: Context) : TriggerFactory {
             label = "Minimum time between checks",
             defaultMillis = LocationTrigger.DEFAULT_MIN_INTERVAL_MILLIS,
             preferred = DurationUnit.SECONDS,
-            help = "Shorter intervals find the boundary sooner. They also use more battery.",
+            help = "This is the fastest Trigly checks, not a fixed rate. Near " +
+                "the area Trigly checks this often. Far from it Trigly waits " +
+                "longer, up to 15 minutes, because nothing can happen sooner. " +
+                "Shorter intervals find the boundary sooner. They also use " +
+                "more battery.",
         ),
     )
 
@@ -530,10 +692,26 @@ class LocationTriggerFactory(private val context: Context) : TriggerFactory {
     // that battery cost for staleness instead. A cached fix can be minutes
     // old, fine for "am I at home" and wrong for "am I in the driveway". The
     // location setting is the one thing both roles share unchanged.
+    //
+    // The two middle sentences are the ones the change to `AreaWatch` owes the
+    // reader, and they are here rather than only in `docs/conditions.md` for
+    // the reason `ConfigField.help` exists: the person weighing battery against
+    // promptness is the person building the rule, and this is the screen they
+    // are on. Both sentences describe a *trade* and not an improvement. The
+    // slower polling saves battery and can report a train or an aircraft late.
+    // The margin around the edge stops a parked phone firing the rule all
+    // evening and moves the report a short way inside the area.
     override val warning: String =
         "As a trigger, this component holds an active GPS request while the rule is " +
             "on. This costs more battery. Choose a large radius and a long check " +
-            "interval to lower the cost. As a condition, this component takes a " +
+            "interval to lower the cost. Trigly asks for a position more slowly " +
+            "when the phone is far from the area, and returns to the set " +
+            "interval as the phone gets near. This saves battery. It can also " +
+            "report a crossing late for anything faster than a car, such as a " +
+            "train or an aircraft. Trigly reports a crossing only when the " +
+            "position is clear of the edge by more than the position's own " +
+            "error, so an arrival is reported a short way inside the area and " +
+            "not at the line. As a condition, this component takes a " +
             "single location fix. This costs less battery, but the fix can be " +
             "minutes old. An old fix works for \"am I at home\" and fails for " +
             "\"am I in the driveway\". Both roles need one setting. Set location " +
@@ -669,7 +847,11 @@ class LocationCheckTriggerFactory(private val context: Context) : TriggerFactory
         "This takes a single location fix when another trigger starts the rule. " +
             "It watches nothing, so it costs little battery. Trigly asks the " +
             "cheapest source that can answer, which is usually Wi-Fi or the " +
-            "mobile network and not GPS. The fix can be minutes old and it can " +
+            "mobile network and not GPS. If Trigly already has a position, from " +
+            "a rule that watches an area or from another app, it uses that one " +
+            "and asks for nothing. It does so only when the phone could not " +
+            "have reached this area's edge since. " +
+            "The fix can be minutes old and it can " +
             "be some hundred metres out. An old or coarse fix works for \"am I " +
             "at home\" and fails for \"am I in the driveway\". Set location to \"Allow all the time\". " +
             "With any other setting, Android gives Trigly no position while the " +

@@ -190,6 +190,60 @@ the two rows kept the latitude and silently dropped the longitude. Migration now
 asks `companionKeys()`, which the editor already used for drawing the same
 fields.
 
+#### What the two rows share, and where it lives
+
+Both rows build the same `LocationTrigger`, so a rule about what a fix proves
+has to be one rule. `AreaWatch.kt` is where every such rule now lives, with no
+Android type in it, and the trigger keeps only the parts that must call
+`LocationManager`. Four decisions sit there, and each one was previously either
+absent or inlined where only a device could test it.
+
+**A band around the radius, in place of a bare comparison.** A phone standing
+near the edge of an area reports positions that scatter by the width of the
+fix's own error. Compared against the radius alone every reading the other side
+is a crossing, so a phone parked near its home boundary started the same rule
+every minute all evening. `hysteresisMarginMeters` makes a reading clear the
+edge by more than the reading could be wrong by. The width is the accuracy,
+capped at half the radius so a vague fix cannot swallow the area and silence the
+component. A margin rather than a dwell time: a margin needs no timer, no stored
+deadline and no new field, and it survives the process dying between two fixes.
+
+**An interval that follows the distance to the boundary.** A fixed interval is
+wrong in both directions, and one number cannot fix it.
+`areaPollIntervalMillis` gives the gap as the time to cover the distance to the
+boundary at 30 m/s, which is not an average speed and is not meant to be: every
+use of it asks whether the phone *could* have reached the edge, and the answer
+has to be safe for a car. The configured interval is a **floor**, never a
+target, so the change can only lengthen a gap and an existing rule stays exactly
+as quick to notice an arrival as it was. The result is the floor times a power
+of two, clamped at 15 minutes, because the caller re-registers whenever the
+number changes and a smooth curve would re-register on every fix for nothing.
+
+**The passive provider, beside the paid request and not instead of it.**
+`PASSIVE_PROVIDER` starts no hardware. It delivers the fixes other apps have
+already paid for, so a phone running a map or a weather app finds a crossing
+between Trigly's own checks for free, and a phone running nothing else gets
+nothing from it. It is throttled to the configured interval, because a
+navigation app produces a fix a second and no rule here wants them. Registered
+only with the precise grant, which is what the platform documents it as needing.
+
+**One shared fix, because asking is what costs twice, not watching.** The
+platform already merges an app's several requests to one provider into one
+provider request at the strictest interval, so a second rule watching a second
+area adds a callback and not a duty cycle; there is nothing there worth sharing.
+What did cost twice is `location_check`, which ran its own one-shot read per
+leaf, each with its own budget of seconds and the rule's actions waiting behind
+it. `AreaFixes` is a one-slot process-wide store that the watching request, the
+passive provider and every one-shot read write to, and that a check reads before
+it pays for anything. A stored fix is accepted only when the phone could not
+have reached *this* area's boundary since it was taken, which is a different
+test for every radius and is why the store holds a position and not an answer.
+
+What is **not** here, and on purpose: a back-off for a phone that has not moved.
+It is the obvious second saving and it buys the wrong thing. Standing still is
+exactly the state a departure begins from, so the interval would be at its
+longest at the moment the one edge people care most about happens.
+
 ### The first condition that was not a trigger at all
 
 `time_window` has **no event stream**: its `events()` is empty and it can never
@@ -671,6 +725,30 @@ Geofencing API is batched and system-managed, so it costs far less battery than
 an active location request, and activity recognition has no platform equivalent
 at all. If Play Services is acceptable, the clean shape is a separate
 `:triggers-gms` module so a de-Googled build can exclude it.
+
+**Where the platform route still loses, after the work in `AreaWatch`.** The
+band around the edge, the interval that follows the distance to the boundary,
+and the free passive provider close the gap on flapping and on idle cost. They
+do not close the gap on the thing only the system can do, and three sentences
+say what is left.
+
+A system-managed geofence is an interrupt on fixes the operating system already
+computes, so it costs nothing while nothing happens and it reports a crossing
+within seconds; Trigly has to wake up and ask, so it pays for every check that
+finds nothing and can never find a crossing sooner than its own interval allows.
+It survives the app's process dying, because the registration lives in the
+system and not in the app, while Trigly's memory of which side of the area the
+phone was on dies with the process, so a crossing that happens while Trigly is
+not running is adopted silently as the new starting side and is never reported.
+And it is the system that decides when the phone is worth a position at all,
+which no app can do for itself.
+
+Two of the three are structural and cannot be fixed by better arithmetic inside
+`AreaWatch`. The third, the memory of the side, could be persisted and is
+deliberately not: a stored side is only right until the phone moves without the
+app running, and reporting a crossing from a side recorded three days ago is a
+wrong report where losing it is a missing one. This project treats a wrong
+unattended action as the worse failure.
 
 ### Notification action buttons
 Firing a notification's action `PendingIntent` is an *action*, not a trigger, and
