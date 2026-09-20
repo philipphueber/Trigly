@@ -2145,6 +2145,37 @@ above for the foreground service stays true whatever wakes the app.
 asked for a scheduler also proposed it as a fix for force-stop, and it is not
 one.
 
+### A port that does not leave `:actions`
+
+`AlarmScheduler`, `WakeGuard`, `NotificationController` and `UiController` are
+all ports in `:core` with their implementation somewhere else, and that shape
+can read as the rule for every seam. It is not. Each of those four is in
+`:core` because something in `:core` calls it and `:core` may name no Android
+type, or because the thing behind it is a service only `:triggers` can see.
+
+`Torch`, which the two flashlight actions use, meets neither condition. No
+module but `:actions` has any reason to switch a torch, and `:actions` may name
+an Android type and already does, over `Vibrator` and `AudioManager` and
+`NotificationManager`. Putting it in `:core` would add a parameter to
+`actionFactories`, a field to `AppContainer`, and a wiring line in `TriglyApp`,
+for a capability nothing else calls. So the interface and the `CameraManager`
+implementation both live in the one file that owns those two actions, next to
+`FireIntentAction`'s `IntentResolver`, which is the same shape for the same
+reason.
+
+What the port is still for, and the reason it exists at all rather than the
+actions calling `CameraManager` directly, is the test. The blink pattern is
+arithmetic plus a sequence of waits under a wake lock, and both have to be
+checkable without a device. The emulators this project runs on report no flash
+unit, so a device test can never watch the light come on: `FakeTorch` in a JVM
+test is the only place the timing of the edges, the cap on the pattern, and the
+switch-off after a cancellation are actually asserted.
+
+The line this draws is worth stating for the next seam: a port belongs in
+`:core` when `:core` or another module calls through it, and in the module that
+owns the caller when only that module does. Both kinds exist to make an Android
+API testable; only one of them is also a module boundary.
+
 ### Services the system owns
 
 `NotificationListenerService` and `AccessibilityService` are constructed by the

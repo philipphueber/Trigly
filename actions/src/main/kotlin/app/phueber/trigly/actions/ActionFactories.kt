@@ -100,6 +100,7 @@ fun actionFactories(
     VibrateActionFactory(context),
     PlayAlertActionFactory(context, notifications),
     PlaySoundActionFactory(context),
+    BlinkFlashlightActionFactory(Camera2Torch(context), wake),
 
     // Open something
     OpenUrlActionFactory(context),
@@ -123,6 +124,7 @@ fun actionFactories(
     SetVolumeActionFactory(context),
     SetRingerModeActionFactory(context),
     ClipboardWriteActionFactory(context),
+    FlashlightActionFactory(Camera2Torch(context)),
 
     // Reach the outside world
     HttpRequestActionFactory(),

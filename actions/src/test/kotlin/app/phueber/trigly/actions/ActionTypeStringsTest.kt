@@ -45,6 +45,7 @@ class ActionTypeStringsTest {
         "vibrate" to VibrateAction.TYPE,
         "play_alert" to PlayAlertAction.TYPE,
         "play_sound" to PlaySoundAction.TYPE,
+        "flashlight_blink" to BlinkFlashlightAction.TYPE,
 
         // Open something
         "open_url" to OpenUrlAction.TYPE,
@@ -68,6 +69,7 @@ class ActionTypeStringsTest {
         "set_volume" to SetVolumeAction.TYPE,
         "set_ringer_mode" to SetRingerModeAction.TYPE,
         "set_clipboard" to ClipboardWriteAction.TYPE,
+        "flashlight" to FlashlightAction.TYPE,
 
         // Reach the outside world
         "http_request" to HttpRequestAction.TYPE,
@@ -102,7 +104,7 @@ class ActionTypeStringsTest {
         // A guard that only checks equality would pass on an empty list too.
         // This pins the count so deleting a line reads as a failure, not as
         // one fewer thing to maintain.
-        assertEquals(27, pinned.size)
+        assertEquals(29, pinned.size)
     }
 
     /**
