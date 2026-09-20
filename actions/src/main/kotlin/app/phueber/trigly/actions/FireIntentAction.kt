@@ -12,6 +12,7 @@ import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.ComponentRequirement
 import app.phueber.trigly.core.ComponentTool
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.HelpPlacement
 import app.phueber.trigly.core.IntentTargetCheck
 import app.phueber.trigly.core.Substitution
 import app.phueber.trigly.core.TriggerEvent
@@ -491,12 +492,20 @@ class FireIntentActionFactory(private val context: Context) : ActionFactory {
                     key = FireIntentAction.extraKeyField(index),
                     label = "Extra $index name",
                     required = false,
+                    // The sentence says what an extra is, which is a statement
+                    // about the whole run of name and value boxes and not
+                    // about slot 1's name. Below that one box it also
+                    // separates the name from the value it pairs with. So the
+                    // first slot carries it as a heading over the run, and the
+                    // slots that carry no sentence declare no placement. See
+                    // [ConfigField.helpPlacement].
                     help = if (index == 1) {
                         "A named value the other app reads out of the intent, for " +
                             "example \"message\"."
                     } else {
                         null
                     },
+                    helpPlacement = if (index == 1) HelpPlacement.ABOVE else HelpPlacement.BELOW,
                 )
             )
             add(

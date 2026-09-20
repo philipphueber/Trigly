@@ -1,6 +1,7 @@
 package app.phueber.trigly.triggers
 
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.HelpPlacement
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
@@ -93,6 +94,10 @@ class DayOfWeekCheckFactory : TriggerFactory {
             key = DayOfWeekCheck.CONFIG_MONDAY,
             label = "Monday",
             default = true,
+            // The sentence is about all seven boxes, not about Monday, so it
+            // goes above the run rather than under the first of them. See
+            // [ConfigField.helpPlacement].
+            helpPlacement = HelpPlacement.ABOVE,
             help = "Which days this holds on. All seven checked, the " +
                 "default, means every day; this only narrows the rule once " +
                 "some are cleared. Clearing all seven means the condition " +

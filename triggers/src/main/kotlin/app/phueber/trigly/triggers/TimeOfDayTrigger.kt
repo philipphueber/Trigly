@@ -7,6 +7,7 @@ import android.content.IntentFilter
 import androidx.core.content.ContextCompat
 import app.phueber.trigly.core.AlarmScheduler
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.HelpPlacement
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
@@ -308,12 +309,21 @@ class TimeOfDayTriggerFactory(
             key = key,
             label = day.configValue().replaceFirstChar { it.uppercase() },
             default = true,
+            // One sentence for all seven flags, carried by the first of them
+            // and drawn as a heading over the run. It even names Saturday and
+            // Sunday, so below that first flag it reads as a caption for
+            // Monday and puts a paragraph between Monday and the six days it
+            // is describing. Same choice as `day_of_week`. See
+            // [ConfigField.helpPlacement]. The six that carry nothing declare
+            // nothing: a placement for help that does not exist would be a
+            // line of noise repeated six times.
             help = if (index == 0) {
                 "Which days this fires on. All seven are on by default. Turn off " +
                     "Saturday and Sunday for \"every weekday\"."
             } else {
                 null
             },
+            helpPlacement = if (index == 0) HelpPlacement.ABOVE else HelpPlacement.BELOW,
         )
     }
 

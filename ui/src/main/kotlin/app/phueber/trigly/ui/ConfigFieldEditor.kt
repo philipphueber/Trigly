@@ -33,6 +33,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.HelpPlacement
 import app.phueber.trigly.core.effectiveHelp
 import app.phueber.trigly.core.ScopedVariable
 import app.phueber.trigly.core.SampleLookup
@@ -102,7 +103,20 @@ fun ConfigFieldEditor(
     /** See [VariablePickerDialog]'s parameter of the same name. */
     describeComponent: (String) -> String = { it },
 ) {
+    // Read once, and read through [companions] rather than [field.help]
+    // directly, so a field whose help varies by a sibling's value (see
+    // [ConfigField.Text.helpWhen]) shows only the sentences that apply right
+    // now. Which side of the control it lands on is the field's own
+    // declaration.
+    val help = field.effectiveHelp(companions)
+
     Column(modifier = modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        // A run of fields that only means anything as a set says so above the
+        // first of them. See [ConfigField.helpPlacement].
+        if (help != null && field.helpPlacement == HelpPlacement.ABOVE) {
+            Hint(help, modifier = Modifier.padding(bottom = 4.dp))
+        }
+
         when (field) {
             is ConfigField.Choice -> ChoiceField(field, value, onValueChange)
             is ConfigField.Flag -> FlagField(field, value, onValueChange)
@@ -260,11 +274,10 @@ fun ConfigFieldEditor(
             Hint(blankHint)
         }
 
-        // Where the caveats that used to live in KDoc reach the user. Reads
-        // [companions] rather than [field.help] directly, so a field whose help
-        // varies by a sibling's value (see [ConfigField.Text.helpWhen]) shows
-        // only the sentences that apply right now.
-        field.effectiveHelp(companions)?.let { Hint(it) }
+        // Where the caveats that used to live in KDoc reach the user.
+        if (help != null && field.helpPlacement == HelpPlacement.BELOW) {
+            Hint(help)
+        }
     }
 }
 
@@ -739,22 +752,27 @@ private val HintFirstSentenceEnd = Regex("""[.!?](\s|$)""")
  * the honest starting point. A [Hint] is help text every field already shows in
  * full below the threshold, so collapsing it to *nothing* would make a long
  * field look like it lost its help rather than like it has more of it.
+ *
+ * [modifier] carries the spacing, because a hint under its own control and a
+ * hint that heads the run of fields below it need the gap on opposite sides.
+ * Both shapes of the hint apply it, so a caller sets it once and does not have
+ * to know whether this particular text was long enough to fold.
  */
 @Composable
-internal fun Hint(text: String) {
+internal fun Hint(text: String, modifier: Modifier = Modifier.padding(top = 2.dp)) {
     if (text.length <= HINT_COLLAPSE_THRESHOLD) {
         Text(
             text = text,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 2.dp),
+            modifier = modifier,
         )
         return
     }
 
     var expanded by remember(text) { mutableStateOf(false) }
     Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+        modifier = Modifier.fillMaxWidth().then(modifier),
         verticalAlignment = Alignment.Top,
     ) {
         Text(

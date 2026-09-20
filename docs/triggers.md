@@ -239,8 +239,10 @@ on the machine that runs it.
 per day or month, rather than a `time_window`-style start/end pair: "weekdays",
 "weekends" and any individual day (or a non-contiguous set of months, such as
 quarterly reminders) all need an arbitrary subset, not a contiguous range, and
-`:core`'s `ConfigField` has no multi-select kind to reach for instead. All the
-flags default to checked, so an unconfigured condition holds unconditionally
+`:core`'s `ConfigField` has no multi-select kind to reach for instead. The one
+sentence that explains the run is declared with `helpPlacement = ABOVE`, so it
+heads the list instead of sitting under the first flag and splitting it. All
+the flags default to checked, so an unconfigured condition holds unconditionally
 until someone narrows it, matching `time_window`'s "no restriction until
 narrowed" reading of a start equal to its end. Unlike that reading, though,
 clearing every flag is read literally as never holding rather than folded back

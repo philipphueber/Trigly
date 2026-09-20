@@ -1,6 +1,7 @@
 package app.phueber.trigly.triggers
 
 import app.phueber.trigly.core.ConfigField
+import app.phueber.trigly.core.HelpPlacement
 import app.phueber.trigly.core.Trigger
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerFactory
@@ -97,6 +98,10 @@ class MonthCheckFactory : TriggerFactory {
             key = MonthCheck.CONFIG_JANUARY,
             label = "January",
             default = true,
+            // Same reason as `day_of_week`'s Monday: the sentence describes
+            // all twelve boxes, so it heads the run instead of hanging under
+            // January. See [ConfigField.helpPlacement].
+            helpPlacement = HelpPlacement.ABOVE,
             help = "Which months this holds in. All twelve checked, the " +
                 "default, means every month; this only narrows the rule " +
                 "once some are cleared. Clearing all twelve means the " +

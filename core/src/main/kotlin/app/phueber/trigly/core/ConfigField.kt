@@ -24,11 +24,34 @@ sealed interface ConfigField {
     val required: Boolean
 
     /**
-     * Shown beneath the field. This is where the caveats that currently live in
-     * KDoc (battery cost, platform restrictions, "this only works while the
-     * screen is on") finally reach the person building the rule.
+     * Shown with the field, beneath it unless [helpPlacement] says otherwise.
+     * This is where the caveats that currently live in KDoc (battery cost,
+     * platform restrictions, "this only works while the screen is on") finally
+     * reach the person building the rule.
      */
     val help: String?
+
+    /**
+     * Which side of the control [help] is drawn on.
+     *
+     * [HelpPlacement.BELOW] is right for help that explains the one field it
+     * is declared on, which is nearly all of it: the reader looks at the
+     * control, then at the sentence under it.
+     *
+     * [HelpPlacement.ABOVE] is for the other case, a run of fields that only
+     * makes sense as a set. `day_of_week` declares seven flags and `month`
+     * declares twelve, and the sentence that says what checking them does
+     * belongs to the whole run, not to Monday or to January. Hung under the
+     * first flag it reads as a caption for that one day and then pushes the
+     * other six away from it; drawn above, the same sentence introduces the
+     * list it heads.
+     *
+     * Declared on the field rather than worked out by the editor from where a
+     * field sits in the list, for the reason [shownWhen] gives: the schema
+     * that owns the run knows it is a run, and no screen has to guess.
+     */
+    val helpPlacement: HelpPlacement
+        get() = HelpPlacement.BELOW
 
     /**
      * When this field applies at all, or null for always.
@@ -70,6 +93,7 @@ sealed interface ConfigField {
         override val label: String,
         override val required: Boolean = false,
         override val help: String? = null,
+        override val helpPlacement: HelpPlacement = HelpPlacement.BELOW,
         override val shownWhen: FieldCondition? = null,
         val placeholder: String? = null,
         /**
@@ -185,6 +209,7 @@ sealed interface ConfigField {
         override val key: String,
         override val label: String,
         override val help: String? = null,
+        override val helpPlacement: HelpPlacement = HelpPlacement.BELOW,
         override val shownWhen: FieldCondition? = null,
         val default: Boolean = false,
     ) : ConfigField {
@@ -467,6 +492,15 @@ sealed interface ConfigField {
 
     /** One selectable value: [value] is stored, [label] is shown. */
     data class Option(val value: String, val label: String)
+}
+
+/**
+ * Which side of its control a field's help text is drawn on. See
+ * [ConfigField.helpPlacement] for when each one is right.
+ */
+enum class HelpPlacement {
+    BELOW,
+    ABOVE,
 }
 
 /**

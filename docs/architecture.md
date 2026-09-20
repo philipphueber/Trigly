@@ -812,6 +812,23 @@ touched. Guessing wrong here prints an extra sentence nobody asked for on a
 form nobody has touched, which is the smaller mistake, so a sibling with
 nothing stored contributes no extra sentence rather than one for its default.
 
+**A field can also say which side of its control the help goes on.**
+`helpPlacement` defaults to below, where nearly all of it belongs: the reader
+looks at the box, then at the sentence under it. `ABOVE` is for the other
+case, a run of fields that only means anything as a set. `day_of_week`
+declares seven flags and `month` declares twelve, and the sentence that says
+what checking them does describes the whole run, not Monday and not January.
+Hung under the first flag, as it was, it read as a caption for that one day
+and pushed the other six away from it; drawn above, the same sentence
+introduces the list it heads. A pair does not need this and does not use it:
+`time_window`, `date_range` and `dismiss_notification` each hang their
+group sentence off the **last** field of the group, where it reads as a note
+under the set rather than as a wedge inside it. That works up to two or three
+fields and stops working at seven, which is the line between the two
+placements. Which one applies is declared by the factory that owns the run,
+for the reason `shownWhen` is: the schema knows it is a run, and no screen has
+to work it out from where a field sits in a list.
+
 Field kinds cover every component: `Text`, `TextPattern`, `Choice`, `Number`,
 `Decimal`, `Flag`, `AppPackage`, `SoundUri`, `BluetoothAddress`,
 `NotificationButton`, `RuleRef`, `Slider`, `Duration`, `Timestamp`, `TimeOfDay`,
