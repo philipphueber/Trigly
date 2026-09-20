@@ -20,9 +20,10 @@ Priority 1 is work that makes a rule fire when it should. Priority 2 is work
 that makes a rule explain itself. Priority 3 needs a decision before it needs
 code.
 
-T19, T20 and T21 were not in the review either. T19 is a consequence of
-`run_rule`, and T20 and T21 are consequences of phase 5's writable scopes. All
-three were found while writing the work down rather than by a failure.
+T19 and T21 were not in the review either, and neither was T20, which has
+landed. T19 is a consequence of `run_rule`, and the other two are consequences
+of phase 5's writable scopes. All three were found while writing the work down
+rather than by a failure.
 
 ---
 
@@ -142,6 +143,16 @@ identifiers stay because T4, T8, T11 and R1 point at them.
   it as a full-bleed dialog from a "Last check" button on the rule block, the
   same shape the notification inspector uses, because a tree is not the one
   sentence `LastFaultCell` already renders.
+- **T20 An action declares the variable it writes.** `VariableWriteSpec` on
+  `ComponentFactory` names the config keys holding a variable's name and its
+  scope, so the editor finds a write without knowing which action writes. One
+  reader, `VariableReach` in `:core`, answers "which variables can be read at
+  this point in the rule" for the picker, the preview, the Test button and
+  save-time validation alike, and the names a draft declares are offered where
+  they can be read. The item asked for a refusal on a misspelt run-scope name
+  and it is a **warning** instead: a `run_rule` chain shares one run scope, so
+  a rule that another rule calls legitimately reads a value its caller wrote,
+  and the editor cannot see the caller. See `docs/variables.md` section 12.
 
 ---
 
@@ -476,40 +487,6 @@ A, and the chain depth cap is what covers that.
 **Done when.** The open rule cannot be picked in a `run_rule` action, a stored
 self-reference is refused with a message naming the field, and
 `set_rule_enabled` still offers the open rule.
-
-### T20 Let an action declare the variable it writes
-
-**Evidence.** `variableProblems` checks that every `{{...}}` reference names
-something the rule offers, and it exempts all three writable scopes. Two of
-those exemptions are principled: an app value or a rule value is very often read
-by a field written before the field that sets it, and refusing that save would
-make a pair of actions impossible to write in either order.
-
-The third is not principled, it is a gap. A `{{local.*}}` name exists only
-because some action earlier in the same run writes it, which is knowable in
-principle and not knowable here: finding it would mean knowing that
-`set_variable` is the action that writes, and that its `name` key holds the
-name, and that its `scope` key decides which namespace. That is one component's
-identity in a shared file, which the plugin rule forbids for the reason
-`Rule.appVariablesRead` gives about the same temptation.
-
-So a typo in a run-scope name saves cleanly and fails on the firing, and the
-picker cannot offer run-scope names at all, which is the one place
-`docs/variables.md` section 12's "exactly what is available" is not honoured.
-
-**Do.** A declaration on `ComponentFactory`, beside `variables`: what this
-component *writes*, as the config key holding the name and the config key
-holding the scope. Then `availableVariables` can offer the run-scope names an
-earlier action will write, and validation can be exact about them.
-
-**Watch for.** The declaration has to describe a key, not a value. An action
-whose name field holds `{{trigger.title}}` writes a name nobody can know before
-the rule fires, and the honest answer for that case is to keep accepting it on
-sight rather than to refuse a legitimate rule.
-
-**Done when.** The picker offers a run-scope name written by an earlier action,
-a misspelt one is refused at save time, and neither `:ui` nor `:core` names
-`set_variable` to do it.
 
 ### T21 Hand-editing a rule-scope value
 

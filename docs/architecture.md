@@ -1142,6 +1142,10 @@ write in either order. There is no name left to check either: a name that arrive
 inside a parsed reference has already proved it can be read back, which is the
 only question `variableNameProblem` asks.
 
+That is half of a pair now, not the whole answer: "Which variables can be read
+here" below has the warning that says "nothing writes this" without refusing
+the save.
+
 That function is worth one more line. It validates a name by building the
 reference the name would need, parsing it, and checking that what comes back is
 the reference that was meant. A regular expression here would be a second
@@ -1536,6 +1540,52 @@ the exact failure that screen was built to fix. Delete is offered and
 hand-editing is not: deleting is the recovery path for a rule that wrote
 nonsense into its own scope, while adding one by hand needs a rule as well as a
 name.
+
+#### Which variables can be read here
+
+One question, one answer: `VariableReach` in `:core`. The picker, the preview
+under a field, the Test button and save-time validation all ask the same object,
+because they used to assemble the answer separately and disagreed with the
+engine and with each other. The editor offered what the two stores already held,
+so a name typed into a `set_variable` action could not be picked anywhere: every
+variable could be named and none of the names could be used.
+
+**The answer depends on a point in the rule, and the rules per scope are not
+uniform.** A trigger, or the action at index N. The trigger tree, the event and
+the rule read the same everywhere, because the engine fills them in before the
+first action. An action output and a `{{local.*}}` value reach *forwards only*,
+because outputs grow as each action returns and a run value is written by an
+earlier action of the same firing. A `{{mine.*}}` value reaches **both ways**:
+it survives the run, so an action above the one that writes it reads what the
+last run wrote, which is the ordinary shape of a counter and must not be
+refused. An app value reaches out of the rule entirely, so the other saved rules
+are a source as much as the store is.
+
+**A component declares what it writes.** `VariableWriteSpec`, beside
+`ComponentFactory.variables`, names the config *keys* holding the variable's
+name and its scope. It has to be keys rather than values, because the person
+writing the rule chooses the name. The alternative was a shared file that knew
+`set_variable` is the action that writes and which of its keys holds what, which
+is one component's identity in a place every component passes through, and the
+plugin rule in `CLAUDE.md` forbids exactly that. A second writing component now
+works the day it is registered.
+
+A name field that holds a template writes a name nobody can know before the rule
+fires. That is reported as `WrittenVariable.Unknowable`, and it makes its scope
+*silent* rather than empty: nothing is offered for it, and nothing in it is
+warned about, because no name in it can then be called wrong.
+
+**A warning where a refusal would be wrong.** A reference nothing writes is
+almost always a typo, and a rule that silently does nothing is the failure this
+project exists against. It is still not refused. The rule that writes an app
+value is often written second, a value can be set by hand on the saved values
+screen, and a `run_rule` chain shares one run scope, so a rule that another rule
+calls legitimately reads a run value its caller wrote, which the editor cannot
+see. `docs/todo.md`'s T20 asked for a refusal on run scope for the first two
+reasons; the third is the one it did not weigh. So `VariableReach.problems`
+stays exactly as strict as it was, about the four scopes the engine fills in,
+and `VariableReach.warnings` says the rest under the field, where a person can
+act on it and still save.
 
 #### A notification button kept for later
 

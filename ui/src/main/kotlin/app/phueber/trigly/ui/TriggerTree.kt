@@ -84,6 +84,8 @@ internal fun TriggerNodeBlock(
     /** See [RuleEditorScreen]'s parameter of the same name. */
     availableVariables: List<ScopedVariable> = emptyList(),
     /** See [RuleEditorScreen]'s parameter of the same name. */
+    variableWarnings: (String) -> List<String> = { emptyList() },
+    /** See [RuleEditorScreen]'s parameter of the same name. */
     substitutionsFor: SubstitutionLookup = { _, _ -> emptyMap() },
     /** See [RuleEditorScreen]'s parameter of the same name. */
     describeComponent: (String) -> String = { it },
@@ -131,6 +133,7 @@ internal fun TriggerNodeBlock(
                 onToggleCaveat = { onToggleCaveat(key) },
                 isRequirementSatisfied = isRequirementSatisfied,
                 availableVariables = availableVariables,
+                variableWarnings = variableWarnings,
                 substitutionsFor = substitutionsFor,
                 describeComponent = describeComponent,
             )
@@ -153,6 +156,7 @@ internal fun TriggerNodeBlock(
             isCaveatShown = isCaveatShown,
             onToggleCaveat = onToggleCaveat,
             availableVariables = availableVariables,
+            variableWarnings = variableWarnings,
             substitutionsFor = substitutionsFor,
             describeComponent = describeComponent,
             modifier = modifier,
@@ -203,6 +207,8 @@ private fun TriggerGroupBlock(
     onToggleCaveat: (String) -> Unit,
     /** See [RuleEditorScreen]'s parameter of the same name. */
     availableVariables: List<ScopedVariable> = emptyList(),
+    /** See [RuleEditorScreen]'s parameter of the same name. */
+    variableWarnings: (String) -> List<String> = { emptyList() },
     /** See [RuleEditorScreen]'s parameter of the same name. */
     substitutionsFor: SubstitutionLookup = { _, _ -> emptyMap() },
     /** See [RuleEditorScreen]'s parameter of the same name. */
@@ -338,6 +344,7 @@ private fun TriggerGroupBlock(
                                 isCaveatShown = isCaveatShown,
                                 onToggleCaveat = onToggleCaveat,
                                 availableVariables = availableVariables,
+                                variableWarnings = variableWarnings,
                                 substitutionsFor = substitutionsFor,
                                 describeComponent = describeComponent,
                                 modifier = Modifier.padding(bottom = 12.dp),

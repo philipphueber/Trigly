@@ -80,6 +80,133 @@ data class VariableSpec(
 enum class VariableKind { TEXT, NUMBER, TIMESTAMP, PACKAGE, ADDRESS, STATE }
 
 /**
+ * A variable this component *writes*, declared as the config keys that hold
+ * the name and the scope. See `docs/variables.md` section 4 and
+ * `docs/todo.md`'s T20, which is the item this closes.
+ *
+ * The counterpart of [ComponentFactory.variables], and deliberately not the
+ * same declaration. That one names a value the component hands to whoever
+ * reads its event or its result, and the component decides the name. This one
+ * names a *key*, because the person writing the rule decides the name: it is
+ * whatever they typed in that field, and it is knowable only once a
+ * configuration is in hand.
+ *
+ * **A key, never a value.** A declaration that carried the name itself would be
+ * a declaration this file could not trust: the field can hold a template, such
+ * as a name built from `{{trigger.title}}`, and then nobody knows the name
+ * before the rule fires. [writes] answers that case as
+ * [WrittenVariable.Unknowable] rather than inventing a name, and
+ * [VariableReach] stops warning about that scope instead of refusing a
+ * legitimate rule.
+ *
+ * **Why this is a declaration and not a check for one action's name.** Finding
+ * what writes a variable used to mean knowing that one action type writes them
+ * and which of its config keys holds the name, which is one component's
+ * identity in a shared file, and `CLAUDE.md` forbids exactly that. A component
+ * declares this for itself, so a second writing component is offered by the
+ * picker and checked by the editor on the day it is registered, with nothing in
+ * `:core` or `:ui` edited.
+ */
+data class VariableWriteSpec(
+    /** The config key holding the name the person typed. */
+    val nameKey: String,
+    /**
+     * The config key holding the choice of scope, or null for a component that
+     * always writes the same one.
+     */
+    val scopeKey: String? = null,
+    /**
+     * What each value of [scopeKey] means, as the namespace a reference reads
+     * it back under: one of [VariableScope.writable].
+     *
+     * A map rather than an enum, because the enum belongs to the component.
+     * `:core` must not learn one component's word for "this run only" to be
+     * able to say what it writes.
+     */
+    val namespaceByScopeValue: Map<String, String> = emptyMap(),
+    /**
+     * Where a value goes when [scopeKey] is absent, or holds something this
+     * build does not recognise.
+     *
+     * Required rather than defaulted, and it must match what the component's
+     * own `create()` does with the same configuration. A rule saved before the
+     * scope field existed has no value for it, and the editor offering the name
+     * under one namespace while the engine writes it to another is the silent
+     * disagreement [ComponentFactory.normalise] exists to prevent.
+     */
+    val defaultNamespace: String,
+    /**
+     * What a value written here looks like, for the picker's preview and the
+     * editor's Test button.
+     *
+     * A stand-in, unlike [VariableSpec.sample] for a stored value, which is the
+     * real value. Nothing has written this name yet, which is the whole reason
+     * the picker has to offer it from the draft, so there is no real value to
+     * show and a blank one would make a preview read as broken.
+     */
+    val sample: String,
+) {
+
+    /**
+     * What [config] writes through this declaration, or null when it writes
+     * nothing that can be read back.
+     *
+     * Null covers two cases that are not worth telling apart: a name field
+     * nobody has filled in yet, and a name no rule could refer to. The second is
+     * refused by the component's own `create()`, through [variableNameProblem],
+     * so offering it here would offer a reference the save is about to refuse.
+     */
+    fun writes(config: Map<String, String>): WrittenVariable? {
+        val namespace = namespaceFor(config)
+        val raw = normalizeVariableName(config[nameKey].orEmpty())
+        if (raw.isEmpty()) return null
+        // Asked before the name is judged, because a template is not a bad
+        // name. It is a name this build cannot know yet.
+        if (parseTemplate(raw).hasReferences) return WrittenVariable.Unknowable(namespace)
+        if (variableNameProblem(raw) != null) return null
+        return WrittenVariable.Named(namespace, raw, sample)
+    }
+
+    /**
+     * Matched by trimming and ignoring case, which is what a component's own
+     * parse of the same key does. Two spellings of one comparison is how the
+     * editor and the engine end up disagreeing about where a value went.
+     */
+    private fun namespaceFor(config: Map<String, String>): String {
+        val raw = scopeKey?.let { config[it] }?.trim() ?: return defaultNamespace
+        return namespaceByScopeValue.entries
+            .firstOrNull { it.key.equals(raw, ignoreCase = true) }
+            ?.value
+            ?: defaultNamespace
+    }
+}
+
+/** What one [VariableWriteSpec] writes, for one configuration. */
+sealed interface WrittenVariable {
+
+    /** The namespace the value is read back under: one of [VariableScope.writable]. */
+    val namespace: String
+
+    /** A name that can be offered and checked. */
+    data class Named(
+        override val namespace: String,
+        val name: String,
+        /** See [VariableWriteSpec.sample]. */
+        val sample: String,
+    ) : WrittenVariable
+
+    /**
+     * The name field holds a template, so the name depends on the event.
+     *
+     * Worth reporting rather than dropping: a rule that writes a name nobody
+     * can predict is a rule where *no* name in that scope can be called wrong,
+     * so [VariableReach] stops warning about that scope instead of warning
+     * about every reference in it.
+     */
+    data class Unknowable(override val namespace: String) : WrittenVariable
+}
+
+/**
  * The namespaces a reference can name, beyond a trigger's own type string.
  *
  * Reserved words, so a trigger type may never be one of them. `VariableTest`
@@ -155,6 +282,19 @@ object VariableScope {
     const val RULE_ID = "id"
 
     val reserved: Set<String> = setOf(TRIGGER, EVENT, RULE, APP, ACTION, LOCAL, MINE)
+
+    /**
+     * The three scopes a rule writes, as opposed to the four the engine fills
+     * in for it.
+     *
+     * Named here rather than spelled out at each place that needs the
+     * distinction, because the distinction decides behaviour in two of them
+     * and they must not drift: [variableProblems] refuses an unknown name in
+     * every other scope and never in these, and [VariableReach] answers the
+     * "which name can be read here" question from the rule itself for these
+     * and from a declaration for the rest.
+     */
+    val writable: Set<String> = setOf(APP, MINE, LOCAL)
 
     /**
      * The variables the engine supplies for every event, whatever fired.
@@ -870,16 +1010,15 @@ fun availableVariables(
  * shape inside one rule: the action that reads a value is often written before
  * the action that sets it, and a rule is saved half-built all the time.
  *
- * `{{local.*}}` is accepted for a different and weaker reason: this function
- * *cannot* know. A run-scope name exists only because some action earlier in
- * the same run writes it, and finding that out would mean knowing which action
- * type writes variables and which of its config keys holds the name. That is
- * one component's identity in a shared file, which the plugin rule forbids for
- * the reason `Rule.appVariablesRead` gives about the same temptation. Being
- * lenient here is honest about the gap. `docs/todo.md` holds the item that
- * would close it: a declaration on the factory saying "I write a variable, and
- * its name is in this key", which would let the picker offer run-scope names
- * and let this be exact.
+ * `{{local.*}}` is accepted for a third reason, and it is the only one of the
+ * three that used to be a gap rather than a decision. A run-scope name exists
+ * only because an action earlier in the same run writes it, and this function
+ * has no way to see that: it is given a flat list of what is offered, not the
+ * rule that offers it. [VariableWriteSpec] now lets [VariableReach] work that
+ * out, and [VariableReach.warnings] is where a run-scope name nothing writes is
+ * reported. It is a warning and not a refusal, because a rule that another rule
+ * runs shares that other rule's run values, which the editor cannot see. So the
+ * lenient answer here stays lenient, and the reader who can tell more says more.
  *
  * Nor is there a name left to check. [variableNameProblem] asks whether a name
  * can be read back by a rule, and it asks it by round-tripping the name through
@@ -888,9 +1027,6 @@ fun availableVariables(
  * ever agree. The check belongs where a name is *typed*, which is the writing
  * action, not where one is read.
  */
-private val WRITABLE_SCOPES =
-    setOf(VariableScope.APP, VariableScope.MINE, VariableScope.LOCAL)
-
 fun variableProblems(value: String, available: List<ScopedVariable>): List<String> {
     val template = parseTemplate(value)
     val lookup = SampleLookup(available)
@@ -898,7 +1034,7 @@ fun variableProblems(value: String, available: List<ScopedVariable>): List<Strin
     val malformed = template.malformed.map { "'${it.raw}' is not a variable. ${it.reason}" }
 
     val unresolvable = template.references
-        .filterNot { it.scope in WRITABLE_SCOPES }
+        .filterNot { it.scope in VariableScope.writable }
         .filter { lookup.value(it) is VariableValue.Absent }
         .map { "There is no variable named ${it.reference} in this rule." }
 

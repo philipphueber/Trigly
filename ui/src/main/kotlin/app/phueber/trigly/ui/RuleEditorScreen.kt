@@ -228,6 +228,20 @@ fun RuleEditorScreen(
      * half.
      */
     availableVariablesForAction: (Int) -> List<ScopedVariable> = { availableVariables },
+    /**
+     * What to say about a reference in a *trigger* field that names a variable
+     * nothing writes. See [RuleEditorViewModel.variableWarnings], and
+     * `VariableReach.warnings` for why this is a warning and not a refusal.
+     */
+    variableWarnings: (String) -> List<String> = { emptyList() },
+    /**
+     * The same for the action at this index, which is a different answer for
+     * the same reason [availableVariablesForAction] is: a run value written by
+     * the action above this one is missing for the action above *that*.
+     */
+    variableWarningsForAction: (Int, String) -> List<String> = { _, value ->
+        variableWarnings(value)
+    },
     modifier: Modifier = Modifier,
 ) {
     var picking by remember { mutableStateOf<Picking?>(null) }
@@ -431,6 +445,7 @@ fun RuleEditorScreen(
                         isCaveatShown = { key -> key in shownCaveats },
                         onToggleCaveat = ::toggleCaveat,
                         availableVariables = availableVariables,
+                        variableWarnings = variableWarnings,
                         substitutionsFor = substitutionsFor,
                         describeComponent = describeComponent,
                         modifier = Modifier.padding(bottom = 12.dp),
@@ -450,6 +465,7 @@ fun RuleEditorScreen(
                         },
                         onResolveRequirement = onResolveRequirement,
                         availableVariables = availableVariablesForAction(index),
+                        variableWarnings = { value -> variableWarningsForAction(index, value) },
                         substitutionsFor = substitutionsFor,
                         describeComponent = describeComponent,
                         modifier = Modifier.padding(bottom = 12.dp),
@@ -950,6 +966,8 @@ internal fun ComponentBlock(
     /** See [RuleEditorScreen]'s parameter of the same name. */
     availableVariables: List<ScopedVariable> = emptyList(),
     /** See [RuleEditorScreen]'s parameter of the same name. */
+    variableWarnings: (String) -> List<String> = { emptyList() },
+    /** See [RuleEditorScreen]'s parameter of the same name. */
     substitutionsFor: SubstitutionLookup = { _, _ -> emptyMap() },
     /** See [RuleEditorScreen]'s parameter of the same name. */
     describeComponent: (String) -> String = { it },
@@ -1062,6 +1080,7 @@ internal fun ComponentBlock(
                                 .associateWith { key -> config[key] },
                             onCompanionChange = onConfigChange,
                             availableVariables = availableVariables,
+                            variableWarnings = variableWarnings,
                             previewEncoding = substitutions[field.key] ?: field.substitution,
                             describeComponent = describeComponent,
                         )

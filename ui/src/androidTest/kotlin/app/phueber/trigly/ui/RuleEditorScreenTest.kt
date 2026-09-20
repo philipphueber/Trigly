@@ -109,6 +109,11 @@ class RuleEditorScreenTest {
         // test that says nothing about variables gets a field with no picker
         // and no preview, same as before this parameter existed.
         availableVariables: List<ScopedVariable> = emptyList(),
+        // What cannot be read here, said under the field rather than by
+        // refusing the save. Empty by default, the same reason
+        // [availableVariables] is: a test that says nothing about variables
+        // draws the field it always drew.
+        variableWarnings: (String) -> List<String> = { emptyList() },
         // Overridable, unlike the other recorders above, because the one test
         // that picks a variable needs the inserted reference to actually reach
         // the field it was inserted into, not merely be recorded. The same
@@ -150,6 +155,7 @@ class RuleEditorScreenTest {
             onMoveAction = onMoveAction,
             onConfigChange = onConfigChange,
             availableVariables = availableVariables,
+            variableWarnings = variableWarnings,
             onTestAction = { tested += it },
             onCheckIntentTarget = { checkedIntentTargets += it },
             onSave = { saves++ },
@@ -1591,5 +1597,75 @@ class RuleEditorScreenTest {
         composeRule.onNodeWithText("trip_count").performClick()
 
         composeRule.onNodeWithText("{{app.trip_count}}").assertIsDisplayed()
+    }
+
+    /**
+     * A name this rule writes is offered beside the names already in the store,
+     * under the same heading, so the row itself has to say which it is. The
+     * sentence comes from `VariableReach`; this proves it reaches the screen,
+     * which is the half a `:core` test cannot see.
+     */
+    @Test
+    fun the_picker_says_which_action_writes_an_offered_name() {
+        val written = ScopedVariable(
+            VariableScope.APP,
+            VariableSpec(
+                key = "trip_count",
+                label = "trip_count",
+                sample = "4",
+                help = "Set by Set an app variable (action 1).",
+                alwaysPresent = false,
+            ),
+        )
+
+        composeRule.setContent {
+            Editor(
+                state = EditorState(
+                    RuleDraft(
+                        id = null,
+                        name = "Writes and reads",
+                        actions = listOf(ComponentDraft("toast", emptyMap())),
+                    ),
+                ),
+                availableVariables = listOf(written),
+            )
+        }
+
+        composeRule.onNodeWithText("INSERT VARIABLE").performScrollTo().performClick()
+
+        composeRule.onNodeWithText("Set by Set an app variable (action 1).").assertIsDisplayed()
+    }
+
+    /**
+     * A reference to a name nothing writes is almost always a typo, and a rule
+     * that silently does nothing is the failure this project is built against.
+     * So it is said under the field, where the person is looking and can fix it,
+     * and the save is not refused: see `VariableReach.warnings`.
+     */
+    @Test
+    fun a_reference_nothing_writes_is_warned_about_under_the_field() {
+        val warning = "No action above this one sets {{local.totl}}."
+
+        composeRule.setContent {
+            Editor(
+                state = EditorState(
+                    RuleDraft(
+                        id = null,
+                        name = "Reads a name nothing writes",
+                        actions = listOf(
+                            ComponentDraft("toast", mapOf("text" to "Total {{local.totl}}")),
+                        ),
+                    ),
+                ),
+                variableWarnings = { value ->
+                    if (value.contains("{{local.totl}}")) listOf(warning) else emptyList()
+                },
+            )
+        }
+
+        composeRule.onNodeWithText(warning).performScrollTo().assertIsDisplayed()
+        // The save button is still there to be pressed, and pressing it saves.
+        composeRule.onNodeWithText("SAVE").performClick()
+        assertEquals(1, saves)
     }
 }

@@ -8,14 +8,18 @@ package app.phueber.trigly.core
  * to three rules, and none of them would say so afterwards. They would simply
  * start failing on a reference that no longer resolves.
  *
- * **Reads only, deliberately, and not writes.** Finding what *writes* a variable
- * would mean knowing that `set_variable` is the action that does it, and which of
- * its config keys holds the name. That is one component's identity, and putting
- * it here would mean this file has to be edited every time another component
- * learns to write a variable, which is the coupling `CLAUDE.md` forbids in as
- * many words. A read is different: it is spelled `{{app.name}}` in a field that
- * declared it accepts a reference, which is a property of the grammar rather
- * than of any component.
+ * **Reads only. [variableWrites] is the other half.** This said for a while that
+ * finding what *writes* a variable was not possible here, because it would mean
+ * knowing which action type does it and which of its config keys holds the name,
+ * which is one component's identity in a shared file and the coupling
+ * `CLAUDE.md` forbids in as many words. That reasoning was right about the
+ * coupling and wrong about the conclusion: a component can *declare* the keys,
+ * and [VariableWriteSpec] is that declaration. So writes are findable now, by
+ * asking the registry rather than by naming an action, and they are found
+ * beside this rather than in it because the two questions have different
+ * readers. A read is spelled `{{app.name}}` in a field that declared it accepts
+ * a reference, which is a property of the grammar; a write is a key a component
+ * declared.
  *
  * [substitutionsFor] comes from the registry, for the same reason
  * [availableVariables] takes its declarations as a parameter: `:core`'s model
@@ -34,6 +38,28 @@ fun Rule.appVariablesRead(
     .flatMap { stored -> parseTemplate(stored).references }
     .filter { it.scope == VariableScope.APP }
     .mapTo(mutableSetOf()) { it.name }
+
+/**
+ * Every variable [this] rule writes, whatever scope it writes it to.
+ *
+ * The mirror of [appVariablesRead], and the reason it can exist at all is
+ * [VariableWriteSpec]: the question asked here is "which components declare that
+ * they write a variable", answered by the registry through [writesOf], and never
+ * "is this action a `set_variable`".
+ *
+ * Every component is asked, trigger leaves and actions alike, for the reason
+ * [appVariablesRead] asks them all: no trigger declares a write today, and
+ * asking anyway is what keeps this correct the day one does.
+ *
+ * The result keeps [WrittenVariable.Unknowable] rather than dropping it. A name
+ * built from a template is a real write to a name nobody can predict, and a
+ * caller that silently lost it would go on to call every name in that scope
+ * wrong. See [VariableReach.warnings].
+ */
+fun Rule.variableWrites(
+    writesOf: (String) -> List<VariableWriteSpec>,
+): List<WrittenVariable> = (trigger.leaves() + actions)
+    .flatMap { spec -> writesOf(spec.type).mapNotNull { it.writes(spec.config) } }
 
 /**
  * The rules that read [name], by rule, for a screen that has to name them.

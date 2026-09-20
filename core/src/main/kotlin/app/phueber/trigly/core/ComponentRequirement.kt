@@ -265,6 +265,23 @@ interface ComponentFactory {
         get() = emptyList()
 
     /**
+     * The variables this component *writes*, as the config keys that hold each
+     * name and scope. See [VariableWriteSpec].
+     *
+     * Beside [variables] because it is the same pattern and the opposite
+     * direction: that one is a value the component names and hands over, this
+     * one is a value the person names and the component stores. Both are
+     * declared on the factory, consumed by the editor, and defaulted to empty so
+     * that a component which writes nothing says nothing.
+     *
+     * A list rather than one entry, because nothing about the question says a
+     * component may write only one name, and a component that later writes two
+     * must not need this declaration reshaped.
+     */
+    val variableWrites: List<VariableWriteSpec>
+        get() = emptyList()
+
+    /**
      * Which of this component's config keys accept a variable, and how each
      * substituted value is escaped, *given how it is configured*.
      *

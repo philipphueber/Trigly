@@ -9,6 +9,7 @@ import app.phueber.trigly.core.ComponentDescriptor
 import app.phueber.trigly.core.ComponentSpec
 import app.phueber.trigly.core.IntentTargetCheck
 import app.phueber.trigly.core.NodePath
+import app.phueber.trigly.core.ReadPoint
 import app.phueber.trigly.core.Registry
 import app.phueber.trigly.core.RequirementChecker
 import app.phueber.trigly.core.Rule
@@ -18,6 +19,7 @@ import app.phueber.trigly.core.ScopedVariable
 import app.phueber.trigly.core.Substituted
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.TriggerNode
+import app.phueber.trigly.core.VariableReach
 import app.phueber.trigly.core.VariableStore
 import app.phueber.trigly.core.canStart
 import app.phueber.trigly.core.leaves
@@ -28,7 +30,6 @@ import app.phueber.trigly.core.RuleVariableStore
 import app.phueber.trigly.core.RunScope
 import app.phueber.trigly.core.scopedFor
 import app.phueber.trigly.core.unfilled
-import app.phueber.trigly.core.variableProblems
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -84,6 +85,17 @@ data class EditorState(
      * in the screen.
      */
     val ruleVariables: List<ScopedVariable> = emptyList(),
+    /**
+     * Every other saved rule, for the app scope alone. See
+     * [VariableReach]'s parameter of the same name: a rule that reads
+     * `{{app.trip_count}}` is usually written before the rule that first sets
+     * it, and the name has to be offerable in the meantime.
+     *
+     * The whole rules rather than the names they write, so the one place that
+     * decides what a rule writes stays [VariableReach]. A list of names
+     * extracted here would be this file holding a second opinion about it.
+     */
+    val otherRules: List<Rule> = emptyList(),
 )
 
 class RuleEditorViewModel(
@@ -123,35 +135,58 @@ class RuleEditorViewModel(
         get() = registry.actionDescriptors.filter(checker::isAvailable)
 
     /**
-     * What this draft's trigger tree, as currently built, lets an action read,
-     * plus whatever app scope currently holds.
+     * What a *trigger* field of this draft can read: the trigger tree as it is
+     * built right now, plus the two saved scopes and whatever this rule writes
+     * into them.
      *
-     * The trigger half is recomputed from the live draft rather than cached, so
-     * it tracks a trigger swap or a second leaf being added while the editor is
-     * open. Empty groups are ignored the same way [triggerOptionsFor] ignores
-     * them. A group the person has not filled in yet offers nothing to read,
-     * but it should not make the variables the *other* leaves already offer
-     * disappear from the picker while it sits there unfinished.
+     * Not the action half. An action reads what the actions above it produced
+     * and what they wrote to run scope, and neither exists when a trigger is
+     * built. See [availableVariablesForAction], and [VariableReach] for the
+     * whole table.
      *
-     * The app half is [EditorState.appVariables], already collected into state
-     * because [VariableStore.scoped] hands out a `Flow` and this is a plain
-     * getter. [VariableStore.scoped] marks every entry as sometimes-absent,
-     * which is honest: a variable exists only once some rule has written it,
-     * and a rule that reads one before that rule has run is the ordinary case,
-     * not an edge case. See `docs/variables.md` section 12.
+     * Recomputed from the live draft rather than cached, so it tracks a trigger
+     * swap or a second leaf being added while the editor is open. Empty groups
+     * are ignored the same way [triggerOptionsFor] ignores them: a group the
+     * person has not filled in yet offers nothing to read, and it should not
+     * make the variables the *other* leaves already offer disappear from the
+     * picker while it sits there unfinished.
+     *
+     * The saved half is [EditorState.appVariables] and
+     * [EditorState.ruleVariables], already collected into state because the
+     * stores hand out a `Flow` and this is a plain getter. Both mark every
+     * entry as sometimes-absent, which is honest: a variable exists only once
+     * some rule has written it, and a rule that reads one before that rule has
+     * run is the ordinary case rather than an edge case. See
+     * `docs/variables.md` section 12.
      */
     val availableVariables: List<ScopedVariable>
-        get() {
-            val state = _state.value
-            return registry.availableVariables(state.draft.trigger?.toNodeIgnoringEmptyGroups()) +
-                state.appVariables +
-                state.ruleVariables
-        }
+        get() = reach().at(ReadPoint.Trigger)
+
+    /**
+     * Which variables this draft can read, and where. One object, asked by the
+     * picker, by the preview, by the Test button and by save-time validation.
+     *
+     * Built per call rather than cached, and that is safe because
+     * [VariableReach] computes nothing until it is asked: the draft is the only
+     * thing it reads, so a cache would have to be invalidated by every edit and
+     * would be wrong the first time one was forgotten. That is the same reason
+     * [availableVariables] was a getter before this existed.
+     */
+    private fun reach(): VariableReach {
+        val state = _state.value
+        return registry.variableReach(
+            trigger = state.draft.trigger?.toNodeIgnoringEmptyGroups(),
+            actions = state.draft.actions.map { ComponentSpec(it.type, it.config) },
+            savedAppVariables = state.appVariables,
+            savedRuleVariables = state.ruleVariables,
+            otherRules = state.otherRules,
+        )
+    }
 
     /**
      * What the action at [index] can read: [availableVariables] plus what the
-     * actions before it produce. See
-     * [app.phueber.trigly.core.availableActionOutputs].
+     * actions above it produce, and plus the run-scope names they write. See
+     * [VariableReach].
      *
      * Per action rather than once per screen, because the answer genuinely
      * differs down the list: the first action has no earlier action to read
@@ -165,10 +200,19 @@ class RuleEditorViewModel(
      * offered without anything having to invalidate a cache.
      */
     fun availableVariablesForAction(index: Int): List<ScopedVariable> =
-        availableVariables + registry.availableActionOutputs(
-            _state.value.draft.actions.map { it.type },
-            index,
-        )
+        reach().at(ReadPoint.Action(index))
+
+    /**
+     * What to tell somebody about a reference in a trigger field that names a
+     * variable nothing writes, without stopping them. See
+     * [VariableReach.warnings] for why this is a warning and not a refusal.
+     */
+    fun variableWarnings(value: String): List<String> =
+        reach().warnings(value, ReadPoint.Trigger)
+
+    /** The same, for the action at [index]. */
+    fun variableWarningsForAction(index: Int, value: String): List<String> =
+        reach().warnings(value, ReadPoint.Action(index))
 
     init {
         load()
@@ -179,6 +223,18 @@ class RuleEditorViewModel(
         viewModelScope.launch {
             variableStore.scoped().collect { scoped ->
                 _state.update { it.copy(appVariables = scoped) }
+            }
+        }
+        // Every other rule, for the app scope alone. Collected live rather than
+        // read once with the draft, because a rule saved in another tab while
+        // this editor sits open is exactly the rule whose variable this one is
+        // being written to read. The draft itself is deliberately *not* live;
+        // see [load] for why an external change must not reach the form.
+        viewModelScope.launch {
+            repository.rules().collect { rules ->
+                _state.update { state ->
+                    state.copy(otherRules = rules.filterNot { it.id == ruleId })
+                }
             }
         }
         // Only for a rule that exists. A draft has no id until it is saved, so
@@ -198,7 +254,14 @@ class RuleEditorViewModel(
      * stored rule for an existing one.
      */
     private fun load() {
-        _state.update { EditorState(RuleDraft(id = ruleId), appVariables = it.appVariables) }
+        _state.update {
+            EditorState(
+                RuleDraft(id = ruleId),
+                appVariables = it.appVariables,
+                ruleVariables = it.ruleVariables,
+                otherRules = it.otherRules,
+            )
+        }
 
         if (ruleId == null) return
         viewModelScope.launch {
@@ -212,7 +275,12 @@ class RuleEditorViewModel(
                 // this the editor hides the filter that is deciding every match.
                 // See `ComponentFactory.normalise`.
                 _state.update {
-                    EditorState(registry.normalise(rule).toDraft(), appVariables = it.appVariables)
+                    EditorState(
+                        registry.normalise(rule).toDraft(),
+                        appVariables = it.appVariables,
+                        ruleVariables = it.ruleVariables,
+                        otherRules = it.otherRules,
+                    )
                 }
             }
         }
@@ -840,25 +908,29 @@ class RuleEditorViewModel(
         // reference to a value that is only sometimes present is not a problem
         // in this check. That is what the picker's mark is for, not save-time
         // validation.
-        val available = registry.availableVariables(rule.trigger)
+        //
+        // Asked of the rule about to be saved rather than of the draft the
+        // screen is showing, so a reference that resolved only before an action
+        // was moved or deleted is refused here instead of failing on every
+        // firing afterwards. A trigger is never offered an action's output: a
+        // trigger's configuration decides whether the rule runs at all, so there
+        // is no earlier action for it to have read from. [VariableReach] is what
+        // knows that, and it is the same object the picker offers from, so the
+        // editor cannot refuse a name it offered a moment earlier.
+        val reach = registry.variableReach(
+            trigger = rule.trigger,
+            actions = rule.actions,
+            savedAppVariables = _state.value.appVariables,
+            savedRuleVariables = _state.value.ruleVariables,
+            otherRules = _state.value.otherRules,
+        )
         leaves.forEachIndexed { index, spec ->
             val label = triggerLabel(spec, index, leaves.size)
-            variableProblem(spec, available)?.let { return "$label: $it" }
+            variableProblem(spec, reach, ReadPoint.Trigger)?.let { return "$label: $it" }
         }
-        // An action gets the trigger tree's variables *and* what the actions
-        // above it produce, which is why this is not the one `available` list
-        // the leaves share. A trigger is never offered an action's output: a
-        // trigger's configuration decides whether the rule runs at all, so
-        // there is no earlier action for it to have read from. Checked against
-        // `rule.actions`, the list about to be saved, so a reference that only
-        // resolved before an action was moved or deleted is refused here
-        // rather than failing on every firing afterwards.
-        val actionTypes = rule.actions.map { it.type }
         rule.actions.forEachIndexed { index, spec ->
             val label = "${registry.displayNameOf(spec.type)} (action ${index + 1})"
-            val forThisAction =
-                available + registry.availableActionOutputs(actionTypes, index)
-            variableProblem(spec, forThisAction)?.let { return "$label: $it" }
+            variableProblem(spec, reach, ReadPoint.Action(index))?.let { return "$label: $it" }
         }
 
         return null
@@ -880,11 +952,22 @@ class RuleEditorViewModel(
         return if (leafCount > 1) "$name (trigger ${index + 1})" else name
     }
 
-    /** The first thing wrong with a reference in [spec]'s own fields, or null. */
-    private fun variableProblem(spec: ComponentSpec, available: List<ScopedVariable>): String? =
-        registry.substitutionsFor(spec).keys.firstNotNullOfOrNull { key ->
-            spec.config[key]?.let { value -> variableProblems(value, available).firstOrNull() }
-        }
+    /**
+     * The first thing wrong with a reference in [spec]'s own fields, or null.
+     *
+     * Refusals only. A name in a scope a rule writes is never refused here, for
+     * the reasons `VariableReach.warnings` gives: the rule that writes it may
+     * not be written yet, and a rule run by another rule reads that rule's run
+     * values. Those are warned about beside the field instead, where the person
+     * can act on them and still save.
+     */
+    private fun variableProblem(
+        spec: ComponentSpec,
+        reach: VariableReach,
+        point: ReadPoint,
+    ): String? = registry.substitutionsFor(spec).keys.firstNotNullOfOrNull { key ->
+        spec.config[key]?.let { value -> reach.problems(value, point).firstOrNull() }
+    }
 
     private fun describe(error: Throwable, componentName: String): String =
         "$componentName: ${error.message ?: error::class.simpleName}"
