@@ -616,6 +616,11 @@ class MainActivity : ComponentActivity() {
             // The action half of the same question, which depends on where the
             // action sits: see `RuleEditorViewModel.availableVariablesForAction`.
             availableVariablesForAction = editor::availableVariablesForAction,
+            // The other half of the same question: what cannot be read here,
+            // said beside the field rather than by refusing the save. See
+            // `VariableReach.warnings`.
+            variableWarnings = editor::variableWarnings,
+            variableWarningsForAction = editor::variableWarningsForAction,
             substitutionsFor = { type, config ->
                 container.registry.substitutionsFor(ComponentSpec(type, config))
             },

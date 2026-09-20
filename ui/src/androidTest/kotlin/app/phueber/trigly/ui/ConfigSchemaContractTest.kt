@@ -13,6 +13,7 @@ import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.RuleRunnerHandle
 import app.phueber.trigly.core.SpecialAccessKind
 import app.phueber.trigly.core.Substitution
+import app.phueber.trigly.core.VariableScope
 import app.phueber.trigly.core.TriggerFactory
 import app.phueber.trigly.triggers.AlarmManagerScheduler
 import app.phueber.trigly.triggers.triggerFactories
@@ -166,6 +167,56 @@ class ConfigSchemaContractTest {
         }
 
         assertTrue("duplicate variable keys: $offenders", offenders.isEmpty())
+    }
+
+    /**
+     * A write declaration has to describe keys the component really has.
+     *
+     * `VariableWriteSpec` names config keys rather than values, which is what
+     * keeps `:core` and `:ui` from knowing which action writes a variable. The
+     * cost of naming a key is that a rename can break the pair silently: the
+     * editor then reads the name out of a key nobody fills in, offers nothing,
+     * and warns about every reference to a name the rule does write. Nothing
+     * else would notice, because a declaration is read only by the editor.
+     *
+     * The scope half is checked against the choice's own options for the same
+     * reason. A scope value the declaration does not map falls back to the
+     * default namespace, so a missed entry sends a run value into the picker
+     * as a shared one, which is a name offered in the wrong place rather than
+     * an error anybody sees.
+     */
+    @Test
+    fun every_variable_write_names_keys_the_component_declares() {
+        val offenders = mutableListOf<String>()
+        factories.forEach { factory ->
+            val keys = factory.configFields.map { it.key }.toSet()
+            factory.variableWrites.forEach { write ->
+                if (write.nameKey !in keys) {
+                    offenders += "${factory.type} writes a name into '${write.nameKey}', " +
+                        "which is not one of its fields"
+                }
+                val scopeField = factory.configFields
+                    .filterIsInstance<ConfigField.Choice>()
+                    .firstOrNull { it.key == write.scopeKey }
+                if (write.scopeKey != null && scopeField == null) {
+                    offenders += "${factory.type} reads its scope from '${write.scopeKey}', " +
+                        "which is not one of its choices"
+                }
+                scopeField?.options?.forEach { option ->
+                    if (option.value !in write.namespaceByScopeValue) {
+                        offenders += "${factory.type} offers the scope '${option.value}' " +
+                            "and its write declaration does not map it"
+                    }
+                }
+                if (write.defaultNamespace !in VariableScope.writable) {
+                    offenders += "${factory.type} defaults to the namespace " +
+                        "'${write.defaultNamespace}', which no rule can write"
+                }
+                if (write.sample.isBlank()) offenders += "${factory.type} has a blank write sample"
+            }
+        }
+
+        assertTrue(offenders.joinToString("; "), offenders.isEmpty())
     }
 
     /**

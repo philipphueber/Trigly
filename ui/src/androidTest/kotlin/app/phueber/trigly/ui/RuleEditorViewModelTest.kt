@@ -802,6 +802,137 @@ class RuleEditorViewModelTest {
     }
 
     /**
+     * The name a person typed into a writing action is a name the actions below
+     * it can read, and until this landed the picker did not know it. Every
+     * `{{local.*}}` reference had to be typed from memory and spelled exactly
+     * right, which made the run scope a feature that existed in the engine and
+     * nowhere a person could reach.
+     *
+     * Read from the draft, not from a store: nothing stores a run value, so the
+     * draft is the only possible source.
+     */
+    @Test
+    fun the_picker_offers_a_run_name_this_draft_writes() = runTest {
+        val editor = viewModel()
+        editor.chooseTrigger("bluetooth_connected")
+        editor.addAction("set_variable")
+        editor.setConfigValue(Slot.ACTION, 0, "scope", "run")
+        editor.setConfigValue(Slot.ACTION, 0, "name", "total")
+        editor.setConfigValue(Slot.ACTION, 0, "value", "1")
+        editor.addAction("toast")
+
+        val first = editor.availableVariablesForAction(0)
+        val second = editor.availableVariablesForAction(1)
+
+        assertTrue(
+            "the action that writes it cannot read it yet",
+            first.none { it.reference == "{{local.total}}" },
+        )
+        assertTrue(
+            "was: ${second.map { it.reference }}",
+            second.any { it.reference == "{{local.total}}" },
+        )
+    }
+
+    /**
+     * And the offered entry says where the value comes from. Under one heading
+     * a person sees names that are already stored beside names this rule will
+     * write, and only the second kind depends on the rule running first.
+     */
+    @Test
+    fun a_name_this_draft_writes_says_which_action_writes_it() = runTest {
+        val editor = viewModel()
+        editor.addAction("set_variable")
+        editor.setConfigValue(Slot.ACTION, 0, "name", "trip_count")
+        editor.setConfigValue(Slot.ACTION, 0, "value", "1")
+        editor.addAction("toast")
+
+        val offered = editor.availableVariablesForAction(1)
+            .single { it.reference == "{{app.trip_count}}" }
+
+        assertEquals("Set by Set an app variable (action 1).", offered.spec.help)
+    }
+
+    /**
+     * A rule value outlives the run, so an action reading what a *later* action
+     * writes is reading what last run wrote. That is how a counter is built, and
+     * refusing or hiding it would make the ordinary shape of one impossible.
+     */
+    @Test
+    fun the_picker_offers_a_rule_name_a_later_action_writes() = runTest {
+        val editor = viewModel(ruleId = null)
+        editor.addAction("toast")
+        editor.addAction("set_variable")
+        editor.setConfigValue(Slot.ACTION, 1, "scope", "rule")
+        editor.setConfigValue(Slot.ACTION, 1, "name", "count")
+        editor.setConfigValue(Slot.ACTION, 1, "mode", "add")
+        editor.setConfigValue(Slot.ACTION, 1, "value", "1")
+
+        val first = editor.availableVariablesForAction(0)
+
+        assertTrue(
+            "was: ${first.map { it.reference }}",
+            first.any { it.reference == "{{mine.count}}" },
+        )
+    }
+
+    /**
+     * An app value crosses rules, so the rule that writes one is a source for
+     * the rule that reads it, whether or not it has ever run. Without this the
+     * name is offered only after the writing rule has fired once, which is
+     * exactly when a person is *not* writing the reading rule.
+     */
+    @Test
+    fun the_picker_offers_an_app_name_another_rule_writes() = runTest {
+        val repository = InMemoryRuleRepository()
+        repository.upsert(
+            Rule(
+                id = "writer",
+                name = "Trip logger",
+                trigger = TriggerNode.One(ComponentSpec("bluetooth_connected")),
+                actions = listOf(
+                    ComponentSpec(
+                        "set_variable",
+                        mapOf("name" to "trip_count", "mode" to "add", "value" to "1"),
+                    ),
+                ),
+            )
+        )
+        val editor = viewModel(repository)
+
+        val offered = editor.availableVariables.singleOrNull {
+            it.reference == "{{app.trip_count}}"
+        }
+
+        assertNotNull("a name another rule writes should be offered", offered)
+        assertEquals("Set by the rule 'Trip logger'.", offered!!.spec.help)
+    }
+
+    /**
+     * The other half of the same honesty: a name nothing writes is said out
+     * loud, where the person is looking, and the save still goes through. A
+     * refusal would be wrong here, because a rule that another rule runs shares
+     * that rule's run values, and the editor cannot see that.
+     */
+    @Test
+    fun a_run_name_nothing_writes_is_warned_about_and_still_saves() = runTest {
+        val repository = InMemoryRuleRepository()
+        val editor = viewModel(repository)
+        editor.setName("Reads a name nothing writes")
+        editor.chooseTrigger("bluetooth_connected")
+        editor.addAction("toast")
+        editor.setConfigValue(Slot.ACTION, 0, "text", "Total {{local.totl}}")
+
+        val warnings = editor.variableWarningsForAction(0, "Total {{local.totl}}")
+        editor.save()
+
+        assertEquals(1, warnings.size)
+        assertTrue("was: ${warnings.single()}", warnings.single().contains("{{local.totl}}"))
+        assertNull("a warning is not a refusal", editor.state.value.error)
+        assertEquals(1, repository.rules().first().size)
+    }
+
+    /**
      * Phase 2: what `VariableStore.scoped()` holds has to reach the picker,
      * not only the trigger tree's own declarations. Collected into state in
      * [RuleEditorViewModel]'s `init`, under the same `UnconfinedTestDispatcher`

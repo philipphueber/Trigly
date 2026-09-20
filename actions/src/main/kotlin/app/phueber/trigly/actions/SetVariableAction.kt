@@ -16,6 +16,7 @@ import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.VariableKind
 import app.phueber.trigly.core.VariableSpec
 import app.phueber.trigly.core.VariableStore
+import app.phueber.trigly.core.VariableWriteSpec
 import app.phueber.trigly.core.evaluateExpression
 import app.phueber.trigly.core.normalizeVariableName
 import app.phueber.trigly.core.variableNameProblem
@@ -406,6 +407,33 @@ class SetVariableActionFactory(
             help = "What this action just set the variable to. Not produced " +
                 "when the mode clears the variable.",
             alwaysPresent = false,
+        ),
+    )
+
+    /**
+     * What this action writes, so the editor can offer the name a person typed
+     * here to the fields that can read it. See [VariableWriteSpec] and
+     * `docs/variables.md` section 12.
+     *
+     * The three keys are the ones [create] reads, and the mapping is
+     * [VariableWriteScope]'s own, so the editor cannot come to a different
+     * answer from the action about where a value went. [VariableWriteScope.APP]
+     * is the default here because it is the default there, and a rule saved
+     * before the scope field existed has no value for that key.
+     *
+     * The sample repeats [variables]'s, and it is the same value for the same
+     * reason: what this action stores is what it reports, so a preview of
+     * `{{app.count}}` and one of `{{action.value}}` must not show two different
+     * numbers for the one write.
+     */
+    override val variableWrites = listOf(
+        VariableWriteSpec(
+            nameKey = SetVariableAction.CONFIG_NAME,
+            scopeKey = VariableWriteScope.CONFIG_KEY,
+            namespaceByScopeValue = VariableWriteScope.entries
+                .associate { it.configValue to it.namespace },
+            defaultNamespace = VariableWriteScope.APP.namespace,
+            sample = "4",
         ),
     )
 

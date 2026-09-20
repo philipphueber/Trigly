@@ -76,6 +76,38 @@ what *that field*, in *that position*, can read.
   Delete or reorder a component and Trigly rewrites the references in that
   rule, so a rule cannot quietly start reading a different trigger while it
   looks unchanged.
+- **A name you typed into a "Set a variable" action is offered as well**, under
+  the scope you chose for it, and the row says which action sets it. A `local`
+  name is offered to the actions *below* the one that sets it, and to nothing
+  else, because a run value is gone when the run ends. A `mine` or an `app`
+  name is offered everywhere in the rule, including above the action that sets
+  it: those values survive the run, so reading one higher up reads what the
+  last run wrote, which is how a counter works.
+- **An `app` name another rule sets is offered too**, before that rule has ever
+  run, and the row names the rule. Without it you could not write the reading
+  rule until the writing rule had fired once.
+
+### When a name is not offered
+
+A reference to a name nothing writes draws a warning under the field, naming
+the reference. It does not stop you saving, and the difference matters:
+
+- A misspelt `trigger`, `event`, `rule` or `action` name **refuses the save**.
+  Those names come from a declaration, so a name that is not in it is wrong
+  now and wrong for ever.
+- A `local`, `mine` or `app` name nothing writes is **a warning only**. The
+  rule that sets an app value may not be written yet, a value can be set by
+  hand in Saved values, and a rule that another rule runs shares that rule's
+  run values. Refusing would make a legitimate rule impossible to build.
+
+The warning names the near miss when there is one. Reading `{{app.total}}` in a
+rule that sets `{{local.total}}` says so, because both halves look right on
+their own.
+
+A "Set a variable" action whose *name* field is itself a variable, such as
+`{{trigger.title}}`, writes a name nobody can know in advance. Trigly then
+offers nothing for that scope and warns about nothing in it, because no name in
+it can be called wrong.
 
 ## Writing a value
 

@@ -88,6 +88,17 @@ fun ConfigFieldEditor(
      */
     availableVariables: List<ScopedVariable> = emptyList(),
     /**
+     * What to say about this field's references without stopping the save. See
+     * `VariableReach.warnings`: a name in a scope a rule writes for itself is
+     * never refused, because the action that writes it may not be written yet,
+     * so the honest place to say "nothing writes this" is here, under the field,
+     * while the person is looking at it.
+     *
+     * Empty by default, the same as [availableVariables], so a caller that has
+     * not wired it draws exactly what it always has.
+     */
+    variableWarnings: (String) -> List<String> = { emptyList() },
+    /**
      * How a substituted value is escaped for the preview shown under the field.
      *
      * This is *not* [ConfigField.substitution] restated: the declaration says
@@ -125,6 +136,7 @@ fun ConfigFieldEditor(
                 field = field,
                 value = value,
                 availableVariables = availableVariables,
+                variableWarnings = variableWarnings,
                 previewEncoding = previewEncoding,
                 describeComponent = describeComponent,
                 onValueChange = onValueChange,
@@ -439,6 +451,8 @@ private fun SubstitutableTextField(
     field: ConfigField.Text,
     value: String?,
     availableVariables: List<ScopedVariable>,
+    /** See [ConfigFieldEditor]'s parameter of the same name. */
+    variableWarnings: (String) -> List<String>,
     previewEncoding: Substitution,
     onValueChange: (String?) -> Unit,
     /** See [VariablePickerDialog]'s parameter of the same name. */
@@ -557,6 +571,7 @@ private fun SubstitutableTextField(
                 value = fieldValue.text,
                 available = availableVariables,
                 encoding = previewEncoding,
+                warnings = variableWarnings(fieldValue.text),
             )
         }
     }
@@ -620,9 +635,30 @@ private fun VariablePreview(
     value: String,
     available: List<ScopedVariable>,
     encoding: Substitution,
+    /**
+     * What names this field reads that nothing in reach writes. See
+     * `VariableReach.warnings`.
+     */
+    warnings: List<String> = emptyList(),
 ) {
     val template = parseTemplate(value)
     if (!template.hasReferences) return
+
+    warnings.forEach { warning ->
+        Text(
+            text = warning,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.extra.caution,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+
+    // The sample below is dropped once a warning is drawn, and only then. A
+    // warning names the same reference the failure would, and says more about
+    // it: "nothing sets this" is actionable, and "it had no value" is the same
+    // fact with the fix left out. Two lines about one reference would teach a
+    // person to read neither.
+    if (warnings.isNotEmpty()) return
 
     when (val resolved = template.substitute(SampleLookup(available), encoding)) {
         is Substituted.Ok -> Text(

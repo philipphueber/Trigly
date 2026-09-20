@@ -127,9 +127,46 @@ class Registry(
         (triggers[type] ?: actions[type])?.variables.orEmpty()
 
     /**
-     * Every variable a rule with this trigger tree can read. See
-     * [app.phueber.trigly.core.availableVariables], which this only supplies the
-     * declarations to.
+     * What a component type declares it writes (see [VariableWriteSpec]).
+     *
+     * By type string for the reason [variablesOf] is, and empty for an unknown
+     * type for the same reason: the editor asks about a draft before anything
+     * has validated it.
+     */
+    fun writesOf(type: String): List<VariableWriteSpec> =
+        (triggers[type] ?: actions[type])?.variableWrites.orEmpty()
+
+    /**
+     * Which variables a rule of this shape can read, and where. See
+     * [VariableReach], which this only supplies the declarations to.
+     *
+     * The one way to ask the question. A caller that assembled the answer from
+     * [availableVariables] and [availableActionOutputs] itself would be a second
+     * opinion on reachability, and the first thing a second opinion does is
+     * disagree with the engine about a scope neither of those two knows about.
+     */
+    fun variableReach(
+        trigger: TriggerNode?,
+        actions: List<ComponentSpec>,
+        savedAppVariables: List<ScopedVariable> = emptyList(),
+        savedRuleVariables: List<ScopedVariable> = emptyList(),
+        otherRules: List<Rule> = emptyList(),
+    ): VariableReach = VariableReach(
+        trigger = trigger,
+        actions = actions,
+        variablesOf = ::variablesOf,
+        writesOf = ::writesOf,
+        savedAppVariables = savedAppVariables,
+        savedRuleVariables = savedRuleVariables,
+        otherRules = otherRules,
+        displayNameOf = ::displayNameOf,
+    )
+
+    /**
+     * Every variable a rule with this trigger tree can read, ignoring the three
+     * scopes a rule writes for itself. [variableReach] is the whole answer and
+     * this is the trigger half of it, kept because the numbering rules it
+     * applies are worth testing on their own.
      */
     fun availableVariables(trigger: TriggerNode?): List<ScopedVariable> =
         availableVariables(trigger, ::variablesOf)

@@ -5,9 +5,10 @@
 comparison, and the whole expression language with worked examples. This file is
 the design record behind it.
 
-**Status: phases 1, 2, 4 and 5 are built. Phase 3 is not.** Phase 4 is numbered
-after phase 3 because it was not planned here at all, and it did not wait for
-the phase it follows: see section 15. `docs/actions.md`
+**Status: phases 1, 2, 4, 5 and 6 are built. Phase 3 is not.** Phase 4 is
+numbered after phase 3 because it was not planned here at all, and it did not
+wait for the phase it follows: see section 15. Phases 5 and 6 were not planned
+here either. `docs/actions.md`
 recorded variables as the largest design decision left after conditions. This
 file is that decision, in the shape `docs/conditions.md` holds its own, and it
 is kept as written so that what was weighed stays readable next to what was
@@ -257,6 +258,56 @@ both. This is the only part of the emit-and-declare pair a machine can check. A
 key that is declared and never emitted stays possible, and a JVM test cannot
 catch it, because catching it means firing a real trigger. Say so in the KDoc,
 the way `supportsCondition` says what its own honest pair is.
+
+### Declaring what a component writes
+
+`variables` above says what a component *hands over*. A second declaration says
+what it *stores*, and the two are not the same shape, because the two values are
+named by different people. A component names its own outputs. A person names the
+variable a `set_variable` action writes, by typing it into a field, so the
+declaration can only name the *key* the name arrives in:
+
+```kotlin
+data class VariableWriteSpec(
+    /** The config key holding the name the person typed. */
+    val nameKey: String,
+    /** The config key holding the choice of scope, or null for one fixed scope. */
+    val scopeKey: String? = null,
+    /** What each value of that key means, as a namespace: local, mine or app. */
+    val namespaceByScopeValue: Map<String, String> = emptyMap(),
+    /** Where a value goes when the scope key is absent or unrecognised. */
+    val defaultNamespace: String,
+    /** A stand-in sample, for a value that does not exist yet. */
+    val sample: String,
+)
+```
+
+```kotlin
+// on ComponentFactory
+val variableWrites: List<VariableWriteSpec> get() = emptyList()
+```
+
+Defaulted like `variables`, and declared by the component for the same reason
+the plugin rule gives: the alternative is a shared file that knows
+`set_variable` is the action that writes and that its `name` key holds the name,
+which is one component's identity in a place every component passes through. The
+declaration makes a second writing component work on the day it is registered,
+with nothing in `:core` or `:ui` edited.
+
+**A key, and never a value.** The name field can hold a template, and then
+nobody knows the name until the rule fires. That is reported as
+`WrittenVariable.Unknowable` rather than resolved to something invented, and
+section 12 says what the editor does with it. A blank name and a name no rule
+could read back are both "writes nothing": the first is an unfinished action, and
+the second is refused by the component's own `create()` anyway.
+
+**The default namespace is load-bearing.** A rule saved before the scope field
+existed has no value under that key, and it wrote to the shared scope. The
+declaration has to say the same thing the action's own `create()` says, or the
+editor offers the name in one place while the engine stores it in another.
+`ConfigSchemaContractTest` holds the declaration to the component's real keys and
+to the real options of its scope field, because a renamed key breaks the pair
+silently: only the editor reads this.
 
 **Declaring is not the same as emitting.** `notification_posted` puts four keys
 in its payload and should declare three. `SharedPayloadKeys.NOTIFICATION_KEY` is
@@ -555,7 +606,23 @@ null is not false. The same honesty applies here, and the failure has to be
 loud.
 
 - **A name that no declaration provides** is a save-time error in the editor.
-  The person is told which name, while they are looking at the field.
+  The person is told which name, while they are looking at the field. This is
+  the four scopes the engine fills in: the trigger tree, the event, the rule,
+  and an earlier action's output.
+- **A name in a scope a rule writes**, `{{local.*}}`, `{{mine.*}}` or
+  `{{app.*}}`, that nothing in reach writes, is a **warning under the field**
+  and not a refusal. The reasoning for each half is worth keeping apart. The
+  warning exists because a reference nobody writes is almost always a typo, and
+  a rule that silently does nothing is the failure this whole project is built
+  against, so saying nothing would be the worse half of section 12's contract.
+  The refusal is withheld because the editor cannot prove the name wrong: the
+  rule that writes an app value may not be written yet, a value can be set by
+  hand on the saved values screen, and a rule that another rule runs shares that
+  rule's run values, which nothing in the editor can see. A rule reading a value
+  another rule writes is legitimate and has to stay buildable, in either order.
+  `VariableReach.warnings` holds both halves, and it says nothing at all about a
+  scope this rule writes under a name built from a template, because then no
+  name in that scope can be called wrong.
 - **A declared name with no value at run time** fails the action. The failure
   reason names the variable and says why it was empty: the leaf did not fire, or
   the platform did not supply the key, or the app variable is not set. That
@@ -700,27 +767,58 @@ not a call and the chain element cannot see one.
 ## 12. The editor
 
 - The variable picker on every field that declares a substitution. It lists what
-  this rule can actually offer: the declared variables of every leaf in the
-  trigger tree, the rule-scope names, and the app-scope names that exist.
+  this rule can actually offer at that point in it: see the table below.
 - Each entry shows its label, its sample, and a mark when it can be absent.
 - An entry from a leaf that is one of several says that it is empty unless that
   leaf is the one that fired.
 - A preview under the field, rendered from the samples.
 - Save-time validation of every reference, per section 9.
+- A warning under the field for a reference nothing writes, per section 9.
 - The Test button substitutes samples and says on screen that they are samples.
 
 **The picker shows exactly what is available at that point, and "that point" is
-literal.** For a trigger field that is the trigger tree. For an action field it
-is the tree *plus* what the actions above that action produce, which differs
-down the list: the first action has nothing above it, the last can read every
-producing one. A single list for the whole screen would have to choose between
-offering the first action names that can never resolve and hiding from the last
-action names that always can.
+literal.** `VariableReach` in `:core` is the one place that answers it, and the
+picker, the preview, the Test button and save-time validation all ask the same
+object. They used to assemble the answer separately, which is how the editor
+came to offer a name the engine could not resolve and to refuse one it resolved
+every time.
+
+| Scope | Readable at | Why |
+|---|---|---|
+| `trigger`, `<trigger_type>`, `event`, `rule` | every point in the rule | the engine fills these in from the event that started the run, before the first action |
+| `action`, `<action_type>` | an action, from the actions above it | the outputs grow as each action returns, so a later action's output does not exist yet |
+| `local` | an action, from the actions above it | a run value lives on the coroutine running this firing, and an earlier action wrote it |
+| `mine` | every point in the rule | the value survives the run, so reading what a later action writes reads what the last run wrote |
+| `app` | every point in the rule | the store is shared, so any rule may have written it, this one included, and later as well as earlier |
+
+The three writable scopes are why this takes the whole draft and not a trigger
+tree. A name in one of them exists because a person typed it into a field, so
+the rule being edited is the only place to find it, and the names are found
+through the declaration in section 4 rather than by looking for one action type.
+
+**A name this rule writes is offered, and it says so.** Under one heading a
+person sees names already in the store beside names this rule will write, and
+only the second kind depends on the rule running first. So the row carries the
+sentence: "Set by Set an app variable (action 1)", or "Set by the rule 'Trip
+logger'" for a name another rule writes. A name that is both stored and written
+keeps the store's real value as its sample and gains the sentence. Nothing
+written is ever marked always-present, for the reason an action output is not:
+the writing action can fail before it writes, and its clear mode succeeds while
+storing nothing.
+
+**Two actions writing one name is not a collision, and two scopes are two
+names.** `{{local.count}}` and `{{app.count}}` are different variables, so both
+are offered under their own headings and neither has to give way. Two actions
+writing the same name in the same scope are one offer, labelled with the first
+of them, because the first is where the value starts existing. What *is* worth
+saying is the near miss: a warning about `{{app.total}}` in a rule that writes
+`{{local.total}}` names the other one, because both halves look right on their
+own and no screen otherwise says the two do not meet.
 
 The same rule decides what is *not* offered. A trigger namespace for a leaf that
-did not fire, an output from an action further down, and the short form in a
-rule with two leaves are all left out, because each of them would be pickable,
-saveable and empty for ever.
+did not fire, an output from an action further down, a run value written below
+the action reading it, and the short form in a rule with two leaves are all left
+out, because each of them would be pickable, saveable and empty for ever.
 
 **The editor repairs references, and this is the load-bearing half of positional
 instance names.** A delete, a reorder or a type change can alter what an
@@ -924,11 +1022,50 @@ What came out differently from what this work assumed:
   run-scope name exists only because an earlier action writes it, and finding
   that out means knowing which action type writes variables and which config key
   holds the name. That is the coupling the plugin rule forbids. `docs/todo.md`
-  holds the declaration that would close it.
+  holds the declaration that would close it. **Phase 6 is that declaration**,
+  and the conclusion it reaches is not the one this bullet assumed: the name is
+  knowable now, and it is still not a refusal. See section 9.
 - **A deleted rule's private values delete with it**, by foreign key. The
   alternative, a prefixed name in the shared table, would have leaked rows no
   screen lists and no rule can read, and would have let two rules collide on the
   prefix.
+
+**Phase 6: one answer to which variables are readable here. Built.** Not
+planned here either, and it is the phase that made the three writable scopes
+usable rather than merely resolvable. Every variable can be named, and until
+this landed none of the names could be used: the picker offered what the two
+stores already held, so a name typed into a `set_variable` action was a name the
+person had to retype from memory into every field that read it, spelled exactly
+right, with nothing to tell them when it was not.
+
+- **`VariableWriteSpec`**, section 4. A component declares the config keys its
+  name and its scope arrive in, which is what lets a shared file find a write
+  without knowing which action does the writing.
+- **`VariableReach`**, section 12. One object, asked by the picker, the preview,
+  the Test button and save-time validation, so the editor cannot offer a name it
+  is about to refuse. It carries the table of what is readable where, and the
+  table is not uniform: run scope reaches forwards only, rule scope reaches both
+  ways because the value survives the run, and app scope reaches out of the rule
+  entirely.
+- **A warning where a refusal would be wrong**, section 9.
+
+What came out differently from what this work assumed:
+
+- **`docs/todo.md`'s T20 asked for a refusal and got a warning.** Its reasoning
+  was that a run-scope name is knowable in principle, and it is. What the item
+  did not weigh is that a `run_rule` chain shares one run scope, so a rule that
+  is only ever called by another rule legitimately reads a value its caller
+  wrote, and the editor has no way to see the caller. A refusal would make that
+  rule unsavable.
+- **Another rule's writes are a source, not only the store.** An app value has
+  nothing in the store until the writing rule has actually run, which is exactly
+  when somebody is writing the rule that reads it. So the editor reads the other
+  saved rules for their app-scope writes, and the picker names the rule.
+- **A trigger field is given the saved scopes and not the run scope.** No
+  trigger declares a substitutable field today, so none of this is reachable
+  from a trigger, and the honest answer for the day one does is that a trigger's
+  config is read when it is built: there is no earlier action, and no firing to
+  hold a run value.
 
 ---
 
@@ -1007,6 +1144,34 @@ Instrumented:
 - `MIGRATION_5_6`, and a round trip through the real store proving two rules
   keep the same name apart and that deleting a rule deletes its values.
 - The saved values entry behind the overflow menu, with its count.
+
+Phase 6 added, JVM, in `VariableReachTest`:
+
+- One per scope: the trigger and engine scopes read the same at every point, an
+  action output and a run value reach forwards only, a rule value reaches both
+  ways, and an app value reaches every point and comes from another rule as well
+  as from the store.
+- The ordering rules: the action that writes a run value cannot read it, the one
+  after it can, and a trigger never can.
+- A write with no scope key lands in app scope, which is what a rule saved
+  before the scope field existed does.
+- A name that is both stored and written is offered once, keeps the store's
+  value as its sample, and says which action writes it.
+- A templated name is offered to nobody and silences the warning for its scope,
+  and it silences it only for the points that write reaches.
+- A name nothing writes warns once per reference, names the same name in another
+  writable scope when there is one, and is still not a refusal.
+
+Phase 6 added, instrumented:
+
+- The picker offers a run name this draft writes to the action below it and not
+  to the action that writes it, offers a rule name a *later* action writes, and
+  offers an app name another saved rule writes.
+- The picker's row says which action, or which rule, writes an offered name.
+- A reference nothing writes draws its warning under the field, and the rule
+  still saves.
+- `ConfigSchemaContractTest` holds every write declaration to config keys the
+  component really has, and to the real options of its scope field.
 
 Per `CLAUDE.md`: two devices or API levels before a merge, and every new
 instrumented test run twice back to back.
