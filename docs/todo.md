@@ -222,14 +222,65 @@ and a poll does not.
 **Done when.** The choice is written down per caller, and any caller that keeps
 `setWindow` says in its own warning text how late it can be.
 
-**Since this was written.** There is a sixth caller: the `delay` action waits on
-`waitFor`, and it is the first one whose duration a person chooses rather than
-this codebase. It already does the second half of "done when", because its
-warning says the wait can be off by a few minutes. It has no claim on the first
-half. Whether a wait a person set is worth the allow-while-idle family is
-exactly the per-caller decision this item asks for, and `DelayAction`'s KDoc
-says why it is not on the *durable* form, which is a different question from
-this one.
+**Decided for the `delay` caller, and it is not the allow-while-idle family.**
+A user reported that "wait 3 seconds" on a locked phone is unreliable, which is
+this item arriving as a bug. The answer for a short wait is neither member of
+the alarm family:
+
+- The inexact one is deferred by Doze, which is this item's whole subject.
+- The exact one is rate limited to roughly one firing per app per nine minutes
+  while idle, which is two orders of magnitude away from a three second wait,
+  and it needs a permission this app does not ask for.
+- Both carry a window. `AlarmManagerScheduler` asks for a tenth of the wait
+  with a five second floor, so a three second wait is scheduled as three to
+  eight seconds *with the screen on*. That half of the fault was this
+  codebase's own arithmetic and had nothing to do with Doze.
+
+So a wait of thirty seconds or less now holds a `PARTIAL_WAKE_LOCK` and waits
+in process, through the new `WakeGuard` port, and asks `AlarmManager` for
+nothing. A wake lock is the exact opposite trade from an alarm: accurate to the
+millisecond, and worthless if the process dies, which a `delay` action could
+never survive anyway. Above thirty seconds the wait stays on `setWindow`, where
+a few minutes of drift on an hour is a fair price for not holding a phone's CPU
+for an hour. `DelayAction`'s warning states both halves.
+
+**The other five callers keep `setWindow` and keep this item open.** They are
+poll loops and wall-clock triggers whose durations this codebase chooses, none
+of them is accurate to the second by nature, and a poll cannot beat the rate
+limit whatever API it uses.
+
+### T22 Nothing holds the CPU across a rule's action chain
+
+**Evidence.** Found while fixing the short `delay`, and it is more general than
+that fix. An action chain runs on `Dispatchers.Default`, and nothing holds the
+CPU while it does. The broadcast or callback that fired the rule held the
+system's own wake lock only for the length of its callback, and the engine
+consumes the event asynchronously afterwards. The alarm path has the same shape
+at the other end: `AlarmManagerService` holds a lock for the duration of the
+`OnAlarmListener` callback, our listener resumes a continuation, and the
+coroutine is then dispatched back to a worker thread with nothing holding the
+CPU. So any action can be frozen mid-call with the screen off, and the ones
+with a wait of their own are the ones that will be: `http_request` with a
+fifteen second socket timeout, `play_sound` and `play_alert` through
+`prepareAsync`, `speak` through TTS init.
+
+The short `delay` fix does not cover this. It holds the CPU for its own wait
+and gives it back before the next action starts, which is correct for a lock
+owned by one action and is exactly why this item exists.
+
+**Decide first.** The engine may not know an action's type, so it cannot ask
+"is this a `delay`". The capability has to be declared, following
+`TriggerFactory.supportsCondition` and `ComponentFactory.toolsFor(config)`: an
+`ActionFactory.needsCpuAwake(config)` defaulting to false, with
+`TriggerEngine.runActions` holding one `WakeGuard` span across the chain when
+any slot answers true. The long `delay` would then have to drop the span for
+the length of its own wait, which is the second time an action has needed to
+reach engine-shaped state; `RuleRunnerHandle` was the first, and two is a
+pattern worth naming before adding a third handle.
+
+**Done when.** A rule fired with the screen off runs every action in its chain
+without the CPU suspending between them, and a chain that holds the CPU says so
+where a person can see it.
 
 ### T15 A second ingress that is not a broadcast
 

@@ -216,9 +216,12 @@ against a rule that runs itself. `docs/architecture.md`'s "One rule runs another
 has both, and `docs/variables.md` section 11 has the loop the guard prevents.
 
 `delay` is the third, and its subject is narrower still: this one rule's own
-timing. It waits on the scheduler port rather than on a coroutine `delay`, so
-Doze cannot sleep through it, and it deliberately does not use the port's durable
-form. Its warning text says what a wait costs: a rule that pauses never runs two
+timing. It has two waits and picks between them by length. Thirty seconds or
+less holds the CPU awake through the `WakeGuard` port and waits on a plain
+coroutine `delay`, which is then accurate to the millisecond. Anything longer
+waits on the scheduler port, which survives the device suspending and cannot be
+accurate, because every alarm in the inexact family carries a window. It
+deliberately does not use the scheduler's durable form at either length. Its warning text says what a wait costs: a rule that pauses never runs two
 events at once, but a wait long enough, against a trigger firing often enough,
 can still lose an event outright, because the trigger's own buffer that holds it
 is not unbounded.

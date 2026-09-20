@@ -7,6 +7,8 @@ import app.phueber.trigly.core.AlarmScheduler
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.DurationUnit
 import app.phueber.trigly.core.TriggerEvent
+import app.phueber.trigly.core.WakeGuard
+import kotlinx.coroutines.delay
 
 /**
  * Duration for a delay, required and capped.
@@ -38,14 +40,41 @@ fun delayDurationMillis(raw: String?): Long {
 /**
  * Waits, then lets the rule continue with the actions that come after it.
  *
- * **The wait is [AlarmScheduler.waitFor], never a plain coroutine `delay`.**
- * A plain `delay` is counted by the process's own clock, so it can sleep
- * through the whole wait once the device enters Doze; `docs/todo.md`'s T1 is
- * the record of that gap for five other callers in this codebase. A value
- * this action waits for is set by whoever built the rule, not by this
- * codebase, so it cannot be assumed short the way `TriggerEngine.resolveHolds`'s
- * few-second retry can be. Any duration this action offers has to survive
- * Doze, which rules out `delay` entirely.
+ * **Two waits, picked by duration, and the short one is a plain coroutine
+ * `delay`.** This file used to say that a plain `delay` was ruled out
+ * entirely, on the grounds that the process's own clock stops counting once
+ * the device suspends. That is true of a bare `delay` and it is not true of
+ * one that runs while something holds the CPU awake, which is the whole of
+ * what [WakeGuard] does.
+ *
+ * Above [AWAKE_WAIT_MAX_MILLIS] the wait is [AlarmScheduler.waitFor], as it
+ * always was. An hour-long wait must survive the device suspending, holding
+ * the CPU for an hour would be a battery fault, and a few minutes of drift on
+ * an hour is a fair price.
+ *
+ * At or below it, the wait is a `delay` inside [WakeGuard.keepingAwake], and
+ * the alarm is not involved at all. Two things were wrong with sending a short
+ * wait through the scheduler, and only the second is about Doze.
+ *
+ * The first is this app's own arithmetic. `AlarmManagerScheduler` asks for a
+ * window of a tenth of the wait with a floor of five seconds, which is right
+ * for the poll loops it was written for and wrong here: a three second wait
+ * becomes "somewhere between three and eight seconds", and the platform
+ * batches toward the end of a window when it can. That is the error a person
+ * sees with the screen on, before Doze is involved at all.
+ *
+ * The second is that `setWindow` is deferred by Doze, which only the
+ * `AllowWhileIdle` family escapes, so the same three second wait can be held
+ * until the next maintenance window once the phone has been locked for a
+ * while. The exact alarms that would escape it are rate limited to about one
+ * firing per app per nine minutes when idle, which is the wrong instrument for
+ * a three second wait by two orders of magnitude, and they carry a permission
+ * this app deliberately does not ask for. See `docs/todo.md` T14.
+ *
+ * A partial wake lock has neither problem. It is accurate to the millisecond,
+ * because nothing is scheduling anything, and the device cannot suspend
+ * underneath it. What it cannot do is survive the process dying, which is
+ * true of this action either way, as the next paragraph explains.
  *
  * **Not [AlarmScheduler.waitForDurable], though.** That method exists for
  * `IntervalTrigger` and `SolarTrigger`, and what makes it work for them is
@@ -108,17 +137,57 @@ fun delayDurationMillis(raw: String?): Long {
  */
 class DelayAction(
     private val scheduler: AlarmScheduler,
+    private val wake: WakeGuard,
     private val durationMillis: Long,
 ) : Action {
 
     override suspend fun execute(event: TriggerEvent): ActionResult {
-        scheduler.waitFor(durationMillis)
+        if (durationMillis <= AWAKE_WAIT_MAX_MILLIS) {
+            wake.keepingAwake(TYPE, wakeTimeoutMillis(durationMillis)) { delay(durationMillis) }
+        } else {
+            scheduler.waitFor(durationMillis)
+        }
         return ActionResult.Success()
     }
 
     companion object {
         const val TYPE = "delay"
         const val CONFIG_DURATION_MILLIS = "durationMillis"
+
+        /**
+         * The longest wait this action holds the CPU for instead of asking
+         * `AlarmManager`. Thirty seconds.
+         *
+         * The number is not a preference. `AlarmManagerScheduler`'s window is
+         * a tenth of the wait with a five second floor, so the floor is what
+         * decides the error for anything short: five seconds on a thirty
+         * second wait is a sixth of it, on a ten second wait it is half of it,
+         * and on a three second wait it is nearly twice the wait. Thirty
+         * seconds is where the scheduler's own arithmetic stops being an
+         * approximation of the wait and starts being most of it.
+         *
+         * **The boundary is inclusive**, so exactly thirty seconds takes the
+         * accurate path. Thirty is the round number a person types, and
+         * `ConfigField.Duration` offers this field in minutes and seconds, so
+         * it is a value the editor produces and reads back unchanged. Putting
+         * the round number on the worse side of the line is how a component
+         * earns a report that says thirty behaves badly while twenty-nine is
+         * fine. `DelayActionTest` pins both sides.
+         */
+        const val AWAKE_WAIT_MAX_MILLIS = 30_000L
+
+        /**
+         * How much longer than the wait the wake lock's own timeout runs.
+         *
+         * The timeout is a backstop, not the mechanism: the hold ends when the
+         * block ends, and this only bounds the damage if a path ever escapes
+         * that while the process lives. It has to clear the wait itself, or
+         * the backstop would start cutting real waits short, which would be a
+         * silent return of the fault this path exists to fix. Five seconds
+         * covers the dispatch either side of the wait and keeps the worst hold
+         * a number that can be stated: thirty-five seconds.
+         */
+        const val WAKE_MARGIN_MILLIS = 5_000L
 
         /**
          * An hour. This action cannot survive its host process dying, unlike
@@ -133,7 +202,22 @@ class DelayAction(
     }
 }
 
-class DelayActionFactory(private val scheduler: AlarmScheduler) : ActionFactory {
+/**
+ * How long the wake lock's timeout runs for a wait of [durationMillis].
+ *
+ * Pulled out as a function for the same reason
+ * `AlarmManagerScheduler.windowLengthMillis` is: the rest of the wake path
+ * calls `PowerManager` and cannot be tested on the JVM, while the arithmetic
+ * can be, and a backstop that is quietly shorter than the work it backs would
+ * fail in exactly the case nobody watches.
+ */
+fun wakeTimeoutMillis(durationMillis: Long): Long =
+    durationMillis + DelayAction.WAKE_MARGIN_MILLIS
+
+class DelayActionFactory(
+    private val scheduler: AlarmScheduler,
+    private val wake: WakeGuard,
+) : ActionFactory {
     override val type = DelayAction.TYPE
 
     override val displayName = "Wait"
@@ -155,14 +239,17 @@ class DelayActionFactory(private val scheduler: AlarmScheduler) : ActionFactory 
             "delay ends. If this rule fires again while it is waiting, two " +
             "runs never happen at the same time. But Trigly can only hold so " +
             "many waiting events. If a long wait lets too many pile up, " +
-            "Trigly drops some of them instead of running them all. A long " +
-            "wait can be off by a few minutes. If the app is killed while " +
+            "Trigly drops some of them instead of running them all. A wait of " +
+            "30 seconds or less is held to the second, with the screen off " +
+            "too. A longer wait can be off by a few minutes, because Android " +
+            "decides when to wake the phone for it. If the app is killed while " +
             "this action waits, the rest of the rule does not run, and " +
             "nothing retries it later. Turning off this rule cancels a wait " +
             "in progress."
 
     override fun create(config: Map<String, String>): Action = DelayAction(
         scheduler = scheduler,
+        wake = wake,
         durationMillis = delayDurationMillis(config[DelayAction.CONFIG_DURATION_MILLIS]),
     )
 }

@@ -12,10 +12,12 @@ import app.phueber.trigly.core.RuleRunnerHandle
 import app.phueber.trigly.core.RuleVariableStore
 import app.phueber.trigly.core.UiController
 import app.phueber.trigly.core.VariableStore
+import app.phueber.trigly.core.WakeGuard
 import app.phueber.trigly.core.storage.ruleRepository
 import app.phueber.trigly.core.storage.ruleVariableStore
 import app.phueber.trigly.core.storage.variableStore
 import app.phueber.trigly.triggers.AlarmManagerScheduler
+import app.phueber.trigly.triggers.PowerManagerWakeGuard
 import app.phueber.trigly.triggers.accessibility.ServiceUiController
 import app.phueber.trigly.triggers.notification.ListenerNotificationController
 import app.phueber.trigly.triggers.triggerFactories
@@ -112,6 +114,19 @@ class AppContainer(context: Context) {
     val scheduler: AlarmScheduler = AlarmManagerScheduler(context)
 
     /**
+     * Holds the CPU awake for a short `delay`, which is the one wait in this
+     * app that is accurate rather than durable. See
+     * `app.phueber.trigly.core.WakeGuard` and `DelayAction` for why the two
+     * halves of "wait" need different instruments, and why the short one
+     * must not go through [scheduler].
+     *
+     * Wired here for the same reason [scheduler] is: this is the one place
+     * that can see both the port in `:core` and its Android implementation in
+     * `:triggers`.
+     */
+    val wake: WakeGuard = PowerManagerWakeGuard(context)
+
+    /**
      * Where `run_rule` reaches the engine, before any engine exists.
      *
      * Declared here, before [registry], for the same reason [scheduler] is:
@@ -176,7 +191,7 @@ class AppContainer(context: Context) {
         triggerFactories = triggerFactories(context, scheduler, variableStore),
         actionFactories = actionFactories(
             context, scheduler, ruleRunner, notifications, ui, ruleRepository, variableStore,
-            ruleVariableStore,
+            ruleVariableStore, wake,
         ),
     )
 

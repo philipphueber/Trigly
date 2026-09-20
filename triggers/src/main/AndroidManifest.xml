@@ -20,6 +20,20 @@
         android:name="android.permission.BLUETOOTH"
         android:maxSdkVersion="30" />
 
+    <!--
+      Holding the CPU awake for a short wait, which is what makes a "wait 3
+      seconds" accurate on a locked phone. See PowerManagerWakeGuard and
+      DelayAction: a wait under half a minute is held rather than scheduled,
+      because the alarm path cannot be accurate at that length.
+
+      Normal protection level, so it is granted at install with no prompt, no
+      settings screen and nothing for a person to allow. Declared here beside
+      the code that uses it, the same as the permissions above; without the
+      declaration, acquiring the lock throws SecurityException at the moment a
+      rule is running, which is the worst place to find out.
+    -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <!-- Call state. The caller's number would additionally need READ_CALL_LOG,
          which Play restricts to default dialers; the call trigger deliberately
          does without it. -->

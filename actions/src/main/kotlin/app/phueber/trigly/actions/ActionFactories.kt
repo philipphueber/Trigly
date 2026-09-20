@@ -12,6 +12,7 @@ import app.phueber.trigly.core.RuleRunner
 import app.phueber.trigly.core.RuleVariableStore
 import app.phueber.trigly.core.UiController
 import app.phueber.trigly.core.VariableStore
+import app.phueber.trigly.core.WakeGuard
 
 /**
  * Every action type this module provides.
@@ -81,6 +82,15 @@ fun actionFactories(
      * build storage first.
      */
     ruleVariables: RuleVariableStore = InMemoryRuleVariableStore(),
+    /**
+     * Holds the CPU awake for a short `delay`; see [DelayAction]. Defaulted,
+     * unlike [scheduler] beside it, because [WakeGuard.None] is a real state
+     * rather than a stub that silently does nothing: a wait with no lock is
+     * exactly what this action did before the port existed, so an assembly
+     * point that forgets this one degrades to the old behaviour instead of
+     * failing to wait at all.
+     */
+    wake: WakeGuard = WakeGuard.None,
 ): List<ActionFactory> = listOf(
     // Tell the user something
     PostNotificationActionFactory(context),
@@ -102,7 +112,7 @@ fun actionFactories(
     AddCalendarEventActionFactory(context),
 
     // Timing
-    DelayActionFactory(scheduler),
+    DelayActionFactory(scheduler, wake),
 
     // Trigly's own rules
     SetRuleEnabledActionFactory(rules),

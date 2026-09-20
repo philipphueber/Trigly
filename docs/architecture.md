@@ -1402,9 +1402,38 @@ at once without mixing them together.
 
 #### Waiting inside a rule
 
-`delay` holds the rest of the rule for a set time, on the scheduler port's
-`waitFor` and never on a plain coroutine `delay`, which Doze can sleep straight
-through. The port's *durable* form is deliberately not used, and the reason is
+`delay` holds the rest of the rule for a set time, and it does that two
+different ways, because "wait" is two different problems at two different
+lengths.
+
+**A wait of thirty seconds or less holds the CPU and waits on a plain coroutine
+`delay`.** That sentence contradicts what this document said until 0.3.3, and
+the contradiction is the point: a bare `delay` is counted by a clock that stops
+when the device suspends, and a `delay` inside a `WakeGuard` span is not,
+because the span prevents the suspend. Two things were wrong with sending a
+short wait through the scheduler instead. The first is this codebase's own
+arithmetic: `AlarmManagerScheduler` asks for a window of a tenth of the wait
+with a five second floor, so a three second wait was scheduled as three to
+eight seconds with the screen on, before Doze was involved at all. The second
+is that `setWindow` is deferred by Doze, so the same wait could be held until
+the next maintenance window once a phone had been locked for a while. The exact
+alarm that would escape Doze is rate limited to about one firing per app per
+nine minutes when idle, which is the wrong instrument by two orders of
+magnitude, and it needs a permission this app does not ask for. A partial wake
+lock has none of those problems, and the thing it cannot do, survive the
+process dying, is something this action could never do anyway.
+
+Thirty seconds is where the scheduler's five second floor stops being an
+approximation and starts being most of the wait, and the boundary is inclusive
+because thirty is the round number a person types.
+
+**A wait longer than that stays on the scheduler port's `waitFor`.** Holding a
+phone's CPU for an hour would be a battery fault, and a few minutes of drift on
+an hour is a fair price. The action's warning states both halves, so the
+promise and its limit are where the rule is built rather than only here.
+
+The port's *durable* form is deliberately not used at either length, and the
+reason is
 worth stating because it looks like the safer choice. A durable wait works for
 `interval` and `solar` because a fresh collection after a killed process is a
 correct resumption: "the next occurrence" means the same thing either way. This
@@ -2004,8 +2033,19 @@ repair for a dead notification listener, so a `delay` there meant the repair
 for a dead listener was itself asleep in Doze. `docs/todo.md` names this T1 and
 puts it first in the backlog for that reason.
 
-`AlarmScheduler`, in `:core`, is the fix. `:core` may not depend on any Android
-type, so the port is kept to the shapes every one of the five callers needs:
+**The lesson from that is narrower than it sounds, and the narrower version
+matters.** What a `delay` cannot do is survive the device suspending. Beating a
+suspend has two answers, not one: tolerate it, which is an alarm, or prevent
+it, which is a wake lock. An alarm pays for its durability with a window, since
+every inexact alarm has one and this codebase floors that window at five
+seconds, so an alarm is the wrong answer for a wait of a few seconds. See
+"Waiting inside a rule" above, and `WakeGuard` in `:core`, which is the other
+half. The five callers here are all poll loops and wall-clock triggers, where
+durability is what matters and a few seconds of slack is free.
+
+`AlarmScheduler`, in `:core`, is the fix for those five. `:core` may not depend
+on any Android type, so the port is kept to the shapes every one of the five
+callers needs:
 `waitFor(durationMillis)`, a repeating wait counted from now, `waitUntil(atMillis)`,
 a wait until one wall-clock instant, and, since T17 below, a durable version of
 each. None of the four takes a separate cancel parameter. Every caller reaches

@@ -10,6 +10,17 @@ package app.phueber.trigly.core
  * waited that way, and one of them was the repair path for a dead
  * notification listener, so the repair was itself asleep in Doze.
  *
+ * **That is an argument against an unguarded `delay`, not against `delay`.**
+ * Stated without the qualifier, as it was here until 0.3.3, it reads as a
+ * rule that this port is always the answer to "wait", and it is not. What
+ * this port buys is surviving a suspend, and it pays for that with a window:
+ * every alarm it can ask for without an exact-alarm permission is inexact,
+ * and `AlarmManagerScheduler` floors its window at five seconds. For a wait
+ * of a few seconds that floor is most of the wait. The other way to beat a
+ * suspend is to prevent one, which is [WakeGuard], and under a wake lock a
+ * plain `delay` is not merely acceptable, it is the only option that is
+ * accurate. See `DelayAction`, which picks between the two by duration.
+ *
  * This interface is the fix's whole port. `:core` must not depend on any
  * Android type, so the contract is kept to the shapes every caller in this
  * codebase actually needs: a repeating wait counted from now, a wait until
