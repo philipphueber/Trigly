@@ -108,7 +108,7 @@ class ActionTypeStringsTest {
         // A guard that only checks equality would pass on an empty list too.
         // This pins the count so deleting a line reads as a failure, not as
         // one fewer thing to maintain.
-        assertEquals(30, pinned.size)
+        assertEquals(31, pinned.size)
     }
 
     /**
