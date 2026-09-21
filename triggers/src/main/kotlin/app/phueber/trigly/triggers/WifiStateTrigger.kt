@@ -47,8 +47,27 @@ class WifiStateTrigger(
         )
     }
 
-    // WifiManager answers directly what the broadcast can only report a change
-    // to — no need to wait for the next transition.
+    /**
+     * WifiManager answers directly what the broadcast can only report a change
+     * to, so a condition does not have to wait for the next transition.
+     *
+     * **The level needs a permission the edge does not: `ACCESS_WIFI_STATE`.**
+     * The broadcast is delivered to any receiver, so the trigger half worked
+     * with no permission line anywhere in the project. `isWifiEnabled` is a
+     * call into the Wi-Fi service, and without the permission the platform
+     * throws SecurityException. The `runCatching` below then turns the throw
+     * into `null`, and `null` does not hold (see `Trigger.currentlyHolds`), so
+     * a rule that checked the Wi-Fi radio could never fire and nothing on
+     * screen said why. The declaration is in this module's manifest, beside
+     * the reasoning.
+     *
+     * The permission is normal protection level: granted at install, with no
+     * dialog and nothing added to the install prompt.
+     *
+     * The `runCatching` stays. It is not what hid the fault, the missing
+     * declaration was, and a Wi-Fi service that refuses for some other reason
+     * must still read as unknown rather than as "the radio is off".
+     */
     override suspend fun currentlyHolds(): Boolean? = runCatching {
         appContext.getSystemService(WifiManager::class.java)?.isWifiEnabled
     }.getOrNull()?.let { it == onEnabled }

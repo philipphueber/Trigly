@@ -476,6 +476,44 @@ One trigger had to grow a config field to have a passive form at all:
 installed" had no subject. It gained an optional package filter, blank meaning the
 old any-app behaviour, so existing rules are untouched.
 
+## A level can need a permission its edge does not
+
+`supportsCondition = true` is a promise that the component can answer, and
+answering can cost more than watching. `wifi_state` is the case that proved it.
+Its events arrive from `WIFI_STATE_CHANGED_ACTION`, which the platform delivers
+to any receiver. Its level reads `WifiManager.isWifiEnabled`, which is a call
+into the Wi-Fi service and needs `ACCESS_WIFI_STATE`. No module declared that
+permission, so the call threw, the `runCatching` in `currentlyHolds` turned the
+throw into `null`, and `null` does not hold. The component worked as a trigger
+and could never hold as a check.
+
+So the honesty pairing on `TriggerFactory.supportsCondition` has a second half:
+a factory that says true must also make sure the app *holds what the level
+read needs*. The edge's requirements are not automatically the level's. Where
+they differ, say so beside the permission in the manifest and in the trigger's
+own KDoc, because the two roles are read in different places by different
+people.
+
+### One leaf that cannot answer stops the whole rule
+
+This is the part that cost the most time, and it is a property of the model
+rather than a bug in it. `TriggerNode.holds` drops the event when any leaf of
+an `ALL` group answers unknown. The leaf that *fired* is not the leaf that
+failed, and a person watching the rule sees the component they touched do
+nothing.
+
+The Wi-Fi permission arrived as a report about two components: the Wi-Fi radio,
+and the charger. There was nothing wrong with the charger. The rule was "when
+the charger is plugged in, and the Wi-Fi radio is on": the charger fired every
+time, the Wi-Fi leaf could not answer, and the rule was dropped. One missing
+permission, two components that looked broken.
+
+`onSuppressed` and the trigger trace already name the leaf that could not
+answer, which is exactly why they exist. The lesson for reading a report is the
+other direction: **a component that "does nothing" may be the one that works.**
+Ask what is beside it in the tree before looking inside it.
+`QueryModeOnDeviceTest` holds both halves of that report as one test.
+
 ## Where this stands
 
 The pieces below `:core` are built and tested against the model in this
