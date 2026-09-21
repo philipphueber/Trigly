@@ -101,9 +101,14 @@ private fun findLabelled(node: UiNode, wanted: String): UiNode? {
  *
  * Pure, because the interesting part is this rule and not the two framework
  * calls that feed it.
+ *
+ * The rule itself is [canDriveTheScreen], which the Home action asks for its
+ * own reasons. The two callers keep their own names, because what each one
+ * cannot do while locked is different. They share the decision, because the
+ * decision is the same and two copies of it could drift apart.
  */
 fun canPressThroughShade(keyguardLocked: Boolean, deviceSecure: Boolean): Boolean =
-    !(keyguardLocked && deviceSecure)
+    canDriveTheScreen(keyguardLocked, deviceSecure)
 
 /**
  * Presses things the notification API cannot reach.

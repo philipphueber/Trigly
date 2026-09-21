@@ -3,6 +3,7 @@ package app.phueber.trigly.actions
 import android.content.Context
 import app.phueber.trigly.core.ActionFactory
 import app.phueber.trigly.core.AlarmScheduler
+import app.phueber.trigly.core.ForegroundAppController
 import app.phueber.trigly.core.InMemoryRuleRepository
 import app.phueber.trigly.core.InMemoryVariableStore
 import app.phueber.trigly.core.NotificationController
@@ -62,6 +63,13 @@ fun actionFactories(
      */
     ui: UiController = UiController.Unavailable,
     /**
+     * The accessibility service again, through the other port it backs: which
+     * app is in front, and the Home key. Same source and same default as [ui],
+     * and a separate port because it answers a different question. See
+     * [ForegroundAppController] for why the two are not one wide screen port.
+     */
+    foreground: ForegroundAppController = ForegroundAppController.Unavailable,
+    /**
      * The rule store, for the one action whose subject is Trigly itself. The
      * same instance the engine reads, or the switch it writes would take effect
      * on nothing.
@@ -105,6 +113,9 @@ fun actionFactories(
     // Open something
     OpenUrlActionFactory(context),
     OpenAppActionFactory(context),
+
+    // Drive the screen, via the accessibility service
+    SoftCloseAppActionFactory(foreground),
 
     // Hand off to another app, user confirms
     ComposeEmailActionFactory(context),
