@@ -67,6 +67,7 @@ class ActionTypeStringsTest {
 
         // Device state
         "set_volume" to SetVolumeAction.TYPE,
+        "get_volume" to GetVolumeAction.TYPE,
         "set_ringer_mode" to SetRingerModeAction.TYPE,
         "set_clipboard" to ClipboardWriteAction.TYPE,
         "flashlight" to FlashlightAction.TYPE,
@@ -104,7 +105,7 @@ class ActionTypeStringsTest {
         // A guard that only checks equality would pass on an empty list too.
         // This pins the count so deleting a line reads as a failure, not as
         // one fewer thing to maintain.
-        assertEquals(29, pinned.size)
+        assertEquals(30, pinned.size)
     }
 
     /**

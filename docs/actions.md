@@ -103,6 +103,7 @@ the tap start the activity: worse automation, but honest about who decided.
 | Set an alarm | `set_alarm` | Display over other apps, to work in the background |
 | Add a calendar event | `add_calendar_event` | Display over other apps, to work in the background (user confirms) |
 | Set stream volume | `set_volume` | None (silencing needs DND access) |
+| Read a stream's volume | `get_volume` | None |
 | Set ringer mode | `set_ringer_mode` | Do Not Disturb access |
 | Copy text to clipboard | `set_clipboard` | None |
 | Turn a rule on or off | `set_rule_enabled` | None |
@@ -156,6 +157,63 @@ Design lines held deliberately:
   that needed fixing: `MediaPlayer.prepare()` blocks the calling thread with
   no bound of its own, so both now wait on `prepareAsync()` instead, behind a
   fifteen-second timeout that can actually cancel it.
+
+### Reading a volume, next to setting one
+
+`get_volume` is the read half of `set_volume`. It reads one stream now and
+stores the level as a percent, in a variable the person names. The pair makes
+"save the volume, change it, put it back later" possible, which nothing in the
+list could do before: a rule could set a level, and it could not learn one.
+
+**The two actions share one list of streams.** Both build their picker from
+`VolumeStream`, so "media" means the same stream and shows the same words in
+both. Two lists would drift, and the person meets both actions in the same rule.
+
+**The unit is a percent, for the reason `set_volume` uses one.** The number of
+steps differs by stream and by phone. An index of 7 says nothing a rule could
+compare, and nothing that stays true on the next device.
+
+**The percent is measured across the usable span, `max - min`.** Android reports
+a minimum per stream and it is not always zero. A stream whose minimum is step 1
+of 15 is as quiet as it can go at step 1, and a percent of the raw maximum would
+call that 7%. A rule that tests for 0 would then never be true, and nothing on
+screen would say why. `AudioManager.getStreamMinVolume` is API 28 and this
+project's minimum is API 26, so the minimum is read only from API 28 and reads
+as zero below it. That is the honest answer for those releases: an app had no
+way to ask, and the streams offered here all start at zero on them.
+
+**Rounded to the nearest whole percent, with a half going up.** Nearest keeps
+the largest error at half a step. Half going up is `Math.round`, which is what
+`volumeIndexFor` uses in the other direction, so both actions round the same way
+and a set followed by a read gives back the number that was asked for wherever a
+step exists for it.
+
+**A stream that cannot be read fails, and writes nothing.** Three cases reach
+that: no audio service, a maximum of zero or a maximum equal to the minimum, and
+a call that throws because the audio service died. A silent 0 or a silent 100
+would be a number a rule acts on, and a stale value left from an earlier run
+looks exactly like a fresh one.
+
+**The value is bare digits, such as `40`.** No percent sign and no decimals, so
+a rule compares a number with a number. The field help says this where the
+person names the variable, because that is the person who later writes the
+comparison.
+
+What it cannot do:
+
+- **One scope.** The value goes to the rule's own scope and is read back as
+  `{{mine.name}}`. There is no scope field. The value belongs to one rule, it
+  has to survive the run for the save-and-restore pair, and the shared app scope
+  would invite two rules to pick the same name.
+- **The four streams `set_volume` offers**, and no more. Adding one is adding an
+  entry to `VolumeStream`, and both actions get it.
+- **The round trip is not exact on a stream whose minimum is above zero.**
+  `set_volume` maps a percent onto the raw maximum and lets the platform clamp
+  the bottom, while this reads across the span. The two agree at the top, at the
+  bottom and in the middle, and they can differ by a few points between. Every
+  stream in the list reports a minimum of zero on the devices checked so far.
+  Changing the set side is a change to an action that is released and works, so
+  it is left as it is until a device shows the difference.
 
 ### The flashlight, and what it costs to have no toggle
 

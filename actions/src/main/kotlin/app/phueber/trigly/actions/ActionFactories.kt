@@ -122,6 +122,7 @@ fun actionFactories(
 
     // Device state
     SetVolumeActionFactory(context),
+    GetVolumeActionFactory(AudioManagerVolumeLevels(context), ruleVariables),
     SetRingerModeActionFactory(context),
     ClipboardWriteActionFactory(context),
     FlashlightActionFactory(Camera2Torch(context)),

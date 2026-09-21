@@ -100,7 +100,7 @@ where it happens instead.
 | App   | Until changed or removed | A `set_variable` action, or the user | Yes |
 | Action | The rest of one rule run | An action that declares an output | No |
 | Run | One firing, the whole `run_rule` chain included | A `set_variable` action | No |
-| Rule | Until changed or removed | A `set_variable` action, for one rule only | Yes |
+| Rule | Until changed or removed | A `set_variable` or `get_volume` action, for one rule only | Yes |
 
 **Event scope** is the trigger payload, named and declared.
 
