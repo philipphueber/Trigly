@@ -34,6 +34,27 @@
     -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!--
+      The Wi-Fi radio, and this line is about the *condition* half of
+      `wifi_state`, not about its events. The broadcast needs nothing:
+      `WIFI_STATE_CHANGED_ACTION` is delivered to any receiver. Asking
+      `WifiManager.isWifiEnabled` is a different operation, and the platform
+      refuses it without this permission: it throws SecurityException, the
+      `runCatching` in `WifiStateTrigger.currentlyHolds` turns the throw into
+      `null`, and `null` does not hold. So a rule that used the Wi-Fi radio as
+      a check could never fire, while the same component used as a trigger
+      kept working. See `WifiStateTrigger.currentlyHolds`.
+
+      Normal protection level, the same as WAKE_LOCK below. Android grants it
+      at install, there is no dialog, there is no settings screen, and nothing
+      is added to the install prompt. It is safe to hold: it reads whether the
+      radio is on, and nothing about networks, scans or position. The
+      permissions that do read those (ACCESS_FINE_LOCATION for a scan result
+      or an SSID) stay separate and are already declared below for the
+      components that need them.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+
     <!-- Call state. The caller's number would additionally need READ_CALL_LOG,
          which Play restricts to default dialers; the call trigger deliberately
          does without it. -->

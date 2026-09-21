@@ -76,7 +76,7 @@ system settings reports nothing back to the app.
 | Battery temperature | `battery_temperature` | `ACTION_BATTERY_CHANGED` | None |
 | Power connected/disconnected | `power_connection` | `ACTION_POWER_CONNECTED`/`_DISCONNECTED` | None |
 | Airplane mode | `airplane_mode` | `ACTION_AIRPLANE_MODE_CHANGED` | None |
-| Wi-Fi radio on/off | `wifi_state` | `WIFI_STATE_CHANGED_ACTION` | None |
+| Wi-Fi radio on/off | `wifi_state` | `WIFI_STATE_CHANGED_ACTION` | `ACCESS_WIFI_STATE` for the *condition* only; the broadcast needs none |
 | Bluetooth radio on/off | `bluetooth_adapter_state` | `BluetoothAdapter.ACTION_STATE_CHANGED` | `BLUETOOTH_CONNECT` (API 31+) |
 | Bluetooth device connects/disconnects | `bluetooth_connected` | `ACTION_ACL_CONNECTED`/`_DISCONNECTED`, via `BluetoothEvents` | `BLUETOOTH_CONNECT` (API 31+) to receive the broadcast at all |
 | NFC on/off | `nfc_state` | `android.nfc.action.ADAPTER_STATE_CHANGED` | feature `android.hardware.nfc` |
@@ -113,6 +113,18 @@ Three ways a trigger reads its own level:
 - **A manager.** Wi-Fi, Bluetooth adapter, NFC, GPS provider, airplane mode,
   auto-sync, dark theme, orientation, screen (`PowerManager.isInteractive`, since
   `ACTION_SCREEN_ON` has no sticky form).
+
+**A manager can need a permission the broadcast does not, and `wifi_state` is
+the one that did.** The broadcast is delivered to any receiver, so the trigger
+half worked with no permission line anywhere in the project.
+`WifiManager.isWifiEnabled` is a call into the Wi-Fi service and needs
+`ACCESS_WIFI_STATE`; without it the call throws, the `runCatching` in
+`currentlyHolds` turns the throw into `null`, and a rule that checked the Wi-Fi
+radio could never fire. The permission is declared in `:triggers`' manifest now.
+It is normal protection level, so Android grants it at install with no dialog
+and nothing added to the install prompt. Read the whole table's Requirement
+column as "what the events need"; a level that needs more says so in its own
+row.
 - **A live read of something else's state.** The notification triggers ask the
   listener for what is posted now; `screen_content` walks the accessibility tree;
   `solar` computes both of today's bounds and answers "is it light"; `location`
