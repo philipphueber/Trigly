@@ -15,6 +15,19 @@ internal object ActionCategory {
     const val NOTIFICATIONS = "Other apps' notifications"
 
     /**
+     * Actions that drive the screen through the accessibility service, the way
+     * a person's finger would. The action half of the `Screen content` trigger
+     * group.
+     *
+     * Kept apart from [OPEN] on purpose, although both are about apps. "Open
+     * something" starts a thing the person then looks at. This group changes
+     * what is already on screen, needs the most invasive grant Android has, and
+     * does nothing at all when that grant is off. A person deciding whether to
+     * turn accessibility access on should see those actions together.
+     */
+    const val SCREEN = "The screen"
+
+    /**
      * Actions whose subject is Trigly itself rather than the device. Kept
      * separate because "turn a rule off" belongs with neither the settings it
      * does not touch nor the apps it does not reach.

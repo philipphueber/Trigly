@@ -51,6 +51,9 @@ class ActionTypeStringsTest {
         "open_url" to OpenUrlAction.TYPE,
         "open_app" to OpenAppAction.TYPE,
 
+        // Drive the screen, via the accessibility service
+        "soft_close_app" to SoftCloseAppAction.TYPE,
+
         // Hand off to another app, user confirms
         "compose_email" to ComposeEmailAction.TYPE,
         "compose_sms" to ComposeSmsAction.TYPE,
@@ -104,7 +107,7 @@ class ActionTypeStringsTest {
         // A guard that only checks equality would pass on an empty list too.
         // This pins the count so deleting a line reads as a failure, not as
         // one fewer thing to maintain.
-        assertEquals(29, pinned.size)
+        assertEquals(30, pinned.size)
     }
 
     /**
