@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import app.phueber.trigly.actions.actionFactories
 import app.phueber.trigly.core.AlarmScheduler
+import app.phueber.trigly.core.ForegroundAppController
 import app.phueber.trigly.core.NotificationController
 import app.phueber.trigly.core.Registry
 import app.phueber.trigly.core.RequirementChecker
@@ -18,6 +19,7 @@ import app.phueber.trigly.core.storage.ruleVariableStore
 import app.phueber.trigly.core.storage.variableStore
 import app.phueber.trigly.triggers.AlarmManagerScheduler
 import app.phueber.trigly.triggers.PowerManagerWakeGuard
+import app.phueber.trigly.triggers.accessibility.ServiceForegroundAppController
 import app.phueber.trigly.triggers.accessibility.ServiceUiController
 import app.phueber.trigly.triggers.notification.ListenerNotificationController
 import app.phueber.trigly.triggers.triggerFactories
@@ -101,6 +103,18 @@ class AppContainer(context: Context) {
      * service does nothing until the user enables it in system settings.
      */
     val ui: UiController = ServiceUiController()
+
+    /**
+     * The second adapter to the same accessibility service, wired here for the
+     * same reason [ui] is.
+     *
+     * A separate port rather than two more methods on [ui]: that one presses a
+     * notification button, this one says which app is in front and sends it
+     * back. See `app.phueber.trigly.core.ForegroundAppController`. Constructing
+     * it is free and grants nothing, and the service does nothing until the
+     * user turns it on in system settings.
+     */
+    val foreground: ForegroundAppController = ServiceForegroundAppController()
 
     /**
      * The wake-up every wall-clock or poll-based trigger waits through
@@ -190,8 +204,8 @@ class AppContainer(context: Context) {
     val registry: Registry = Registry(
         triggerFactories = triggerFactories(context, scheduler, variableStore),
         actionFactories = actionFactories(
-            context, scheduler, ruleRunner, notifications, ui, ruleRepository, variableStore,
-            ruleVariableStore, wake,
+            context, scheduler, ruleRunner, notifications, ui, foreground, ruleRepository,
+            variableStore, ruleVariableStore, wake,
         ),
     )
 

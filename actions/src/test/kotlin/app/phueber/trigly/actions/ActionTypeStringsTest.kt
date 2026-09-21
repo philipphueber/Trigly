@@ -51,6 +51,9 @@ class ActionTypeStringsTest {
         "open_url" to OpenUrlAction.TYPE,
         "open_app" to OpenAppAction.TYPE,
 
+        // Drive the screen, via the accessibility service
+        "soft_close_app" to SoftCloseAppAction.TYPE,
+
         // Hand off to another app, user confirms
         "compose_email" to ComposeEmailAction.TYPE,
         "compose_sms" to ComposeSmsAction.TYPE,
