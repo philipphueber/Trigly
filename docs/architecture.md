@@ -2316,6 +2316,26 @@ rather than exposing nodes, and the decision inside it that is easy to get wrong
 (which node a press should land on) is a pure function in `:core` with tests, not
 something only observable by watching a phone.
 
+**A second question about the screen is a second port, not a wider one.**
+`ForegroundAppController` says which app is in front and sends the front app
+back with the Home key, for `soft_close_app`. It is deliberately not two more
+methods on `UiController`. That port's whole claim is that it takes one
+intent-shaped request and exposes no nodes, and a port that also answered "what
+is on screen right now" would no longer be able to say that. Two narrow ports
+each name their own job; one wide screen port would name only the permission.
+The module boundary does not move: both are interfaces in `:core`, both are
+implemented in `:triggers` over the same bound service, and `:ui` wires both.
+
+The shared fact needs one owner, and it has one. Both ports report `isConnected`
+from the same service reference, and `ControllerLivenessProbe` keeps asking
+`UiController` for `ACCESSIBILITY_SERVICE`. Two probes of one service could
+disagree, and there is nothing for a second answer to add.
+
+The locked-phone rule has one owner too. `canDriveTheScreen` is the pure
+function, and `canPressThroughShade` delegates to it. The two callers keep their
+own names, because what each one cannot do behind a keyguard is different, but
+the decision is the same one and two copies of it would drift apart.
+
 **An event that arrives before the engine exists needs a record, not a listener.**
 `BootEvents` is the one case: `BOOT_COMPLETED` is what starts the engine, so no
 trigger can be registered in time to hear it, and `device_restart` would be a

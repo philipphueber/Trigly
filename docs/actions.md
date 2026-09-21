@@ -98,6 +98,7 @@ the tap start the activity: worse automation, but honest about who decided.
 | Play an alert sound | `play_alert` | None (storage access only for a `file:` custom sound; notification access only for "stop when the notification goes away") |
 | Open a website | `open_url` | Display over other apps, to work in the background |
 | Open an app | `open_app` | Display over other apps, to work in the background (and see package visibility below) |
+| Send an app to the background | `soft_close_app` | Accessibility access |
 | Compose an email | `compose_email` | Display over other apps, to work in the background (user confirms) |
 | Compose an SMS | `compose_sms` | Display over other apps, to work in the background (user confirms) |
 | Set an alarm | `set_alarm` | Display over other apps, to work in the background |
@@ -434,6 +435,106 @@ bypass 3**, and the difference matters: if the app never created
 then `actions` is *empty*. There is no `PendingIntent` anywhere for those buttons.
 No amount of cleverness in the listener reaches them, because the thing to send
 does not exist. Blitzer.de's "MELDEN" / "BEENDEN" is this case.
+
+### Sending an app to the background, which is not closing it
+
+`soft_close_app` takes one app and presses Home when that app is the one in
+front. `performGlobalAction(GLOBAL_ACTION_HOME)` is the whole mechanism.
+
+**The name promises more than Android allows, so the app says the limit three
+times.** In the field help, in the block warning, and in the KDoc. The app is
+not stopped. It keeps running and keeps its place. There is no stronger version
+to build later: `killBackgroundProcesses` needs a restricted permission and the
+system starts again what it kills, and a force stop is a settings screen only
+the user can drive. Somebody who builds "close the game at bedtime" and is not
+told this reads a working action as broken.
+
+**It acts only on the front app, and that is the Home key's own shape.** Home
+acts on whatever is in front and cannot name an app. So the action reads the
+front app first and stops when it is a different one. Pressing Home anyway would
+send away whatever the person happened to be using, which is the worst thing
+this action could do.
+
+That "did nothing" outcome is a **success**, not a failure, and it carries two
+outputs: `sentBack` is `yes` or `no`, and `foreground` is the package that was
+in front. A rule that fires many times a day and acts on a few of them is the
+ordinary case, so a failure there would make every normal run read as broken.
+The outputs are what keeps the rule trace honest about which branch ran. The two
+real failures are separate from each other on purpose: "the accessibility
+service is off" is fixed in settings, and "Trigly could not read the screen"
+usually means the screen is off and fixes itself.
+
+**The locked phone was settled before the port was written, and it needs no
+branch of its own.** The lock screen is a window in front of everything, so a
+locked phone reports the lock screen as the front app, the chosen app is not in
+front, and the action reports `sentBack = no`. That is correct: an app behind
+the lock screen is already out of sight. The port refuses a Home press on a
+securely locked phone as well, for the moment when the phone locks between the
+read and the press. This matters because the platform's own answer is useless
+there: `performGlobalAction` returns true while the lock screen takes the key,
+so trusting it would report a success that did not happen. `canDriveTheScreen`
+holds that rule, `canPressThroughShade` delegates to it, and a phone with no
+secure lock is still tried, because refusing there would report "locked" to
+somebody who set no lock.
+
+**The port.** `ForegroundAppController` in `:core`, implemented by
+`ServiceForegroundAppController` in `:triggers`, wired in `:ui`. The same path
+`NotificationController` took, for the same reason: the accessibility service
+lives in `:triggers` and the action lives in `:actions`, which must not depend on
+it. It is a second port beside `UiController` rather than two more methods on
+it. `UiController` takes one intent-shaped request, "press this label in the
+shade", and exposes no nodes; this one answers "what is in front" and "send it
+back". Two narrow ports each say what they are for, and keeping the accessibility
+surface narrow is the point. Both read the same bound service, and
+`ControllerLivenessProbe` still asks `UiController` about it, because two probes
+of one service could disagree.
+
+**Which app is in front comes from the live window list**, the same source
+`UiEventTrigger.currentlyHolds` already reads. The event bus was the wrong
+source: it carries edges, and an action runs at a different moment from the edge.
+The read filters to `TYPE_APPLICATION` windows, which is what keeps it from
+naming the keyboard while somebody types, and prefers the active window, then the
+focused one. Split screen has no single answer: two apps are in front and the
+port names one of them. Package visibility does not limit this at all, unlike
+`open_app`, because nothing asks `PackageManager` anything. The action compares
+one string against the window's package, so an app with no launcher icon works
+even though the picker cannot list it.
+
+**What it cost to test, and the two walls that cost the time.** The action's
+branches are JVM tests against a fake port. Whether the port tells the truth is
+`ForegroundAppOnDeviceTest`, and it also measures the process id before and after
+to prove the app really does keep running. Turning the service on from a test ran
+into two things that both fail silently:
+
+1. **Android 13's restricted setting.** An app that did not come from an app
+   store cannot be given accessibility access until the `ACCESS_RESTRICTED_SETTINGS`
+   app-op is allowed. Without it `settings put secure enabled_accessibility_services`
+   is accepted and then wiped a moment later, with nothing in the log. The same
+   wall meets a real person who sideloads Trigly: the switch appears to do
+   nothing, and they must clear the restriction by hand in the app info screen.
+   This belongs in the install instructions.
+2. **`UiAutomation` is itself an accessibility service, and by default it turns
+   every other one off.** A test that takes the ordinary `uiAutomation` to run a
+   shell command therefore suppresses the service it is testing. The setting
+   reads as enabled, `Bound services` stays empty, and the only trace is one
+   `UiAutomationManager` line about registering the test automation service. The
+   fix is `Instrumentation.getUiAutomation(FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)`,
+   taken once and used for every shell call. Any future test of an accessibility
+   feature needs this, which is why it is written here and not only in that file.
+
+### What accessibility access costs to publish
+
+Google restricts the accessibility APIs on Play to genuine accessibility
+purposes, and automation apps have been removed for using them for automation.
+Simulating input draws the most scrutiny of all. The owner has asked for
+`soft_close_app` anyway, so it is built, and **the distribution decision is still
+open**: it is not settled by this action existing. The release notes and the Play
+listing both need this paragraph. Either the Play build ships without the
+accessibility triggers and actions, or Trigly is distributed outside Play, or the
+listing argues the accessibility case and may lose. Nothing in the code depends
+on which way that goes: the accessibility components declare
+`SpecialAccessKind.ACCESSIBILITY_SERVICE` and the app is usable with the grant
+turned off, so removing them from one build is a change to a factory list.
 
 ### Keeping a button for later
 
@@ -1029,15 +1130,17 @@ work a pattern may do.
 
 ## Tier 2: remaining
 
-### Accessibility service
-The service already exists for triggers; these are the *action* half.
-`dispatchGesture` simulates taps and swipes; `performGlobalAction` covers back,
-home, recents, notification shade, and screen lock;
-`AccessibilityNodeInfo.performAction` clicks a found node.
+### Accessibility service: the rest of it
 
-Same Play policy caveat as the triggers: Google restricts accessibility-API use
-to genuine accessibility purposes. Simulating input is the most likely thing to
-draw scrutiny. Distribution decision first.
+Two of these are built. `notification_button`'s screen fallback presses a button
+in the rendered shade, and `soft_close_app` presses Home. Both have their own
+sections above. What is still on the list is the wider input surface:
+`dispatchGesture` simulates taps and swipes, `performGlobalAction` also covers
+back, recents and screen lock, and `AccessibilityNodeInfo.performAction` clicks
+any found node.
+
+Simulating input is the most likely part to draw Play scrutiny, so the policy
+paragraph below applies to it most of all.
 
 *Screen unlock* is not available at all: `GLOBAL_ACTION_LOCK_SCREEN` locks; there
 is no unlock. A keyguard dismissal only works from a visible activity via
@@ -1169,4 +1272,5 @@ and far more realistic option for rejecting calls.
    missing is a window that draws something.
 4. Conditions and payload substitution, per `docs/conditions.md` and
    `docs/variables.md`.
-5. Accessibility actions and call roles, after the distribution decision.
+5. The rest of the accessibility actions, and call roles. The distribution
+   decision is still open; see "What accessibility access costs to publish".
