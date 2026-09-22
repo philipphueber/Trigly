@@ -216,6 +216,53 @@ What it cannot do:
   Changing the set side is a change to an action that is released and works, so
   it is left as it is until a device shows the difference.
 
+### A level the rule works out
+
+`set_volume` takes its level from one of two places, and a choice field picks
+which. "a level I set" shows the slider, which is what this action always had.
+"a value from the rule" shows a box that holds a variable or a sum, such as
+`{{mine.volume}}` or `{{mine.volume}} - 20`. This completes the
+save-and-restore pair with `get_volume`: a rule can read a level, change it,
+and put it back.
+
+**One field at a time, never both.** `ConfigField.shownWhen` hides the field
+the choice does not use. Two boxes that can disagree need a rule for which one
+wins, and nobody can guess that rule from the screen. `set_variable` pairs a
+mode with a value field in the same way.
+
+**A rule saved before this keeps working, and needs no re-save.** Those rules
+hold a `percent` and no `source` key. An absent source reads as "a level I
+set", so the slider value is used exactly as before. A source this build does
+not know is refused instead, because it comes from a newer build: reading it
+as the slider would set a level nobody asked for, and a wrong volume is worse
+than a rule that says it cannot run.
+
+**The level is parsed when the rule runs, not when it is built.** The text
+still holds `{{...}}` when the rule starts, and the engine fills those
+references in as each event arrives. A parse in the factory would refuse the
+raw text and stop the rule from starting at all. `volumePercentFor` is where
+the parse and the clamp live, and its KDoc holds the reasoning.
+
+**The box holds an expression**, the same language `set_variable`'s compute
+mode and `run_rule`'s "only if" run. A plain variable is already a valid
+expression, so one box covers both, and nobody has to know which kind they
+typed.
+
+What each value that is not a level reports:
+
+| The value | What happens |
+|---|---|
+| Empty, or a variable that holds nothing | The action fails and the volume stays as it is. A silent 0 would set the phone to silent, which is a real setting nobody asked for. |
+| Text that is not a number, such as `high` | The action fails, and the reason names what it found. |
+| Source that does not parse, such as `50%` | The action fails, with the evaluator's own reason. |
+| A number above 100 or below 0 | Clamped to the nearest end, and set. |
+| A number with decimals | Rounded to the nearest whole percent, half up. |
+
+**A clamp and not a failure for a number outside the range**, because that is
+arithmetic that ran off the end: `{{mine.volume}} + 20` at 90 means "as loud as
+it goes". The slider path clamps in `volumeIndexFor` and always has, so the two
+sources cannot answer differently.
+
 ### The flashlight, and what it costs to have no toggle
 
 Two actions, `flashlight` and `flashlight_blink`, over
