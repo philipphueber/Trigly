@@ -192,15 +192,21 @@ inside a "compute it" action, and let the actions below it read what it wrote.
 
 ## Computing a value
 
-### The two fields that run one
+### The three fields that run one
 
-Two fields in the whole app evaluate an expression, and they do different things
-with the answer.
+Three fields in the whole app evaluate an expression, and they do different
+things with the answer.
 
 | Field | The answer is | A failure |
 | --- | --- | --- |
 | "Set a variable", value, mode "compute it" | stored, as text | fails the action, and writes nothing |
 | "Run another rule", "only if" | the word `true` runs the rule, anything else does not | fails the action |
+| "Set the volume", "Set to", level "a value from the rule" | a number from 0 to 100, set on the stream | fails the action, and the volume stays as it is |
+
+The volume field wants a number. A result outside 0 to 100 goes to the nearest
+end, and a result with decimals rounds to the nearest whole percent. A result
+that is not a number at all fails the action, and `docs/actions.md` has the
+table of what each case reports.
 
 The "only if" field wants a true or false and compares the formatted result
 against the exact word `true`. `false`, a number and a piece of text all mean
@@ -209,14 +215,16 @@ against the exact word `true`. `false`, a number and a piece of text all mean
 always runs. An expression that cannot be worked out is the separate case, and
 it fails the action with the reason.
 
-Everything below applies to both fields.
+Everything below applies to all three fields.
 
 ### The editor draws it as code
 
-Both fields colour what you type, and only while the field is set to run it.
-"Set a variable" shows an ordinary text box until you choose the mode "compute
-it". The colour is the signal that the box stopped holding text and started
-holding code: from that moment a stray word in it is a failure, not a word.
+Each of these fields colours what you type, and only while the field is set to
+run it. "Set a variable" shows an ordinary text box until you choose the mode
+"compute it", and "Set the volume" shows a slider until you choose the level "a
+value from the rule". The colour is the signal that the box stopped holding
+text and started holding code: from that moment a stray word in it is a
+failure, not a word.
 
 Each part gets its own colour:
 
@@ -575,5 +583,6 @@ carry a fallback, because step 1 resolves both whatever `and` decides:
 | The colours in the editor | `ui/.../ExpressionHighlight.kt` |
 | Writing, and the four modes | `actions/.../SetVariableAction.kt` |
 | The "only if" field, and what `true` means there | `actions/.../RunRuleAction.kt` |
+| The volume level, and where it is parsed and clamped | `actions/.../AudioActions.kt` |
 | The condition and its seven comparisons | `triggers/.../VariableCheck.kt` |
 | Names, and what a name may hold | `core/.../VariableStore.kt` |
