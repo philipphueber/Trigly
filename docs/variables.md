@@ -477,8 +477,9 @@ Arithmetic, comparison, string functions, date formats.
 
 - **Built as a closed grammar, not as a script.** `docs/actions.md` weighed a
   scripting model and recommended against it, and that recommendation still
-  holds, because what landed is not one. `set_variable` gained an evaluate mode
-  and `run_rule` gained an "only if" condition. Both run the language in
+  holds, because what landed is not one. `set_variable` gained an evaluate mode,
+  `run_rule` gained an "only if" condition, and `set_volume` gained a level it
+  works out while the rule runs. All three run the language in
   `core/Expression.kt`, which has no variables of its own, no loops, no
   functions a person can define, and no call that reads or writes anything
   outside the string it is given. Six functions, each one fixed and reviewed.
@@ -575,6 +576,7 @@ the same value needs different treatment depending on where it lands.
 | a `TextPattern` in regex mode | `REGEX_QUOTE` |
 | `set_variable.value` in evaluate mode | `EXPRESSION` |
 | `run_rule.condition` | `EXPRESSION` |
+| `set_volume.level`, while the level comes from the rule | `EXPRESSION` |
 
 `http_request.body` is the first case where the encoding depends on a sibling
 field. `FieldCondition` already models "this field depends on a sibling", so the
@@ -584,6 +586,13 @@ the body as `TEXT` and say in its help text that a variable is inserted raw.
 `set_variable.value` is the second such case, and it works the same way: the
 factory reads the mode and answers `EXPRESSION` for evaluate and `TEXT` for
 every other mode.
+
+`set_volume.level` is the third, and it drops the key instead of narrowing it.
+A rule that used that box and then went back to the slider keeps the text it
+typed, and a reference in that text would still be resolved on every firing. A
+name that no longer exists would then refuse an action whose level does not
+even come from there. So the factory declares the key only while the source
+field asks for it.
 
 **`EXPRESSION` is also the one encoding that breaks the single-reference
 exemption.** A field whose whole value is one reference is normally handed over
