@@ -716,7 +716,7 @@ class TriggerEngine(
         firedPath: NodePath,
         triggersBySpec: Map<ComponentSpec, Trigger>,
     ): ResolvedHolds {
-        val reader = StateReader(triggersBySpec)
+        val reader = StateReader(triggersBySpec, registry::supportsCondition)
         var lastTrace: TriggerTrace? = null
 
         val held = withTimeoutOrNull(UNREADABLE_TOTAL_BUDGET_MILLIS) {
@@ -807,7 +807,10 @@ class TriggerEngine(
      * so a component the evaluation never reached is not something that failed
      * to answer.
      */
-    private class StateReader(private val triggersBySpec: Map<ComponentSpec, Trigger>) {
+    private class StateReader(
+        private val triggersBySpec: Map<ComponentSpec, Trigger>,
+        private val hasState: (type: String) -> Boolean,
+    ) {
 
         /**
          * The latest answer from each leaf this evaluation has asked, where a
@@ -862,8 +865,19 @@ class TriggerEngine(
             } catch (t: Throwable) {
                 null
             }
-            answers[spec] = answer
-            return answer
+            // A pure edge, asked as a level because a sibling fired. Its null
+            // is structural, not a read that missed, so retrying it cannot
+            // help and reporting it accuses a rule that works.
+            // `ALL(time_of_day, wifi)` is the case that showed it: each Wi-Fi
+            // change asked the clock for a state it never has, and the rule
+            // said "Last run stopped" after every correct run at the set time.
+            // The honest answer is a definite no, because the instant that
+            // edge stands for is not now: this event came from another leaf.
+            // Only a null is changed. A leaf that does answer keeps its
+            // answer, whatever its factory declares.
+            val settled = if (answer == null && !hasState(spec.type)) false else answer
+            answers[spec] = settled
+            return settled
         }
     }
 

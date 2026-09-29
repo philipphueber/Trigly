@@ -105,7 +105,11 @@ of by the tree's shape:
   child can be asked for a state: one edge and any number of levels is the
   useful rule; a second edge under the same `ALL` is the mistake, because
   whichever edge fires, the other is asked for a state it does not have,
-  answers unknown, and the group fails forever with no message.
+  answers no, and the group fails forever with no message. The one edge a
+  valid `ALL` holds is asked the same question each time a level beside it
+  fires, and the engine reads its null as that same no rather than as a
+  leaf that could not answer. See "A pure edge asked as a level" in
+  `architecture.md`.
 - `TriggerNode.canHold(hasState)`: can this tree be asked for a state at all?
   A group can if every child can, whatever its operator.
 
