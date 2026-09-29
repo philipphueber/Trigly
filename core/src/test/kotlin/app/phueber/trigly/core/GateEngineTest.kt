@@ -311,6 +311,11 @@ private fun edgeFactory(
 /** A condition-only component: no edges of its own, just a configurable state. */
 private fun conditionFactory(type: String, holds: suspend () -> Boolean?): TriggerFactory = object : TriggerFactory {
     override val type: String = type
+    // Declared, as every real condition does. The engine reads a null from a
+    // leaf that declares no state as a definite no, so without this a throw
+    // here would never be retried.
+    override val supportsCondition = true
+    override val producesEvents = false
     override fun create(config: Map<String, String>): Trigger = object : Trigger {
         override fun events(): Flow<TriggerEvent> = emptyFlow()
         override suspend fun currentlyHolds(): Boolean? = holds()
