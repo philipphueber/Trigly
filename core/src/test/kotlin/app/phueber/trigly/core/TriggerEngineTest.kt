@@ -222,6 +222,64 @@ class TriggerEngineTest {
         }
 
     /**
+     * A pure edge asked as a level is a definite no, not a leaf that could not
+     * answer.
+     *
+     * The shape of a real rule: `ALL(time_of_day, wifi)`. The time of day is
+     * the edge and Wi-Fi is the level, which `canStart` allows. But Wi-Fi also
+     * produces events, and each one asks the time of day for a state it does
+     * not have. Before this, that null was retried and then reported, so the
+     * rule showed "Last run stopped" after every correct run at the set time.
+     */
+    @Test
+    fun `a pure edge asked as a level answers no and is not reported`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val action = RecordingAction()
+            val suppressed = mutableListOf<List<String>>()
+            val traces = mutableListOf<TriggerTrace>()
+            val engine = TriggerEngine(
+                registry = Registry(
+                    triggerFactories = listOf(
+                        // The time of day: an edge that has not fired yet, with no state.
+                        FakeTriggerFactory(TRIGGER_TYPE, emptyList()),
+                        EventfulLevelFactory(listOf(TriggerEvent(LEVEL_TYPE, 1L))),
+                    ),
+                    actionFactories = listOf(SingleActionFactory(ACTION_TYPE, action)),
+                ),
+                store = InMemoryVariableStore(),
+                ruleStore = InMemoryRuleVariableStore(),
+                scope = this,
+                onSuppressed = { _, _, unreadable -> suppressed += unreadable.map { it.type } },
+                onEvaluated = { _, _, trace -> traces += trace },
+            )
+
+            engine.startRule(
+                Rule(
+                    id = "rule-1",
+                    name = "time and wifi",
+                    trigger = TriggerNode.Group(
+                        TriggerNode.Op.ALL,
+                        listOf(
+                            TriggerNode.One(ComponentSpec(TRIGGER_TYPE)),
+                            TriggerNode.One(ComponentSpec(LEVEL_TYPE)),
+                        ),
+                    ),
+                    actions = listOf(ComponentSpec(ACTION_TYPE)),
+                )
+            )
+            advanceTimeBy(UNREADABLE_TOTAL_BUDGET_MILLIS + 1)
+
+            assertEquals(emptyList<List<String>>(), suppressed)
+            assertTrue(action.seen.isEmpty())
+            val group = traces.single() as TriggerTrace.Group
+            assertFalse(group.held!!)
+            val edge = group.children.first() as TriggerTrace.Leaf
+            assertEquals(LeafOutcome.NO, edge.outcome)
+
+            engine.stop()
+        }
+
+    /**
      * A read that is slow rather than absent still ends inside the budget.
      *
      * The bound this pins is the whole evaluation, reads included. Before it,
@@ -1451,6 +1509,19 @@ private class SlowTriggerFactory(
             delay(readMillis)
             return answer
         }
+    }
+}
+
+private const val LEVEL_TYPE = "level-with-events"
+
+/** A level that also produces events, such as Wi-Fi: it can fire and it can be asked. */
+private class EventfulLevelFactory(private val emissions: List<TriggerEvent>) : TriggerFactory {
+    override val type: String = LEVEL_TYPE
+    override val supportsCondition = true
+
+    override fun create(config: Map<String, String>): Trigger = object : Trigger {
+        override fun events(): Flow<TriggerEvent> = emissions.asFlow()
+        override suspend fun currentlyHolds(): Boolean = true
     }
 }
 

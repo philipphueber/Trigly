@@ -521,6 +521,17 @@ The case that produced it is the area check reading no position in the
 background, which is fixed above. The hook stays because the shape is general:
 any condition that cannot answer now says so.
 
+**A pure edge asked as a level answers no, not null.** `canStart` lets one edge
+sit under an `ALL` beside levels, and a level such as Wi-Fi has events of its
+own. When the level fires, the edge is asked for a state it never has, such as
+`time_of_day` asked "is it 8:00 now". Its null is structural, so `StateReader`
+reads a null from a leaf whose factory declares no `supportsCondition` as a
+definite no. Without that, the engine retried the leaf, gave up and reported
+"Last run stopped" after every Wi-Fi change, on a rule that ran correctly at
+8:00. The holds result does not change, because null and no both fail to
+satisfy. Only a null changes: a leaf that answers keeps its answer, whatever
+its factory declares.
+
 **A success clears the record only for the same action.** Two actions, the first
 failing and the second working, is a rule doing half its job. An unguarded clear
 would erase the failure a moment after recording it and report the rule as
