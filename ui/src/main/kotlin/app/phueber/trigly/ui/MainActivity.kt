@@ -575,9 +575,13 @@ class MainActivity : ComponentActivity() {
             onChangeActionType = editor::changeActionType,
             onRemoveAction = editor::removeAction,
             onMoveAction = editor::moveAction,
-            onConfigChange = editor::setConfigValue,
+            onConfigChange = editor::setActionConfigValue,
             onTestAction = editor::testAction,
             onCheckIntentTarget = editor::checkIntentTarget,
+            // The parallel block's own controls. Listed here for the reason the
+            // trigger tree's are below: each defaults to a no-op on the screen.
+            onAddActionToBranch = editor::addActionToBranch,
+            onAddBranch = editor::addBranch,
             onSave = editor::save,
             onDelete = editor::delete,
             onBack = onDone,

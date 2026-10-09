@@ -67,7 +67,7 @@ class RuleStorageTest {
 
         assertEquals(
             listOf("speak", "vibrate"),
-            repository.rules().first().single().actions.map { it.type },
+            repository.rules().first().single().actions.leafActions().map { it.type },
         )
     }
 
@@ -78,9 +78,9 @@ class RuleStorageTest {
         repository.upsert(rule.copy(actions = rule.actions.reversed()))
 
         val stored = repository.rules().first().single()
-        assertEquals(listOf("vibrate", "speak"), stored.actions.map { it.type })
+        assertEquals(listOf("vibrate", "speak"), stored.actions.leafActions().map { it.type })
         // And no duplicates left behind by the replace.
-        assertEquals(2, stored.actions.size)
+        assertEquals(2, stored.actions.leafActions().size)
     }
 
     @Test
@@ -97,9 +97,9 @@ class RuleStorageTest {
     fun removing_an_action_removes_its_row() = runTest {
         repository.upsert(rule)
 
-        repository.upsert(rule.copy(actions = listOf(rule.actions.first())))
+        repository.upsert(rule.copy(actions = listOf(rule.actions.leafActions().first())))
 
-        assertEquals(1, repository.rules().first().single().actions.size)
+        assertEquals(1, repository.rules().first().single().actions.leafActions().size)
     }
 
     @Test
@@ -196,7 +196,36 @@ class RuleStorageTest {
         assertEquals(listOf("First", "Second"), restored.map { it.name })
         assertEquals(
             listOf("speak", "vibrate"),
-            restored.first().actions.map { it.type },
+            restored.first().actions.leafActions().map { it.type },
         )
+    }
+
+    /**
+     * The parallel block through the real database: which action sits in
+     * which branch is the whole meaning of the block, and the old flat rows
+     * with an ordinal could not hold it. See `MIGRATION_6_7`.
+     */
+    @Test
+    fun a_rule_with_a_parallel_block_comes_back_identical() = runTest {
+        val parallel = rule.copy(
+            actions = listOf(
+                ComponentSpec("speak", mapOf("text" to "Charging")),
+                ActionNode.Parallel(
+                    listOf(
+                        listOf(ComponentSpec("vibrate"), ComponentSpec("toast", mapOf("text" to "a"))),
+                        listOf(ComponentSpec("flashlight")),
+                    )
+                ),
+                ComponentSpec("toast", mapOf("text" to "done")),
+            ),
+        )
+
+        repository.upsert(parallel)
+        assertEquals(listOf(parallel), repository.rules().first())
+
+        // An edit that takes the block away is stored as exactly that.
+        val flattened = parallel.copy(actions = listOf(ComponentSpec("speak")))
+        repository.upsert(flattened)
+        assertEquals(listOf(flattened), repository.rules().first())
     }
 }

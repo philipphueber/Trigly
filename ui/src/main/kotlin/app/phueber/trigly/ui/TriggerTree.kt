@@ -440,12 +440,17 @@ private fun TriggerDraft.hasDescendantCaveat(
  * place — see [TriggerGroupBlock].
  */
 @Composable
-private fun GroupCaveatBadge(onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun GroupCaveatBadge(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    /** What the badge says to the accessibility layer. A parallel block passes its own. */
+    description: String = GROUP_CAVEAT_DESCRIPTION,
+) {
     Box(
         modifier = modifier
             .size(32.dp)
             .clickable(role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = GROUP_CAVEAT_DESCRIPTION },
+            .semantics { contentDescription = description },
         contentAlignment = Alignment.Center,
     ) {
         Box(

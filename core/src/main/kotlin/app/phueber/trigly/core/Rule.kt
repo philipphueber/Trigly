@@ -5,14 +5,23 @@ package app.phueber.trigly.core
  *
  * Rules store the [type] string rather than a class, so `:core` never needs to
  * know which implementations exist. Resolution happens in [Registry].
+ *
+ * It is also the leaf of a rule's action tree. See [ActionNode] for why the
+ * spec itself is the leaf, and not a wrapper around it the way
+ * [TriggerNode.One] is on the trigger side.
  */
 data class ComponentSpec(
     val type: String,
     val config: Map<String, String> = emptyMap(),
-)
+) : ActionNode
 
 /**
  * "When [trigger] happens, run [actions]." The unit the user creates and toggles.
+ *
+ * [actions] is a list of [ActionNode]s: one action, or a parallel block whose
+ * branches run at the same time. A rule with no parallel block is a list of
+ * [ComponentSpec]s and nothing else, which is every rule saved before the block
+ * existed. See `ActionTree.kt`.
  *
  * [trigger] is a single node, and that node may be a group. See [TriggerNode].
  * The rule therefore has exactly one trigger however complicated it gets, which
@@ -48,7 +57,7 @@ data class Rule(
     val id: String,
     val name: String,
     val trigger: TriggerNode,
-    val actions: List<ComponentSpec>,
+    val actions: List<ActionNode>,
     val enabled: Boolean = true,
     val folder: String? = null,
 ) {
@@ -64,7 +73,7 @@ data class Rule(
         id: String,
         name: String,
         trigger: ComponentSpec,
-        actions: List<ComponentSpec>,
+        actions: List<ActionNode>,
         enabled: Boolean = true,
     ) : this(id, name, TriggerNode.One(trigger), actions, enabled)
 }

@@ -42,7 +42,16 @@ fun repairReferences(before: RuleDraft, after: RuleDraft, registry: Registry): R
 
     return after.copy(
         trigger = after.trigger?.let { rewriteTrigger(it, renames, registry) },
-        actions = after.actions.map { rewriteComponent(it, renames, registry) },
+        actions = after.actions.map { node ->
+            when (node) {
+                is ComponentDraft -> rewriteComponent(node, renames, registry)
+                is ActionDraft.Parallel -> node.copy(
+                    branches = node.branches.map { branch ->
+                        branch.map { rewriteComponent(it, renames, registry) }
+                    }
+                )
+            }
+        },
     )
 }
 
@@ -67,9 +76,13 @@ private fun referenceRenames(before: RuleDraft, after: RuleDraft): Map<String, S
         oldTypes = beforeLeaves.map { it.type },
         survivors = survivingIndices(beforeLeaves, afterLeaves),
     )
+    // Every action at every depth, in the order the engine numbers them. A
+    // parallel block's actions are numbered among the rest, so moving or
+    // removing one inside a branch can renumber an action outside it.
+    val beforeActions = before.actions.leafComponents()
     val actionRenames = instanceRenames(
-        oldTypes = before.actions.map { it.type },
-        survivors = survivingIndices(before.actions, after.actions),
+        oldTypes = beforeActions.map { it.type },
+        survivors = survivingIndices(beforeActions, after.actions.leafComponents()),
     )
     val shortForm = if (beforeLeaves.size == 1 && afterLeaves.size > 1) {
         shortFormRenames(beforeLeaves.single().type)

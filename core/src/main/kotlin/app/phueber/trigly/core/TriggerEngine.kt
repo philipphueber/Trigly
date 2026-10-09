@@ -6,6 +6,11 @@ import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
@@ -227,10 +232,7 @@ class TriggerEngine(
             .toMap()
         // Paired with the spec they were built from, so an outcome can say which
         // action it belongs to. The instance alone does not know its own type.
-        val actionInstances = componentInstanceNames(rule.actions.map { it.type })
-        val actions = rule.actions.mapIndexed { index, spec ->
-            ActionSlot(spec, registry, store, ruleStore, actionInstances[index])
-        }
+        val actions = slotsFor(rule)
 
         val job = scope.launch {
             leafPaths
@@ -271,6 +273,39 @@ class TriggerEngine(
     }
 
     /**
+     * One entry of a rule's action tree, built: the engine's mirror of
+     * [ActionNode]. A plain action is one [ActionSlot]; a parallel block is a
+     * list of slots per branch.
+     */
+    private sealed interface SlotNode {
+        class One(val slot: ActionSlot) : SlotNode
+        class Parallel(val branches: List<List<ActionSlot>>) : SlotNode
+    }
+
+    /**
+     * Builds one [ActionSlot] for every action in [rule], at every depth, in
+     * the tree's own shape.
+     *
+     * The namespaces come from [componentInstanceNames] over [leafActions],
+     * and the slots take them in the same order the walk below meets the
+     * actions. That order is the contract the picker and save-time validation
+     * number by too, so a `{{toast_2.*}}` the editor offered is the toast this
+     * engine fills it from. A counter here rather than a second walk, so the
+     * two orders cannot drift apart.
+     */
+    private fun slotsFor(rule: Rule): List<SlotNode> {
+        val instances = componentInstanceNames(rule.actions.leafActions().map { it.type })
+        var next = 0
+        fun slot(spec: ComponentSpec) = ActionSlot(spec, registry, store, ruleStore, instances[next++])
+        return rule.actions.map { node ->
+            when (node) {
+                is ComponentSpec -> SlotNode.One(slot(node))
+                is ActionNode.Parallel -> SlotNode.Parallel(node.branches.map { it.map(::slot) })
+            }
+        }
+    }
+
+    /**
      * Runs [actions] once for [event], in order, threading [ActionOutputs]
      * from one to the next. This is the body [startRule] always ran, and it
      * is also the body [runNow] runs for a rule invoked on demand. One
@@ -283,11 +318,14 @@ class TriggerEngine(
      * [runNow] keeps no such promise. A rule run on demand has no "next
      * event" of its own to reuse the list for, so it builds a fresh one
      * every time.
+     *
+     * A parallel block is one step of this loop. See [runParallel]: the step
+     * after the block starts when every branch of it is finished.
      */
     private suspend fun runActions(
         rule: Rule,
         event: TriggerEvent,
-        actions: List<ActionSlot>,
+        actions: List<SlotNode>,
         firedTriggerInstance: String?,
     ) {
         // Fresh for every call, and never carried to the next one: see
@@ -295,25 +333,152 @@ class TriggerEngine(
         // after it can read what was just produced, the same way the
         // app-scope store is read fresh immediately before every action.
         var actionOutputs = ActionOutputs.EMPTY
-        actions.forEach { slot ->
-            when (val filled = slot.fill(rule, event, actionOutputs, firedTriggerInstance)) {
-                is ActionSlot.Filled.Ready -> {
-                    val result = run(rule, slot.type, filled.action, event)
-                    if (result is ActionResult.Success) {
-                        // Keyed by the slot's namespace, not its type, so two
-                        // actions of one type keep their outputs apart.
-                        actionOutputs = actionOutputs.plus(slot.namespace, result.outputs)
-                    }
-                }
-                // A field that could not be filled in is reported through the
-                // same hook a failed run uses, so it reaches the rule's fault
-                // log as what it is: this action did not do its job, and
-                // here is why.
-                is ActionSlot.Filled.Refused ->
-                    onOutcome(rule, event, slot.type, ActionResult.Failure(filled.reason))
+        actions.forEach { node ->
+            actionOutputs = when (node) {
+                is SlotNode.One ->
+                    runSlot(rule, event, node.slot, actionOutputs, firedTriggerInstance).outputs
+                is SlotNode.Parallel ->
+                    runParallel(rule, event, node, actionOutputs, firedTriggerInstance)
             }
         }
     }
+
+    /**
+     * What one action left behind: the outputs as they are after it, and the
+     * outputs it added itself, which a branch has to hand back to the join.
+     */
+    private class SlotRun(val outputs: ActionOutputs, val produced: Map<String, String>)
+
+    /** Fills in and runs one action, and reports how it went. */
+    private suspend fun runSlot(
+        rule: Rule,
+        event: TriggerEvent,
+        slot: ActionSlot,
+        actionOutputs: ActionOutputs,
+        firedTriggerInstance: String?,
+    ): SlotRun = when (val filled = slot.fill(rule, event, actionOutputs, firedTriggerInstance)) {
+        is ActionSlot.Filled.Ready -> {
+            val result = run(rule, slot.type, filled.action, event)
+            if (result is ActionResult.Success) {
+                // Keyed by the slot's namespace, not its type, so two
+                // actions of one type keep their outputs apart.
+                SlotRun(actionOutputs.plus(slot.namespace, result.outputs), result.outputs)
+            } else {
+                SlotRun(actionOutputs, emptyMap())
+            }
+        }
+        // A field that could not be filled in is reported through the
+        // same hook a failed run uses, so it reaches the rule's fault
+        // log as what it is: this action did not do its job, and
+        // here is why.
+        is ActionSlot.Filled.Refused -> {
+            onOutcome(rule, event, slot.type, ActionResult.Failure(filled.reason))
+            SlotRun(actionOutputs, emptyMap())
+        }
+    }
+
+    /**
+     * Runs every branch of [block] at the same time and returns when all of
+     * them are finished: a fork and a join. See [ActionNode.Parallel].
+     *
+     * The decisions here are the ones `run_parallel` already made for two
+     * whole rules, so the two ways to run actions at the same time behave the
+     * same. See `RunParallelAction`'s KDoc in `:actions`.
+     *
+     * - **The join.** Each branch is an `async` child inside one
+     *   `coroutineScope`, so the scope ends when the slowest branch ends, and
+     *   only then does [runActions] go on to the action after the block.
+     * - **Cancellation.** The branches are children of the coroutine that runs
+     *   this firing. When [stopRule] cancels the rule's job, every branch is
+     *   cancelled with it, and no action after the block runs.
+     * - **A failure stays in its branch.** A failed action is reported the
+     *   way any failed action is and its branch goes on to its next action,
+     *   the same as in a plain list. A branch that throws stops itself only:
+     *   see [runBranch].
+     * - **Run values are shared.** Every branch sees the [RunScope] of the
+     *   firing, because a child coroutine inherits its context. Two branches
+     *   that write the same `{{local.*}}` name race, the last write is kept,
+     *   and which write is last is not defined.
+     * - **Outputs.** Each branch starts from the outputs as they are before the
+     *   block and adds its own, so an action reads what its own branch made
+     *   and never what a branch beside it made, which may or may not exist yet.
+     *   After the join, the outputs of every branch are added in branch order,
+     *   first branch first. Every namespace is distinct, because every action
+     *   in the rule has its own number, so `{{toast_2.*}}` reads exactly the
+     *   action it names. The unnumbered `{{action.*}}` form reads the last
+     *   branch, in that order, that produced the name. That is a fixed order,
+     *   not the order in time, so the same rule reads the same value on every
+     *   run.
+     */
+    private suspend fun runParallel(
+        rule: Rule,
+        event: TriggerEvent,
+        block: SlotNode.Parallel,
+        before: ActionOutputs,
+        firedTriggerInstance: String?,
+    ): ActionOutputs {
+        val produced = coroutineScope {
+            block.branches
+                .map { branch -> async { runBranch(rule, event, branch, before, firedTriggerInstance) } }
+                .awaitAll()
+        }
+        return produced.flatten().fold(before) { outputs, (namespace, values) ->
+            outputs.plus(namespace, values)
+        }
+    }
+
+    /**
+     * One branch of a parallel block, in order, made safe for the branches
+     * beside it. Returns what each of its actions produced, in order, for the
+     * join to add.
+     *
+     * An exception out of a branch would cancel the `coroutineScope` all the
+     * branches share, and with it every other branch. So a branch catches what
+     * comes out of it and stops itself only, and the action it was on is
+     * reported as failed, so the stop reaches the rule's fault log.
+     *
+     * A [CancellationException] that arrives while this coroutine is still
+     * active did not come from the engine. An action inside the branch threw
+     * it, for example a timeout that leaked. That stops this branch only.
+     * `ensureActive` tells the two cases apart: it throws again when the rule
+     * itself is being stopped. The same test `run_parallel` makes.
+     */
+    private suspend fun runBranch(
+        rule: Rule,
+        event: TriggerEvent,
+        branch: List<ActionSlot>,
+        before: ActionOutputs,
+        firedTriggerInstance: String?,
+    ): List<Pair<String, Map<String, String>>> {
+        val produced = mutableListOf<Pair<String, Map<String, String>>>()
+        var outputs = before
+        var current: ActionSlot? = null
+        try {
+            for (slot in branch) {
+                current = slot
+                val ran = runSlot(rule, event, slot, outputs, firedTriggerInstance)
+                outputs = ran.outputs
+                if (ran.produced.isNotEmpty()) produced += slot.namespace to ran.produced
+            }
+        } catch (cancellation: CancellationException) {
+            currentCoroutineContext().ensureActive()
+            current?.let { stopped(rule, event, it, "It stopped before it was finished.") }
+        } catch (t: Throwable) {
+            current?.let { stopped(rule, event, it, "It threw ${t::class.simpleName}. ${t.message}") }
+        }
+        return produced
+    }
+
+    private fun stopped(rule: Rule, event: TriggerEvent, slot: ActionSlot, why: String) =
+        onOutcome(
+            rule,
+            event,
+            slot.type,
+            ActionResult.Failure(
+                "$why The other actions of this branch did not run. " +
+                    "The other branches continued."
+            ),
+        )
 
     /**
      * Runs [rule]'s actions once, right now, for `run_rule`. See [RuleRunner].
@@ -391,10 +556,7 @@ class TriggerEngine(
         }
 
         return try {
-            val instances = componentInstanceNames(rule.actions.map { it.type })
-            val actions = rule.actions.mapIndexed { index, spec ->
-                ActionSlot(spec, registry, store, ruleStore, instances[index])
-            }
+            val actions = slotsFor(rule)
             // No fired instance: this rule did not fire its own trigger, so no
             // leaf of *this* rule produced the event. `{{trigger.*}}` still
             // reads the causing event, per runNow's own KDoc, but a numbered

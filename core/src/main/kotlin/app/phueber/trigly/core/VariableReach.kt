@@ -18,7 +18,11 @@ sealed interface ReadPoint {
      */
     data object Trigger : ReadPoint
 
-    /** The action at [index], counting from zero, in the rule's action list. */
+    /**
+     * The action at [index], counting from zero, in [leafActions] order: the
+     * rule's action list with every parallel block opened up, branch by
+     * branch. For a rule with no block that is simply the list index.
+     */
     data class Action(val index: Int) : ReadPoint
 }
 
@@ -60,7 +64,12 @@ sealed interface ReadPoint {
  */
 class VariableReach(
     private val trigger: TriggerNode?,
-    private val actions: List<ComponentSpec>,
+    /**
+     * The rule's action tree. Read as [leafActions] for the numbering, and as
+     * a tree for [finishesBefore], which is what keeps a branch from being
+     * offered what a branch beside it produces.
+     */
+    private val actions: List<ActionNode>,
     /** What a component type declares its events or its results carry. */
     private val variablesOf: (String) -> List<VariableSpec>,
     /** What a component type declares it writes. See [VariableWriteSpec]. */
@@ -110,12 +119,14 @@ class VariableReach(
         availableVariables(trigger, variablesOf)
     }
 
-    private val actionTypes: List<String> by lazy { actions.map { it.type } }
+    private val leaves: List<ComponentSpec> by lazy { actions.leafActions() }
+
+    private val actionTypes: List<String> by lazy { leaves.map { it.type } }
 
     private val writes: List<Write> by lazy { collectWrites() }
 
     private fun collectWrites(): List<Write> {
-        val here = actions.flatMapIndexed { index, spec ->
+        val here = leaves.flatMapIndexed { index, spec ->
             writesOf(spec.type).mapNotNull { declaration ->
                 declaration.writes(spec.config)?.toWrite(
                     position = index,
@@ -223,7 +234,12 @@ class VariableReach(
      */
     private fun outputsAt(point: ReadPoint): List<ScopedVariable> = when (point) {
         is ReadPoint.Trigger -> emptyList()
-        is ReadPoint.Action -> availableActionOutputs(actionTypes, point.index, variablesOf)
+        is ReadPoint.Action -> availableActionOutputs(
+            actionTypes,
+            point.index,
+            variablesOf,
+            finishedBefore = actions::finishesBefore,
+        )
     }
 
     /**
@@ -278,7 +294,9 @@ class VariableReach(
      * How far one write reaches, which is the whole substance of this file.
      *
      * A run value is gone when the run ends, so only an action after the writing
-     * one can read it. A rule value and an app value both survive the run, so an
+     * one can read it, and "after" means [finishesBefore]: a branch of a
+     * parallel block does not read what the branch beside it writes, because
+     * the two run at the same time and the write can come after the read. A rule value and an app value both survive the run, so an
      * action *before* the writing one reads it too: not on the first run, where
      * it is unset, but on every run after that. Refusing that would refuse the
      * ordinary shape of a counter, which reads the total it wrote last time.
@@ -287,7 +305,7 @@ class VariableReach(
         VariableScope.LOCAL ->
             write.position != null &&
                 point is ReadPoint.Action &&
-                write.position < point.index
+                actions.finishesBefore(write.position, point.index)
 
         // This rule's own writes only. Another rule's are filtered out when the
         // writes are collected, because the scope is keyed by rule id.

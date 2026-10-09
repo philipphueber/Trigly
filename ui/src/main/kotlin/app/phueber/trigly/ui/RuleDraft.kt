@@ -1,5 +1,7 @@
 package app.phueber.trigly.ui
 
+import app.phueber.trigly.core.ActionNode
+import app.phueber.trigly.core.ActionPath
 import app.phueber.trigly.core.ComponentDescriptor
 import app.phueber.trigly.core.ComponentSpec
 import app.phueber.trigly.core.ConfigField
@@ -13,6 +15,7 @@ import app.phueber.trigly.core.canStart
 import app.phueber.trigly.core.companionKeys
 import app.phueber.trigly.core.defaultValue
 import app.phueber.trigly.core.isUnset
+import app.phueber.trigly.core.leafActions
 import app.phueber.trigly.core.leaves
 import app.phueber.trigly.core.normalizeFolder
 import app.phueber.trigly.core.unfilled
@@ -77,6 +80,29 @@ fun groupOpFor(type: String): TriggerNode.Op? = when (type) {
  */
 const val GROUP_CATEGORY = "Groups"
 
+/**
+ * The picker row that adds a parallel block to the action list. The action-side
+ * twin of [GROUP_OPTIONS], for the same reason: a block is something a person
+ * picks from the same list as an action, and the ViewModel is the one place
+ * that reads the type, through [isParallelType].
+ *
+ * Offered only by the top-level "Add action". A branch holds only actions, see
+ * `ActionNode` in `:core`, so the picker inside a branch does not offer it.
+ */
+const val PARALLEL_TYPE = "group.parallel"
+
+/** Whether [type] is the picker row for a parallel block. */
+fun isParallelType(type: String): Boolean = type == PARALLEL_TYPE
+
+val PARALLEL_OPTION: ComponentDescriptor = ComponentDescriptor(
+    type = PARALLEL_TYPE,
+    displayName = "At the same time",
+    category = GROUP_CATEGORY,
+    requirements = emptyList(),
+    configFields = emptyList(),
+    warning = null,
+)
+
 val GROUP_OPTIONS: List<ComponentDescriptor> = listOf(
     ComponentDescriptor(
         type = GROUP_ALL_TYPE,
@@ -108,7 +134,24 @@ val GROUP_OPTIONS: List<ComponentDescriptor> = listOf(
 data class ComponentDraft(
     val type: String,
     val config: Map<String, String> = emptyMap(),
-)
+) : ActionDraft
+
+/**
+ * An editable mirror of `ActionNode` in `:core`: one entry of the action list.
+ *
+ * [ComponentDraft] is the leaf, the same way `ComponentSpec` is the leaf on the
+ * model side, and [Parallel] is the one inner node. A branch is a list of
+ * [ComponentDraft]s, so a block in a block cannot be built here either.
+ */
+sealed interface ActionDraft {
+    /**
+     * Branches that run at the same time. The editor builds one with two
+     * empty branches, and [removeActionAt] collapses one that drops to a
+     * single branch into that branch's actions, the same way a trigger group
+     * of one collapses into its child.
+     */
+    data class Parallel(val branches: List<List<ComponentDraft>>) : ActionDraft
+}
 
 /**
  * An editable mirror of [TriggerNode]. See `core/.../Gate.kt` for the model
@@ -140,7 +183,7 @@ data class RuleDraft(
     val name: String = "",
     /** Null when nothing has been chosen yet: the empty "choose a trigger" slot. */
     val trigger: TriggerDraft? = null,
-    val actions: List<ComponentDraft> = emptyList(),
+    val actions: List<ActionDraft> = emptyList(),
     val enabled: Boolean = true,
     /**
      * "" means "no folder" here, unlike [Rule.folder]'s `null`. A text field has
@@ -158,7 +201,14 @@ fun Rule.toDraft() = RuleDraft(
     id = id,
     name = name,
     trigger = trigger.toDraft(),
-    actions = actions.map { ComponentDraft(it.type, it.config) },
+    actions = actions.map { node ->
+        when (node) {
+            is ComponentSpec -> ComponentDraft(node.type, node.config)
+            is ActionNode.Parallel -> ActionDraft.Parallel(
+                node.branches.map { branch -> branch.map { ComponentDraft(it.type, it.config) } }
+            )
+        }
+    },
     enabled = enabled,
     // The domain's null becomes the draft's "". See [RuleDraft.folder].
     folder = folder ?: "",
@@ -189,10 +239,162 @@ fun RuleDraft.toRuleOrNull(): Rule? {
         id = id ?: RuleJson.newId(),
         name = name.trim(),
         trigger = trigger.toNode(),
-        actions = actions.map { ComponentSpec(it.type, it.config) },
+        actions = actions.toNodes(),
         enabled = enabled,
         folder = normalizeFolder(folder),
     )
+}
+
+/**
+ * The action tree this draft describes. Total, like [toNode]: an empty branch
+ * or an empty block is kept as it is, because a rule saved before it is
+ * finished is a person mid-thought. An empty block runs nothing.
+ */
+fun List<ActionDraft>.toNodes(): List<ActionNode> = map { draft ->
+    when (draft) {
+        is ComponentDraft -> ComponentSpec(draft.type, draft.config)
+        is ActionDraft.Parallel -> ActionNode.Parallel(
+            draft.branches.map { branch -> branch.map { ComponentSpec(it.type, it.config) } }
+        )
+    }
+}
+
+/**
+ * Every action in this list, at every depth, in the order the engine numbers
+ * them. See `leafActions` in `:core`, which this mirrors for drafts.
+ */
+fun List<ActionDraft>.leafComponents(): List<ComponentDraft> = flatMap { draft ->
+    when (draft) {
+        is ComponentDraft -> listOf(draft)
+        is ActionDraft.Parallel -> draft.branches.flatten()
+    }
+}
+
+/** The action at [path], or null if [path] names a block, a branch or nothing. */
+fun List<ActionDraft>.componentAt(path: ActionPath): ComponentDraft? = when (path.size) {
+    1 -> getOrNull(path[0]) as? ComponentDraft
+    3 -> (getOrNull(path[0]) as? ActionDraft.Parallel)
+        ?.branches?.getOrNull(path[1])?.getOrNull(path[2])
+
+    else -> null
+}
+
+/**
+ * The same list with [transform] applied to the action at [path]. Unchanged if
+ * [path] does not name an action.
+ *
+ * Only the nodes on [path] are rebuilt, and every other action is passed
+ * through as the same object. `repairReferences` depends on that: it matches
+ * an action before and after an edit by identity.
+ */
+fun List<ActionDraft>.updateComponentAt(
+    path: ActionPath,
+    transform: (ComponentDraft) -> ComponentDraft,
+): List<ActionDraft> {
+    val existing = componentAt(path) ?: return this
+    val updated = transform(existing)
+    return when (path.size) {
+        1 -> toMutableList().also { it[path[0]] = updated }
+        else -> updateBranch(path[0], path[1]) { branch ->
+            branch.toMutableList().also { it[path[2]] = updated }
+        }
+    }
+}
+
+/**
+ * The same list with the branch at [blockIndex], [branchIndex] replaced by
+ * what [transform] makes of it. Unchanged if there is no such branch.
+ */
+private fun List<ActionDraft>.updateBranch(
+    blockIndex: Int,
+    branchIndex: Int,
+    transform: (List<ComponentDraft>) -> List<ComponentDraft>,
+): List<ActionDraft> {
+    val block = getOrNull(blockIndex) as? ActionDraft.Parallel ?: return this
+    val branch = block.branches.getOrNull(branchIndex) ?: return this
+    val branches = block.branches.toMutableList().also { it[branchIndex] = transform(branch) }
+    return toMutableList().also { it[blockIndex] = block.copy(branches = branches) }
+}
+
+/** The same list with [addition] at the end of the branch at [branchPath], `[block, branch]`. */
+fun List<ActionDraft>.addToBranch(branchPath: ActionPath, addition: ComponentDraft): List<ActionDraft> {
+    if (branchPath.size != 2) return this
+    return updateBranch(branchPath[0], branchPath[1]) { it + addition }
+}
+
+/** The same list with one more empty branch at the end of the block at [blockIndex]. */
+fun List<ActionDraft>.addBranch(blockIndex: Int): List<ActionDraft> {
+    val block = getOrNull(blockIndex) as? ActionDraft.Parallel ?: return this
+    return toMutableList().also { it[blockIndex] = block.copy(branches = block.branches + listOf(emptyList())) }
+}
+
+/**
+ * The same list with the node at [path] removed: an action, a whole block
+ * (`[i]` naming a block), or one branch (`[block, branch]`).
+ *
+ * **A block that drops to one branch collapses into that branch's actions**,
+ * in place, in order. A block of one branch runs its actions one after the
+ * other, which is exactly what the same actions do with no block around them,
+ * so the box is drawn around nothing. The same rule `transformTrigger` applies
+ * to a trigger group of one. A block that loses its last branch is removed.
+ *
+ * Removing the last action of a branch keeps the branch, empty. A branch is
+ * removed with its own control, and an empty branch is what a new block starts
+ * with, so emptying one is not a sign that the person wants it gone.
+ */
+fun List<ActionDraft>.removeActionAt(path: ActionPath): List<ActionDraft> = when (path.size) {
+    1 -> if (path[0] in indices) filterIndexed { i, _ -> i != path[0] } else this
+
+    2 -> {
+        val block = getOrNull(path[0]) as? ActionDraft.Parallel
+        if (block == null || path[1] !in block.branches.indices) {
+            this
+        } else {
+            val remaining = block.branches.filterIndexed { b, _ -> b != path[1] }
+            val replacement: List<ActionDraft> = when (remaining.size) {
+                0 -> emptyList()
+                1 -> remaining.single()
+                else -> listOf(block.copy(branches = remaining))
+            }
+            take(path[0]) + replacement + drop(path[0] + 1)
+        }
+    }
+
+    3 -> if (componentAt(path) == null) {
+        this
+    } else {
+        updateBranch(path[0], path[1]) { branch -> branch.filterIndexed { j, _ -> j != path[2] } }
+    }
+
+    else -> this
+}
+
+/**
+ * The same list with the node at [from] moved to [to], inside the one list
+ * both name: the top level (`[i]` to `[k]`), or one branch (`[b0, b1, j]` to
+ * `[b0, b1, k]`). A move between two lists is refused and returns this list
+ * unchanged. The editor offers only up and down inside a list, and a move
+ * into or out of a branch changes what runs at the same time as what, which
+ * deserves its own gesture rather than a side effect of an arrow.
+ */
+fun List<ActionDraft>.moveActionAt(from: ActionPath, to: ActionPath): List<ActionDraft> {
+    if (from.size != to.size || from.dropLast(1) != to.dropLast(1)) return this
+    return when (from.size) {
+        1 -> {
+            if (from[0] !in indices || to[0] !in indices) return this
+            toMutableList().also { it.add(to[0], it.removeAt(from[0])) }
+        }
+
+        3 -> updateBranch(from[0], from[1]) { branch ->
+            if (from[2] !in branch.indices || to[2] !in branch.indices) {
+                branch
+            } else {
+                branch.toMutableList().also { it.add(to[2], it.removeAt(from[2])) }
+            }
+        }
+
+        else -> this
+    }
 }
 
 /**
@@ -277,9 +479,12 @@ fun Rule.enableRefusal(registry: Registry): String? = enableRefusal(trigger, act
  * not have been saved yet: what the editor's own "enabled" switch checks
  * before it lets itself move. */
 fun RuleDraft.enableRefusal(registry: Registry): String? =
-    enableRefusal(trigger.toNode(), actions.map { ComponentSpec(it.type, it.config) }, registry)
+    enableRefusal(trigger.toNode(), actions.toNodes(), registry)
 
-private fun enableRefusal(trigger: TriggerNode, actions: List<ComponentSpec>, registry: Registry): String? {
+private fun enableRefusal(trigger: TriggerNode, tree: List<ActionNode>, registry: Registry): String? {
+    // Every action at every depth. A rule whose only entry is an empty
+    // parallel block has no action to run, the same as a rule with no entry.
+    val actions = tree.leafActions()
     val hasNoTrigger = trigger.isUnset()
     val hasNoActions = actions.isEmpty()
 

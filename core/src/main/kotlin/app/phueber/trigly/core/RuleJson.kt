@@ -18,8 +18,9 @@ import java.util.UUID
  *    mechanism that always works there, whatever the app's own backup setting
  *    says. See `TriglyBackupAgent` in `:ui` for that setting. It doubles as a
  *    way to share a rule with someone else.
- *  - **The `config` column** in the local database, via [encodeConfig], and the
- *    trigger-tree column, via [encodeNode].
+ *  - **The `config` column** in the local database, via [encodeConfig], the
+ *    trigger-tree column, via [encodeNode], and the action-tree column, via
+ *    [encodeActions].
  *
  * JSON via `org.json` rather than a serialization library: config maps are flat
  * `String` to `String`, `JSONObject` is in `android.jar`, and it handles the
@@ -31,7 +32,7 @@ import java.util.UUID
  * else, possibly an older or newer version of itself, so "invalid" has to be a
  * sentence rather than a stack trace.
  *
- * ### Three formats, one file
+ * ### Four formats, one file
  *
  * - **v1** (0.0.1–0.0.3): `"trigger"` holds a single component spec.
  * - **v2** (0.0.4, alongside v1): `"triggers"` (a list) or `"trigger"` (one spec)
@@ -43,14 +44,19 @@ import java.util.UUID
  *   `{"op": "all"|"any", "children": [...]}`. The reader tells them apart by
  *   whether `"op"` is present, which is also why a leaf must never gain a
  *   discriminator of its own.
+ * - **v4** (this build, only when a rule needs it): the `"actions"` list can
+ *   hold a parallel block, `{"op": "parallel", "branches": [[...], [...]]}`,
+ *   beside plain action specs. The same discriminator as a trigger group, for
+ *   the same reason: a plain action stays exactly the spec object every older
+ *   version wrote. See [ActionNode].
  *
  * Every file a released version wrote must still import, forever. v2's
  * `triggers` + `conditions` split is read by folding it into the equivalent
  * [TriggerNode] tree (see [legacyTriggerNode]).
  *
- * `"folder"` (this build) is additive on top of whichever of the three shapes
- * above a rule is written in (see [VERSION]'s kdoc for why it does not earn
- * a v4).
+ * `"folder"` is additive on top of whichever of the shapes above a rule is
+ * written in (see [VERSION]'s kdoc for why it did not earn a version of its
+ * own).
  */
 object RuleJson {
 
@@ -59,9 +65,19 @@ object RuleJson {
      * is refused rather than half-read. Losing a rule silently is worse than
      * failing to import.
      *
-     * `"folder"` does not bump this. No released build has ever written v4
-     * (0.0.4 was pulled before it shipped), so there is no file on a real device
-     * today that a bump would even be protecting against. And an unbumped
+     * **4 is the parallel block.** This one does need a bump, unlike `"folder"`
+     * below, because the failure in an older build is the opposite one. A
+     * build that knows version 3 reads every entry of `"actions"` as a spec,
+     * and a block has no `"type"`, so the best case is a refusal that names
+     * the wrong problem and the worst case is a reader that skips what it does
+     * not know and runs the rule without the block. A version-3 build refuses
+     * a version-4 file with "update the app first", which is the true sentence.
+     * [versionFor] writes 4 only when a rule in the file has a block, so every
+     * other export still opens in a build from before this one.
+     *
+     * `"folder"` did not bump this. When it arrived, no released build had
+     * ever written v4 (0.0.4 was pulled before it shipped), so there was no
+     * file on a real device that a bump would even protect against. And an unbumped
      * version is the *more* correct choice here regardless: `"folder"` is read
      * with [org.json.JSONObject.optString], not required, so a build that has
      * never heard of it just sees a rule with no folder. It loses the
@@ -69,7 +85,7 @@ object RuleJson {
      * would instead make an older build refuse the *whole file* over one key
      * it does not need in order to read everything else correctly.
      */
-    const val VERSION = 3
+    const val VERSION = 4
 
     /**
      * The version a rule set is *written* as, which is not always [VERSION].
@@ -89,10 +105,14 @@ object RuleJson {
      * The promise this codec has to keep is that it *reads* every file an old
      * build wrote, not that a fresh export from today opens in a build from
      * last week. So: v1 if it fits byte-for-byte, v3 otherwise, nothing in
-     * between.
+     * between. Version 4 is written only when a rule in the set has a parallel
+     * block, which no older version can read; see [VERSION].
      */
-    private fun versionFor(rules: List<Rule>): Int =
-        if (rules.all { it.trigger is TriggerNode.One }) 1 else 3
+    private fun versionFor(rules: List<Rule>): Int = when {
+        rules.any { it.actions.hasParallel() } -> 4
+        rules.all { it.trigger is TriggerNode.One } -> 1
+        else -> 3
+    }
 
     private const val KEY_VERSION = "version"
     private const val KEY_RULES = "rules"
@@ -109,6 +129,8 @@ object RuleJson {
     private const val VAL_ALL = "all"
     private const val VAL_ANY = "any"
     private const val KEY_ACTIONS = "actions"
+    private const val KEY_BRANCHES = "branches"
+    private const val VAL_PARALLEL = "parallel"
     private const val KEY_TYPE = "type"
     private const val KEY_CONFIG = "config"
     private const val KEY_FOLDER = "folder"
@@ -135,7 +157,7 @@ object RuleJson {
         .put(KEY_NAME, rule.name)
         .put(KEY_ENABLED, rule.enabled)
         .put(KEY_TRIGGER, nodeToJson(rule.trigger))
-        .put(KEY_ACTIONS, JSONArray(rule.actions.map(::specToJson)))
+        .put(KEY_ACTIONS, actionsToJson(rule.actions))
         .let { json ->
             // Normalized again here rather than trusting `rule.folder` was
             // already clean (see `Rule`'s kdoc). A rule with no folder writes
@@ -151,6 +173,25 @@ object RuleJson {
             .put(KEY_OP, if (node.op == TriggerNode.Op.ALL) VAL_ALL else VAL_ANY)
             .put(KEY_CHILDREN, JSONArray(node.children.map(::nodeToJson)))
     }
+
+    /**
+     * A plain action writes as exactly the spec object every older version
+     * wrote. A parallel block writes as `{"op": "parallel", "branches": [...]}`,
+     * where each branch is a list of spec objects.
+     */
+    private fun actionsToJson(actions: List<ActionNode>): JSONArray = JSONArray(
+        actions.map { node ->
+            when (node) {
+                is ComponentSpec -> specToJson(node)
+                is ActionNode.Parallel -> JSONObject()
+                    .put(KEY_OP, VAL_PARALLEL)
+                    .put(
+                        KEY_BRANCHES,
+                        JSONArray(node.branches.map { branch -> JSONArray(branch.map(::specToJson)) }),
+                    )
+            }
+        }
+    )
 
     private fun specToJson(spec: ComponentSpec): JSONObject = JSONObject()
         .put(KEY_TYPE, spec.type)
@@ -192,13 +233,7 @@ object RuleJson {
         val actionsJson = json.optJSONArray(KEY_ACTIONS)
             ?: throw IllegalArgumentException("Rule $position ('$name') has no actions list.")
 
-        val actions = (0 until actionsJson.length()).map { i ->
-            val obj = actionsJson.optJSONObject(i)
-                ?: throw IllegalArgumentException(
-                    "Action ${i + 1} of rule $position ('$name') is not an object."
-                )
-            specFromJson(obj, "action ${i + 1} of rule $position ('$name')")
-        }
+        val actions = actionsFromJson(actionsJson, "rule $position ('$name')")
 
         // v1 and v2 share a reader: v1 is simply the case where there is a
         // single `trigger` spec and no `conditions`, which the same mapping
@@ -354,6 +389,69 @@ object RuleJson {
         return TriggerNode.Group(op, children)
     }
 
+    /**
+     * Reads one rule's `"actions"` list into its tree. [where] names the rule
+     * for a message.
+     *
+     * Read the same way whatever the file's version says. A file older than
+     * version 4 cannot hold a block, so for it this is exactly the flat read it
+     * always was, and a hand-edited older file that holds one anyway is read
+     * for what it says rather than refused over a number.
+     *
+     * A block inside a branch is refused, not skipped. See [ActionNode] for why
+     * a branch holds only actions. Dropping the inner block would run the rule
+     * without part of what its author built, which is the silent failure an
+     * import must never have, so the message says what this version cannot
+     * read instead.
+     */
+    private fun actionsFromJson(array: JSONArray, where: String): List<ActionNode> =
+        (0 until array.length()).map { i ->
+            val obj = array.optJSONObject(i)
+                ?: throw IllegalArgumentException("Action ${i + 1} of $where is not an object.")
+            val here = "action ${i + 1} of $where"
+            if (!obj.has(KEY_OP)) return@map specFromJson(obj, here)
+
+            val op = obj.optString(KEY_OP)
+            require(op == VAL_PARALLEL) { "Unknown action block '$op' in $here." }
+            val branchesJson = obj.optJSONArray(KEY_BRANCHES)
+                ?: throw IllegalArgumentException("The parallel block in $here has no branches.")
+            ActionNode.Parallel(
+                (0 until branchesJson.length()).map { b ->
+                    val branchJson = branchesJson.optJSONArray(b)
+                        ?: throw IllegalArgumentException(
+                            "Branch ${b + 1} of the parallel block in $here is not a list."
+                        )
+                    (0 until branchJson.length()).map { j ->
+                        val actionJson = branchJson.optJSONObject(j)
+                            ?: throw IllegalArgumentException(
+                                "Action ${j + 1} in branch ${b + 1} of $here is not an object."
+                            )
+                        require(!actionJson.has(KEY_OP)) {
+                            "Branch ${b + 1} of the parallel block in $here holds another " +
+                                "block. A branch can hold only actions."
+                        }
+                        specFromJson(actionJson, "action ${j + 1} in branch ${b + 1} of $here")
+                    }
+                }
+            )
+        }
+
+    /**
+     * The action tree on its own, for the database column. The same shape as
+     * the `"actions"` list of a file, so there is one format to get right.
+     */
+    fun encodeActions(actions: List<ActionNode>): String = actionsToJson(actions).toString()
+
+    /** @throws IllegalArgumentException on anything unreadable. */
+    fun decodeActions(json: String): List<ActionNode> {
+        val array = try {
+            JSONArray(json)
+        } catch (malformed: JSONException) {
+            throw IllegalArgumentException("Stored actions are not valid JSON.", malformed)
+        }
+        return actionsFromJson(array, "the stored rule")
+    }
+
     /** The trigger tree on its own, for the database column. */
     fun encodeNode(node: TriggerNode): String = nodeToJson(node).toString()
 
@@ -435,7 +533,9 @@ object RuleJson {
  */
 fun Rule.withFreshGeneratedIds(registry: Registry): Rule = copy(
     trigger = trigger.withFreshGeneratedIds(registry),
-    actions = actions.map { it.withFreshGeneratedIds(registry.actionDescriptor(it.type)) },
+    // Every action in every branch of a block too. A shortcut id kept by an
+    // action inside a branch identifies the rule as much as one at the top.
+    actions = actions.mapActionSpecs { it.withFreshGeneratedIds(registry.actionDescriptor(it.type)) },
 )
 
 private fun TriggerNode.withFreshGeneratedIds(registry: Registry): TriggerNode = when (this) {

@@ -98,6 +98,11 @@ as satisfaction), and edges-versus-levels is now a property of a leaf,
 computed by `TriggerNode.canStart`/`canHold`, rather than a property of a slot
 a two-part shape used to guarantee by construction.
 
+The action side is a tree too, with one kind of inner node: `Rule.actions` is
+a list of `ActionNode` (`core/ActionTree.kt`), and an entry can be a parallel
+block whose branches run at the same time. See "Actions at the same time,
+inside one rule".
+
 ### What a save may not quietly change
 
 The editor works on a `RuleDraft`, and `toNode` is the boundary where a draft
@@ -1429,7 +1434,10 @@ A branch is a rule, not a nested list of actions. A nested list would change
 what a `Rule` is, the Room schema and the JSON format, and it would give the
 editor a second way to build actions. Two `ConfigField.RuleRef` fields need
 none of that: the stored config is two rule ids, there is no migration, and the
-editor shows two rule pickers with no new code.
+editor shows two rule pickers with no new code. That was the right cost for
+`run_parallel`, and it is still why that action holds rules. The inline block
+in the next section pays exactly those costs, on purpose, because the person
+asked for branches that are edited in place.
 
 Each branch is made safe for its sibling. A refusal or an exception becomes a
 refused branch, so one branch can never cancel the other through the scope
@@ -1441,6 +1449,114 @@ firing, the same as a `run_rule` chain, and the engine runs on
 `Dispatchers.Default`, so two threads can write `{{local.*}}` at once.
 `RunScope` now holds its values in a `ConcurrentHashMap`. The last write is
 kept, and the order of two parallel writes is not defined.
+
+#### Actions at the same time, inside one rule
+
+The person asked for the inline form too: "inline like And / Or in triggers".
+So a rule's action list can now hold a parallel block. A block has two or more
+branches, and each branch is an ordinary list of actions, edited in the same
+editor as the rest of the rule. Every branch starts when the block starts. The
+action after the block starts when every branch is finished. `run_parallel`
+stays, for a branch that is a whole rule of its own.
+
+**The model.** `Rule.actions` is a `List<ActionNode>` (`core/ActionTree.kt`).
+The action list is now a tree with one kind of inner node,
+`ActionNode.Parallel(branches: List<List<ComponentSpec>>)`. `ComponentSpec`
+is itself the leaf. It is not wrapped the way `TriggerNode.One` wraps it on the
+trigger side, so a flat list of specs is still a valid action list, and every
+rule from before the block is the same value it was. A reader that expected
+only specs stopped compiling when the type changed, and that is how every
+reader was found.
+
+**One level, and the type is the bound.** A branch holds `ComponentSpec`s, not
+`ActionNode`s, so a block cannot hold a block. No check at run time has to
+enforce this. The trigger tree nests because "a and (b or c)" needs it. A fork
+inside a fork is a shape no rule has asked for, and each level costs the editor
+a rail of width and the engine a second join. The codec refuses a file that
+nests one, and says so.
+
+**It does not choose.** A fork and a join runs every action in every branch on
+every firing. It does not decide which actions run. So `docs/variables.md`
+section 14 and `docs/todo.md` R6 still hold: there is no condition on a branch
+and no per-action condition.
+
+**Every reader walks the tree.** `leafActions()` is the one walk, in the one
+order the engine numbers actions by: the top level in order, and inside a
+block, the first branch, then the second. These readers use it:
+`Registry.requirementsOf`, which feeds the grant flow and the "why is this not
+firing" list; `Registry.normalise`; `withFreshGeneratedIds`, for duplicate
+and import; `appVariablesRead` and `variableWrites`; `VariableReach`;
+`declaredKeptButtons`; the editor's save-time validation and its enable gate;
+the rules list's search and summary line; and the reference repair. A reader
+that walked only the top level would skip an action inside a branch. For
+requirements, that is a rule that fails on the device with nothing on screen.
+
+**The engine.** `TriggerEngine.runParallel` makes the decisions `run_parallel`
+already made, so the two forms behave the same:
+
+- **Join.** Each branch is an `async` child in one `coroutineScope`. The scope
+  ends when the slowest branch ends, and then the next action starts.
+- **Stop.** The branches are children of the coroutine that runs the firing.
+  When the engine stops the rule, every branch is cancelled, and no action
+  after the block runs.
+- **A failure stays in its branch.** A failed action is reported as any failed
+  action is, and its branch goes on to its next action. `runBranch` catches
+  what comes out of a branch, so one branch never cancels the scope the others
+  share. A `CancellationException` that leaks out of an action while the
+  coroutine is still active stops that branch only, and is reported as a
+  failure of the action it was on.
+- **Run values.** Every branch sees the `RunScope` of the firing. Two branches
+  that write the same `{{local.*}}` name race. The last write is kept, and the
+  order is not defined.
+
+**Outputs.** `componentInstanceNames` numbers every action over `leafActions()`,
+so `{{toast_2.*}}` names the same action in the picker, in validation and in
+the engine. Each branch starts from the outputs as they are before the block
+and adds its own. A branch never reads what a branch beside it made, because
+that value can exist or not when it runs. After the join, the outputs of every
+branch are added in branch order. Every namespace is distinct, so a numbered
+reference reads exactly its action. The unnumbered `{{action.*}}` reads the
+last branch, in list order, that produced the name. That order is fixed, not
+timed, so the same rule reads the same value on every run.
+`ActionTree.finishesBefore` is the one rule the picker and validation use for
+`{{action.*}}` and `{{local.*}}`: an action is offered what is always finished
+before it starts, and a branch beside it never is.
+
+**Storage.** Room version 7 adds `rules.actionsJson`, the whole tree, written by
+`RuleJson.encodeActions`. It is the move `triggerJson` made at version 3, for
+the same reason: the `components` table is a flat list with an ordinal, and it
+cannot say which action sits in which branch. A row from before the column has
+it null, and its actions are read from its `ACTION` rows. The first save writes
+the column and clears the rows. The `components` table is now read-only legacy
+for both roles. A column that cannot be read drops the rule from the list, the
+same as a trigger tree that cannot be read: a rule shown without its actions
+would run without them and say nothing. `MigrationTest` covers 6 to 7, and
+`RuleStorageTest` round-trips a block through Room.
+
+**Format.** `RuleJson.VERSION` is 4. A block is written as
+`{"op": "parallel", "branches": [[...], [...]]}`, the same discriminator a
+trigger group uses, and a plain action is still exactly the spec object every
+older version wrote. A file is written as version 4 only when a rule in it has
+a block. Every other export is written as 1 or 3, as before, and still opens in
+an older build. An older build refuses a version-4 file as a whole, with
+"update the app first". The other outcomes were worse: a block read as a spec
+with no type, or a reader that skips it and runs the rule without it.
+
+**The editor.** The top-level "Add action" picker has one more row, "At the
+same time" (`PARALLEL_OPTION`), under the same pinned "Groups" heading as the
+trigger group rows. A block is something a person picks, the way a trigger
+group is. `ParallelActionBlock` draws it the way `TriggerGroupBlock` draws a
+group: a card, an accent heading, a fold that keeps a count and the caveat
+mark, and a rail beside each branch instead of an indent. Each branch has a
+heading with "Remove branch", its actions drawn with the same block, tools and
+Test as an action at the top, and its own "Add action". That picker does not
+offer the block row. "Add branch" ends the block. The arrows move a node inside
+the list it is in, and a move into or out of a branch is refused: it changes
+what runs at the same time as what, and that is not a side effect an arrow
+should have. Removing one of two branches puts the other branch's actions in
+place of the block, as a trigger group of one collapses into its child.
+Removing the last action of a branch keeps the branch. Every action is
+addressed by an `ActionPath`: `[i]` at the top, `[i, b, j]` in a branch.
 
 #### Waiting inside a rule
 
@@ -1683,11 +1799,14 @@ force a shared policy where there is none.
 
 ### Rule storage and the portable format
 
-Rules are Room-backed. Two tables: `rules`, and one `components` table holding
-both triggers and actions: they are the same shape, a type string and a config
-map, and `:core` deliberately knows nothing about which types exist. A
-`components` row carries an `ordinal`, which is what makes action *order*
-durable; a rule runs its actions in sequence.
+Rules are Room-backed. The `rules` table holds each rule, with its trigger tree
+in `triggerJson` and its action tree in `actionsJson`. A `components` table
+holds the triggers and actions that rules wrote before those two columns
+existed: they are the same shape, a type string and a config map, and an
+`ordinal` made action order durable. Since version 7 nothing writes that table.
+It is read for a rule nobody has saved since its install upgraded, and the next
+save clears its rows. See "Actions at the same time, inside one rule" for why a
+flat table with an ordinal could not hold the action tree.
 
 There is deliberately **no** `fallbackToDestructiveMigration`. These are rules
 somebody built by hand, and silently deleting them on a schema change is not an

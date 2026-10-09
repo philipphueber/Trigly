@@ -1,6 +1,7 @@
 package app.phueber.trigly.ui
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import app.phueber.trigly.core.leafActions
 import androidx.test.platform.app.InstrumentationRegistry
 import app.phueber.trigly.actions.actionFactories
 import android.os.Build
@@ -146,7 +147,7 @@ class RuleEditorViewModelTest {
         val leaf = saved.trigger as TriggerNode.One
         assertEquals("power_connection", leaf.spec.type)
         assertEquals("connected", leaf.spec.config["state"])
-        assertEquals(listOf("speak"), saved.actions.map { it.type })
+        assertEquals(listOf("speak"), saved.actions.leafActions().map { it.type })
     }
 
     /**
@@ -230,7 +231,7 @@ class RuleEditorViewModelTest {
         editor.setConfigValue(Slot.ACTION, 0, "durationMillis", "60000")
 
         editor.testAction(0)
-        assertEquals("the alert should be running", 0, editor.state.value.testing)
+        assertEquals("the alert should be running", listOf(0), editor.state.value.testing)
 
         editor.testAction(0)
 
@@ -246,12 +247,12 @@ class RuleEditorViewModelTest {
         editor.addAction("vibrate")
 
         editor.testAction(0)
-        assertEquals(0, editor.state.value.testing)
+        assertEquals(listOf(0), editor.state.value.testing)
 
         editor.testAction(1)
 
         // Whatever it settles on, it must not still claim to be running the first.
-        assertTrue(editor.state.value.testing != 0)
+        assertTrue(editor.state.value.testing != listOf(0))
     }
 
     /**
@@ -382,7 +383,7 @@ class RuleEditorViewModelTest {
 
         assertEquals(
             listOf("vibrate", "toast"),
-            repository.rules().first().single().actions.map { it.type },
+            repository.rules().first().single().actions.leafActions().map { it.type },
         )
     }
 
@@ -416,7 +417,7 @@ class RuleEditorViewModelTest {
 
         assertEquals("Loaded", editor.state.value.draft.name)
         assertEquals("off", editor.state.value.draft.trigger.leaf!!.config["state"])
-        assertEquals("hello", editor.state.value.draft.actions.single().config["text"])
+        assertEquals("hello", editor.state.value.draft.actions.leafComponents().single().config["text"])
     }
 
     @Test
@@ -554,7 +555,7 @@ class RuleEditorViewModelTest {
         val finished = repository.rules().first().single()
         assertTrue(finished.enabled)
         assertEquals("screen_state", (finished.trigger as TriggerNode.One).spec.type)
-        assertEquals(listOf("toast"), finished.actions.map { it.type })
+        assertEquals(listOf("toast"), finished.actions.leafActions().map { it.type })
     }
 
     @Test
@@ -1145,7 +1146,7 @@ class RuleEditorViewModelTest {
 
         assertEquals(
             listOf("toast", "speak"),
-            editor.state.value.draft.actions.map { it.type },
+            editor.state.value.draft.actions.leafComponents().map { it.type },
         )
     }
 
@@ -1157,7 +1158,7 @@ class RuleEditorViewModelTest {
 
         editor.moveAction(0, 5)
 
-        assertEquals(listOf("toast"), editor.state.value.draft.actions.map { it.type })
+        assertEquals(listOf("toast"), editor.state.value.draft.actions.leafComponents().map { it.type })
     }
 
     // --- The trigger tree: a group is a trigger, chosen from the same picker. ---
@@ -1653,7 +1654,7 @@ class RuleEditorViewModelTest {
 
         val draft = editor.state.value.draft
         assertEquals("Charger on", draft.name)
-        assertEquals(listOf("speak"), draft.actions.map { it.type })
+        assertEquals(listOf("speak"), draft.actions.leafComponents().map { it.type })
         assertEquals("rule-1", draft.id)
     }
 
@@ -1676,7 +1677,7 @@ class RuleEditorViewModelTest {
         val draft = editor.state.value.draft
         assertEquals("Half-built", draft.name)
         assertEquals("power_connection", draft.trigger.leaf?.type)
-        assertEquals(listOf("speak"), draft.actions.map { it.type })
+        assertEquals(listOf("speak"), draft.actions.leafComponents().map { it.type })
         assertNull("stopping a test must not leave a run marked active", editor.state.value.testing)
     }
 

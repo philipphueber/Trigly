@@ -436,9 +436,12 @@ has both, and `docs/variables.md` section 11 has the loop the guard prevents.
 `run_parallel` is the third action of this kind, and it uses the same seam two
 times at once. It names two rules, the two branches, and runs their actions at
 the same time. The next action of the calling rule starts only when both
-branches are finished. A branch is a rule and not a list of actions inside the
-action, because a rule is a trigger and a flat list of actions, and
-`docs/variables.md` section 14 keeps it that way. Each
+branches are finished. A branch of `run_parallel` is a rule and not a list of
+actions inside the action: an action holds config, and a list of actions is not
+config. The action list itself can now hold a parallel block with branches
+edited in place, which is the other form of the same thing. See
+`docs/architecture.md`, "Actions at the same time, inside one rule". The two
+forms make the same decisions, listed below. Each
 branch goes through `RuleRunner.runNow`, so it gets the loop guard, the chain
 depth cap, the run scope and the fault reports of `run_rule` without a second
 mechanism. The decisions, which the warning on the action also states:
@@ -467,7 +470,14 @@ mechanism. The decisions, which the warning on the action also states:
   to each path. At most 128 branches can run at the same time at the deepest
   level, and each one is only a coroutine.
 
-The rule editor needs no new screen for this. The two branches are two
+The inline block differs in two places only. Its branches are lists of
+actions, not rules, so there is no chain and no rule id to refuse. And its
+`{{action.*}}` outputs do not stay inside the branch: the actions after the
+block read every branch's outputs, because the branches are part of the same
+rule and numbered with the rest of it. A branch still never reads what the
+branch beside it made.
+
+For `run_parallel`, the rule editor needs no new screen. The two branches are two
 `ConfigField.RuleRef` fields, so the editor shows two rule pickers, and a person
 builds each branch as an ordinary rule, kept off if its own trigger must not
 run it.
@@ -1165,9 +1175,12 @@ than toggles.
 ## Not an action: variables, conditions, loops
 
 "All variable / if / loop / repeat logic" is not an action type: it is a
-change to what a `Rule` *is*. Today a rule is a trigger plus a flat list of
-actions; conditions and control flow mean an execution model, a value type, and
-somewhere to store state between runs.
+change to what a `Rule` *is*. A rule is a trigger plus a list of actions.
+The list is a tree with one kind of inner node, a parallel block, which runs
+every branch at the same time and joins. That block chooses nothing: every
+action in it runs on every firing, so it is not control flow in the sense of
+this section. Conditions and control flow mean an execution model, a value
+type, and somewhere to store state between runs.
 
 That is the largest single design decision left in the project, and it wants its
 own document rather than a bullet in a catalogue. **It now has one:

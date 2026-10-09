@@ -99,7 +99,7 @@ where it happens instead.
 | Rule  | One rule run | The engine | No |
 | App   | Until changed or removed | A `set_variable` action, or the user | Yes |
 | Action | The rest of one rule run | An action that declares an output | No |
-| Run | One firing, the whole `run_rule` chain and both `run_parallel` branches included | A `set_variable` action | No |
+| Run | One firing, the whole `run_rule` chain and every parallel branch included | A `set_variable` action | No |
 | Rule | Until changed or removed | A `set_variable` or `get_volume` action, for one rule only | Yes |
 
 **Event scope** is the trigger payload, named and declared.
@@ -115,8 +115,11 @@ scope that needs a table and a migration.
 three actions, a string assembled in two steps. Nothing persists it, so nothing
 has to clean it up and it cannot reach the next firing. A `run_rule` chain
 shares one, because the chain is one firing started by one event. The two
-branches of `run_parallel` share it too, and they can write at the same time.
-The last write is kept, and the order of two parallel writes is not defined.
+branches of `run_parallel` share it too, and so do the branches of a parallel
+block in the action list. Branches can write at the same time. The last write
+is kept, and the order of two parallel writes is not defined. The picker offers
+a run value only where the write is always finished first, so a branch is not
+offered what the branch beside it writes.
 
 **Rule scope** is a value that belongs to one rule, survives its runs, and is
 invisible to every other rule, `{{mine.*}}`. This is what app scope was standing
@@ -893,7 +896,13 @@ put them behind a flag on the trigger rather than in every event.
   thing to a branch, and it is deliberately narrow: it decides whether one named
   rule's actions run, and it is visible on the screen as the field it is.
   `run_parallel` does not change this. It runs two named rules at the same
-  time, and it does not choose between them.
+  time, and it does not choose between them. A parallel block in the action
+  list does not change it either. The action list is now a tree with one kind
+  of inner node, and that node is a fork and a join: every branch starts, every
+  action in every branch runs, and the next action waits for all of them.
+  Nothing chooses which actions run, so there is still no branching in the
+  sense this bullet refuses. A condition on a branch would be that branching,
+  and it is refused for the reasons above and in `docs/todo.md` R6.
 - **No `variable_changed`.** Section 11.
 - **No captured action output.** Action scope exists now, and section 3 says
   what it is, but only for a value an action *computed*: which way a toggle

@@ -314,14 +314,17 @@ class TriggerNodeJsonTest {
     // --- refusing a file this build cannot understand ---------------------------
 
     @Test
-    fun `a v4 document is refused with a message naming both versions`() {
-        val v4Export = """{"version":4,"rules":[]}"""
+    fun `a document newer than this build is refused with a message naming both versions`() {
+        // One past whatever this build writes, so the test keeps asking the
+        // same question when the version moves on.
+        val newer = RuleJson.VERSION + 1
+        val newerExport = """{"version":$newer,"rules":[]}"""
 
         val error = assertThrows(IllegalArgumentException::class.java) {
-            RuleJson.decode(v4Export)
+            RuleJson.decode(newerExport)
         }
         assertTrue(error.message.orEmpty().contains("newer version"))
-        assertTrue(error.message.orEmpty().contains("4"))
+        assertTrue(error.message.orEmpty().contains(newer.toString()))
         assertTrue(error.message.orEmpty().contains(RuleJson.VERSION.toString()))
     }
 

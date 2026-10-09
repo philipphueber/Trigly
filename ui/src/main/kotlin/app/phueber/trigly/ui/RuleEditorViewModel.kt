@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import app.phueber.trigly.core.ActionPath
 import app.phueber.trigly.core.ActionResult
 import app.phueber.trigly.core.ComponentDescriptor
 import app.phueber.trigly.core.ComponentSpec
@@ -22,6 +23,8 @@ import app.phueber.trigly.core.TriggerNode
 import app.phueber.trigly.core.VariableReach
 import app.phueber.trigly.core.VariableStore
 import app.phueber.trigly.core.canStart
+import app.phueber.trigly.core.leafActions
+import app.phueber.trigly.core.leafIndexOf
 import app.phueber.trigly.core.leaves
 import app.phueber.trigly.core.parseTemplate
 import app.phueber.trigly.core.scoped
@@ -56,8 +59,12 @@ data class EditorState(
      * and gone.
      */
     val finished: Boolean = false,
-    /** Index of the action currently being test-run, if any. */
-    val testing: Int? = null,
+    /**
+     * Path of the action currently being test-run, if any. A path rather than
+     * an index, because an action inside a branch of a parallel block has no
+     * index of its own in the list. See `ActionPath` in `:core`.
+     */
+    val testing: ActionPath? = null,
     /** What the last test run reported. Replaced by the next one. */
     val testResult: String? = null,
     /**
@@ -176,7 +183,7 @@ class RuleEditorViewModel(
         val state = _state.value
         return registry.variableReach(
             trigger = state.draft.trigger?.toNodeIgnoringEmptyGroups(),
-            actions = state.draft.actions.map { ComponentSpec(it.type, it.config) },
+            actions = state.draft.actions.toNodes(),
             savedAppVariables = state.appVariables,
             savedRuleVariables = state.ruleVariables,
             otherRules = state.otherRules,
@@ -203,6 +210,23 @@ class RuleEditorViewModel(
         reach().at(ReadPoint.Action(index))
 
     /**
+     * The same, for the action at [path], which can sit inside a branch of a
+     * parallel block. What it reads differs from a plain list in one way: it
+     * is not offered what a branch beside its own produces, because the two
+     * run at the same time. See `finishesBefore` in `:core`.
+     */
+    fun availableVariablesForAction(path: ActionPath): List<ScopedVariable> =
+        availableVariablesForAction(leafIndexOf(path))
+
+    /**
+     * Where the action at [path] sits in the order every reader numbers
+     * actions by, or -1 if [path] names no action. -1 reads as "no action
+     * above it", which offers the least, never more than is true.
+     */
+    private fun leafIndexOf(path: ActionPath): Int =
+        _state.value.draft.actions.toNodes().leafIndexOf(path)
+
+    /**
      * What to tell somebody about a reference in a trigger field that names a
      * variable nothing writes, without stopping them. See
      * [VariableReach.warnings] for why this is a warning and not a refusal.
@@ -213,6 +237,10 @@ class RuleEditorViewModel(
     /** The same, for the action at [index]. */
     fun variableWarningsForAction(index: Int, value: String): List<String> =
         reach().warnings(value, ReadPoint.Action(index))
+
+    /** The same, for the action at [path]. */
+    fun variableWarningsForAction(path: ActionPath, value: String): List<String> =
+        variableWarningsForAction(leafIndexOf(path), value)
 
     init {
         load()
@@ -486,34 +514,67 @@ class RuleEditorViewModel(
     private fun hasState(type: String): Boolean =
         registry.triggerDescriptor(type)?.supportsCondition ?: false
 
+    /**
+     * Appends an action of [type] to the end of the list, or a parallel block
+     * when [type] is [PARALLEL_TYPE].
+     *
+     * A block arrives with two empty branches, each with its own "Add action".
+     * Two, because a block with one branch is the same as no block, and that
+     * is what [removeActionAt] collapses it to.
+     */
     fun addAction(type: String) = edit {
-        val fields = registry.actionDescriptor(type)?.configFields.orEmpty()
-        copy(actions = actions + ComponentDraft(type, defaultConfigFor(fields)))
+        if (isParallelType(type)) {
+            return@edit copy(actions = actions + ActionDraft.Parallel(listOf(emptyList(), emptyList())))
+        }
+        copy(actions = actions + newAction(type))
     }
 
-    fun changeActionType(index: Int, type: String) = edit {
+    /**
+     * Appends an action of [type] to the branch at [branchPath],
+     * `[block, branch]`. [PARALLEL_TYPE] is ignored here: a branch holds only
+     * actions. See `ActionNode` in `:core`.
+     */
+    fun addActionToBranch(branchPath: ActionPath, type: String) = edit {
+        if (isParallelType(type)) return@edit this
+        copy(actions = actions.addToBranch(branchPath, newAction(type)))
+    }
+
+    /** Appends an empty branch to the parallel block at [blockIndex]. */
+    fun addBranch(blockIndex: Int) = edit { copy(actions = actions.addBranch(blockIndex)) }
+
+    private fun newAction(type: String): ComponentDraft =
+        ComponentDraft(type, defaultConfigFor(registry.actionDescriptor(type)?.configFields.orEmpty()))
+
+    fun changeActionType(index: Int, type: String) = changeActionType(listOf(index), type)
+
+    /** Replaces the action at [path] with one of [type], keeping the config the two share. */
+    fun changeActionType(path: ActionPath, type: String) = edit {
+        if (isParallelType(type)) return@edit this
         val fields = registry.actionDescriptor(type)?.configFields.orEmpty()
         copy(
-            actions = actions.mapIndexed { i, action ->
-                if (i == index) {
-                    ComponentDraft(type, migrateConfig(action.config, fields))
-                } else {
-                    action
-                }
+            actions = actions.updateComponentAt(path) { action ->
+                ComponentDraft(type, migrateConfig(action.config, fields))
             }
         )
     }
 
-    fun removeAction(index: Int) = edit {
-        copy(actions = actions.filterIndexed { i, _ -> i != index })
-    }
+    fun removeAction(index: Int) = removeAction(listOf(index))
+
+    /**
+     * Removes the node at [path]: an action, a whole parallel block, or one
+     * branch of a block. See [removeActionAt] for when a block collapses.
+     */
+    fun removeAction(path: ActionPath) = edit { copy(actions = actions.removeActionAt(path)) }
 
     /** Order is semantic (actions run in sequence), so moving them must persist. */
-    fun moveAction(from: Int, to: Int) = edit {
-        if (from !in actions.indices || to !in actions.indices) return@edit this
-        val reordered = actions.toMutableList()
-        reordered.add(to, reordered.removeAt(from))
-        copy(actions = reordered)
+    fun moveAction(from: Int, to: Int) = moveAction(listOf(from), listOf(to))
+
+    /**
+     * Moves the node at [from] to [to] inside one list: the top level, or one
+     * branch. See [moveActionAt] for why a move between lists is refused.
+     */
+    fun moveAction(from: ActionPath, to: ActionPath) = edit {
+        copy(actions = actions.moveActionAt(from, to))
     }
 
     /**
@@ -538,11 +599,22 @@ class RuleEditorViewModel(
         when (slot) {
             Slot.TRIGGER -> this
             Slot.ACTION -> copy(
-                actions = actions.mapIndexed { i, action ->
-                    if (i == index) action.copy(config = update(action.config)) else action
+                actions = actions.updateComponentAt(listOf(index)) { action ->
+                    action.copy(config = update(action.config))
                 }
             )
         }
+    }
+
+    /** Edits one config value on the action at [path], at any depth. */
+    fun setActionConfigValue(path: ActionPath, key: String, value: String?) = edit {
+        copy(
+            actions = actions.updateComponentAt(path) { action ->
+                action.copy(
+                    config = if (value.isNullOrEmpty()) action.config - key else action.config + (key to value)
+                )
+            }
+        )
     }
 
     /**
@@ -666,7 +738,7 @@ class RuleEditorViewModel(
      *   substituted (used to decide whether the caller's result needs
      *   [SAMPLE_VALUES_NOTE]), or the reason a reference could not be filled in.
      */
-    private fun resolveSampleConfig(spec: ComponentSpec, index: Int): Result<Pair<ComponentSpec, Boolean>> {
+    private fun resolveSampleConfig(spec: ComponentSpec, path: ActionPath): Result<Pair<ComponentSpec, Boolean>> {
         // Includes app scope, the same as [availableVariables]: a run that
         // could not resolve `{{app.something}}` because this list forgot app
         // scope would be the sample path silently narrower than the save path
@@ -675,7 +747,7 @@ class RuleEditorViewModel(
         // `{{action.value}}` from the one above it has to resolve to that
         // action's declared sample here, or a run would report a reference the
         // real firing resolves without trouble as unfillable.
-        val lookup = SampleLookup(availableVariablesForAction(index))
+        val lookup = SampleLookup(availableVariablesForAction(path))
         val resolvedConfig = spec.config.toMutableMap()
         var readsAVariable = false
         for ((key, encoding) in registry.substitutionsFor(spec)) {
@@ -724,19 +796,26 @@ class RuleEditorViewModel(
      * rule fires for real. The screen says so rather than letting a green result
      * imply more than it means.
      */
-    fun testAction(index: Int) {
+    fun testAction(index: Int) = testAction(listOf(index))
+
+    /**
+     * The same, for the action at [path], at any depth. An action inside a
+     * branch is tested alone, the same as one at the top: Test answers "does
+     * this action work", not "does this block work".
+     */
+    fun testAction(path: ActionPath) {
         // A second press on the running action is a stop button.
-        if (_state.value.testing == index) {
+        if (_state.value.testing == path) {
             cancelTest("Stopped.")
             return
         }
         cancelTest(null)
 
-        val draft = _state.value.draft.actions.getOrNull(index) ?: return
+        val draft = _state.value.draft.actions.componentAt(path) ?: return
         val spec = ComponentSpec(draft.type, draft.config)
         val name = registry.displayNameOf(spec.type)
 
-        val (resolvedSpec, readsAVariable) = resolveSampleConfig(spec, index).getOrElse { cause ->
+        val (resolvedSpec, readsAVariable) = resolveSampleConfig(spec, path).getOrElse { cause ->
             _state.update { it.copy(testing = null, testResult = "$name: ${cause.message}") }
             return
         }
@@ -748,7 +827,7 @@ class RuleEditorViewModel(
             return
         }
 
-        _state.update { it.copy(testing = index, testResult = null) }
+        _state.update { it.copy(testing = path, testResult = null) }
         testJob = viewModelScope.launch {
             // A run scope, so an action writing to `this run` or `this rule`
             // does the real thing here instead of reporting that no rule is
@@ -817,12 +896,15 @@ class RuleEditorViewModel(
      * cleared rather than left showing a message about a different
      * configuration than the one now on screen.
      */
-    fun checkIntentTarget(index: Int) {
-        val draft = _state.value.draft.actions.getOrNull(index) ?: return
+    fun checkIntentTarget(index: Int) = checkIntentTarget(listOf(index))
+
+    /** The same, for the action at [path], at any depth. */
+    fun checkIntentTarget(path: ActionPath) {
+        val draft = _state.value.draft.actions.componentAt(path) ?: return
         val spec = ComponentSpec(draft.type, draft.config)
         val name = registry.displayNameOf(spec.type)
 
-        val (resolvedSpec, readsAVariable) = resolveSampleConfig(spec, index).getOrElse { cause ->
+        val (resolvedSpec, readsAVariable) = resolveSampleConfig(spec, path).getOrElse { cause ->
             _state.update { it.copy(testResult = "$name: ${cause.message}") }
             return
         }
@@ -890,7 +972,11 @@ class RuleEditorViewModel(
                 ?.let { return describe(it, triggerLabel(spec, index, leaves.size)) }
         }
 
-        rule.actions.forEachIndexed { index, spec ->
+        // Every action at every depth, numbered the way the engine numbers
+        // them. A branch of a parallel block is not a place an action can
+        // hide from validation: it builds and runs the same as one at the top.
+        val actions = rule.actions.leafActions()
+        actions.forEachIndexed { index, spec ->
             if (isUnfinished(Slot.ACTION, spec)) return@forEachIndexed
             runCatching { registry.createAction(spec) }
                 .exceptionOrNull()
@@ -928,7 +1014,7 @@ class RuleEditorViewModel(
             val label = triggerLabel(spec, index, leaves.size)
             variableProblem(spec, reach, ReadPoint.Trigger)?.let { return "$label: $it" }
         }
-        rule.actions.forEachIndexed { index, spec ->
+        actions.forEachIndexed { index, spec ->
             val label = "${registry.displayNameOf(spec.type)} (action ${index + 1})"
             variableProblem(spec, reach, ReadPoint.Action(index))?.let { return "$label: $it" }
         }
