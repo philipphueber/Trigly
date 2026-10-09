@@ -6,11 +6,13 @@ Trigly is an open source automation app for Android. It is written in native
 Kotlin, and it uses Jetpack Compose for its UI.
 
 A rule has this form: when a trigger starts, the rule runs a set of actions.
-Trigly has **39 triggers** and **30 actions**, and the full list is below.
+Trigly has **41 triggers** and **30 actions**, and the full list is below.
+A rule can run its actions one after another, or put some of them in a block
+that runs two or more lists of actions at the same time.
 
 > ### This is beta software
 >
-> The version number is `0.3.3`, and both halves of it are a statement. The
+> The version number is `0.4.0`, and both halves of it are a statement. The
 > leading zero says the surface is still not settled: a control can move, a
 > trigger can change its name, and a setting can change its meaning between two
 > releases. The move up from `0.0.x` says the shape has settled enough to ask
@@ -158,8 +160,8 @@ or sunset · Time of day, as a condition between two times
 Battery level · Battery temperature · Charger · Charger type
 
 **Connectivity**
-Wi-Fi radio · Bluetooth radio · Bluetooth device · Airplane mode · NFC ·
-Location services
+Wi-Fi radio · Wi-Fi connection · Mobile data connection · Bluetooth radio ·
+Bluetooth device · Airplane mode · NFC · Location services
 
 **Device state**
 Screen on or off · Screen orientation · Dark theme · Wired headset · Clipboard
