@@ -77,6 +77,8 @@ system settings reports nothing back to the app.
 | Power connected/disconnected | `power_connection` | `ACTION_POWER_CONNECTED`/`_DISCONNECTED` | None |
 | Airplane mode | `airplane_mode` | `ACTION_AIRPLANE_MODE_CHANGED` | None |
 | Wi-Fi radio on/off | `wifi_state` | `WIFI_STATE_CHANGED_ACTION` | `ACCESS_WIFI_STATE` for the *condition* only; the broadcast needs none |
+| Phone uses Wi-Fi for the internet | `wifi_connected` | `ConnectivityManager.registerDefaultNetworkCallback` | `ACCESS_NETWORK_STATE` (normal, granted at install) |
+| Phone uses mobile data for the internet | `mobile_data_connected` | `ConnectivityManager.registerDefaultNetworkCallback` | `ACCESS_NETWORK_STATE` (normal, granted at install) |
 | Bluetooth radio on/off | `bluetooth_adapter_state` | `BluetoothAdapter.ACTION_STATE_CHANGED` | `BLUETOOTH_CONNECT` (API 31+) |
 | Bluetooth device connects/disconnects | `bluetooth_connected` | `ACTION_ACL_CONNECTED`/`_DISCONNECTED`, via `BluetoothEvents` | `BLUETOOTH_CONNECT` (API 31+) to receive the broadcast at all |
 | NFC on/off | `nfc_state` | `android.nfc.action.ADAPTER_STATE_CHANGED` | feature `android.hardware.nfc` |
@@ -525,12 +527,38 @@ location-derived data: **`ACCESS_FINE_LOCATION` is required from API 27**, and
 without it the framework returns `<unknown ssid>` rather than failing: a silent
 wrong answer, so check the permission and surface it.
 
-### Mobile data changed
-`CONNECTIVITY_ACTION` is deprecated (API 28) and not delivered to background
-apps at all from API 26. Use `ConnectivityManager.registerNetworkCallback` with a
-`NetworkRequest` for `TRANSPORT_CELLULAR`. No permission. Callback-based, so it
-fits `callbackFlow` the same way `BroadcastTrigger` does: likely wants a sibling
-base class, `NetworkCallbackTrigger`.
+### ~~Mobile data changed~~: done, with Wi-Fi connection beside it
+
+Built as `mobile_data_connected` and `wifi_connected`, in
+`NetworkConnectionTriggers.kt`. `CONNECTIVITY_ACTION` is still not the source:
+it is deprecated (API 28) and not delivered to background apps from API 26.
+
+**The plan above this line was a callback for `TRANSPORT_CELLULAR`, and that
+was the wrong question.** Most devices keep the cellular link up while Wi-Fi
+is connected ("mobile data always active" is on by default, and the emulator
+does the same). A callback on every cellular network then says "connected to
+mobile data" at home on Wi-Fi, which is the opposite of what a person means.
+Both components read the *default* network instead
+(`registerDefaultNetworkCallback` for the edge, `activeNetwork` plus
+`getNetworkCapabilities` for the level): the network that apps send their data
+over. So at most one of the two holds at a time, and a Wi-Fi network without
+internet, which the platform does not make default, does not count as
+"connected to Wi-Fi".
+
+A VPN does not hide the answer, because the platform adds the transports under
+a VPN to the VPN network's own capabilities.
+
+There is no broadcast, so this is not a `BroadcastTrigger`. The sibling base
+class the plan suggested is `DefaultNetworkTrigger`. It uses `StateTracker` and
+seeds it with a direct read at registration. Without the seed, a phone with no
+network at all gets no first callback, and the first real change would be
+taken as the initial state and dropped.
+
+The level needs `ACCESS_NETWORK_STATE`, and so does the callback. It is normal
+protection level and declared in `:triggers`' manifest.
+
+`NetworkConnectionOnDeviceTest` switches the emulator's Wi-Fi radio with `svc`
+and checks the level and the edges of both components.
 
 ### ~~Device restart~~: done
 
@@ -890,7 +918,8 @@ geofencing.
    stopwatch.
 3. ~~Device restart.~~ Done: `device_restart`, via `BootEvents`.
 4. ~~USB vs AC.~~ Done: `charging_type`.
-5. Network callbacks (mobile data, Wi-Fi SSID), sensors, calendar.
+5. Network callbacks: mobile data and Wi-Fi connection done; Wi-Fi SSID,
+   sensors and calendar are still open.
 6. Decide distribution, which gates whether the accessibility and SMS triggers
    that now exist can ship in a Play build, and now also the `specialUse`
    foreground-service subtype, which Google reviews.
