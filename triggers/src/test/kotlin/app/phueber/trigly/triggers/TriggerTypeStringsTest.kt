@@ -95,6 +95,10 @@ class TriggerTypeStringsTest {
 
         // Restricted by the platform rather than by permission
         "clipboard_changed" to ClipboardTrigger.TYPE,
+
+        // Network connection, added after the first release of this list
+        "wifi_connected" to WifiConnectedTrigger.TYPE,
+        "mobile_data_connected" to MobileDataConnectedTrigger.TYPE,
     )
 
     @Test
@@ -116,7 +120,7 @@ class TriggerTypeStringsTest {
         // A guard that only checks equality would pass on an empty list too.
         // This pins the count so deleting a line reads as a failure, not as
         // one fewer thing to maintain.
-        assertEquals(35, pinned.size)
+        assertEquals(37, pinned.size)
     }
 
     /**

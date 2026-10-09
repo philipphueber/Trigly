@@ -364,6 +364,8 @@ Read from the emit sites. This is the audit the work starts from.
 | `time_window` | no events | | |
 | `ui_click` | package, text, class | all three | |
 | `wifi_state` | state | | the network name, and see below |
+| `wifi_connected` | state | | |
+| `mobile_data_connected` | state | | |
 | `work_profile` | state | | |
 
 Two entries in that last column are not free, and they show a wrinkle worth

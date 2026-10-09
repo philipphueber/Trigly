@@ -165,7 +165,8 @@ group that is the difference between a rule that runs and one that cannot.
 | Pure events | yes | only if a passive form exists: see below |
 | Passive-only checks | no | yes |
 
-The state-capable majority: Wi-Fi, battery level and temperature, charger type,
+The state-capable majority: Wi-Fi radio, Wi-Fi connection, mobile data
+connection, battery level and temperature, charger type,
 headset, screen, Bluetooth adapter and device, airplane mode, Do Not Disturb, GPS
 provider, orientation, dark theme, app foreground, call state.
 

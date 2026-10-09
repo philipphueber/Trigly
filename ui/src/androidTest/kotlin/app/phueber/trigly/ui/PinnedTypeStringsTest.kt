@@ -99,6 +99,10 @@ class PinnedTypeStringsTest {
 
         // Restricted by the platform rather than by permission
         "clipboard_changed",
+
+        // Network connection
+        "wifi_connected",
+        "mobile_data_connected",
     )
 
     /** Every action type string ever released. Add new lines. Do not remove any. */
