@@ -127,6 +127,7 @@ class PinnedTypeStringsTest {
         // Trigly's own rules
         "set_rule_enabled",
         "run_rule",
+        "run_parallel",
 
         // Device state
         "set_volume",

@@ -484,6 +484,10 @@ assume the picker prevented it. Also the *indirect* cycle stays a run-time
 matter whatever this does: the editor cannot see that rule A runs B which runs
 A, and the chain depth cap is what covers that.
 
+`run_parallel` has the same gap, in each of its two branch fields, and the same
+flag fixes it there. It also refuses the same rule in both branches at run
+time, which a picker could refuse at save time too.
+
 **Done when.** The open rule cannot be picked in a `run_rule` action, a stored
 self-reference is refused with a message naming the field, and
 `set_rule_enabled` still offers the open rule.
