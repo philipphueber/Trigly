@@ -130,6 +130,7 @@ fun actionFactories(
     SetRuleEnabledActionFactory(rules),
     SetVariableActionFactory(variables, ruleVariables),
     RunRuleActionFactory(rules, runner),
+    RunParallelActionFactory(rules, runner),
 
     // Device state
     SetVolumeActionFactory(context),

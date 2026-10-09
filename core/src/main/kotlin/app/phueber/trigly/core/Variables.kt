@@ -3,6 +3,7 @@ package app.phueber.trigly.core
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 
@@ -1154,6 +1155,13 @@ fun componentInstanceNames(types: List<String>): List<String> {
  * chain is one firing, started by one event. `{{mine.*}}` is the opposite, and
  * has to be, because that scope is keyed by rule id and a called rule is a
  * different rule.
+ *
+ * **Two branches of `run_parallel` write here at the same time.** Both
+ * branches share the values of the firing, the same as a `run_rule` chain
+ * does, and the engine runs them on `Dispatchers.Default`, so two threads can
+ * write at once. That is why [values] is a [ConcurrentHashMap] by default.
+ * When both branches write the same name, the last write is kept. The order of
+ * two parallel writes is not defined, and `run_parallel`'s warning says so.
  */
 class RunScope(
     /**
@@ -1168,7 +1176,7 @@ class RunScope(
      * rule is running now and a called rule is a different rule.
      */
     val ruleId: String,
-    private val values: MutableMap<String, String> = mutableMapOf(),
+    private val values: MutableMap<String, String> = ConcurrentHashMap(),
 ) : AbstractCoroutineContextElement(Key) {
 
     /** The same values, for a called rule that keeps them but changes owner. */

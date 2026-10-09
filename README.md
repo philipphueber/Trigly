@@ -6,7 +6,7 @@ Trigly is an open source automation app for Android. It is written in native
 Kotlin, and it uses Jetpack Compose for its UI.
 
 A rule has this form: when a trigger starts, the rule runs a set of actions.
-Trigly has **39 triggers** and **29 actions**, and the full list is below.
+Trigly has **39 triggers** and **30 actions**, and the full list is below.
 
 > ### This is beta software
 >
@@ -204,7 +204,8 @@ Flashlight
 Dismiss a notification · Press a notification's button
 
 **Trigly's own rules**
-Turn a rule on or off · Run another rule · Set an app variable
+Turn a rule on or off · Run another rule · Run two rules at the same time ·
+Set an app variable
 
 **Network**
 Send an HTTP request

@@ -110,6 +110,7 @@ the tap start the activity: worse automation, but honest about who decided.
 | Turn a rule on or off | `set_rule_enabled` | None |
 | Set an app variable | `set_variable` | None |
 | Run another rule | `run_rule` | None |
+| Run two rules at the same time | `run_parallel` | None |
 | Wait | `delay` | None |
 | HTTP request | `http_request` | `INTERNET` (install-time) |
 | Dismiss another app's notification | `dismiss_notification` | Notification access |
@@ -432,8 +433,47 @@ built before any engine exists reach the engine that exists later, and a guard
 against a rule that runs itself. `docs/architecture.md`'s "One rule runs another"
 has both, and `docs/variables.md` section 11 has the loop the guard prevents.
 
-`delay` is the third, and its subject is narrower still: this one rule's own
-timing. It has two waits and picks between them by length. Thirty seconds or
+`run_parallel` is the third action of this kind, and it uses the same seam two
+times at once. It names two rules, the two branches, and runs their actions at
+the same time. The next action of the calling rule starts only when both
+branches are finished. A branch is a rule and not a list of actions inside the
+action, because a rule is a trigger and a flat list of actions, and
+`docs/variables.md` section 14 keeps it that way. Each
+branch goes through `RuleRunner.runNow`, so it gets the loop guard, the chain
+depth cap, the run scope and the fault reports of `run_rule` without a second
+mechanism. The decisions, which the warning on the action also states:
+
+- **Join.** The action returns after the slower branch. Both branches are child
+  coroutines of the action.
+- **A failed branch.** A branch that the engine refuses (a deleted rule, a loop,
+  a chain that is too deep, a rule that cannot be built) or that throws does not
+  stop the other branch. The action waits for both and then fails, and names
+  each branch that did not run. A failed action inside a branch is reported
+  against the branch rule, and the branch continues, the same as in any rule.
+- **Missing rules.** No rule chosen, the same rule in both branches, or a rule
+  that was deleted: the action fails before either branch starts. A parallel
+  step that runs only half of what the person built is not useful.
+- **Stop.** When the calling rule is turned off, edited or deleted, the engine
+  cancels its coroutine, and both branches are cancelled with it. No action
+  after `run_parallel` runs. A branch that turns off the calling rule stops
+  both branches for the same reason.
+- **Variables.** Both branches share the run scope of the firing, the same as a
+  `run_rule` chain. When both write the same `{{local.*}}` name, the last write
+  is kept, and the order of two parallel writes is not defined. `{{mine.*}}`
+  cannot collide, because the two branches are always two different rules.
+  `{{action.*}}` outputs stay inside their branch.
+- **Nesting.** A branch rule can contain `run_parallel` or `run_rule` again.
+  Each branch adds one rule to its own chain, so the cap of eight rules applies
+  to each path. At most 128 branches can run at the same time at the deepest
+  level, and each one is only a coroutine.
+
+The rule editor needs no new screen for this. The two branches are two
+`ConfigField.RuleRef` fields, so the editor shows two rule pickers, and a person
+builds each branch as an ordinary rule, kept off if its own trigger must not
+run it.
+
+`delay` is the fourth action of this kind, and its subject is narrower still:
+this one rule's own timing. It has two waits and picks between them by length. Thirty seconds or
 less holds the CPU awake through the `WakeGuard` port and waits on a plain
 coroutine `delay`, which is then accurate to the millisecond. Anything longer
 waits on the scheduler port, which survives the device suspending and cannot be

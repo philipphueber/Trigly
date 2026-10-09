@@ -67,6 +67,7 @@ class ActionTypeStringsTest {
         "set_rule_enabled" to SetRuleEnabledAction.TYPE,
         "set_variable" to SetVariableAction.TYPE,
         "run_rule" to RunRuleAction.TYPE,
+        "run_parallel" to RunParallelAction.TYPE,
 
         // Device state
         "set_volume" to SetVolumeAction.TYPE,
@@ -108,7 +109,7 @@ class ActionTypeStringsTest {
         // A guard that only checks equality would pass on an empty list too.
         // This pins the count so deleting a line reads as a failure, not as
         // one fewer thing to maintain.
-        assertEquals(31, pinned.size)
+        assertEquals(32, pinned.size)
     }
 
     /**

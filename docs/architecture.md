@@ -1415,6 +1415,33 @@ rule repeats. The chain travels as a coroutine context element rather than as a
 field on the engine, so two rules can each be part-way through their own chain
 at once without mixing them together.
 
+#### Two rules at the same time
+
+`run_parallel` (in `:actions`, `RunParallelAction.kt`) runs the actions of two
+named rules at the same time and returns when both are finished. It adds no
+engine machinery. It calls `RuleRunner.runNow` two times, each in its own
+`async` inside one `coroutineScope`, so the join is the end of that scope and
+the cancellation is structured concurrency: the engine cancels the rule's job,
+and both branches are children of it. Each branch extends its own `RunChain`,
+so the loop guard and the depth cap apply per path without a change.
+
+A branch is a rule, not a nested list of actions. A nested list would change
+what a `Rule` is, the Room schema and the JSON format, and it would give the
+editor a second way to build actions. Two `ConfigField.RuleRef` fields need
+none of that: the stored config is two rule ids, there is no migration, and the
+editor shows two rule pickers with no new code.
+
+Each branch is made safe for its sibling. A refusal or an exception becomes a
+refused branch, so one branch can never cancel the other through the scope
+they share. A `CancellationException` that arrives while the action is still
+active did not come from the engine, so it stops that branch only.
+
+**The one change in `:core`.** The two branches share the run scope of the
+firing, the same as a `run_rule` chain, and the engine runs on
+`Dispatchers.Default`, so two threads can write `{{local.*}}` at once.
+`RunScope` now holds its values in a `ConcurrentHashMap`. The last write is
+kept, and the order of two parallel writes is not defined.
+
 #### Waiting inside a rule
 
 `delay` holds the rest of the rule for a set time, and it does that two
