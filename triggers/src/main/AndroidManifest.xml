@@ -55,6 +55,17 @@
     -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 
+    <!--
+      `wifi_connected` and `mobile_data_connected`. Both the network callback
+      and the direct read (`activeNetwork`, `getNetworkCapabilities`) need it.
+      Without it the read throws SecurityException, and the component used as
+      a check answers "cannot tell", so the rule never fires. Normal
+      protection level, the same as ACCESS_WIFI_STATE above: granted at
+      install, no dialog, nothing added to the install prompt. It tells which
+      kind of network is in use, and nothing about its name or position.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <!-- Call state. The caller's number would additionally need READ_CALL_LOG,
          which Play restricts to default dialers; the call trigger deliberately
          does without it. -->

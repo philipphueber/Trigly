@@ -84,6 +84,8 @@ fun triggerFactories(
     // Radios
     AirplaneModeTriggerFactory(context),
     WifiStateTriggerFactory(context),
+    WifiConnectedTriggerFactory(context),
+    MobileDataConnectedTriggerFactory(context),
     BluetoothAdapterStateTriggerFactory(context),
     BluetoothConnectionTriggerFactory(context),
     NfcStateTriggerFactory(context),
