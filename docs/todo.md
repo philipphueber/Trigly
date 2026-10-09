@@ -777,6 +777,18 @@ there as the one deliberately narrow exception, not a pattern to repeat per
 action. A per-action condition is exactly the branch that bullet refuses,
 with the field moved from one rule to every action in it.
 
+This still holds now that the action list can hold a parallel block. The
+person asked for that block, and it changes what a rule is: the action list is
+a tree with one kind of inner node. But that node is a fork and a join. Every
+branch runs, every action in it runs, and the next action waits for all of
+them. It does not choose which actions run, so it is not the branch this item
+refuses. A branch has no condition and no "is active" field. One argument below
+is weaker than it was: the block is a node the engine owns, so the "no
+engine-owned seam" paragraph is no longer true of the action list as a whole.
+The rejection stands on the other two reasons, the bullet above and the
+catalogue choice below, and the block touches neither.
+See `docs/architecture.md`, "Actions at the same time, inside one rule".
+
 `docs/actions.md` settled the same question from the other side. Its "Not an
 action: variables, conditions, loops" section chose, for the whole project,
 that a condition reuses the trigger catalogue rather than adding a second,
@@ -788,7 +800,7 @@ point in this codebase, `ComponentSpec.config`'s keys included, is declared by
 that action's own factory, not by the engine. A field that applies across
 every action type regardless of which factory built it needs the engine
 itself to know about it, which means a schema change reaching every stored
-rule: a Room migration from the current version, 6. The cheap version, an
-untyped `"active"` key every factory happens to check for, is the coupling
-`CLAUDE.md` already forbids: adding a per-action field would mean editing
-every existing action's factory to read it.
+rule: a Room migration (the database was at version 6 when this was
+written). The cheap version, an untyped `"active"` key every factory
+happens to check for, is the coupling `CLAUDE.md` already forbids: adding a
+per-action field would mean editing every existing action's factory to read it.

@@ -223,10 +223,10 @@ class AvailableVariablesTest {
     fun `an action output is never marked always present`() {
         val types = listOf("set_variable", "post_notification")
 
-        val available = availableActionOutputs(types, index = 1) { type ->
+        val available = availableActionOutputs(types, index = 1, variablesOf = { type ->
             if (type == "set_variable") listOf(spec("value", alwaysPresent = true))
             else emptyList()
-        }
+        })
 
         assertTrue(available.isNotEmpty())
         assertTrue(available.all { !it.spec.alwaysPresent })

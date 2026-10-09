@@ -1,6 +1,7 @@
 package app.phueber.trigly.ui
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import app.phueber.trigly.core.leafActions
 import androidx.test.platform.app.InstrumentationRegistry
 import app.phueber.trigly.actions.actionFactories
 import app.phueber.trigly.core.ComponentSpec
@@ -77,9 +78,9 @@ class DuplicateTest {
         val copy = rule(TriggerNode.One(ComponentSpec("screen_state"))).duplicated(registry)
 
         assertEquals("Car", copy.folder)
-        assertEquals(1, copy.actions.size)
-        assertEquals("toast", copy.actions.single().type)
-        assertEquals("up", copy.actions.single().config["text"])
+        assertEquals(1, copy.actions.leafActions().size)
+        assertEquals("toast", copy.actions.leafActions().single().type)
+        assertEquals("up", copy.actions.leafActions().single().config["text"])
     }
 
     @Test

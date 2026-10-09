@@ -57,6 +57,7 @@ import androidx.compose.ui.window.DialogProperties
 import app.phueber.trigly.core.ActiveNotification
 import app.phueber.trigly.core.ComponentDescriptor
 import app.phueber.trigly.core.ComponentRequirement
+import app.phueber.trigly.core.ActionPath
 import app.phueber.trigly.core.ComponentTool
 import app.phueber.trigly.core.ConfigField
 import app.phueber.trigly.core.NodePath
@@ -142,12 +143,24 @@ fun RuleEditorScreen(
     onRemoveTrigger: (NodePath) -> Unit = {},
     /** Edits one config value on the leaf at this path. */
     onSetTriggerConfigValue: (NodePath, String, String?) -> Unit = { _, _, _ -> },
+    /**
+     * Appends an action, or a parallel block when the picked type is
+     * [PARALLEL_TYPE]. The screen does not read the type: it hands on what
+     * was picked, the same as [onChooseTrigger] does with a trigger group.
+     */
     onAddAction: (String) -> Unit,
-    onChangeActionType: (Int, String) -> Unit,
-    onRemoveAction: (Int) -> Unit,
-    onMoveAction: (Int, Int) -> Unit,
-    onConfigChange: (Slot, Int, String, String?) -> Unit,
-    onTestAction: (Int) -> Unit,
+    /**
+     * Every action-side callback below addresses its target by `ActionPath`:
+     * `[i]` at the top of the list, `[i, b, j]` inside branch `b` of the block
+     * at `i`. See `ActionPath` in `:core`.
+     */
+    onChangeActionType: (ActionPath, String) -> Unit,
+    /** Removes an action, a whole block (`[i]`), or one branch (`[i, b]`). */
+    onRemoveAction: (ActionPath) -> Unit,
+    /** Moves a node from the first path to the second, inside one list. */
+    onMoveAction: (ActionPath, ActionPath) -> Unit,
+    onConfigChange: (ActionPath, String, String?) -> Unit,
+    onTestAction: (ActionPath) -> Unit,
     /**
      * Checks whether the action at this index's configured intent would find
      * something to run it, without sending it. This is the `fire_intent` control
@@ -158,7 +171,17 @@ fun RuleEditorScreen(
      * [onTestAction]'s outcome already uses. Defaults to a no-op so a caller
      * that has not wired this, such as a preview, still renders the button.
      */
-    onCheckIntentTarget: (Int) -> Unit = {},
+    onCheckIntentTarget: (ActionPath) -> Unit = {},
+    /** Appends an action of the picked type to the branch at `[block, branch]`. */
+    onAddActionToBranch: (ActionPath, String) -> Unit = { _, _ -> },
+    /** Appends an empty branch to the parallel block at this index. */
+    onAddBranch: (Int) -> Unit = {},
+    /**
+     * The extra row the top-level "Add action" picker offers, which adds a
+     * parallel block. Null leaves it out. The picker inside a branch never
+     * offers it, because a branch holds only actions.
+     */
+    parallelOption: ComponentDescriptor? = PARALLEL_OPTION,
     onSave: () -> Unit,
     onDelete: () -> Unit,
     onBack: () -> Unit,
@@ -217,17 +240,17 @@ fun RuleEditorScreen(
      */
     describeComponent: (String) -> String = { it },
     /**
-     * What the action at this index can read, which is [availableVariables]
+     * What the action at this path can read, which is [availableVariables]
      * plus what the actions above it produce. See
      * [RuleEditorViewModel.availableVariablesForAction].
      *
-     * A function of the index rather than one list, because an action's
+     * A function of the path rather than one list, because an action's
      * position is what decides the answer: the first action has nothing above
      * it to read from. Defaults to [availableVariables] for a caller that has
      * not wired this, which is every test that only cares about the trigger
      * half.
      */
-    availableVariablesForAction: (Int) -> List<ScopedVariable> = { availableVariables },
+    availableVariablesForAction: (ActionPath) -> List<ScopedVariable> = { availableVariables },
     /**
      * What to say about a reference in a *trigger* field that names a variable
      * nothing writes. See [RuleEditorViewModel.variableWarnings], and
@@ -235,11 +258,11 @@ fun RuleEditorScreen(
      */
     variableWarnings: (String) -> List<String> = { emptyList() },
     /**
-     * The same for the action at this index, which is a different answer for
+     * The same for the action at this path, which is a different answer for
      * the same reason [availableVariablesForAction] is: a run value written by
      * the action above this one is missing for the action above *that*.
      */
-    variableWarningsForAction: (Int, String) -> List<String> = { _, value ->
+    variableWarningsForAction: (ActionPath, String) -> List<String> = { _, value ->
         variableWarnings(value)
     },
     modifier: Modifier = Modifier,
@@ -453,81 +476,121 @@ fun RuleEditorScreen(
                 }
 
                 SectionLabel("Then")
-                draft.actions.forEachIndexed { index, action ->
-                    ComponentBlock(
-                        chosenType = action.type,
-                        descriptor = descriptorFor(Slot.ACTION, action.type),
-                        config = action.config,
-                        emptyLabel = "Choose an action",
-                        onChoose = { picking = Picking.ActionType(index) },
-                        onConfigChange = { key, value ->
-                            onConfigChange(Slot.ACTION, index, key, value)
-                        },
-                        onResolveRequirement = onResolveRequirement,
-                        availableVariables = availableVariablesForAction(index),
-                        variableWarnings = { value -> variableWarningsForAction(index, value) },
-                        substitutionsFor = substitutionsFor,
-                        describeComponent = describeComponent,
-                        modifier = Modifier.padding(bottom = 12.dp),
-                        footer = {
-                            // Test is no longer written here: every action declares
-                            // it through `ActionFactory.toolsFor`, and the ones with
-                            // more to offer (the notification actions, which can
-                            // open the inspector) declare that alongside it. The
-                            // running/Stop state stays the screen's business,
-                            // because only the screen knows which action is running.
-                            //
-                            // `Modifier.align(Alignment.CenterVertically)` on every
-                            // control here, this one included, is what puts the
-                            // chevrons and the text buttons on one centre line.
-                            // See [Footer]'s KDoc for why the row needs that at all.
-                            ComponentTools(
-                                tools = toolsFor(action.type, action.config),
-                                config = action.config,
-                                onPinShortcut = onPinShortcut,
-                                onInspect = { inspecting = true },
-                                testLabel = if (state.testing == index) "Stop" else "Test",
-                                onTest = { onTestAction(index) },
-                                onCheckIntentTarget = { onCheckIntentTarget(index) },
-                                modifier = Modifier.align(Alignment.CenterVertically),
-                            )
-                            // Order matters. Actions run in sequence, so the
-                            // mapping from icon to effect is fixed: Up is always
-                            // `index - 1`, never the reverse, because an icon that
-                            // is ambiguous about direction is worse than the text
-                            // it replaces.
-                            //
-                            // Omitted rather than disabled at either end of the
-                            // list, on purpose. See [ActionOrderButton]'s KDoc for
-                            // why that stays true now that each chevron reserves
-                            // real space instead of overhanging.
-                            if (index > 0) {
-                                ActionOrderButton(
-                                    icon = Icons.Filled.KeyboardArrowUp,
-                                    label = "Move up",
-                                    onClick = { onMoveAction(index, index - 1) },
+                // One action, wherever it sits: at the top of the list, or
+                // inside a branch of a parallel block. One lambda so a block
+                // draws its actions with the exact block, tools and controls a
+                // plain action has, the way `TriggerNodeBlock` draws a nested
+                // trigger with the block a root trigger has. [siblings] is the
+                // size of the list the action sits in, which is what decides
+                // its up and down arrows.
+                val actionLeaf: @Composable (ActionPath, ComponentDraft, Int, Modifier) -> Unit =
+                    { path, action, siblings, leafModifier ->
+                        val key = actionKey(path)
+                        val position = path.last()
+                        ComponentBlock(
+                            chosenType = action.type,
+                            descriptor = descriptorFor(Slot.ACTION, action.type),
+                            config = action.config,
+                            emptyLabel = "Choose an action",
+                            onChoose = { picking = Picking.ActionType(path) },
+                            onConfigChange = { fieldKey, value -> onConfigChange(path, fieldKey, value) },
+                            onResolveRequirement = onResolveRequirement,
+                            availableVariables = availableVariablesForAction(path),
+                            variableWarnings = { value -> variableWarningsForAction(path, value) },
+                            substitutionsFor = substitutionsFor,
+                            describeComponent = describeComponent,
+                            modifier = leafModifier,
+                            footer = {
+                                // Test is no longer written here: every action declares
+                                // it through `ActionFactory.toolsFor`, and the ones with
+                                // more to offer (the notification actions, which can
+                                // open the inspector) declare that alongside it. The
+                                // running/Stop state stays the screen's business,
+                                // because only the screen knows which action is running.
+                                //
+                                // `Modifier.align(Alignment.CenterVertically)` on every
+                                // control here, this one included, is what puts the
+                                // chevrons and the text buttons on one centre line.
+                                // See [Footer]'s KDoc for why the row needs that at all.
+                                ComponentTools(
+                                    tools = toolsFor(action.type, action.config),
+                                    config = action.config,
+                                    onPinShortcut = onPinShortcut,
+                                    onInspect = { inspecting = true },
+                                    testLabel = if (state.testing == path) "Stop" else "Test",
+                                    onTest = { onTestAction(path) },
+                                    onCheckIntentTarget = { onCheckIntentTarget(path) },
                                     modifier = Modifier.align(Alignment.CenterVertically),
                                 )
-                            }
-                            if (index < draft.actions.lastIndex) {
-                                ActionOrderButton(
-                                    icon = Icons.Filled.KeyboardArrowDown,
-                                    label = "Move down",
-                                    onClick = { onMoveAction(index, index + 1) },
+                                // Order matters. Actions run in sequence, so the
+                                // mapping from icon to effect is fixed: Up is always
+                                // one place earlier, never the reverse, because an
+                                // icon that is ambiguous about direction is worse
+                                // than the text it replaces. Inside a branch the
+                                // arrows move the action inside that branch only.
+                                //
+                                // Omitted rather than disabled at either end of the
+                                // list, on purpose. See [ActionOrderButton]'s KDoc for
+                                // why that stays true now that each chevron reserves
+                                // real space instead of overhanging.
+                                if (position > 0) {
+                                    ActionOrderButton(
+                                        icon = Icons.Filled.KeyboardArrowUp,
+                                        label = "Move up",
+                                        onClick = { onMoveAction(path, path.dropLast(1) + (position - 1)) },
+                                        modifier = Modifier.align(Alignment.CenterVertically),
+                                    )
+                                }
+                                if (position < siblings - 1) {
+                                    ActionOrderButton(
+                                        icon = Icons.Filled.KeyboardArrowDown,
+                                        label = "Move down",
+                                        onClick = { onMoveAction(path, path.dropLast(1) + (position + 1)) },
+                                        modifier = Modifier.align(Alignment.CenterVertically),
+                                    )
+                                }
+                                BlockTextButton(
+                                    "Remove",
                                     modifier = Modifier.align(Alignment.CenterVertically),
-                                )
-                            }
-                            BlockTextButton(
-                                "Remove",
-                                modifier = Modifier.align(Alignment.CenterVertically),
-                            ) { onRemoveAction(index) }
-                        },
-                        expanded = actionKey(index) !in collapsed,
-                        onToggleExpanded = { toggle(actionKey(index)) },
-                        caveatShown = actionKey(index) in shownCaveats,
-                        onToggleCaveat = { toggleCaveat(actionKey(index)) },
-                        isRequirementSatisfied = isRequirementSatisfied,
-                    )
+                                ) { onRemoveAction(path) }
+                            },
+                            expanded = key !in collapsed,
+                            onToggleExpanded = { toggle(key) },
+                            caveatShown = key in shownCaveats,
+                            onToggleCaveat = { toggleCaveat(key) },
+                            isRequirementSatisfied = isRequirementSatisfied,
+                        )
+                    }
+
+                draft.actions.forEachIndexed { index, node ->
+                    when (node) {
+                        is ComponentDraft -> actionLeaf(
+                            listOf(index),
+                            node,
+                            draft.actions.size,
+                            Modifier.padding(bottom = 12.dp),
+                        )
+
+                        is ActionDraft.Parallel -> ParallelActionBlock(
+                            block = node,
+                            index = index,
+                            siblings = draft.actions.size,
+                            leaf = actionLeaf,
+                            onAddActionRequested = { branchPath -> picking = Picking.AddToBranch(branchPath) },
+                            onAddBranch = onAddBranch,
+                            onRemove = onRemoveAction,
+                            onMove = onMoveAction,
+                            orderButton = { icon, label, onClick ->
+                                ActionOrderButton(icon = icon, label = label, onClick = onClick)
+                            },
+                            expanded = actionKey(listOf(index)) !in collapsed,
+                            onToggleExpanded = { toggle(actionKey(listOf(index))) },
+                            hasHiddenCaveat = node.branches.flatten().any { action ->
+                                descriptorFor(Slot.ACTION, action.type)?.warning != null
+                            },
+                            modifier = Modifier.padding(bottom = 12.dp),
+                        )
+                    }
                 }
 
                 // Full width, like the trigger block above it: both are the "pick a
@@ -583,15 +646,22 @@ fun RuleEditorScreen(
 
         Picking.NewAction -> ComponentPickerDialog(
             title = "Add an action",
-            options = actionOptions,
+            options = listOfNotNull(parallelOption) + actionOptions,
             onPick = { picking = null; onAddAction(it) },
+            onDismiss = { picking = null },
+        )
+
+        is Picking.AddToBranch -> ComponentPickerDialog(
+            title = "Add an action",
+            options = actionOptions,
+            onPick = { picking = null; onAddActionToBranch(target.branchPath, it) },
             onDismiss = { picking = null },
         )
 
         is Picking.ActionType -> ComponentPickerDialog(
             title = "Change action",
             options = actionOptions,
-            onPick = { picking = null; onChangeActionType(target.index, it) },
+            onPick = { picking = null; onChangeActionType(target.path, it) },
             onDismiss = { picking = null },
         )
     }
@@ -897,7 +967,10 @@ private sealed interface Picking {
     data class ChangeTriggerType(val path: NodePath) : Picking
     data class AddTrigger(val path: NodePath) : Picking
     data object NewAction : Picking
-    data class ActionType(val index: Int) : Picking
+    data class ActionType(val path: ActionPath) : Picking
+
+    /** An action for the end of the branch at `[block, branch]`. */
+    data class AddToBranch(val branchPath: ActionPath) : Picking
 }
 
 /** A solid tag rather than a heading: the section names are part of the blocks. */
@@ -1171,7 +1244,12 @@ private const val TRIGGER_KEY = "trigger"
 internal fun triggerKey(path: NodePath): String =
     if (path.isEmpty()) TRIGGER_KEY else "trigger-" + path.joinToString("-")
 
-private fun actionKey(index: Int) = "action-$index"
+/**
+ * An action's fold/caveat key, from its path: `action-0` for the first entry,
+ * which can be an action or a parallel block, and `action-0-1-2` for an action
+ * inside a branch. For a plain list this is the key it always was.
+ */
+private fun actionKey(path: ActionPath) = "action-" + path.joinToString("-")
 
 /**
  * Every group already in [node] when the editor is entered, as fold keys.

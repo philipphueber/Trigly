@@ -1079,13 +1079,23 @@ fun availableActionOutputs(
     actionTypes: List<String>,
     index: Int,
     variablesOf: (String) -> List<VariableSpec>,
+    /**
+     * Whether the action at the first position is always finished before the
+     * action at the second one starts. In a flat list that is "it comes
+     * first", which is the default. A rule with a parallel block passes
+     * [finishesBefore], so an action does not offer what a branch that runs
+     * at the same time produces. That value can exist or not when this action
+     * runs, and a picker must not offer a name that resolves only sometimes
+     * for a reason the person cannot see.
+     */
+    finishedBefore: (earlier: Int, later: Int) -> Boolean = { earlier, later -> earlier < later },
 ): List<ScopedVariable> {
     val earlierCount = index.coerceIn(0, actionTypes.size)
     // Numbered across the whole rule, not just the part above this action, so
     // an action's namespace does not change depending on who is reading it.
     val instances = componentInstanceNames(actionTypes)
 
-    val perInstance = (0 until earlierCount).flatMap { position ->
+    val perInstance = (0 until earlierCount).filter { finishedBefore(it, index) }.flatMap { position ->
         variablesOf(actionTypes[position]).map { spec ->
             ScopedVariable(instances[position], spec.copy(alwaysPresent = false))
         }
@@ -1156,9 +1166,9 @@ fun componentInstanceNames(types: List<String>): List<String> {
  * has to be, because that scope is keyed by rule id and a called rule is a
  * different rule.
  *
- * **Two branches of `run_parallel` write here at the same time.** Both
- * branches share the values of the firing, the same as a `run_rule` chain
- * does, and the engine runs them on `Dispatchers.Default`, so two threads can
+ * **Two branches of `run_parallel`, or of a parallel block, write here at
+ * the same time.** Every branch shares the values of the firing, the same as
+ * a `run_rule` chain does, and the engine runs them on `Dispatchers.Default`, so two threads can
  * write at once. That is why [values] is a [ConcurrentHashMap] by default.
  * When both branches write the same name, the last write is kept. The order of
  * two parallel writes is not defined, and `run_parallel`'s warning says so.

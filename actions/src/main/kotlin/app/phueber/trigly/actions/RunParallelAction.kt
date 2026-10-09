@@ -21,11 +21,13 @@ import kotlinx.coroutines.flow.first
  * Runs the actions of two other rules at the same time, and continues with
  * the next action of this rule only when both of them are finished.
  *
- * **A branch is a rule.** A rule in Trigly is a trigger and a flat list of
- * actions. `docs/variables.md` section 14 and `docs/actions.md` keep it that
- * way on purpose: there is no list of actions inside an action. `run_rule`
+ * **A branch is a rule.** An action holds config, and a list of actions is
+ * not config, so there is no list of actions inside an action. `run_rule`
  * already gives a rule a way to call a list of actions by name, and this
- * action uses the same mechanism two times at once. Each branch goes through
+ * action uses the same mechanism two times at once. A rule's own action list
+ * can also hold a parallel block, with branches edited in place: see
+ * `ActionNode.Parallel` in `:core`. That block makes the same decisions as
+ * this action, which are listed below. Each branch goes through
  * [RuleRunner.runNow], so a branch gets the same loop guard, the same chain
  * depth cap, the same shared run scope and the same fault reports as
  * `run_rule`. There is no second way to run actions.

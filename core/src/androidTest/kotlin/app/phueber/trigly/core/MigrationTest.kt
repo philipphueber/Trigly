@@ -9,6 +9,7 @@ import app.phueber.trigly.core.storage.MIGRATION_2_3
 import app.phueber.trigly.core.storage.MIGRATION_3_4
 import app.phueber.trigly.core.storage.MIGRATION_4_5
 import app.phueber.trigly.core.storage.MIGRATION_5_6
+import app.phueber.trigly.core.storage.MIGRATION_6_7
 import app.phueber.trigly.core.storage.RoomRuleVariableStore
 import app.phueber.trigly.core.storage.RoomRuleRepository
 import app.phueber.trigly.core.storage.RoomVariableStore
@@ -27,7 +28,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Four migrations have ever shipped. Each must get right what Room cannot
+ * Every migration that ships must get right what Room cannot
  * check for itself: that a database actually written by the *old* version — a
  * real user's rules, not a fixture built fresh at the new version — survives
  * the upgrade with its rows intact and its meaning preserved. A wrong
@@ -564,6 +565,102 @@ class MigrationTest {
                 "a deleted rule's values must not outlive it",
                 store.get("r2", "count"),
             )
+        } finally {
+            database.close()
+        }
+    }
+
+    // --- 6 -> 7 -------------------------------------------------------------
+
+    @Test
+    fun migration_6_to_7_adds_a_null_actionsJson_and_leaves_action_rows_alone() {
+        helper.createDatabase(TEST_DB, 6).apply {
+            execSQL(
+                "INSERT INTO rules (id, name, enabled, position, triggerJson) VALUES (?, ?, ?, ?, ?)",
+                arrayOf("r1", "Old rule", 1, 0, """{"type":"screen_state","config":{}}"""),
+            )
+            execSQL(
+                "INSERT INTO components (ruleId, role, ordinal, type, configJson) VALUES (?, ?, ?, ?, ?)",
+                arrayOf("r1", "ACTION", 0, "toast", """{"text":"first"}"""),
+            )
+            execSQL(
+                "INSERT INTO components (ruleId, role, ordinal, type, configJson) VALUES (?, ?, ?, ?, ?)",
+                arrayOf("r1", "ACTION", 1, "speak", "{}"),
+            )
+            close()
+        }
+
+        val migrated = helper.runMigrationsAndValidate(TEST_DB, 7, true, MIGRATION_6_7)
+
+        migrated.query("SELECT actionsJson FROM rules WHERE id = 'r1'").use { cursor ->
+            assertTrue("the old row should still be there", cursor.moveToFirst())
+            assertTrue("an old row's actionsJson should read as null", cursor.isNull(0))
+        }
+        migrated.query("SELECT COUNT(*) FROM components WHERE ruleId = 'r1' AND role = 'ACTION'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            // A bare ALTER TABLE. The action rows are what an old rule's
+            // actions are read from until it is saved again.
+            assertEquals(2, cursor.getInt(0))
+        }
+    }
+
+    /**
+     * The read and the heal, through the real repository. A rule written by
+     * version 6 reads its actions from the old rows, in order. Saving it once
+     * writes the tree to the new column and removes the rows, so the rule has
+     * one place its actions live, and a parallel block can then be stored.
+     */
+    @Test
+    fun migration_6_to_7_reads_old_action_rows_and_a_save_moves_them_to_the_column() = runTest {
+        val dbName = "$TEST_DB-actions"
+
+        helper.createDatabase(dbName, 6).apply {
+            execSQL(
+                "INSERT INTO rules (id, name, enabled, position, triggerJson) VALUES (?, ?, ?, ?, ?)",
+                arrayOf("r1", "Old rule", 1, 0, """{"type":"screen_state","config":{}}"""),
+            )
+            execSQL(
+                "INSERT INTO components (ruleId, role, ordinal, type, configJson) VALUES (?, ?, ?, ?, ?)",
+                arrayOf("r1", "ACTION", 1, "speak", "{}"),
+            )
+            execSQL(
+                "INSERT INTO components (ruleId, role, ordinal, type, configJson) VALUES (?, ?, ?, ?, ?)",
+                arrayOf("r1", "ACTION", 0, "toast", """{"text":"first"}"""),
+            )
+            close()
+        }
+        helper.runMigrationsAndValidate(dbName, 7, true, MIGRATION_6_7).close()
+
+        val database = Room.databaseBuilder(
+            InstrumentationRegistry.getInstrumentation().targetContext,
+            TriglyDatabase::class.java,
+            dbName,
+        ).addMigrations(*TRIGLY_MIGRATIONS).build()
+
+        try {
+            val repository = RoomRuleRepository(database.rules())
+            val old = repository.rules().first().single()
+            assertEquals(
+                listOf(ComponentSpec("toast", mapOf("text" to "first")), ComponentSpec("speak")),
+                old.actions,
+            )
+
+            val withBlock = old.copy(
+                actions = listOf(
+                    ActionNode.Parallel(listOf(listOf(ComponentSpec("toast", mapOf("text" to "first"))), listOf(ComponentSpec("speak")))),
+                ),
+            )
+            repository.upsert(withBlock)
+
+            assertEquals(listOf(withBlock), repository.rules().first())
+            database.query("SELECT COUNT(*) FROM components WHERE ruleId = 'r1'", null).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("the save clears the old rows", 0, cursor.getInt(0))
+            }
+            database.query("SELECT actionsJson FROM rules WHERE id = 'r1'", null).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertNotNull(cursor.getString(0))
+            }
         } finally {
             database.close()
         }

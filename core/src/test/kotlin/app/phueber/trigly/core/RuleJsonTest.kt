@@ -38,7 +38,7 @@ class RuleJsonTest {
         // Order is semantic — actions run in sequence — so this is not cosmetic.
         val decoded = RuleJson.decode(RuleJson.encode(rule)).single()
 
-        assertEquals(listOf("set_volume", "speak"), decoded.actions.map { it.type })
+        assertEquals(listOf("set_volume", "speak"), decoded.actions.leafActions().map { it.type })
     }
 
     @Test
@@ -79,7 +79,7 @@ class RuleJsonTest {
         val decoded = RuleJson.decode(RuleJson.encode(bare)).single()
 
         assertEquals(emptyMap<String, String>(), (decoded.trigger as TriggerNode.One).spec.config)
-        assertEquals(emptyMap<String, String>(), decoded.actions.single().config)
+        assertEquals(emptyMap<String, String>(), decoded.actions.leafActions().single().config)
     }
 
     @Test
@@ -104,7 +104,7 @@ class RuleJsonTest {
         val decoded = RuleJson.decode(handWritten).single()
 
         assertEquals("20", (decoded.trigger as TriggerNode.One).spec.config["threshold"])
-        assertEquals("500", decoded.actions.single().config["durationMillis"])
+        assertEquals("500", decoded.actions.leafActions().single().config["durationMillis"])
     }
 
     @Test

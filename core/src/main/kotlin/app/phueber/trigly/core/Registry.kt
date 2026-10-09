@@ -147,7 +147,7 @@ class Registry(
      */
     fun variableReach(
         trigger: TriggerNode?,
-        actions: List<ComponentSpec>,
+        actions: List<ActionNode>,
         savedAppVariables: List<ScopedVariable> = emptyList(),
         savedRuleVariables: List<ScopedVariable> = emptyList(),
         otherRules: List<Rule> = emptyList(),
@@ -212,6 +212,12 @@ class Registry(
      * That is the exact failure the requirement model exists to prevent, so
      * it is worth being explicit: every leaf, every action.
      *
+     * **Every action in every branch of a parallel block, too**, for the same
+     * reason and with the same failure if it is missed: an action inside a
+     * branch whose permission is not asked for fails on the device every time
+     * the rule fires, with nothing on screen to say why. [leafActions] is the
+     * walk, the one every reader of a rule's actions uses.
+     *
      * Each component is asked what it needs *as configured* (see
      * [ComponentFactory.requirementsFor]). A rule that never uses a capability is
      * not blocked on it.
@@ -221,7 +227,8 @@ class Registry(
 
         return (
             fromTrigger.flatMap { triggers[it.type]?.requirementsFor(it.config).orEmpty() } +
-                rule.actions.flatMap { actions[it.type]?.requirementsFor(it.config).orEmpty() }
+                rule.actions.leafActions()
+                    .flatMap { actions[it.type]?.requirementsFor(it.config).orEmpty() }
             ).distinct()
     }
 
@@ -268,7 +275,7 @@ class Registry(
     /** [normalise] applied to every component in a rule, trigger tree and actions alike. */
     fun normalise(rule: Rule): Rule = rule.copy(
         trigger = rule.trigger.mapSpecs(::normalise),
-        actions = rule.actions.map(::normalise),
+        actions = rule.actions.mapActionSpecs(::normalise),
     )
 
     fun createTrigger(spec: ComponentSpec): Trigger {

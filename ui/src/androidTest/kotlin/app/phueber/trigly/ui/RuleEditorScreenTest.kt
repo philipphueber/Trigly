@@ -75,8 +75,8 @@ class RuleEditorScreenTest {
     )
 
     private val configChanges = mutableListOf<Triple<Slot, String, String?>>()
-    private val tested = mutableListOf<Int>()
-    private val checkedIntentTargets = mutableListOf<Int>()
+    private val tested = mutableListOf<List<Int>>()
+    private val checkedIntentTargets = mutableListOf<List<Int>>()
     private val pinned = mutableListOf<Map<String, String>>()
     private var saves = 0
     private var backs = 0
@@ -100,7 +100,7 @@ class RuleEditorScreenTest {
         // Defaults to recording nothing, like the other intents below. A test
         // that cares whether an action actually moves passes its own, backed by
         // state it holds, rather than this stub reordering anything itself.
-        onMoveAction: (Int, Int) -> Unit = { _, _ -> },
+        onMoveAction: (List<Int>, List<Int>) -> Unit = { _, _ -> },
         // What a real caller would draw from the saved rules. Empty by default,
         // so a test that says nothing about folders still gets a working field.
         existingFolders: List<String> = emptyList(),
@@ -118,8 +118,8 @@ class RuleEditorScreenTest {
         // that picks a variable needs the inserted reference to actually reach
         // the field it was inserted into, not merely be recorded. The same
         // reason [onMoveAction] is overridable and the others are not.
-        onConfigChange: (Slot, Int, String, String?) -> Unit =
-            { slot, _, key, value -> configChanges += Triple(slot, key, value) },
+        onConfigChange: (List<Int>, String, String?) -> Unit =
+            { _, key, value -> configChanges += Triple(Slot.ACTION, key, value) },
     ) {
         RuleEditorScreen(
             state = state,
@@ -1069,7 +1069,7 @@ class RuleEditorScreenTest {
 
         composeRule.onNodeWithText("CHECK TARGET").performScrollTo().performClick()
 
-        assertEquals(listOf(1), checkedIntentTargets)
+        assertEquals(listOf(listOf(1)), checkedIntentTargets)
     }
 
     @Test
@@ -1391,7 +1391,7 @@ class RuleEditorScreenTest {
                 // file that needs to see the *result* of reordering, not merely
                 // that `onMoveAction` was called with the right indices.
                 onMoveAction = { from, to ->
-                    actions = actions.toMutableList().also { it.add(to, it.removeAt(from)) }
+                    actions = actions.toMutableList().also { it.add(to.last(), it.removeAt(from.last())) }
                 },
             )
         }
@@ -1478,7 +1478,7 @@ class RuleEditorScreenTest {
             Editor(
                 state = EditorState(RuleDraft(id = null, name = "Corner", actions = actions)),
                 onMoveAction = { from, to ->
-                    actions = actions.toMutableList().also { it.add(to, it.removeAt(from)) }
+                    actions = actions.toMutableList().also { it.add(to.last(), it.removeAt(from.last())) }
                 },
             )
         }
@@ -1529,7 +1529,7 @@ class RuleEditorScreenTest {
             Editor(
                 state = EditorState(RuleDraft(id = null, name = "Overlap", actions = actions)),
                 onMoveAction = { from, to ->
-                    actions = actions.toMutableList().also { it.add(to, it.removeAt(from)) }
+                    actions = actions.toMutableList().also { it.add(to.last(), it.removeAt(from.last())) }
                 },
             )
         }
@@ -1585,7 +1585,7 @@ class RuleEditorScreenTest {
                     ),
                 ),
                 availableVariables = listOf(appVariable),
-                onConfigChange = { _, _, key, value ->
+                onConfigChange = { _, key, value ->
                     config = if (value == null) config - key else config + (key to value)
                 },
             )

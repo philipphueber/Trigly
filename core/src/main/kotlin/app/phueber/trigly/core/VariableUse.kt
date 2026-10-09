@@ -31,7 +31,7 @@ package app.phueber.trigly.core
  */
 fun Rule.appVariablesRead(
     substitutionsFor: (ComponentSpec) -> Map<String, Substitution>,
-): Set<String> = (trigger.leaves() + actions)
+): Set<String> = (trigger.leaves() + actions.leafActions())
     .flatMap { spec ->
         substitutionsFor(spec).keys.mapNotNull { key -> spec.config[key] }
     }
@@ -58,7 +58,7 @@ fun Rule.appVariablesRead(
  */
 fun Rule.variableWrites(
     writesOf: (String) -> List<VariableWriteSpec>,
-): List<WrittenVariable> = (trigger.leaves() + actions)
+): List<WrittenVariable> = (trigger.leaves() + actions.leafActions())
     .flatMap { spec -> writesOf(spec.type).mapNotNull { it.writes(spec.config) } }
 
 /**

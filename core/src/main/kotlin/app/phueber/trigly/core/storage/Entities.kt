@@ -6,6 +6,7 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.room.Relation
+import app.phueber.trigly.core.ActionNode
 import app.phueber.trigly.core.ComponentSpec
 import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.RuleJson
@@ -65,6 +66,14 @@ data class RuleEntity(
      * `MIGRATION_3_4` and [Rule.folder]'s kdoc.
      */
     val folder: String? = null,
+    /**
+     * The action tree as JSON, via [RuleJson.encodeActions]: the whole list,
+     * parallel blocks included. Null only for a row a pre-version-7 install
+     * wrote and that has not been saved since. [toRuleOrNull] then reads the
+     * `ACTION` rows of `components`, which is where every action lived before
+     * an action list could be a tree. See `MIGRATION_6_7`.
+     */
+    val actionsJson: String? = null,
 )
 
 /**
@@ -73,9 +82,12 @@ data class RuleEntity(
  * One table for both, because they are the same shape — a type string and a
  * config map — and because `:core` deliberately knows nothing about which types
  * exist. [ordinal] is what makes action *order* durable, which matters: a rule
- * runs its actions in sequence. `TRIGGER` rows are legacy — see
- * [ComponentRole] — and are never written by this version; only [ordinal] on
- * `ACTION` rows is still live.
+ * runs its actions in sequence. Both roles are legacy and read-only now.
+ * `TRIGGER` rows stopped at database version 3, see [ComponentRole], and
+ * `ACTION` rows stopped at version 7, when [RuleEntity.actionsJson] took the
+ * action tree. A flat table with an ordinal cannot say which actions sit in
+ * which branch of a parallel block. Both are still read, for a row that has not
+ * been saved since its install upgraded.
  *
  * [configJson] is written by [RuleJson.encodeConfig], the same codec used for
  * export, so there is one format to get right rather than two.
@@ -177,10 +189,16 @@ fun RuleWithComponents.toRuleOrNull(): Rule? {
         ?: legacyTrigger()
         ?: return null
 
-    val actions = components
-        .filter { it.role == ComponentRole.ACTION }
-        .sortedBy { it.ordinal }
-        .map { it.toSpec() }
+    // Every row written from version 7 onward holds the whole tree here. A
+    // stored tree that cannot be read costs the rule, the same as a trigger
+    // that cannot be read: a rule shown with fewer actions than it has would
+    // run without them and say nothing.
+    val actions: List<ActionNode> = rule.actionsJson
+        ?.let { json -> runCatching { RuleJson.decodeActions(json) }.getOrNull() ?: return null }
+        ?: components
+            .filter { it.role == ComponentRole.ACTION }
+            .sortedBy { it.ordinal }
+            .map { it.toSpec() }
 
     return Rule(
         id = rule.id,
@@ -289,18 +307,17 @@ fun Rule.toEntity(position: Int) = RuleEntity(
     // Normalized on the way in — see `Rule`'s kdoc — rather than trusting the
     // caller already did it.
     folder = normalizeFolder(folder),
+    actionsJson = RuleJson.encodeActions(actions),
 )
 
-fun Rule.toComponentEntities(): List<ComponentEntity> =
-    // ACTION rows only — the trigger side lives entirely in `triggerJson` now.
-    // See `ComponentRole.TRIGGER`'s kdoc for why no `TRIGGER` row is written
-    // here any more.
-    actions.mapIndexed { index, spec ->
-        ComponentEntity(
-            ruleId = id,
-            role = ComponentRole.ACTION,
-            ordinal = index,
-            type = spec.type,
-            configJson = RuleJson.encodeConfig(spec.config),
-        )
-    }
+/**
+ * No rows. Both halves of a rule live in [RuleEntity] now: the trigger tree in
+ * `triggerJson` since version 3, and the action tree in `actionsJson` since
+ * version 7. Kept as a function, and still passed to `RuleDao.save`, because
+ * that save deletes a rule's old rows before it inserts these, and that delete
+ * is what clears the legacy rows of a rule the first time it is saved after an
+ * upgrade. Do not start writing `ACTION` rows again: two places holding a
+ * rule's actions is two answers that can disagree.
+ */
+@Suppress("UnusedReceiverParameter")
+fun Rule.toComponentEntities(): List<ComponentEntity> = emptyList()

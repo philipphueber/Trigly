@@ -82,7 +82,7 @@ class RegistryNormaliseTest {
 
         val filled = normalised.trigger.leaves().count { it.config["filled"] == "yes" }
         assertEquals(2, filled)
-        assertEquals(mapOf("filled" to "yes"), normalised.actions.single().config)
+        assertEquals(mapOf("filled" to "yes"), normalised.actions.leafActions().single().config)
         // Structure preserved, which is the other half of the contract.
         assertEquals(4, normalised.trigger.leaves().size + 1)
     }

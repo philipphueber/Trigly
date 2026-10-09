@@ -11,6 +11,7 @@ import app.phueber.trigly.core.TextSuggestions
 import app.phueber.trigly.core.TriggerEvent
 import app.phueber.trigly.core.VariableKind
 import app.phueber.trigly.core.VariableSpec
+import app.phueber.trigly.core.leafActions
 import app.phueber.trigly.core.normalizeVariableName
 import app.phueber.trigly.core.variableNameProblem
 
@@ -221,7 +222,9 @@ fun declaredKeptButtons(rules: List<Rule>): List<DeclaredKeptButton> {
     val seen = mutableSetOf<String>()
     val found = mutableListOf<DeclaredKeptButton>()
     for (rule in rules) {
-        for (action in rule.actions) {
+        // Every action at every depth: a button kept inside a branch of a
+        // parallel block is kept all the same.
+        for (action in rule.actions.leafActions()) {
             if (action.type != CaptureNotificationButtonAction.TYPE) continue
             val raw = action.config[CaptureNotificationButtonAction.CONFIG_NAME].orEmpty()
             val name = normalizeVariableName(raw)

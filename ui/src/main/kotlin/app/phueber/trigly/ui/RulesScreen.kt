@@ -48,9 +48,12 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import app.phueber.trigly.core.ActionNode
 import app.phueber.trigly.core.ComponentRequirement
+import app.phueber.trigly.core.ComponentSpec
 import app.phueber.trigly.core.Rule
 import app.phueber.trigly.core.TriggerNode
+import app.phueber.trigly.core.leafActions
 import app.phueber.trigly.core.leaves
 
 /**
@@ -339,7 +342,9 @@ private fun matchesQuery(
     val rule = status.rule
     if (rule.name.contains(query, ignoreCase = true)) return true
 
-    val componentTypes = rule.trigger.leaves().map { it.type } + rule.actions.map { it.type }
+    // Every action at every depth, so a search finds an action that sits in a
+    // branch of a parallel block as readily as one at the top.
+    val componentTypes = rule.trigger.leaves().map { it.type } + rule.actions.leafActions().map { it.type }
     return componentTypes.any { type -> describeComponent(type).contains(query, ignoreCase = true) }
 }
 
@@ -1131,10 +1136,27 @@ private fun summarise(rule: Rule, describeComponent: (String) -> String): String
     val actions = if (rule.actions.isEmpty()) {
         "nothing"
     } else {
-        rule.actions.joinToString { describeComponent(it.type) }
+        rule.actions.joinToString { describeAction(it, describeComponent) }
     }
     return "$trigger → $actions"
 }
+
+/**
+ * One entry of the action list for the summary line. A parallel block names
+ * every action in it, branch by branch, so the line never reads as a rule
+ * with fewer actions than it has: `at the same time (Speak, Vibrate | Toast)`.
+ */
+private fun describeAction(node: ActionNode, describeComponent: (String) -> String): String =
+    when (node) {
+        is ComponentSpec -> describeComponent(node.type)
+        is ActionNode.Parallel -> node.branches.joinToString(
+            separator = " | ",
+            prefix = "at the same time (",
+            postfix = ")",
+        ) { branch ->
+            branch.joinToString { describeComponent(it.type) }.ifEmpty { "nothing" }
+        }
+    }
 
 /** Past this many characters the tree is truncated rather than spelled out in full. */
 private const val MAX_TRIGGER_SUMMARY_LENGTH = 60

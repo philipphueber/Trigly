@@ -21,7 +21,7 @@ import kotlinx.coroutines.flow.map
         VariableEntity::class,
         RuleVariableEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class TriglyDatabase : RoomDatabase() {
@@ -145,6 +145,23 @@ internal val MIGRATION_5_6 = object : Migration(5, 6) {
 }
 
 /**
+ * Adds the action tree to the rules table, for the parallel block.
+ *
+ * The same move `MIGRATION_2_3` made for the trigger side, for the same
+ * reason: the `components` table is a flat list with an ordinal, and an action
+ * list that can hold a block of branches is a tree. One nullable column, and
+ * null is the honest value for every row that predates it. No row is rewritten
+ * and no `ACTION` row is touched: [toRuleOrNull] reads those rows for a rule
+ * whose column is still null, and the first save of that rule writes the column
+ * and clears the rows.
+ */
+internal val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE rules ADD COLUMN actionsJson TEXT")
+    }
+}
+
+/**
  * The app's rule storage, as a [RuleRepository].
  *
  * Returns the interface rather than the database so Room stays an implementation
@@ -187,7 +204,10 @@ fun ruleVariableStore(context: Context): RuleVariableStore =
  * `TriglyDatabase`, here or in a test. Adding a migration means adding it once.
  */
 internal val TRIGLY_MIGRATIONS: Array<Migration> =
-    arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+    arrayOf(
+        MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
+        MIGRATION_6_7,
+    )
 
 private val databaseLock = Any()
 
