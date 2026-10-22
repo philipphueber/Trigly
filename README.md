@@ -334,8 +334,7 @@ If there is no signing key, `./gradlew :ui:assembleRelease` still runs and
 builds an unsigned APK. So a plain clone can still build the release
 variant.
 
-A maintainer creates the signing key with `./scripts/setup-signing.sh`. You
-must run this script in a terminal window. The script asks for a
+A maintainer creates the signing key with `./scripts/setup-signing.sh`. The script asks for a
 password one time. It stores the password in the system keyring, not in a
 file. It leaves nothing else to do. `docs/releasing.md` describes the key,
 the version numbers, and how to check the built file.
