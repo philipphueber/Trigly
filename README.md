@@ -12,14 +12,8 @@ that runs two or more lists of actions at the same time.
 
 > ### This is beta software
 >
-> The version number is `0.4.0`, and both halves of it are a statement. The
-> leading zero says the surface is still not settled: a control can move, a
-> trigger can change its name, and a setting can change its meaning between two
-> releases. The move up from `0.0.x` says the shape has settled enough to ask
-> people to use the app and to report what breaks.
->
-> **Your rules survive an update.** That promise is separate from the one above,
-> and it holds at every version. The rule format and the database each carry
+> **Your rules survive an update. Within the same Major Version** That promise
+> holds at every version. The rule format and the database each carry
 > their own version number, and each release reads what the release before it
 > wrote.
 >
